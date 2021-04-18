@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<!--[if lt IE 7]>      <html class="no-js lt-ie9 lt-ie8 lt-ie7"> <![endif]-->
+<!--[if IE 7]>         <html class="no-js lt-ie9 lt-ie8"> <![endif]-->
+<!--[if IE 8]>         <html class="no-js lt-ie9"> <![endif]-->
+<!--[if gt IE 8]><!-->
+<html class="no-js">
+<!--<![endif]-->
+<head>
+<meta charset="utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+<title>Industrial.js</title>
+<meta name="description" content="Industrial.js -- A JavaScript-driven library of CSS3 gauges, tanks, and more.">
+<meta name="viewport" content="width=device-width">
+<link href="http://www.jqueryscript.net/css/jquerysctipttop.css" rel="stylesheet" type="text/css">
+<style>
+h1.huge {
+font-size: 72pt;
+}
+.content-centered {
+text-align: center;
+}
+</style>
+<link rel="stylesheet" href="css/industrial.css">
+<link rel="stylesheet" href="css/introjs.min.css">
+<link rel="stylesheet" href="css/foundation.css">
+</head>
+<body>
+<div id="jquery-script-menu">
+<div class="jquery-script-center">
+<ul>
+<li><a href="http://www.jqueryscript.net/other/jQuery-Plugin-For-Web-Enabled-Remote-Monitoring-Industrial-js.html">Download This Plugin</a></li>
+<li><a href="http://www.jqueryscript.net/">Back To jQueryScript.Net</a></li>
+</ul>
+<div class="jquery-script-ads"><script type="text/javascript"><!--
+google_ad_client = "ca-pub-2783044520727903";
+/* jQuery_demo */
+google_ad_slot = "2780937993";
+google_ad_width = 728;
+google_ad_height = 90;
+//-->
+</script>
+<script type="text/javascript"
+src="http://pagead2.googlesyndication.com/pagead/show_ads.js">
+</script></div>
+<div class="jquery-script-clear"></div>
+</div>
+</div>
+<!--[if lt IE 7]>
+            <p class="chromeframe">You are using an <strong>outdated</strong> browser. Please <a href="http://browsehappy.com/">upgrade your browser</a> or <a href="http://www.google.com/chromeframe/?redirect=true">activate Google Chrome Frame</a> to improve your experience.</p>
+        <![endif]-->
+<div class="row" style="margin-top:150px;">
+<div class="small-12 large-12 columns">
+<div class="row">
+<div class="large-12 small-12 columns">
+<h1 class="huge content-centered" data-intro="Hello and welcome to Industrial.js, a jQuery-driven library of CSS3 gauges, tanks, and more!">Industrial.js</h1>
+</div>
+</div>
+<div class="row">
+<div class="small-12 large-3 columns" data-intro="This is a tank! She represents levels and supports various color overrides." data-step="2">
+<h2>Water Level 1</h2>
+<div class="industrial tank size two" > <span class="ticks" data-amount="4" data-scale-freq="1"></span>
+<div class="space"></div>
+<div class="meter"></div>
+</div>
+</div>
+<div class="small-12 large-6 columns content-centered"> <br />
+<div class="row">
+<button id="start_intro" class="button round">Show Me the Ropes</button>
+</div>
+</div>
+<div class="small-12 large-3 columns">
+<h2>Water Level 2</h2>
+<div class="industrial tank size two"> <span class="ticks" data-amount="4" data-scale-freq="1"></span>
+<div class="space"></div>
+<div class="meter safe"></div>
+</div>
+</div>
+</div>
+<div class="row" data-intro="These are thermometers. They are just like tanks, only thinner." data-step="3">
+<div class="small-4 large-2 columns">
+<h5>Temperature 1</h5>
+<div class="industrial thermometer size one"> <span class="ticks" data-amount="10"></span>
+<div class="space"></div>
+<div class="meter"></div>
+</div>
+</div>
+<div class="small-4 large-2 columns">
+<h5>Temperature 2</h5>
+<div class="industrial thermometer size one"> <span class="ticks" data-amount="10"></span>
+<div class="space"></div>
+<div class="meter safe"></div>
+</div>
+</div>
+<div class="small-4 large-2 columns">
+<h5>Temperature 3</h5>
+<div class="industrial thermometer size one"> <span class="ticks" data-amount="10"></span>
+<div class="space"></div>
+<div class="meter warning"></div>
+</div>
+</div>
+<div class="small-4 large-2 columns">
+<h5>Temperature 4</h5>
+<div class="industrial thermometer size one"> <span class="ticks" data-amount="10"></span>
+<div class="space"></div>
+<div class="meter danger"></div>
+</div>
+</div>
+<div class="small-4 large-2 columns">
+<h5>Temperature 5</h5>
+<div class="industrial thermometer size one"> <span class="ticks" data-amount="10"></span>
+<div class="space"></div>
+<div class="meter unimportant"></div>
+</div>
+</div>
+<div class="small-4 large-2 columns">
+<h5>Temperature 6</h5>
+<div class="industrial thermometer size one"> <span class="ticks" data-amount="10"></span>
+<div class="space"></div>
+<div class="meter"></div>
+</div>
+</div>
+</div>
+<div class="row" data-intro="These are LEDs, great for boolean values. As you can see, they have multiple colors!" data-step="4">
+<div class="small-3 large-2 columns">
+<h5>LED 1</h5>
+<div class="industrial led size two">
+<div class="meter green"></div>
+</div>
+</div>
+<div class="small-3 large-2 columns">
+<h5>LED 2</h5>
+<div class="industrial led size two">
+<div class="meter red"></div>
+</div>
+</div>
+<div class="small-3 large-2 columns">
+<h5>LED 3</h5>
+<div class="industrial led size two">
+<div class="meter blue"></div>
+</div>
+</div>
+<div class="small-3 large-2 columns">
+<h5>LED 4</h5>
+<div class="industrial led size two">
+<div class="meter red"></div>
+</div>
+</div>
+<div class="small-3 large-2 columns">
+<h5>LED 5</h5>
+<div class="industrial led size two">
+<div class="meter red"></div>
+</div>
+</div>
+<div class="small-7 large-2 columns">
+<h5>LED 6</h5>
+<div class="industrial led size two">
+<div class="meter green"></div>
+</div>
+</div>
+</div>
+<div class="row" data-intro="These are readouts. They can display any data as long as it casts to a string. They also may have variable digit lengths and colors!" data-step="5">
+<div class="small-12 large-6 columns">
+<h2>Readout 1</h2>
+<div id="read1" class="industrial readout size two">
+<div class="meter green" data-digits="4"></div>
+</div>
+</div>
+<div class="small-12 large-6 columns">
+<h2>Readout 2</h2>
+<div id="read2"class="industrial readout size two">
+<div class="meter white" data-digits="5"></div>
+</div>
+</div>
+</div>
+<div class="row">
+<div class="small-4 large-4 small-centered large-centered content-centered columns" data-intro="Finally, we have a gauge. Isn't he cute?" data-position="top" data-step="6">
+<h2>Pressure (PSI)</h2>
+<div class="industrial gauge size two"> <span class="ticks" data-amount="8" data-scale-freq="1"></span>
+<div class="space"></div>
+<div class="meter"></div>
+</div>
+</div>
+</div>
+<br />
+</div>
+</div>
+<div class="industrial preloader">&nbsp;</div>
+<script src="http://code.jquery.com/jquery-1.9.1.min.js"></script> 
+<script src="js/industrial.js"></script> 
+<script src="js/app.js"></script> 
+<script src="js/intro.min.js"></script>
+<script type="text/javascript">
+
+  var _gaq = _gaq || [];
+  _gaq.push(['_setAccount', 'UA-36251023-1']);
+  _gaq.push(['_setDomainName', 'jqueryscript.net']);
+  _gaq.push(['_trackPageview']);
+
+  (function() {
+    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+  })();
+
+</script>
+</body>
+</html>
