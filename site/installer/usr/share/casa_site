@@ -1,0 +1,10 @@
+Section: house
+Priority: optional
+Maintainer: marcelo maurin <marcelomaurinmartins@maurinsoft.com.br>
+Homepage: http://maurinsoft.com.br/index.php/projeto-casa-inteligente/
+Package: site_casa
+Architecture: amd64
+Version: 1.0
+Depends:
+Description: Inteligent House.
+ 

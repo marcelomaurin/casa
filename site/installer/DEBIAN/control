@@ -1,0 +1,10 @@
+Package: Casa_Site
+Version: 1.0
+Depends:  mysql-server, mysql-client
+Section: custom
+Priority: optional
+Architecture: all
+Essential: no
+Installed-Size: 1024
+Maintainer: maurinsoft.com.br
+Description: Inteligent House.
