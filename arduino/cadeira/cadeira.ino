@@ -98,7 +98,7 @@ void set_serial() {
 void Mainpage(){
   char info[40];
   sprintf(info,"page Main%c%c%c",0xFF,0xFF,0xFF);
-  swSer.print(info);
+  swSer.println(info);
   
 }
 

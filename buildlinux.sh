@@ -13,16 +13,17 @@ if [ $ARQUITETURA = 'amd64' ];
 then
 	echo "AMD64 Script"
 	echo "Preparando binarios"
-	cp ./src/MNote2 ./mnote2/usr/bin/mnote2
-	chmod 777 ./mnote2/usr/bin/mnote2
-	cp ./src/MNote2.png ./mnote2/usr/share/icons/hicolor/mnote2.png
-	cp ./mnote2.desktop_arm ./mnote2/usr/share/applications/mnote2.desktop
+	#cp ./src/site ./mnote2/usr/bin/mnote2
+	#chmod 777 ./mnote2/usr/bin/mnote2
+	cp ./mysql/*.sql ./mnote2/usr/share/site/mysql/
+	cp -Rf ./site/www/*.* ./mnote2/var/www/html/casa/
+	#cp ./mnote2.desktop_arm ./mnote2/usr/share/applications/mnote2.desktop
 	#ln -s /usr/bin/MNote2 ./mnote2/usr/share/applications/mnote2
 	echo "Empacotando"
-	dpkg-deb --build mnote2
+	dpkg-deb --build site
 	echo "Movendo para pasta repositorio"
-	mv mnote2.deb mnote2-2.9_amd64.deb
-	cp ./mnote2-2.9_amd64.deb ./bin/
+	mv site.deb site-2.9_amd64.deb
+	cp ./site-2.9_amd64.deb ./bin/
 	exit 1;
 fi
 
@@ -30,16 +31,17 @@ if [ $ARQUITETURA = 'i686' ];
 then
 	echo "i686 Script"
 	echo "Preparando binarios"
-	cp ./src/MNote2 ./mnote2/usr/bin/mnote2
-	chmod 777 ./mnote2/usr/bin/mnote2
-	cp ./src/MNote2.png ./mnote2/usr/share/icons/hicolor/mnote2.png
-	cp ./mnote2.desktop_arm ./mnote2/usr/share/applications/mnote2.desktop
+	#cp ./src/MNote2 ./mnote2/usr/bin/mnote2
+	#chmod 777 ./mnote2/usr/bin/mnote2
+	cp ./mysql/*.sql ./mnote2/usr/share/site/mysql/
+	cp -Rf ./site/www/*.* ./mnote2/var/www/html/casa/
+	#cp ./mnote2.desktop_arm ./mnote2/usr/share/applications/mnote2.desktop
 	#ln -s /usr/bin/MNote2 ./mnote2/usr/share/applications/mnote2
 	echo "Empacotando"
-	dpkg-deb --build mnote2
+	dpkg-deb --build site
 	echo "Movendo para pasta repositorio"
-	mv mnote2.deb mnote2-2.9_i686.deb
-	cp ./mnote2-2.9_i686.deb ./bin/
+	mv site.deb site-2.9_i686.deb
+	cp ./site-2.9_i686.deb ./bin/
 	exit 1;
 fi
 
@@ -47,31 +49,33 @@ if [ $ARQUITETURA = 'i386' ];
 then
 	echo "i386 Script"
 	echo "Preparando binarios"
-	cp ./src/MNote2 ./mnote2/usr/bin/mnote2
-	chmod 777 ./mnote2/usr/bin/mnote2
-	cp ./src/MNote2.png ./mnote2/usr/share/icons/hicolor/mnote2.png
-	cp ./mnote2.desktop_arm ./mnote2/usr/share/applications/mnote2.desktop
+	#cp ./src/MNote2 ./mnote2/usr/bin/mnote2
+	#chmod 777 ./mnote2/usr/bin/mnote2
+	cp ./mysql/*.sql ./mnote2/usr/share/site/mysql/
+	cp -Rf ./site/www/*.* ./mnote2/var/www/html/casa/
+	#cp ./mnote2.desktop_arm ./mnote2/usr/share/applications/mnote2.desktop
 	#ln -s /usr/bin/MNote2 ./mnote2/usr/share/applications/mnote2
 	echo "Empacotando"
-	dpkg-deb --build mnote2
+	dpkg-deb --build site
 	echo "Movendo para pasta repositorio"
-	mv mnote2.deb mnote2-2.9_i386.deb
-	cp ./mnote2-2.9_i386.deb ./bin/
+	mv site.deb site-2.9_i386.deb
+	cp ./site-2.9_i386.deb ./bin/
 	exit 1;
 fi
 
 if [ $ARQUITETURA =  'armv7l' ]; then
 	echo "ARM Script"
 	echo "Preparando binarios"
-	cp ./src/MNote2 ./mnote2/usr/bin/mnote2
-	chmod 777 ./mnote2/usr/bin/mnote2
+	#cp ./src/MNote2 ./mnote2/usr/bin/mnote2
+	#chmod 777 ./mnote2/usr/bin/mnote2
 	#ln -s /usr/bin/MNote2 ./mnote2/usr/bin/mnote2
-	cp ./src/MNote2.png ./mnote2/usr/share/icons/hicolor/mnote2.png
-	cp ./mnote2.desktop_arm ./mnote2/usr/share/applications/mnote2.desktop
+	cp ./mysql/*.sql ./mnote2/usr/share/site/mysql/
+	cp -Rf ./site/www/*.* ./mnote2/var/www/html/casa/
+	#cp ./mnote2.desktop_arm ./mnote2/usr/share/applications/mnote2.desktop
 	echo "Empacotando"
-	dpkg-deb --build mnote2
+	dpkg-deb --build site
 	echo "Movendo para pasta repositorio"
-	mv mnote2.deb mnote2-2.9_arm.deb
-	cp ./mnote2-2.9_arm.deb ./bin/	
+	mv site.deb site-2.9_arm.deb
+	cp ./site-2.9_arm.deb ./bin/	
 	exit 1;
 fi
