@@ -1,20 +1,20 @@
 all: Drop Banco Tabelas Registros
 
 Drop:
-	mysql -uroot -p226468 < dropall.sql
+	mysql -u$1 -p$2 < dropall.sql
 
 Banco:
-	mysql -uroot -p226468 < casadb.sql
+	mysql -u$1 -p$2 < casadb.sql
 
 
 Tabelas:
-	mysql -uroot -p226468 < usuarios.sql
-	mysql -uroot -p226468 < devices.sql
-	mysql -uroot -p226468 < frases.sql
+	mysql -u$1 -p$2 < usuarios.sql
+	mysql -u$1 -p$2 < devices.sql
+	mysql -u$1 -p$2 < frases.sql
 
 Registros:
-	mysql -uroot -p226468 < ins_usuarios.sql
-	mysql -uroot -p226468 < ins_devices.sql
-	mysql -uroot -p226468 < ins_frases.sql
+	mysql -u$1 -p$2 < ins_usuarios.sql
+	mysql -u$1 -p$2 < ins_devices.sql
+	mysql -u$1 -p$2 < ins_frases.sql
 
 
