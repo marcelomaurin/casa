@@ -1,3 +1,4 @@
+
 /*
     This sketch establishes a TCP connection to a "quote of the day" service.
     It sends a "hello" message, and then prints received data.
@@ -159,106 +160,24 @@ void readsite(){
   client.stop();
 }
 
+void EntraTXT(char *device, char *valor){
+  char info[40];
+  sprintf(info,"%s.txt=%c%s%c%c%c%c",device,0x22,valor,0x22,0xFF,0xFF,0xFF);
+  swSer.print(info);
+}
+
+
 void Atualizahora(){
   char info[40];
   char hora[20];
   //Serial.print(daysOfTheWeek[timeClient.getDay()]);
   //sprintf(info,"%s %s:%s:%s,\0xff\0xff\0xff", daysOfTheWeek[timeClient.getDay()],timeClient.getHours(),timeClient.getMinutes(),timeClient.getSeconds());
   timeClient.getFormattedTime().toCharArray(hora, timeClient.getFormattedTime().length()+1);
-  sprintf(info,"hora.txt=%c%s%c%c%c%c",0x22,hora,0x22,0xFF,0xFF,0xFF);
-  swSer.print(info);
+  EntraTXT("hora",hora);
+  //sprintf(info,"hora.txt=%c%s%c%c%c%c",0x22,hora,0x22,0xFF,0xFF,0xFF);
+  //swSer.print(info);
 }
 
-void Irrigacao(int param){
-  String info;
-  if(param==0) {
-    Serial.print("Irrigação off");
-    info = "IROff"+0x10;
-    SendCMD(info);  
-  } else {
-    Serial.print("Irrigação on");  
-    info = "IROn"+0x10;
-    SendCMD(info);  
-  }  
-}
-
-void Sala(int param){
-  String info;
-  if(param==0) {
-    Serial.print("Sala off");
-    info = "S1Off"+0x10;
-    SendCMD(info);  
-  } else {
-    Serial.print("Sala on");  
-    info = "S1On"+0x10;
-    SendCMD(info);  
-  }  
-}
-
-void Bomba(int param){
-  String info;
-  if(param==0) {
-    Serial.print("Bomba off");
-    info = "P1Off"+0x10;
-    SendCMD(info);  
-  } else {
-    Serial.print("Bomba on");  
-    info = "P1On"+0x10;
-    SendCMD(info);  
-  }  
-}
-
-void IluminacaoP(int param){
-  String info;
-  if(param==0) {
-    Serial.print("Iluminacao Piscina off");
-    info = "P2Off"+0x10;
-    SendCMD(info);  
-  } else {
-    Serial.print("Iluminacao Piscina on");  
-    info = "P2On"+0x10;
-    SendCMD(info);  
-  }  
-}
-
-void Corredor(int param){
-  String info;
-  if(param==0) {
-    Serial.print("Corredor off");
-    info = "C1Off"+0x10;
-    SendCMD(info);  
-  } else {
-    Serial.print("Corredor on");  
-    info = "C1On"+0x10;
-    SendCMD(info);  
-  }  
-}
-
-void Alarme(int param){
-  String info;
-  if(param==0) {
-    Serial.print("Alarme off");
-    info = "C2Off"+0x10;
-    SendCMD(info);  
-  } else {
-    Serial.print("Alarme on");  
-    info = "C2On"+0x10;
-    SendCMD(info);  
-  }  
-}
-
-void Som(int param){
-  String info;
-  if(param==0) {
-    Serial.print("Som off");
-    info = "C3Off"+0x10;
-    SendCMD(info);  
-  } else {
-    Serial.print("Som on");  
-    info = "C3On"+0x10;
-    SendCMD(info);  
-  }  
-}
 
 void SendCMD(String cmd){
     Serial.println(" ");
@@ -270,6 +189,8 @@ void SendCMD(String cmd){
     } 
     Serial.println("Connected to server successful!");
     client.print(cmd);
+    Serial.print("Comando:");
+    Serial.println(cmd);
     Serial.println("Disconnecting...");
     client.stop();
     
@@ -279,49 +200,8 @@ void ProcessaCMD(String cmd){
   char info3[80];
   Buffer.toCharArray(info3,Buffer.length());
   //sprintf(info3,"123");
-  if(strcmp(info3,"IROn")==0){
-    Irrigacao(1);
-  }
-  if(strcmp(info3,"IROff")==0){
-    Irrigacao(0);
-  }  
-  if(strcmp(info3,"S1On")==0){
-    Sala(1);
-  }    
-  if(strcmp(info3,"S1Off")==0){
-    Sala(0);
-  }     
-  if(strcmp(info3,"P1On")==0){
-    Bomba(1);
-  }    
-  if(strcmp(info3,"P1Off")==0){
-    Bomba(0);
-  }    
-
-  if(strcmp(info3,"P2On")==0){
-    IluminacaoP(1);
-  }    
-  if(strcmp(info3,"P2Off")==0){
-    IluminacaoP(0);
-  }     
-  if(strcmp(info3,"C1On")==0){
-    Corredor(1);
-  }    
-  if(strcmp(info3,"C1Off")==0){
-    Corredor(0);
-  }    
-  if(strcmp(info3,"C2On")==0){
-    Alarme(1);
-  }    
-  if(strcmp(info3,"C2Off")==0){
-    Alarme(0);
-  }    
-  if(strcmp(info3,"C3On")==0){
-    Som(1);
-  }    
-  if(strcmp(info3,"C3Off")==0){
-    Som(0);
-  }   
+  String pcmd =  cmd+0x10;
+  SendCMD(pcmd);
   //Serial.print(info3); //Send data recived from software serial to hardware serial   
 }
 
