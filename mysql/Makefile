@@ -1,20 +1,26 @@
-all: Drop Banco Tabelas Registros
+all: Capture Drop Banco Tabelas Registros
+
+Capture:
+	echo "Enter user name:"
+	read Username
+	echo "Enter Password:"
+	read Password
 
 Drop:
-	mysql -u$1 -p$2 < dropall.sql
+	mysql -u$Username -p$Password < dropall.sql
 
 Banco:
-	mysql -u$1 -p$2 < casadb.sql
+	mysql -u$Username -p$Password < casadb.sql
 
 
 Tabelas:
-	mysql -u$1 -p$2 < usuarios.sql
-	mysql -u$1 -p$2 < devices.sql
-	mysql -u$1 -p$2 < frases.sql
+	mysql -u$Username -p$Password < usuarios.sql
+	mysql -u$Username -p$Password < devices.sql
+	mysql -u$Username -p$Password < frases.sql
 
 Registros:
-	mysql -u$1 -p$2 < ins_usuarios.sql
-	mysql -u$1 -p$2 < ins_devices.sql
-	mysql -u$1 -p$2 < ins_frases.sql
+	mysql -u$Username -p$Password < ins_usuarios.sql
+	mysql -u$Username -p$Password < ins_devices.sql
+	mysql -u$Username -p$Password < ins_frases.sql
 
 
