@@ -1,0 +1,14 @@
+Template: casasite/username
+Type: string
+Default: root
+Description: Username of database
+Template: casasite/password
+Type: password
+Default: 
+Description: Password of username
+Template: casasite/hostname
+Type: string
+Default: 127.0.0.1
+Description: Hostname of database
+
+
