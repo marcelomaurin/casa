@@ -1,7 +1,7 @@
 #!/bin/bash
 
 PathSite="/home/mmm/Documentos/casa"
-Pacote="site"
+Pacote="site10.deb"
 
 ARQUITETURA=$(uname -m)
 case $(uname -m) in
@@ -24,10 +24,10 @@ then
 	#cp ./mnote2.desktop_arm ./mnote2/usr/share/applications/mnote2.desktop
 	#ln -s /usr/bin/MNote2 ./mnote2/usr/share/applications/mnote2
 	echo "Empacotando na Pasta $PathSite"
-	dpkg-deb --build $PathSite/$Pacote
+	dpkg-deb --build $PathSite/site
 	echo "Movendo para pasta repositorio $PathSite"
-	#mv $PathSite/site.deb $PathSite/$Pacote
-	cp $PathSite/$Pacote $PathSite/bin/
+	mv $PathSite/site.deb $PathSite/$Pacote
+	cp $PathSite/$Pacote $PathSite/bin/amd64/
 	exit 1;
 fi
 
