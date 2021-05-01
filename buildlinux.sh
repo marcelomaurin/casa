@@ -1,6 +1,7 @@
 #!/bin/bash
 
-Pacote= "site-1.0_i686.deb"
+PathSite="/home/mmm/Documentos/casa"
+Pacote="site"
 
 ARQUITETURA=$(uname -m)
 case $(uname -m) in
@@ -22,11 +23,11 @@ then
 	#cp -Rf ./site/www/*.* ./mnote2/var/www/html/casa/
 	#cp ./mnote2.desktop_arm ./mnote2/usr/share/applications/mnote2.desktop
 	#ln -s /usr/bin/MNote2 ./mnote2/usr/share/applications/mnote2
-	echo "Empacotando"
-	dpkg-deb --build site
-	echo "Movendo para pasta repositorio"
-	mv site.deb $(Pacote)
-	cp ./$(Pacote) ./bin/
+	echo "Empacotando na Pasta $PathSite"
+	dpkg-deb --build $PathSite/$Pacote
+	echo "Movendo para pasta repositorio $PathSite"
+	#mv $PathSite/site.deb $PathSite/$Pacote
+	cp $PathSite/$Pacote $PathSite/bin/
 	exit 1;
 fi
 
@@ -79,6 +80,6 @@ if [ $ARQUITETURA =  'armv7l' ]; then
 	dpkg-deb --build site
 	echo "Movendo para pasta repositorio"
 	mv site.deb $(Pacote)
-	cp ./$(Pacote) ./bin/	
+	cp $(Pacote) ./bin/	
 	exit 1;
 fi

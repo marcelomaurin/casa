@@ -1,4 +1,4 @@
-Package: Casa_Site
+Package: casasite
 Version: 1.0
 Depends:  mysql-server, mysql-client
 Section: custom
