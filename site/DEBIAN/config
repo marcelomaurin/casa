@@ -22,4 +22,6 @@ else
 
 fi
 
+#DEBHELPER#
 
+exit 0

@@ -2,13 +2,18 @@ Template: casasite/username
 Type: string
 Default: root
 Description: Username of database
+	Digite aqui seu usuario de acesso ao banco de dados Mysql
+
 Template: casasite/password
 Type: password
 Default: 
 Description: Password of username
+	Digite aqui sua senha de acesso ao banco de dados Mysql
+
+
 Template: casasite/hostname
 Type: string
 Default: 127.0.0.1
 Description: Hostname of database
-
+	Digite aqui seu HostName ou IP do seu Banco de dados.
 
