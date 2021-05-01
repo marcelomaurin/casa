@@ -1,20 +1,28 @@
-all: Drop Banco Tabelas Registros
+all: Get Drop Banco Tabelas Registros
+
+Get:
+	echo "Digite seu usuario do banco:"
+	read Usuario
+	echo "Digite sua senha:"
+	read Senha
+	echo "Digite o endereço do seu servidor:"
+	read Host
 
 Drop:
-	mysql -uroot -p226468 < dropall.sql
+	mysql -h $Host  -u$Usuario -p$Senha < dropall.sql
 
 Banco:
-	mysql -uroot -p226468 < casadb.sql
+	mysql -h $Host -u$Usuario -p$Senha < casadb.sql
 
 
 Tabelas:
-	mysql -uroot -p226468 < usuarios.sql
-	mysql -uroot -p226468 < devices.sql
-	mysql -uroot -p226468 < frases.sql
+	mysql -h $Host -u$Usuario -p$Senha < usuarios.sql
+	mysql -h $Host -u$Usuario -p$Senha < devices.sql
+	mysql -h $Host -u$Usuario -p$Senha < frases.sql
 
 Registros:
-	mysql -uroot -p226468 < ins_usuarios.sql
-	mysql -uroot -p226468 < ins_devices.sql
-	mysql -uroot -p226468 < ins_frases.sql
+	mysql -h $Host -u$Usuario -p$Senha < ins_usuarios.sql
+	mysql -h $Host -u$Usuario -p$Senha < ins_devices.sql
+	mysql -h $Host -u$Usuario -p$Senha < ins_frases.sql
 
 
