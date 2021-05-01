@@ -1,4 +1,7 @@
 #!/bin/bash
+
+Pacote= "site-1.0_i686.deb"
+
 ARQUITETURA=$(uname -m)
 case $(uname -m) in
 	i386) 	ARQUITETURA="i386";;
@@ -15,15 +18,15 @@ then
 	echo "Preparando binarios"
 	#cp ./src/site ./mnote2/usr/bin/mnote2
 	#chmod 777 ./mnote2/usr/bin/mnote2
-	cp ./mysql/*.sql ./mnote2/usr/share/site/mysql/
-	cp -Rf ./site/www/*.* ./mnote2/var/www/html/casa/
+	#cp ./mysql/*.sql ./mnote2/usr/share/site/mysql/
+	#cp -Rf ./site/www/*.* ./mnote2/var/www/html/casa/
 	#cp ./mnote2.desktop_arm ./mnote2/usr/share/applications/mnote2.desktop
 	#ln -s /usr/bin/MNote2 ./mnote2/usr/share/applications/mnote2
 	echo "Empacotando"
 	dpkg-deb --build site
 	echo "Movendo para pasta repositorio"
-	mv site.deb site-2.9_amd64.deb
-	cp ./site-2.9_amd64.deb ./bin/
+	mv site.deb $(Pacote)
+	cp ./$(Pacote) ./bin/
 	exit 1;
 fi
 
@@ -33,15 +36,15 @@ then
 	echo "Preparando binarios"
 	#cp ./src/MNote2 ./mnote2/usr/bin/mnote2
 	#chmod 777 ./mnote2/usr/bin/mnote2
-	cp ./mysql/*.sql ./mnote2/usr/share/site/mysql/
-	cp -Rf ./site/www/*.* ./mnote2/var/www/html/casa/
+	#cp ./mysql/*.sql ./mnote2/usr/share/site/mysql/
+	#cp -Rf ./site/www/*.* ./mnote2/var/www/html/casa/
 	#cp ./mnote2.desktop_arm ./mnote2/usr/share/applications/mnote2.desktop
 	#ln -s /usr/bin/MNote2 ./mnote2/usr/share/applications/mnote2
 	echo "Empacotando"
 	dpkg-deb --build site
 	echo "Movendo para pasta repositorio"
-	mv site.deb site-2.9_i686.deb
-	cp ./site-2.9_i686.deb ./bin/
+	mv site.deb $(Pacote)
+	cp ./$(Pacote) ./bin/
 	exit 1;
 fi
 
@@ -51,15 +54,15 @@ then
 	echo "Preparando binarios"
 	#cp ./src/MNote2 ./mnote2/usr/bin/mnote2
 	#chmod 777 ./mnote2/usr/bin/mnote2
-	cp ./mysql/*.sql ./mnote2/usr/share/site/mysql/
-	cp -Rf ./site/www/*.* ./mnote2/var/www/html/casa/
+	#cp ./mysql/*.sql ./mnote2/usr/share/site/mysql/
+	#cp -Rf ./site/www/*.* ./mnote2/var/www/html/casa/
 	#cp ./mnote2.desktop_arm ./mnote2/usr/share/applications/mnote2.desktop
 	#ln -s /usr/bin/MNote2 ./mnote2/usr/share/applications/mnote2
 	echo "Empacotando"
 	dpkg-deb --build site
 	echo "Movendo para pasta repositorio"
-	mv site.deb site-2.9_i386.deb
-	cp ./site-2.9_i386.deb ./bin/
+	mv site.deb $(Pacote)
+	cp ./$(Pacote) ./bin/
 	exit 1;
 fi
 
@@ -75,7 +78,7 @@ if [ $ARQUITETURA =  'armv7l' ]; then
 	echo "Empacotando"
 	dpkg-deb --build site
 	echo "Movendo para pasta repositorio"
-	mv site.deb site-2.9_arm.deb
-	cp ./site-2.9_arm.deb ./bin/	
+	mv site.deb $(Pacote)
+	cp ./$(Pacote) ./bin/	
 	exit 1;
 fi
