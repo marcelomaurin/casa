@@ -1,2 +1,0 @@
-echo "[type: gettext/rfc822deb] templates" > po/POTFILES.in
-

@@ -1,6 +1,6 @@
 Package: casasite
 Version: 1.0
-Depends:  apache2 ,mysql-server, mysql-client,php, libapach2-mod-php, php-mysql, php-curl, php-gd, php-xml, php-mbstring, php-xmlrpc, php-zip, php-soap, php-intl ,debconf, po-debconf
+Depends:  apache2 ,mysql-server, mysql-client,php, libapache2-mod-php, php-mysql, php-curl, php-gd, php-xml, php-mbstring, php-xmlrpc, php-zip, php-soap, php-intl , debconf
 Section: custom
 Priority: optional
 Architecture: all
