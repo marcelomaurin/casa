@@ -1,0 +1,19 @@
+#!/bin/sh
+set -e
+
+# Source debconf library
+. /usr/share/debconf/confmodule
+
+db_get casasite/username
+username="$RET"
+echo "o username passado foi: $username"
+
+db_get casasite/password
+password="$RET"
+echo "Sua senha foi $password"
+
+db_get casasite/localhost
+localhost="$RET"
+echo "Seu localhost foi $localhost"
+
+db_stop

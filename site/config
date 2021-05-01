@@ -1,0 +1,25 @@
+#!/bin/sh -e
+
+# Source debconf library.
+. /usr/share/debconf/confmodule
+
+db_input critical casasite/username || true
+db_go
+
+db_input critical casasite/password || true
+db_go
+
+db_input critical casasite/localhost || true
+db_go
+
+# Check their answer
+db_get casasite/localhost
+if [ "$RET" = "127.0.0.1" ]; then
+	# na propria maquina
+	#db_input critical casasite
+else
+	# acesso remoto
+
+fi
+
+
