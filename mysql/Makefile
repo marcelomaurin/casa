@@ -1,10 +1,8 @@
 all: Capture Drop Banco Tabelas Registros
 
 Capture:
-	echo "Enter user name:"
-	read Username
-	echo "Enter Password:"
-	read Password
+	Username = "root"
+	Password = "suasenha"
 
 Drop:
 	mysql -u$Username -p$Password < dropall.sql
