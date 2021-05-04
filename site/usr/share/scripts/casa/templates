@@ -1,0 +1,12 @@
+Template: casasite/host
+Type: string
+Description: Endereco do banco de dados
+
+Template: casasite/user
+Type: string
+Description: Usuario do banco
+
+Template: casasite/password
+Type: password
+Description: Senha de acesso
+
