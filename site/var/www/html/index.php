@@ -413,11 +413,23 @@
     <button onclick="switchTab('tab-agendamentos')">
       <i class="fa-solid fa-calendar-check"></i> Agendamentos
     </button>
+    <button onclick="switchTab('tab-cameras')">
+      <i class="fa-solid fa-video"></i> Câmeras & Visão (ESP32-CAM)
+    </button>
+    <button onclick="switchTab('tab-iot')">
+      <i class="fa-solid fa-microchip"></i> Cluster IoT (ESP32 / Arduino)
+    </button>
+    <button onclick="switchTab('tab-seguranca')">
+      <i class="fa-solid fa-shield-halved"></i> Defesa & Anti-Intrusão
+    </button>
+    <button onclick="switchTab('tab-agentes')">
+      <i class="fa-solid fa-satellite-dish"></i> Agentes Externos
+    </button>
     <button onclick="switchTab('tab-frases')">
       <i class="fa-solid fa-quote-left"></i> Frases & Avisos
     </button>
     <button onclick="switchTab('tab-usuarios')">
-      <i class="fa-solid fa-users"></i> Usuários & Segurança
+      <i class="fa-solid fa-users"></i> Usuários & Senhas
     </button>
     <button onclick="switchTab('tab-config')">
       <i class="fa-solid fa-sliders"></i> Configurações (RunPod / IA)
@@ -769,6 +781,178 @@
     </div>
   </div>
 
+  <!-- TAB 9: CÂMERAS & VISÃO (ESP32-CAM) -->
+  <div id="tab-cameras" class="tab-content-item" style="display: none;">
+    <div class="row">
+      <div class="col-md-8">
+        <div class="glass-card">
+          <div class="glass-header">
+            <div class="glass-title"><i class="fa-solid fa-video"></i> Transmissão ao Vivo — ESP32-CAM (Entrada)</div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <span class="label label-success"><i class="fa-solid fa-circle text-danger" style="animation: pulse 1s infinite;"></i> AO VIVO</span>
+              <button class="btn btn-xs hud-btn-outline" onclick="recarregarStreamCamera()"><i class="fa-solid fa-rotate"></i> Recarregar</button>
+            </div>
+          </div>
+          
+          <div style="background: #000; border-radius: 8px; overflow: hidden; min-height: 380px; display: flex; align-items: center; justify-content: center; position: relative; border: 1px solid var(--border-color);">
+            <img id="streamEspCam" src="http://192.168.2.50/stream" style="width: 100%; max-height: 480px; object-fit: contain;" onerror="this.src='/api/agente_externo.php?acao=ver_foto&foto=cam_preview.jpg'; $('#camPlaceholderWarning').show();">
+            <div id="camPlaceholderWarning" style="position: absolute; bottom: 15px; left: 15px; background: rgba(0,0,0,0.7); padding: 6px 12px; border-radius: 6px; font-size: 11px; color: var(--cyan); display: none;">
+              <i class="fa-solid fa-shield-halved"></i> Feed ESP32-CAM (Standby / Snapshot Ativo em 192.168.2.50)
+            </div>
+          </div>
+
+          <div style="margin-top: 15px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div style="display: flex; gap: 8px;">
+              <button class="btn btn-sm hud-btn" onclick="capturarFotoCamera()"><i class="fa-solid fa-camera"></i> Capturar Snapshot</button>
+              <button class="btn btn-sm hud-btn-outline" onclick="alternarFlashCamera(1)"><i class="fa-solid fa-bolt text-warning"></i> Ligar Flash LED</button>
+              <button class="btn btn-sm hud-btn-outline" onclick="alternarFlashCamera(0)"><i class="fa-solid fa-lightbulb"></i> Desligar Flash</button>
+            </div>
+            <div>
+              <button class="btn btn-sm btn-info" onclick="analisarCenaVisaoIA()"><i class="fa-solid fa-brain"></i> Análise de Cena com IA (RunPod / Vision)</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-md-4">
+        <div class="glass-card">
+          <div class="glass-header">
+            <div class="glass-title"><i class="fa-solid fa-clock-rotate-left"></i> Capturas & Detecções Recentes</div>
+            <button class="btn btn-xs hud-btn-outline" onclick="carregarHistoricoFotos()"><i class="fa-solid fa-rotate"></i></button>
+          </div>
+          <div id="galeriaFotos" style="max-height: 420px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;">
+            <div class="stat-box" style="text-align: left; padding: 10px;">
+              <div style="font-size: 11px; color: var(--text-muted);"><i class="fa-solid fa-calendar"></i> Registro Automático</div>
+              <p style="font-size: 12px; margin: 4px 0;">Fotos de movimento ou snapshots sob demanda são salvos e auditados aqui.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 10: DISPOSITIVOS IOT (ESP32 / ARDUINO) -->
+  <div id="tab-iot" class="tab-content-item" style="display: none;">
+    <div class="glass-card">
+      <div class="glass-header">
+        <div class="glass-title"><i class="fa-solid fa-microchip"></i> Cluster de Microcontroladores IoT (ESP32 / ESP-CAM / Arduino Ethernet)</div>
+        <div>
+          <button class="btn btn-sm hud-btn-outline" onclick="carregarDispositivosIoT()"><i class="fa-solid fa-rotate"></i> Atualizar</button>
+          <button class="hud-btn" onclick="abrirModalNovoIoT()"><i class="fa-solid fa-plus"></i> Parear Novo Dispositivo</button>
+        </div>
+      </div>
+      
+      <div id="gridDispositivosIoT" class="row">
+        <!-- Renderizado via AJAX -->
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 11: SEGURANÇA & ANTI-INTRUSÃO -->
+  <div id="tab-seguranca" class="tab-content-item" style="display: none;">
+    <div class="row">
+      <div class="col-md-4">
+        <div class="glass-card">
+          <div class="glass-header">
+            <div class="glass-title"><i class="fa-solid fa-shield-virus text-danger"></i> Defesa Ativa do Perímetro</div>
+          </div>
+          <div class="stat-box" style="margin-bottom: 12px;">
+            <div class="stat-val text-success" style="color: #10b981;"><i class="fa-solid fa-lock"></i> ATIVO</div>
+            <div class="stat-lbl">Firewall Anti-Intrusão</div>
+          </div>
+          <div class="stat-box" style="margin-bottom: 12px;">
+            <div class="stat-val text-danger" id="secTotalIpsBloqueados">0</div>
+            <div class="stat-lbl">IPs Bloqueados no Momento</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-val text-info" id="secTotalTokensAtivos">3</div>
+            <div class="stat-lbl">Hardware Tokens IoT Autorizados</div>
+          </div>
+        </div>
+
+        <div class="glass-card">
+          <div class="glass-header">
+            <div class="glass-title"><i class="fa-solid fa-ban text-danger"></i> IPs Bloqueados (Fail2Ban)</div>
+          </div>
+          <div id="listaIpsBloqueados" style="max-height: 250px; overflow-y: auto;">
+            <!-- Renderizado via AJAX -->
+          </div>
+        </div>
+      </div>
+
+      <div class="col-md-8">
+        <div class="glass-card">
+          <div class="glass-header">
+            <div class="glass-title"><i class="fa-solid fa-list-check"></i> Logs de Auditoria de Segurança em Tempo Real</div>
+            <button class="btn btn-xs hud-btn-outline" onclick="carregarSeguranca()"><i class="fa-solid fa-rotate"></i> Atualizar Logs</button>
+          </div>
+          <div class="table-responsive">
+            <table class="table hud-table" id="tabelaSegurancaLogs">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>IP Origem</th>
+                  <th>Evento</th>
+                  <th>Severidade</th>
+                  <th>Detalhes</th>
+                  <th>Data/Hora</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 12: AGENTES EXTERNOS (TELEGRAM, WEBHOOKS, CLIMA) -->
+  <div id="tab-agentes" class="tab-content-item" style="display: none;">
+    <div class="row">
+      <div class="col-md-6">
+        <div class="glass-card">
+          <div class="glass-header">
+            <div class="glass-title"><i class="fa-brands fa-telegram text-info"></i> Agente de Notificação Telegram</div>
+            <button class="hud-btn" onclick="testarTelegram()"><i class="fa-solid fa-paper-plane"></i> Testar Envio</button>
+          </div>
+          <p style="font-size: 13px; color: var(--text-muted);">
+            Envia fotos de intrusão, avisos de automação e alertas de emergência diretamente para o seu Telegram.
+          </p>
+          <div class="form-group">
+            <label>Telegram Bot Token:</label>
+            <input type="password" id="ag_telegram_token" class="form-control hud-input" placeholder="123456789:ABCdefGHIjklMNOpqrSTUvwxYZ">
+          </div>
+          <div class="form-group">
+            <label>Seu Chat ID (ou ID do Grupo):</label>
+            <input type="text" id="ag_telegram_chatid" class="form-control hud-input" placeholder="123456789">
+          </div>
+          <button class="btn btn-sm hud-btn-outline" onclick="salvarConfigAgenteTelegram()"><i class="fa-solid fa-floppy-disk"></i> Salvar Parâmetros Telegram</button>
+        </div>
+      </div>
+
+      <div class="col-md-6">
+        <div class="glass-card">
+          <div class="glass-header">
+            <div class="glass-title"><i class="fa-solid fa-cloud-sun-rain text-warning"></i> Agente Meteorológico & Previsão</div>
+            <button class="btn btn-xs hud-btn-outline" onclick="consultarClimaAgora()"><i class="fa-solid fa-rotate"></i> Consultar</button>
+          </div>
+          <div id="painelClimaAtual" style="margin-top: 15px;">
+            <div class="stat-box" style="text-align: left; padding: 15px;">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-size: 20px; font-weight: 700; color: var(--cyan);" id="climaTemp">--°C</span>
+                <span class="label label-info" id="climaUmidade">Umidade: --%</span>
+              </div>
+              <p style="margin-top: 10px; font-size: 13px;" id="climaMsg">Consultando meteorologia...</p>
+            </div>
+          </div>
+          <div class="alert alert-info" style="margin-top: 15px; background: rgba(3, 105, 161, 0.2); border-color: rgba(56, 189, 248, 0.4); color: #bae6fd; font-size: 12px;">
+            <i class="fa-solid fa-circle-info"></i> O JARVIS utiliza estes dados para decidir automaticamente quando pausar ou acionar a irrigação da piscina e do jardim.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <!-- MODAL GENÉRICO DE CRUD -->
@@ -806,6 +990,10 @@ function switchTab(tabId) {
   if (tabId === 'tab-sensores') carregarSensores();
   if (tabId === 'tab-nodes') carregarNodes();
   if (tabId === 'tab-agendamentos') carregarAgendamentos();
+  if (tabId === 'tab-cameras') carregarCameras();
+  if (tabId === 'tab-iot') carregarDispositivosIoT();
+  if (tabId === 'tab-seguranca') carregarSeguranca();
+  if (tabId === 'tab-agentes') carregarAgentesExternos();
   if (tabId === 'tab-frases') carregarFrases();
   if (tabId === 'tab-usuarios') carregarUsuarios();
   if (tabId === 'tab-config') carregarConfiguracoes();
@@ -1482,6 +1670,259 @@ function excluirItem(tabela, id, callback) {
     type: 'POST',
     success: function() {
       if (callback) callback();
+    }
+  });
+}
+
+// ----------------- CÂMERAS & VISÃO (ESP32-CAM) -----------------
+function carregarCameras() {
+  carregarHistoricoFotos();
+}
+
+function recarregarStreamCamera() {
+  var stream = $('#streamEspCam');
+  stream.attr('src', 'http://192.168.2.50/stream?t=' + Date.now());
+}
+
+function capturarFotoCamera() {
+  window.open('http://192.168.2.50/capture?t=' + Date.now(), '_blank');
+}
+
+function alternarFlashCamera(st) {
+  $.get('http://192.168.2.50/flash/' + (st ? 'on' : 'off'));
+}
+
+function analisarCenaVisaoIA() {
+  alert('Disparando requisição para análise de cena da câmera no pod de visão computacional...');
+  enviarComandoJarvis('/cloud Analise a imagem recente da câmera de entrada e descreva objetos, pessoas e riscos de segurança detectados.');
+}
+
+function carregarHistoricoFotos() {
+  var g = $('#galeriaFotos');
+  g.html('<div class="stat-box" style="text-align:left; padding:10px;"><i class="fa-solid fa-camera text-info"></i> <strong>Última Captura:</strong><br><small class="text-muted">Foto do Portão (Monitoramento Automático)</small><br><img src="/api/agente_externo.php?acao=ver_foto&foto=cam_preview.jpg" style="width:100%; border-radius:6px; margin-top:6px;" onerror="this.style.display=\'none\'"></div>');
+}
+
+// ----------------- CLUSTER IOT (ESP32 / ARDUINO) -----------------
+function carregarDispositivosIoT() {
+  $.getJSON('api/crud.php?tabela=dispositivos_cluster&acao=listar', function(res) {
+    var container = $('#gridDispositivosIoT');
+    container.empty();
+    if (res.dados) {
+      res.dados.forEach(function(d) {
+        var statusBadge = (d.status === 'online') ? '<span class="label label-success">Online</span>' : '<span class="label label-default">' + (d.status || 'Offline') + '</span>';
+        var icon = 'fa-microchip';
+        if (d.tipo === 'esp32_cam') icon = 'fa-video';
+        else if (d.tipo === 'esp32_voice') icon = 'fa-volume-high';
+        else if (d.tipo === 'arduino_ethernet') icon = 'fa-network-wired';
+
+        var relesHtml = '';
+        var reles = {};
+        try {
+          reles = (typeof d.reles_status === 'object') ? d.reles_status : JSON.parse(d.reles_status || '{}');
+        } catch(e) {}
+
+        if (d.tipo === 'arduino_ethernet') {
+          relesHtml += '<div style="margin-top:12px; border-top:1px solid rgba(255,255,255,0.1); padding-top:10px;">' +
+            '<label style="font-size:11px; color:var(--text-muted); display:block;">Canais de Relé (Acionamento Imediato):</label>' +
+            '<div style="display:flex; flex-wrap:wrap; gap:6px;">';
+          for (var i = 1; i <= 4; i++) {
+            var rKey = 'rele' + i;
+            var rState = reles[rKey] ? 1 : 0;
+            var rBtnClass = rState ? 'btn-success' : 'hud-btn-outline';
+            var rLabel = 'R' + i + ': ' + (rState ? 'LIGADO' : 'OFF');
+            relesHtml += '<button class="btn btn-xs ' + rBtnClass + '" onclick="alternarReleIoT(' + d.id + ', \'' + rKey + '\', ' + (1 - rState) + ')">' + rLabel + '</button>';
+          }
+          relesHtml += '</div></div>';
+        } else if (d.tipo === 'esp32_cam') {
+          var flashState = reles['flash'] ? 1 : 0;
+          relesHtml += '<div style="margin-top:12px; border-top:1px solid rgba(255,255,255,0.1); padding-top:10px;">' +
+            '<button class="btn btn-xs hud-btn-outline" onclick="alternarReleIoT(' + d.id + ', \'flash\', ' + (1 - flashState) + ')"><i class="fa-solid fa-bolt"></i> Flash LED: ' + (flashState ? 'LIGADO' : 'DESLIGADO') + '</button>' +
+          '</div>';
+        }
+
+        var card = '<div class="col-md-4 col-sm-6" style="margin-bottom: 20px;">' +
+          '<div class="glass-card" style="height: 100%; margin-bottom: 0;">' +
+            '<div style="display:flex; justify-content:space-between; align-items:flex-start;">' +
+              '<div>' +
+                '<h4 style="margin:0 0 5px 0; color:var(--cyan); font-size:16px; font-weight:700;"><i class="fa-solid ' + icon + '"></i> ' + d.nome + '</h4>' +
+                '<small class="text-muted"><i class="fa-solid fa-location-dot"></i> ' + (d.localizacao || 'Geral') + '</small>' +
+              '</div>' +
+              statusBadge +
+            '</div>' +
+            '<div style="margin-top: 15px; font-size: 13px; font-family: monospace;">' +
+              '<div><strong>IP:</strong> ' + (d.ip_address || '—') + '</div>' +
+              '<div><strong>RAM Livre:</strong> ' + (d.ram_livre ? d.ram_livre + ' bytes' : '—') + '</div>' +
+              '<div><strong>Sinal RSSI:</strong> ' + (d.sinal_rssi ? d.sinal_rssi + ' dBm' : 'Ethernet Cabo') + '</div>' +
+              '<div><strong>Token:</strong> <code>' + (d.device_token ? d.device_token.substring(0, 14) + '...' : '') + '</code></div>' +
+            '</div>' +
+            relesHtml +
+          '</div>' +
+        '</div>';
+        container.append(card);
+      });
+    }
+  });
+}
+
+function alternarReleIoT(devId, rele, estado) {
+  $.ajax({
+    url: 'api/crud.php?tabela=dispositivos_cluster&acao=acionar_rele_iot',
+    type: 'POST',
+    contentType: 'application/json',
+    data: JSON.stringify({ device_id: devId, rele: rele, estado: estado }),
+    success: function() {
+      carregarDispositivosIoT();
+    }
+  });
+}
+
+function abrirModalNovoIoT() {
+  $('#modalCrudTitle').text('Parear Novo Microcontrolador IoT');
+  $('#modalCrudBody').html(
+    '<div class="form-group"><label>Nome do Dispositivo:</label><input class="form-control hud-input" id="f_iot_nome" placeholder="ex: ESP32 Jardim / Arduino Oficina"></div>' +
+    '<div class="form-group"><label>Tipo de Hardware:</label>' +
+      '<select class="form-control hud-input" id="f_iot_tipo">' +
+        '<option value="esp32_cam">ESP32-CAM (Câmera & Vídeo)</option>' +
+        '<option value="esp32_voice">ESP32 Voice (Smart Speaker Satélite)</option>' +
+        '<option value="arduino_ethernet">Arduino Ethernet (Relés Físicos)</option>' +
+        '<option value="esp8266">ESP8266 (Sensores/Automação)</option>' +
+      '</select>' +
+    '</div>' +
+    '<div class="form-group"><label>Localização:</label><input class="form-control hud-input" id="f_iot_loc" placeholder="ex: Portão, Piscina, Sala"></div>'
+  );
+  $('#btnSalvarModal').attr('onclick', 'salvarNovoIoT()');
+  $('#modalCrud').modal('show');
+}
+
+function salvarNovoIoT() {
+  var payload = {
+    nome: $('#f_iot_nome').val(),
+    tipo: $('#f_iot_tipo').val(),
+    localizacao: $('#f_iot_loc').val()
+  };
+  $.ajax({
+    url: 'api/crud.php?tabela=dispositivos_cluster&acao=gerar_token_iot',
+    type: 'POST',
+    contentType: 'application/json',
+    data: JSON.stringify(payload),
+    success: function(res) {
+      $('#modalCrud').modal('hide');
+      alert('Dispositivo criado com sucesso!\nToken de Hardware Gerado:\n' + res.token + '\n\nInsira este token no firmware da placa.');
+      carregarDispositivosIoT();
+    }
+  });
+}
+
+// ----------------- SEGURANÇA & ANTI-INTRUSÃO -----------------
+function carregarSeguranca() {
+  // Carregar lista de IPs bloqueados
+  $.getJSON('api/crud.php?tabela=seguranca_ips_bloqueados&acao=listar', function(res) {
+    var c = $('#listaIpsBloqueados');
+    c.empty();
+    var ips = res.dados || [];
+    $('#secTotalIpsBloqueados').text(ips.length);
+    if (ips.length === 0) {
+      c.html('<div style="color:var(--text-muted); font-size:13px; padding:10px;"><i class="fa-solid fa-circle-check text-success"></i> Nenhum IP bloqueado no momento. Sistema limpo.</div>');
+    } else {
+      ips.forEach(function(ip) {
+        c.append(
+          '<div class="stat-box" style="text-align:left; padding:8px 12px; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center;">' +
+            '<div>' +
+              '<strong>' + ip.ip_address + '</strong><br>' +
+              '<small class="text-danger">' + (ip.motivo || 'Tentativas não autorizadas') + '</small>' +
+            '</div>' +
+            '<button class="btn btn-xs btn-success" onclick="desbloquearIp(\'' + ip.ip_address + '\')"><i class="fa-solid fa-unlock"></i> Liberar</button>' +
+          '</div>'
+        );
+      });
+    }
+  });
+
+  // Carregar logs de auditoria
+  $.getJSON('api/crud.php?tabela=seguranca_logs&acao=listar&limite=50', function(res) {
+    var tbody = $('#tabelaSegurancaLogs tbody');
+    tbody.empty();
+    if (res.dados) {
+      res.dados.forEach(function(l) {
+        var sevBadge = '<span class="label label-info">INFO</span>';
+        if (l.severidade === 'CRITICO') sevBadge = '<span class="label label-danger">CRÍTICO</span>';
+        else if (l.severidade === 'AVISO') sevBadge = '<span class="label label-warning">AVISO</span>';
+
+        var tr = '<tr>' +
+          '<td>#' + l.id + '</td>' +
+          '<td><code>' + l.origem_ip + '</code></td>' +
+          '<td><strong>' + l.evento + '</strong></td>' +
+          '<td>' + sevBadge + '</td>' +
+          '<td style="font-size:12px;">' + (l.detalhes || '') + '</td>' +
+          '<td style="font-size:11px; color:var(--text-muted);">' + l.data_hora + '</td>' +
+        '</tr>';
+        tbody.append(tr);
+      });
+    }
+  });
+}
+
+function desbloquearIp(ip) {
+  if (!confirm('Deseja realmente desbloquear o IP ' + ip + '?')) return;
+  $.ajax({
+    url: 'api/crud.php?tabela=dispositivos_cluster&acao=desbloquear_ip&ip=' + encodeURIComponent(ip),
+    type: 'POST',
+    success: function() {
+      carregarSeguranca();
+    }
+  });
+}
+
+// ----------------- AGENTES EXTERNOS (TELEGRAM, CLIMA) -----------------
+function carregarAgentesExternos() {
+  $.getJSON('api/crud.php?tabela=agentes_externos&acao=listar', function(res) {
+    if (res.dados) {
+      res.dados.forEach(function(ag) {
+        if (ag.tipo === 'telegram_bot') {
+          var cfg = (typeof ag.configuracao === 'object') ? ag.configuracao : JSON.parse(ag.configuracao || '{}');
+          $('#ag_telegram_token').val(cfg.bot_token || '');
+          $('#ag_telegram_chatid').val(cfg.chat_id || '');
+        }
+      });
+    }
+  });
+  consultarClimaAgora();
+}
+
+function salvarConfigAgenteTelegram() {
+  var cfg = {
+    bot_token: $('#ag_telegram_token').val(),
+    chat_id: $('#ag_telegram_chatid').val(),
+    alertar_invasao: true,
+    alertar_sensores: true
+  };
+  $.ajax({
+    url: 'api/crud.php?tabela=agentes_externos&acao=atualizar&id=1',
+    type: 'POST',
+    contentType: 'application/json',
+    data: JSON.stringify({ configuracao: JSON.stringify(cfg), ativo: true }),
+    success: function() {
+      alert('Configurações do Agente Telegram salvas com sucesso!');
+    }
+  });
+}
+
+function testarTelegram() {
+  $.getJSON('api/agente_externo.php?acao=testar_telegram', function(res) {
+    if (res.status === 'sucesso') {
+      alert('Mensagem de teste enviada com sucesso para o Telegram!');
+    } else {
+      alert('Falha ao enviar mensagem no Telegram.\nVerifique seu Bot Token e Chat ID.');
+    }
+  });
+}
+
+function consultarClimaAgora() {
+  $.getJSON('api/agente_externo.php?acao=consultar_clima', function(res) {
+    if (res.clima) {
+      $('#climaTemp').text(res.clima.temperatura);
+      $('#climaUmidade').text('Umidade: ' + res.clima.umidade);
+      $('#climaMsg').text(res.clima.vai_chover ? '⚠️ Probabilidade de chuva detectada. Rotinas de irrigação suspensas preventivamente.' : '☀️ Tempo estável. Condições ideais para automação residencial.');
     }
   });
 }

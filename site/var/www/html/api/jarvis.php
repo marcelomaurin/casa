@@ -9,6 +9,8 @@
 
 header('Content-Type: application/json; charset=utf-8');
 require_once(__DIR__ . '/db.php');
+require_once(__DIR__ . '/seguranca.php');
+require_once(__DIR__ . '/agente_externo.php');
 
 // Verificação de Segurança (Sessão Web ou Token de API)
 verify_api_auth();
@@ -219,6 +221,18 @@ if (strpos($resposta_jarvis, '[[CMD:LIGAR_LUZ_SALA]]') !== false || (preg_match(
     qryExec("UPDATE devpar SET devvalue = '0' WHERE iddevice = 2 AND devparname = 'dev1'");
     qryExec("INSERT INTO comandos_log (iddevice, comando, origem, resultado) VALUES (2, 'Desligar Irrigacao', 'JARVIS_AI', 'Executado')");
     $acao_executada = "Irrigação da Piscina Desligada";
+} elseif (preg_match('/(telegram|alerta.*celular|notifiq.*celular)/i', $cmd_lower)) {
+    agente_telegram_enviar("📱 <b>JARVIS Notificação:</b>\n" . $comando);
+    $acao_executada = "Notificação Externa (Telegram) Despachada";
+} elseif (preg_match('/(clima|tempo|vai chover|previs.*tempo)/i', $cmd_lower)) {
+    $clima = agente_consultar_clima();
+    $resposta_jarvis = "Senhor, os dados meteorológicos atuais indicam temperatura de {$clima['temperatura']} e umidade em {$clima['umidade']}. " . ($clima['vai_chover'] ? "Há probabilidade de chuva, recomendo manter portas e janelas fechadas." : "Céu estável, sem previsão de chuvas imediatas.");
+    $acao_executada = "Consulta Meteorológica";
+} elseif (preg_match('/(seguran[cç]a|invas.*o|algu.*entrou|status.*defesa|ip.*bloqueado)/i', $cmd_lower)) {
+    $bloq_count = $pdo->query("SELECT count(*) FROM seguranca_ips_bloqueados")->fetchColumn();
+    $logs_crit = $pdo->query("SELECT count(*) FROM seguranca_logs WHERE severidade = 'CRITICO' AND data_hora > NOW() - INTERVAL '24 hours'")->fetchColumn();
+    $resposta_jarvis = "Senhor, o perímetro digital está sob vigilância ativa. Temos {$bloq_count} IPs bloqueados preventivamente pelo firewall e {$logs_crit} alertas críticos de segurança nas últimas 24 horas.";
+    $acao_executada = "Auditoria de Segurança";
 }
 
 // Limpar tags da fala final
