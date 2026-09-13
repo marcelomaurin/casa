@@ -1,0 +1,17 @@
+[Unit]
+Description=Casa Inteligente - Agente Distribuido para Nos ARM
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/casa-node-agent
+ExecStart=/usr/bin/python3 /opt/casa-node-agent/casa-node-agent.py
+Restart=always
+RestartSec=10
+Environment="JARVIS_MASTER_URL=http://192.168.2.12/api/crud.php"
+Environment="AGENT_PORT=8098"
+Environment="HEARTBEAT_INTERVAL=20"
+
+[Install]
+WantedBy=multi-user.target
