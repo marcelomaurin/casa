@@ -40,20 +40,72 @@ while ($row = $stmt->fetch()) {
     $configs[$row['chave']] = $row['valor'];
 }
 
-$ia_provider = isset($configs['ia_provider']) ? $configs['ia_provider'] : 'local';
+$routing_mode = isset($configs['ia_routing_mode']) ? $configs['ia_routing_mode'] : 'auto';
+if (is_array($input) && !empty($input['ia_mode'])) {
+    $routing_mode = trim($input['ia_mode']);
+} elseif (!empty($_POST['ia_mode'])) {
+    $routing_mode = trim($_POST['ia_mode']);
+}
+
 $runpod_api_key = isset($configs['runpod_api_key']) ? $configs['runpod_api_key'] : '';
 $runpod_endpoint_id = isset($configs['runpod_endpoint_id']) ? $configs['runpod_endpoint_id'] : '';
 $runpod_model = isset($configs['runpod_model']) && !empty($configs['runpod_model']) ? $configs['runpod_model'] : 'meta-llama/Meta-Llama-3-8B-Instruct';
 $local_model = isset($configs['local_model']) ? $configs['local_model'] : 'jarvis-local:latest';
 $jarvis_voice = isset($configs['jarvis_voice']) ? $configs['jarvis_voice'] : 'padrao';
 
-// 2. Prompt enxuto para maxima velocidade no ARM Pi
-$system_prompt = "Voce e o JARVIS, IA da residencia de Marcelo Maurin.
-Dispositivos: Luz da Sala (id 1), Irrigacao Piscina (id 2).
+// 2. Classificador de Intencao e Atribuicao de Especialidade Multi-IA
+$target_ia = 'local';
+$tipo_tarefa = 'automacao_residencial';
+
+if (strpos($comando, '/cloud') === 0 || strpos($comando, '/runpod') === 0) {
+    $target_ia = 'runpod';
+    $tipo_tarefa = 'analise_forcada_nuvem';
+    $comando = trim(preg_replace('/^\/(cloud|runpod)\s*/i', '', $comando));
+} elseif (strpos($comando, '/local') === 0) {
+    $target_ia = 'local';
+    $tipo_tarefa = 'comando_forcado_local';
+    $comando = trim(preg_replace('/^\/local\s*/i', '', $comando));
+} elseif ($routing_mode === 'local_only') {
+    $target_ia = 'local';
+    $tipo_tarefa = 'modo_apenas_local';
+} elseif ($routing_mode === 'cloud_only') {
+    $target_ia = 'runpod';
+    $tipo_tarefa = 'modo_apenas_nuvem';
+} else {
+    // MODO AUTO: Hibrido Inteligente por Especialidade
+    $cmd_lower = strtolower($comando);
+    $eh_comando_fisico = preg_match('/(lig|deslig|acend|apag|irriga|bomba|piscina|status|temperatura|rele|porta|janela|alarme|sensor)/i', $cmd_lower);
+    
+    $cloud_keywords = isset($configs['ia_cloud_keywords']) ? $configs['ia_cloud_keywords'] : 'analise,pesquisa,programe,codigo,explique,calcule,redija,artigo,relatorio,python,sql';
+    $keywords_arr = array_filter(array_map('trim', explode(',', $cloud_keywords)));
+    $eh_pesquisa_complexa = false;
+    foreach ($keywords_arr as $kw) {
+        if (!empty($kw) && strpos($cmd_lower, $kw) !== false) {
+            $eh_pesquisa_complexa = true;
+            break;
+        }
+    }
+
+    if ($eh_pesquisa_complexa || (strlen($comando) > 90 && !$eh_comando_fisico)) {
+        $target_ia = 'runpod';
+        $tipo_tarefa = 'pesquisa_analise_programacao';
+    } else {
+        $target_ia = 'local';
+        $tipo_tarefa = 'automacao_perguntas_simples';
+    }
+}
+
+// 3. Prompts Especializados
+$system_prompt_local = "Voce e o JARVIS, IA residencial de Marcelo Maurin.
+Especialidade: automação de relés, irrigação, iluminação, sensores e respostas concisas e imediatas.
 Ao acionar dispositivos, adicione a tag:
 [[CMD:LIGAR_LUZ_SALA]] ou [[CMD:DESLIGAR_LUZ_SALA]]
 [[CMD:LIGAR_IRRIGACAO]] ou [[CMD:DESLIGAR_IRRIGACAO]]
 Responda em portugues de forma ultra concisa (1 ou 2 frases).";
+
+$system_prompt_cloud = "Voce e o JARVIS em modo de Alta Capacidade Cognitiva (Nuvem GPU).
+Especialidade: Analise profunda, pesquisa detalhada, arquitetura de software, programação e raciocínio avançado.
+Responda em portugues com clareza, riqueza técnica e excelência para o usuário Marcelo Maurin.";
 
 function chamar_llm_runpod($apiKey, $endpointId, $model, $system_prompt, $user_msg) {
     if (empty($apiKey) || empty($endpointId)) {
@@ -67,7 +119,7 @@ function chamar_llm_runpod($apiKey, $endpointId, $model, $system_prompt, $user_m
             ["role" => "user", "content" => $user_msg]
         ],
         "temperature" => 0.4,
-        "max_tokens" => 150
+        "max_tokens" => 350
     ];
 
     $ch = curl_init($url);
@@ -99,7 +151,7 @@ function chamar_llm_local($model, $system_prompt, $user_msg) {
         "prompt" => "{$system_prompt}\n\nUsuario: {$user_msg}\nJARVIS:",
         "stream" => false,
         "options" => [
-            "num_predict" => 80,
+            "num_predict" => 90,
             "temperature" => 0.3
         ]
     ];
@@ -121,20 +173,26 @@ function chamar_llm_local($model, $system_prompt, $user_msg) {
     return false;
 }
 
-// 3. Execucao da LLM (RunPod ou Local com Fallback)
+// 4. Execucao de Acordo com a Atribuicao Selecionada
 $resposta_jarvis = false;
-$provedor_usado = "local";
+$provedor_usado = "";
 
-if ($ia_provider === 'runpod' && !empty($runpod_api_key)) {
-    $resposta_jarvis = chamar_llm_runpod($runpod_api_key, $runpod_endpoint_id, $runpod_model, $system_prompt, $comando);
-    if ($resposta_jarvis) {
-        $provedor_usado = "runpod";
+if ($target_ia === 'runpod') {
+    if (!empty($runpod_api_key) && !empty($runpod_endpoint_id)) {
+        $resposta_jarvis = chamar_llm_runpod($runpod_api_key, $runpod_endpoint_id, $runpod_model, $system_prompt_cloud, $comando);
+        if ($resposta_jarvis) {
+            $provedor_usado = "IA Externa: RunPod GPU [Pesquisa & Análise]";
+        }
     }
-}
-
-if (!$resposta_jarvis) {
-    $resposta_jarvis = chamar_llm_local($local_model, $system_prompt, $comando);
-    $provedor_usado = "local (llama.cpp)";
+    // Fallback caso a nuvem falhe ou ainda não tenha endpoint configurado
+    if (!$resposta_jarvis) {
+        $resposta_jarvis = chamar_llm_local($local_model, $system_prompt_local, $comando);
+        $provedor_usado = "IA Local: llama.cpp [Fallback Automático]";
+    }
+} else {
+    // IA Local (Padrão para automação e tarefas locais)
+    $resposta_jarvis = chamar_llm_local($local_model, $system_prompt_local, $comando);
+    $provedor_usado = "IA Local: llama.cpp [Automação Residencial]";
 }
 
 if (!$resposta_jarvis) {
@@ -197,7 +255,7 @@ try {
     if ($tts_res) {
         $tts_data = json_decode($tts_res, true);
         if (isset($tts_data['audio_url'])) {
-            $audio_url = "/casa/ws/proxy_tts.php?action=audio&file=" . basename($tts_data['audio_url']);
+            $audio_url = "/api/audio.php?file=" . basename($tts_data['audio_url']);
         }
     }
 } catch (Exception $e) {
@@ -209,6 +267,9 @@ echo json_encode([
     'comando' => $comando,
     'resposta' => $resposta_limpa,
     'provedor' => $provedor_usado,
+    'target_ia' => $target_ia,
+    'tipo_tarefa' => $tipo_tarefa,
+    'modo_roteamento' => $routing_mode,
     'acao' => $acao_executada,
     'audio_url' => $audio_url,
     'speaker' => $jarvis_voice

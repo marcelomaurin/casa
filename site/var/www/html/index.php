@@ -506,13 +506,21 @@
       <!-- Coluna Direita: Janela de Conversa e Diálogo -->
       <div class="col-md-7">
         <div class="glass-card">
-          <div class="glass-header">
+          <div class="glass-header" style="flex-wrap: wrap; gap: 10px;">
             <div class="glass-title">
               <i class="fa-solid fa-terminal"></i> Terminal Interativo JARVIS
             </div>
-            <span id="provedorBadge" class="label label-primary" style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">
-              llama.cpp (Local)
-            </span>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-size: 11px; color: var(--text-muted);"><i class="fa-solid fa-microchip"></i> IA:</span>
+              <select id="selectIaMode" class="form-control hud-input" style="height: 28px; padding: 2px 8px; font-size: 11px; width: auto;" onchange="alterarModoIA(this.value)">
+                <option value="auto">⚡ Híbrido (Local: Residencial / Nuvem: Dev & Análise)</option>
+                <option value="local_only">🏠 Apenas Local (llama.cpp)</option>
+                <option value="cloud_only">☁️ Apenas Nuvem (RunPod GPU)</option>
+              </select>
+              <span id="provedorBadge" class="label label-primary" style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">
+                AUTO
+              </span>
+            </div>
           </div>
 
           <div id="chatWindow" class="chat-window">
@@ -674,7 +682,19 @@
       <div class="row">
         <div class="col-md-6">
           <div class="form-group">
-            <label>Provedor Ativo de Inteligência Artificial:</label>
+            <label>Estratégia de Roteamento Multi-IA:</label>
+            <select id="cfg_ia_routing_mode" class="form-control hud-input" onchange="alterarModoIA(this.value)">
+              <option value="auto">⚡ Híbrido Inteligente (Local: Automação / Nuvem: Programação, Análise e Pesquisa)</option>
+              <option value="local_only">🏠 Apenas IA Local (Desativa nuvem, roda tudo no Raspberry)</option>
+              <option value="cloud_only">☁️ Apenas Nuvem Externa (Desativa local, direciona tudo para RunPod GPU)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Palavras-Chave de Ativação da Nuvem (Separadas por vírgula):</label>
+            <textarea id="cfg_ia_cloud_keywords" class="form-control hud-input" style="height: 55px;" placeholder="analise,pesquisa,programe,codigo,explique,calcule,redija,python,sql"></textarea>
+          </div>
+          <div class="form-group">
+            <label>Provedor Padrão de Inteligência Artificial:</label>
             <select id="cfg_ia_provider" class="form-control hud-input">
               <option value="local">Local (llama.cpp no Raspberry Pi 4)</option>
               <option value="runpod">Nuvem GPU Serverless (RunPod.io)</option>
@@ -688,13 +708,13 @@
             <label>ID do Endpoint Serverless RunPod (Endpoint ID):</label>
             <input type="text" id="cfg_runpod_endpoint_id" class="form-control hud-input" placeholder="vllm-xxxxxxxxxx">
           </div>
+        </div>
+
+        <div class="col-md-6">
           <div class="form-group">
             <label>Modelo Nuvem (RunPod):</label>
             <input type="text" id="cfg_runpod_model" class="form-control hud-input" placeholder="meta-llama/Meta-Llama-3-8B-Instruct">
           </div>
-        </div>
-
-        <div class="col-md-6">
           <div class="form-group">
             <label>Modelo Local (llama.cpp):</label>
             <input type="text" id="cfg_local_model" class="form-control hud-input" readonly value="LiquidAI/lfm2.5-1.2b-instruct:q4_k_m">
@@ -708,7 +728,7 @@
             <input type="text" id="cfg_jarvis_voice" class="form-control hud-input" placeholder="padrao">
           </div>
           <div class="alert alert-info" style="background: rgba(3, 105, 161, 0.2); border-color: rgba(56, 189, 248, 0.4); color: #bae6fd; font-size: 13px;">
-            <i class="fa-solid fa-circle-info"></i> <strong>Fallback Inteligente:</strong> Caso o RunPod.io esteja indisponível ou sem saldo, o JARVIS automaticamente utiliza o motor local `llama.cpp` sem interrupção de serviço.
+            <i class="fa-solid fa-circle-info"></i> <strong>Atribuição Especializada:</strong> Tarefas residenciais rápidas (luz, irrigação, sensores) rodam localmente com latência mínima. Perguntas complexas de programação, cálculos ou pesquisa utilizam o RunPod GPU.
           </div>
         </div>
       </div>
@@ -859,16 +879,21 @@ function enviarComandoJarvis() {
   $('#chatWindow').append('<div id="' + waitId + '" class="msg-bubble msg-jarvis"><i class="fa-solid fa-spinner fa-spin"></i> Processando comando...</div>');
   scrollChat();
 
+  var iaMode = $('#selectIaMode').val();
+
   $.ajax({
     url: 'api/jarvis.php',
     type: 'POST',
     contentType: 'application/json',
-    data: JSON.stringify({ comando: cmd }),
+    data: JSON.stringify({ comando: cmd, ia_mode: iaMode }),
     success: function(res) {
       $('#' + waitId).remove();
       if (res.status === 'sucesso') {
-        $('#provedorBadge').text(res.provedor.toUpperCase());
-        var msgHtml = '<div class="msg-bubble msg-jarvis"><strong>JARVIS:</strong><br>' + $('<div>').text(res.resposta).html();
+        var badgeText = (res.target_ia === 'runpod') ? 'RUNPOD GPU' : 'LLAMA.CPP LOCAL';
+        $('#provedorBadge').text(badgeText);
+        
+        var provBadge = '<span class="badge" style="background: rgba(0, 242, 254, 0.15); color: var(--cyan); border: 1px solid var(--border-color); font-size: 10px; font-weight: normal; margin-left: 8px;">' + (res.provedor || 'IA') + '</span>';
+        var msgHtml = '<div class="msg-bubble msg-jarvis"><div style="margin-bottom: 4px;"><strong>JARVIS:</strong> ' + provBadge + '</div>' + $('<div>').text(res.resposta).html();
         if (res.acao) {
           msgHtml += '<br><span class="badge" style="background: #10b981; margin-top: 6px;"><i class="fa-solid fa-check"></i> ' + res.acao + '</span>';
         }
@@ -1260,7 +1285,7 @@ function salvarUsuario() {
   });
 }
 
-// ----------------- CONFIGURAÇÕES / RUNPOD -----------------
+// ----------------- CONFIGURAÇÕES / RUNPOD / MULTI-IA -----------------
 function carregarConfiguracoes() {
   $.getJSON('api/crud.php?tabela=configuracoes_sistema&acao=listar', function(res) {
     if (res.dados) {
@@ -1268,27 +1293,49 @@ function carregarConfiguracoes() {
         if ($('#cfg_' + c.chave).length) {
           $('#cfg_' + c.chave).val(c.valor);
         }
+        if (c.chave === 'ia_routing_mode') {
+          $('#selectIaMode').val(c.valor);
+          var badgeText = (c.valor === 'auto') ? 'AUTO' : (c.valor === 'local_only' ? 'LOCAL' : 'NUVEM');
+          $('#provedorBadge').text(badgeText);
+        }
       });
     }
   });
 }
 
+function alterarModoIA(modo) {
+  $('#selectIaMode').val(modo);
+  $('#cfg_ia_routing_mode').val(modo);
+  $.ajax({
+    url: 'api/crud.php?tabela=configuracoes_sistema&acao=atualizar',
+    type: 'POST',
+    contentType: 'application/json',
+    data: JSON.stringify({ chave: 'ia_routing_mode', valor: modo }),
+    success: function() {
+      var badgeText = (modo === 'auto') ? 'AUTO' : (modo === 'local_only' ? 'LOCAL' : 'NUVEM');
+      $('#provedorBadge').text(badgeText);
+    }
+  });
+}
+
 function salvarConfiguracoes() {
-  var chaves = ['ia_provider', 'runpod_api_key', 'runpod_endpoint_id', 'runpod_model', 'local_model', 'jarvis_activation_word', 'jarvis_voice'];
+  var chaves = ['ia_provider', 'ia_routing_mode', 'ia_cloud_keywords', 'runpod_api_key', 'runpod_endpoint_id', 'runpod_model', 'local_model', 'jarvis_activation_word', 'jarvis_voice'];
   var requests = [];
 
   chaves.forEach(function(k) {
     var val = $('#cfg_' + k).val();
-    requests.push($.ajax({
-      url: 'api/crud.php?tabela=configuracoes_sistema&acao=atualizar',
-      type: 'POST',
-      contentType: 'application/json',
-      data: JSON.stringify({ chave: k, valor: val })
-    }));
+    if (val !== undefined && val !== null) {
+      requests.push($.ajax({
+        url: 'api/crud.php?tabela=configuracoes_sistema&acao=atualizar',
+        type: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ chave: k, valor: val })
+      }));
+    }
   });
 
   $.when.apply($, requests).done(function() {
-    alert('Configurações atualizadas com sucesso no banco de dados!');
+    alert('Configurações e parâmetros Multi-IA atualizados com sucesso!');
   });
 }
 
