@@ -434,6 +434,9 @@
     <button onclick="switchTab('tab-config')">
       <i class="fa-solid fa-sliders"></i> Configurações (RunPod / IA)
     </button>
+    <button onclick="switchTab('tab-externo')">
+      <i class="fa-solid fa-globe"></i> Acesso Web & API Segura
+    </button>
   </div>
 
   <!-- TAB 1: JARVIS CORE & VOZ -->
@@ -953,6 +956,134 @@
     </div>
   </div>
 
+  <!-- TAB 13: ACESSO WEB EXTERNO & API SEGURA -->
+  <div id="tab-externo" class="tab-content-item" style="display: none;">
+    <div class="row">
+      
+      <!-- Coluna Esquerda: Conexão Pública & Token de Segurança -->
+      <div class="col-md-6">
+        
+        <!-- Card Túnel Seguro -->
+        <div class="glass-card">
+          <div class="glass-header">
+            <div class="glass-title">
+              <i class="fa-solid fa-cloud-arrow-up text-info"></i> Túnel Seguro Cloudflare (HTTPS Edge)
+            </div>
+            <button class="hud-btn-outline btn-xs" onclick="carregarStatusTunnel()"><i class="fa-solid fa-rotate"></i> Atualizar</button>
+          </div>
+          <p style="font-size: 13px; color: var(--text-muted);">
+            Túnel criptografado TLS 1.3 de alta performance sem necessidade de IP fixo público ou liberação de portas no roteador (CGNAT imune).
+          </p>
+          <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; margin-bottom: 15px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+              <span style="font-size: 12px; color: var(--text-muted);">Status do Link:</span>
+              <span id="badgeTunnelStatus" class="hud-status-badge"><span class="pulse-dot"></span> CHECANDO...</span>
+            </div>
+            <div class="form-group" style="margin-bottom: 10px;">
+              <label style="font-size: 11px; color: var(--text-muted);">URL Pública de Acesso Global:</label>
+              <div class="input-group">
+                <input type="text" id="inputPublicUrl" class="form-control hud-input" readonly value="Carregando túnel..." style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--cyan);">
+                <span class="input-group-btn">
+                  <button class="hud-btn" type="button" onclick="copiarTexto('inputPublicUrl')" title="Copiar URL"><i class="fa-solid fa-copy"></i></button>
+                  <button class="hud-btn-outline" type="button" onclick="abrirUrlPublica()" title="Abrir no Navegador"><i class="fa-solid fa-arrow-up-right-from-square"></i></button>
+                </span>
+              </div>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--text-muted);">
+              <span>Última sincronização: <strong id="lblTunnelSync" style="color: #fff;">—</strong></span>
+              <button class="btn btn-xs btn-warning" onclick="reiniciarTunnel()" style="border-radius: 4px;"><i class="fa-solid fa-arrows-rotate"></i> Reiniciar Túnel</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card Chave Mestre de Segurança -->
+        <div class="glass-card">
+          <div class="glass-header">
+            <div class="glass-title">
+              <i class="fa-solid fa-key text-warning"></i> Chave Mestre de Acesso (Bearer Token)
+            </div>
+            <button class="btn btn-xs btn-danger" onclick="rotacionarChaveApi()"><i class="fa-solid fa-arrows-spin"></i> Rotacionar Chave</button>
+          </div>
+          <p style="font-size: 13px; color: var(--text-muted);">
+            Esta credencial autoriza integrações web externas, assistentes de terceiros e requisições HTTP REST aos endpoints do JARVIS.
+          </p>
+          <div class="form-group">
+            <label style="font-size: 11px; color: var(--text-muted);">Master External API Key:</label>
+            <div class="input-group">
+              <input type="password" id="inputApiKey" class="form-control hud-input" readonly style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #f59e0b;">
+              <span class="input-group-btn">
+                <button class="hud-btn-outline" type="button" onclick="toggleVisibilidadeKey()" id="btnEyeKey" title="Mostrar/Ocultar"><i class="fa-solid fa-eye"></i></button>
+                <button class="hud-btn" type="button" onclick="copiarTexto('inputApiKey')" title="Copiar Chave"><i class="fa-solid fa-copy"></i></button>
+              </span>
+            </div>
+          </div>
+          <div class="alert alert-warning" style="background: rgba(245, 158, 11, 0.1); border-color: rgba(245, 158, 11, 0.3); color: #fde68a; font-size: 11px; margin-bottom: 0;">
+            <i class="fa-solid fa-shield-halved"></i> <strong>Políticas de Defesa Ativas:</strong> Rate limit de 60 req/min por IP. O sistema bloqueia automaticamente no firewall qualquer IP que tentar acesso forçado ou sem token válido.
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Coluna Direita: Console Interativo de Teste da API v1 -->
+      <div class="col-md-6">
+        <div class="glass-card">
+          <div class="glass-header">
+            <div class="glass-title">
+              <i class="fa-solid fa-terminal text-success"></i> Console de Teste da API REST v1
+            </div>
+            <span class="badge" style="background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid #10b981;">HARDENED v1.0</span>
+          </div>
+          <p style="font-size: 13px; color: var(--text-muted);">
+            Simule requisições seguras como um cliente web remoto para verificar as rotas da API em tempo real.
+          </p>
+          
+          <div class="row">
+            <div class="col-xs-5">
+              <label style="font-size: 11px; color: var(--text-muted);">Método & Rota:</label>
+              <select id="selApiEndpoint" class="form-control hud-input" onchange="aoMudarEndpointApi()">
+                <option value="GET|status">GET /status</option>
+                <option value="POST|comando">POST /comando</option>
+                <option value="GET|dispositivos">GET /dispositivos</option>
+                <option value="POST|dispositivos/acionar">POST /dispositivos/acionar</option>
+                <option value="GET|sensores">GET /sensores</option>
+                <option value="GET|clima">GET /clima</option>
+              </select>
+            </div>
+            <div class="col-xs-7">
+              <label style="font-size: 11px; color: var(--text-muted);">Payload JSON (Corpo da Requisição):</label>
+              <textarea id="txtApiPayload" class="form-control hud-input" rows="2" style="font-family: 'JetBrains Mono', monospace; font-size: 11px; resize: none;" placeholder='{}'></textarea>
+            </div>
+          </div>
+
+          <div style="margin-top: 15px; display: flex; justify-content: space-between; align-items: center;">
+            <div style="font-size: 12px;">
+              <span>Status HTTP: <strong id="lblHttpStatus" style="color: var(--cyan);">—</strong></span>
+              <span style="margin-left: 15px;">Tempo: <strong id="lblHttpTempo" style="color: #fff;">—</strong></span>
+            </div>
+            <button class="hud-btn" id="btnExecutarApiTeste" onclick="executarTesteApi()"><i class="fa-solid fa-play"></i> Enviar Requisição</button>
+          </div>
+
+          <div style="margin-top: 15px;">
+            <label style="font-size: 11px; color: var(--text-muted);">Resposta do Servidor (JSON Output):</label>
+            <pre id="preApiResponse" style="background: #090d16; border: 1px solid var(--border-color); color: #38bdf8; font-family: 'JetBrains Mono', monospace; font-size: 11px; height: 210px; overflow-y: auto; padding: 12px; border-radius: 6px; margin-bottom: 0;">// Clique em "Enviar Requisição" para disparar a chamada à API...</pre>
+          </div>
+
+          <div style="margin-top: 15px;">
+            <label style="font-size: 11px; color: var(--text-muted);">Snippet cURL Pronto para Uso:</label>
+            <div class="input-group">
+              <input type="text" id="inputCurlSnippet" class="form-control hud-input" readonly style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #a5b4fc;">
+              <span class="input-group-btn">
+                <button class="hud-btn-outline" type="button" onclick="copiarTexto('inputCurlSnippet')" title="Copiar cURL"><i class="fa-solid fa-copy"></i></button>
+              </span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </div>
+
 </div>
 
 <!-- MODAL GENÉRICO DE CRUD -->
@@ -997,6 +1128,7 @@ function switchTab(tabId) {
   if (tabId === 'tab-frases') carregarFrases();
   if (tabId === 'tab-usuarios') carregarUsuarios();
   if (tabId === 'tab-config') carregarConfiguracoes();
+  if (tabId === 'tab-externo') carregarAcessoExterno();
 }
 
 // ----------------- JARVIS CORE & VOZ -----------------
@@ -1925,6 +2057,183 @@ function consultarClimaAgora() {
       $('#climaMsg').text(res.clima.vai_chover ? '⚠️ Probabilidade de chuva detectada. Rotinas de irrigação suspensas preventivamente.' : '☀️ Tempo estável. Condições ideais para automação residencial.');
     }
   });
+}
+
+// ----------------- ACESSO EXTERNO & API SEGURA -----------------
+function carregarAcessoExterno() {
+  carregarStatusTunnel();
+  carregarApiKey();
+  aoMudarEndpointApi();
+}
+
+function carregarStatusTunnel() {
+  $('#badgeTunnelStatus').html('<span class="pulse-dot"></span> CHECANDO...');
+  $.getJSON('api/crud.php?tabela=devices&acao=status_tunnel', function(res) {
+    if (res.tunnel) {
+      var t = res.tunnel;
+      if (t.status === 'online' && t.url) {
+        $('#badgeTunnelStatus').html('<span class="pulse-dot"></span> ONLINE (Cloudflare Edge)').css('color', '#34d399');
+        $('#inputPublicUrl').val(t.url);
+      } else {
+        $('#badgeTunnelStatus').html('<span class="label label-danger">OFFLINE</span>');
+        $('#inputPublicUrl').val('Túnel desconectado. Clique em Reiniciar.');
+      }
+      $('#lblTunnelSync').text(t.atualizado_em || 'Agora');
+      atualizarCurlSnippet();
+    }
+  }).fail(function() {
+    $('#badgeTunnelStatus').html('<span class="label label-danger">ERRO</span>');
+  });
+}
+
+function carregarApiKey() {
+  $.getJSON('api/crud.php?tabela=devices&acao=obter_external_api_key', function(res) {
+    if (res.api_key) {
+      $('#inputApiKey').val(res.api_key);
+      atualizarCurlSnippet();
+    }
+  });
+}
+
+function rotacionarChaveApi() {
+  if (!confirm('ATENÇÃO: Rotacionar a chave mestre invalidará integrações e scripts externos que usam a chave antiga. Deseja continuar?')) {
+    return;
+  }
+  $.getJSON('api/crud.php?tabela=devices&acao=rotacionar_external_api_key', function(res) {
+    if (res.nova_api_key) {
+      $('#inputApiKey').val(res.nova_api_key);
+      atualizarCurlSnippet();
+      alert(res.mensagem);
+    }
+  });
+}
+
+function reiniciarTunnel() {
+  if (!confirm('Deseja reiniciar o serviço de túnel seguro? O Cloudflare reconectará em 5 a 10 segundos.')) return;
+  $.getJSON('api/crud.php?tabela=devices&acao=reiniciar_tunnel', function(res) {
+    alert(res.mensagem);
+    setTimeout(carregarStatusTunnel, 5000);
+  });
+}
+
+function toggleVisibilidadeKey() {
+  var el = $('#inputApiKey');
+  var btn = $('#btnEyeKey i');
+  if (el.attr('type') === 'password') {
+    el.attr('type', 'text');
+    btn.removeClass('fa-eye').addClass('fa-eye-slash');
+  } else {
+    el.attr('type', 'password');
+    btn.removeClass('fa-eye-slash').addClass('fa-eye');
+  }
+}
+
+function abrirUrlPublica() {
+  var url = $('#inputPublicUrl').val();
+  if (url && url.indexOf('http') === 0) {
+    window.open(url, '_blank');
+  }
+}
+
+function copiarTexto(elementId) {
+  var input = document.getElementById(elementId);
+  if (!input) return;
+  input.select();
+  input.setSelectionRange(0, 99999);
+  navigator.clipboard.writeText(input.value).then(function() {
+    alert('Copiado para a área de transferência!');
+  }).catch(function() {
+    document.execCommand('copy');
+    alert('Copiado para a área de transferência!');
+  });
+}
+
+function aoMudarEndpointApi() {
+  var val = $('#selApiEndpoint').val();
+  var parts = val.split('|');
+  var method = parts[0];
+  var route = parts[1];
+
+  if (route === 'comando') {
+    $('#txtApiPayload').val(JSON.stringify({ comando: "qual o status da casa?", ia_mode: "auto" }, null, 2));
+  } else if (route === 'dispositivos/acionar') {
+    $('#txtApiPayload').val(JSON.stringify({ iddevice: 1, parametro: "dev1", valor: "1" }, null, 2));
+  } else {
+    $('#txtApiPayload').val('');
+  }
+  atualizarCurlSnippet();
+}
+
+function atualizarCurlSnippet() {
+  var publicUrl = $('#inputPublicUrl').val();
+  if (!publicUrl || publicUrl.indexOf('http') !== 0) {
+    publicUrl = window.location.origin;
+  }
+  var apiKey = $('#inputApiKey').val() || 'SUA_CHAVE_API';
+  var val = $('#selApiEndpoint').val() || 'GET|status';
+  var parts = val.split('|');
+  var method = parts[0];
+  var route = parts[1];
+  var payload = $('#txtApiPayload').val().trim();
+
+  var curl = 'curl -X ' + method + ' "' + publicUrl + '/api/v1/' + route + '" \\\n  -H "Authorization: Bearer ' + apiKey + '"';
+  if (method === 'POST') {
+    curl += ' \\\n  -H "Content-Type: application/json"';
+    if (payload) {
+      curl += ' \\\n  -d \'' + payload.replace(/\n/g, '') + '\'';
+    }
+  }
+  $('#inputCurlSnippet').val(curl);
+}
+
+function executarTesteApi() {
+  var val = $('#selApiEndpoint').val();
+  var parts = val.split('|');
+  var method = parts[0];
+  var route = parts[1];
+  var payloadStr = $('#txtApiPayload').val().trim();
+  var apiKey = $('#inputApiKey').val();
+
+  var btn = $('#btnExecutarApiTeste');
+  btn.prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin"></i> Executando...');
+  $('#preApiResponse').text('// Enviando requisição HTTP ' + method + ' /api/v1/' + route + '...');
+  $('#lblHttpStatus').text('Enviando...');
+  $('#lblHttpTempo').text('...');
+
+  var tStart = performance.now();
+
+  var ajaxOpts = {
+    url: '/api/v1/' + route,
+    type: method,
+    headers: {
+      'Authorization': 'Bearer ' + apiKey
+    },
+    success: function(data, textStatus, xhr) {
+      var dur = Math.round(performance.now() - tStart);
+      $('#lblHttpStatus').text(xhr.status + ' ' + xhr.statusText).css('color', '#34d399');
+      $('#lblHttpTempo').text(dur + ' ms');
+      $('#preApiResponse').text(JSON.stringify(data, null, 2)).css('color', '#38bdf8');
+      btn.prop('disabled', false).html('<i class="fa-solid fa-play"></i> Enviar Requisição');
+    },
+    error: function(xhr) {
+      var dur = Math.round(performance.now() - tStart);
+      $('#lblHttpStatus').text(xhr.status + ' ' + (xhr.statusText || 'Erro')).css('color', '#ef4444');
+      $('#lblHttpTempo').text(dur + ' ms');
+      var out = xhr.responseText;
+      try {
+        out = JSON.stringify(JSON.parse(out), null, 2);
+      } catch(e) {}
+      $('#preApiResponse').text(out).css('color', '#f87171');
+      btn.prop('disabled', false).html('<i class="fa-solid fa-play"></i> Enviar Requisição');
+    }
+  };
+
+  if (method === 'POST') {
+    ajaxOpts.contentType = 'application/json';
+    ajaxOpts.data = payloadStr || '{}';
+  }
+
+  $.ajax(ajaxOpts);
 }
 
 $(document).ready(function() {

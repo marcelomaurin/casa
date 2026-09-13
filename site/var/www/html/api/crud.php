@@ -363,6 +363,49 @@ try {
         exit;
     }
 
+    if ($acao === 'status_tunnel') {
+        $status_data = ['status' => 'offline', 'url' => '', 'atualizado_em' => ''];
+        if (file_exists('/var/www/html/api/tunnel_status.json')) {
+            $status_data = json_decode(file_get_contents('/var/www/html/api/tunnel_status.json'), true);
+        }
+        $stmt = $pdo->query("SELECT valor FROM configuracoes_sistema WHERE chave = 'external_web_url'");
+        $db_url = $stmt->fetchColumn();
+        if (empty($status_data['url']) && !empty($db_url)) {
+            $status_data['url'] = $db_url;
+            $status_data['status'] = 'online';
+        }
+        echo json_encode(['status' => 'sucesso', 'tunnel' => $status_data]);
+        exit;
+    }
+
+    if ($acao === 'obter_external_api_key') {
+        $stmt = $pdo->query("SELECT valor FROM configuracoes_sistema WHERE chave = 'external_api_key'");
+        $key = $stmt->fetchColumn();
+        if (!$key) {
+            $key = "jarvis_sec_v1_" . bin2hex(random_bytes(24));
+            $pdo->prepare("INSERT INTO configuracoes_sistema (chave, valor) VALUES ('external_api_key', :k) ON CONFLICT (chave) DO UPDATE SET valor = :k")
+                ->execute([':k' => $key]);
+        }
+        echo json_encode(['status' => 'sucesso', 'api_key' => $key]);
+        exit;
+    }
+
+    if ($acao === 'rotacionar_external_api_key') {
+        $nova_chave = "jarvis_sec_v1_" . bin2hex(random_bytes(24));
+        $pdo->prepare("INSERT INTO configuracoes_sistema (chave, valor) VALUES ('external_api_key', :k) ON CONFLICT (chave) DO UPDATE SET valor = :k")
+            ->execute([':k' => $nova_chave]);
+        registrar_evento_seguranca(get_client_ip(), 'ROTACAO_CHAVE_API', "Chave Mestre de Acesso Externo à API v1 rotacionada pelo administrador", 'AVISO');
+        echo json_encode(['status' => 'sucesso', 'mensagem' => 'Nova chave de API gerada com sucesso!', 'nova_api_key' => $nova_chave]);
+        exit;
+    }
+
+    if ($acao === 'reiniciar_tunnel') {
+        exec("sudo systemctl restart casa-tunnel > /dev/null 2>&1 &");
+        registrar_evento_seguranca(get_client_ip(), 'REINICIO_TUNEL', "Comando de reinicialização do túnel externo Cloudflare executado", 'INFO');
+        echo json_encode(['status' => 'sucesso', 'mensagem' => 'Serviço do túnel seguro reiniciado. A nova URL estará disponível em alguns segundos.']);
+        exit;
+    }
+
 } catch (Exception $e) {
     echo json_encode(['status' => 'erro', 'mensagem' => $e->getMessage()]);
     exit;

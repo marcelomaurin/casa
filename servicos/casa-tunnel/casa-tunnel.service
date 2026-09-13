@@ -1,0 +1,13 @@
+[Unit]
+Description=JARVIS Conexao Externa Segura e Tunel HTTPS
+After=network.target postgresql.service apache2.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/python3 /opt/casa-tunnel/casa-tunnel.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
