@@ -7,6 +7,9 @@ on:
       - '.github/workflows/build-jarvis-mobile.yml'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -60,6 +63,22 @@ jobs:
       - name: Rename APK
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk ../../JarvisMobile-debug.apk
+
+      - name: Version APK in repository
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        run: |
+          mkdir -p bin/android
+          cp JarvisMobile-debug.apk bin/android/JarvisMobile-debug.apk
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bin/android/JarvisMobile-debug.apk
+          if git diff --cached --quiet; then
+            echo "APK sem alteracoes; nada para commitar."
+          else
+            git commit -m "Atualiza APK Jarvis Mobile"
+            git push origin HEAD:master
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
