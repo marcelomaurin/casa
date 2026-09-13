@@ -18,6 +18,24 @@
 		return $pdo;
 	}
 
+	function get_secondary_db_pdo()
+	{
+		static $sec_pdo = null;
+		if ($sec_pdo === null) {
+			try {
+				$dsn = "pgsql:host=192.168.2.8;port=5432;dbname=casadb";
+				$sec_pdo = new PDO($dsn, "casadb_user", "casadb_password_2026", [
+					PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+					PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+					PDO::ATTR_TIMEOUT => 2
+				]);
+			} catch (Exception $e) {
+				$sec_pdo = false;
+			}
+		}
+		return $sec_pdo;
+	}
+
 	/* Retorna o IP local do usuario */
 	function get_ip()
 	{

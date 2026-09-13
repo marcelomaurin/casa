@@ -45,11 +45,21 @@ try {
         elseif ($tabela === 'falas') $ordem_col = 'idfala';
         elseif ($tabela === 'configuracoes_sistema') $ordem_col = 'chave';
 
+        $target_pdo = $pdo;
+        $db_origem = "mestre (192.168.2.12)";
+        if ($tabela === 'sensores_telemetria' || $tabela === 'comandos_log') {
+            $sec = get_secondary_db_pdo();
+            if ($sec) {
+                $target_pdo = $sec;
+                $db_origem = "secundario_cluster (192.168.2.8 - Cubieboard)";
+            }
+        }
+
         $sql = "SELECT * FROM {$tabela} ORDER BY {$ordem_col} DESC LIMIT {$limite}";
-        $stmt = $pdo->query($sql);
+        $stmt = $target_pdo->query($sql);
         $dados = $stmt->fetchAll();
 
-        echo json_encode(['status' => 'sucesso', 'tabela' => $tabela, 'total' => count($dados), 'dados' => $dados], JSON_UNESCAPED_UNICODE);
+        echo json_encode(['status' => 'sucesso', 'tabela' => $tabela, 'origem_dados' => $db_origem, 'total' => count($dados), 'dados' => $dados], JSON_UNESCAPED_UNICODE);
         exit;
     }
 
