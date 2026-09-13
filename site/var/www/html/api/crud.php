@@ -181,8 +181,8 @@ try {
         $ram = isset($input['ram_info']) ? $input['ram_info'] : '';
         $st = isset($input['status']) ? $input['status'] : 'online';
 
-        $check = $pdo->prepare("SELECT id FROM arm_nodes WHERE ip_address = :ip OR hostname = :h");
-        $check->execute([':ip' => $ip, ':h' => $hostname]);
+        $check = $pdo->prepare("SELECT id FROM arm_nodes WHERE ip_address = :ip");
+        $check->execute([':ip' => $ip]);
         $row = $check->fetch();
 
         if ($row) {

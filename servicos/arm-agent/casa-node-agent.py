@@ -37,7 +37,7 @@ def get_cpu_temp():
         if os.path.exists("/sys/class/thermal/thermal_zone0/temp"):
             with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
                 temp = float(f.read().strip()) / 1000.0
-                return f"{temp:.1f} °C"
+                return "{0:.1f} °C".format(temp)
     except Exception:
         pass
     return "N/A"
@@ -54,7 +54,7 @@ def get_ram_info():
             elif l.startswith("MemAvailable:"):
                 mem_avail = int(l.split()[1]) // 1024
         mem_used = mem_total - mem_avail
-        return f"{mem_used}MB / {mem_total}MB"
+        return "{0}MB / {1}MB".format(mem_used, mem_total)
     except Exception:
         return "ARM RAM"
 
@@ -63,7 +63,7 @@ def get_cpu_info():
         cores = os.cpu_count() or 4
         with open("/proc/loadavg", "r") as f:
             load = f.read().split()[0]
-        return f"{cores}-cores (Load: {load}, Temp: {get_cpu_temp()})"
+        return "{0}-cores (Load: {1}, Temp: {2})".format(cores, load, get_cpu_temp())
     except Exception:
         return "ARM CPU"
 
@@ -76,7 +76,7 @@ def send_heartbeat():
         "status": "online"
     }
     try:
-        url = f"{MASTER_URL}?tabela=arm_nodes&action=heartbeat"
+        url = "{0}?tabela=arm_nodes&action=heartbeat".format(MASTER_URL)
         req = urllib.request.Request(
             url,
             data=json.dumps(payload).encode("utf-8"),
@@ -85,7 +85,7 @@ def send_heartbeat():
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = resp.read().decode("utf-8")
     except Exception as e:
-        print(f"[Heartbeat Aviso] Nao foi possivel contatar o mestre: {e}")
+        print("[Heartbeat Aviso] Nao foi possivel contatar o mestre: {0}".format(e))
 
 def heartbeat_worker():
     while True:
@@ -98,7 +98,7 @@ class AgentHandler(BaseHTTPRequestHandler):
 
     def _set_headers(self, status=200, content_type="application/json"):
         self.send_response(status)
-        self.send_header("Content-Type", f"{content_type}; charset=utf-8")
+        self.send_header("Content-Type", "{0}; charset=utf-8".format(content_type))
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
 
@@ -128,27 +128,58 @@ class AgentHandler(BaseHTTPRequestHandler):
 
         if self.path == "/exec":
             cmd = req_data.get("comando", "")
-            res = {"status": "ok", "comando": cmd, "resultado": "Executado com sucesso no nó ARM"}
+            res = {"status": "ok", "comando": cmd, "resultado": "Executado com sucesso no no ARM"}
             self._set_headers(200)
             self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
 
         elif self.path == "/falar":
             texto = req_data.get("texto", "")
+            audio_url = req_data.get("audio_url", "")
+            
+            def play_worker(t, u):
+                try:
+                    wav_file = "/tmp/jarvis_remote_audio.wav"
+                    if not u and t:
+                        # Obter sintese do mestre TTS
+                        import urllib.request
+                        tts_req = urllib.request.Request(
+                            "http://192.168.2.12:8097/falar",
+                            data=json.dumps({"texto": t, "speaker": "padrao", "reproduzir": False}).encode("utf-8"),
+                            headers={"Content-Type": "application/json"}
+                        )
+                        with urllib.request.urlopen(tts_req, timeout=15) as r:
+                            tts_resp = json.loads(r.read().decode("utf-8"))
+                            rel_url = tts_resp.get("audio_url", "")
+                            if rel_url:
+                                u = "http://192.168.2.12" + rel_url
+                    if u:
+                        if u.startswith("/"):
+                            u = "http://192.168.2.12" + u
+                        urllib.request.urlretrieve(u, wav_file)
+                        os.system("aplay -q " + wav_file + " 2>/dev/null || mplayer -really-quiet " + wav_file + " 2>/dev/null")
+                except Exception as ex:
+                    print("[Audio Error]:", ex)
+
+            th = threading.Thread(target=play_worker, args=(texto, audio_url))
+            th.daemon = True
+            th.start()
+
             self._set_headers(200)
-            self.wfile.write(json.dumps({"status": "ok", "fala": texto}).encode("utf-8"))
+            self.wfile.write(json.dumps({"status": "ok", "mensagem": "Audio sendo reproduzido no alto-falante deste no"}, ensure_ascii=False).encode("utf-8"))
 
         else:
             self._set_headers(404)
             self.wfile.write(b'{"erro":"Endpoint desconhecido"}')
 
 def main():
-    print(f"=== CASA INTELIGENTE - NO ARM AGENT INICIADO ===")
-    print(f"Hostname: {socket.gethostname()}")
-    print(f"IP: {get_ip()}")
-    print(f"Mestre: {MASTER_URL}")
-    print(f"Porta de escuta: {AGENT_PORT}")
+    print("=== CASA INTELIGENTE - NO ARM AGENT INICIADO ===")
+    print("Hostname: {0}".format(socket.gethostname()))
+    print("IP: {0}".format(get_ip()))
+    print("Mestre: {0}".format(MASTER_URL))
+    print("Porta de escuta: {0}".format(AGENT_PORT))
 
-    t = threading.Thread(target=heartbeat_worker, daemon=True)
+    t = threading.Thread(target=heartbeat_worker)
+    t.daemon = True
     t.start()
 
     server = HTTPServer(("0.0.0.0", AGENT_PORT), AgentHandler)
