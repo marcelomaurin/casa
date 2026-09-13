@@ -33,8 +33,13 @@ implementation
 
 procedure Tfrmmain.FormCreate(Sender: TObject);
 begin
-  id
+  try
+    IdUDPServer1.Active := True;
+  except
+    on E: Exception do;
+  end;
 end;
 
 end.
+
 
