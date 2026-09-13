@@ -1,0 +1,16 @@
+[Unit]
+Description=Servico de Sintese e Clonagem de Voz da Casa Inteligente
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=mmm
+WorkingDirectory=/home/mmm/servicos/tts
+ExecStart=/home/mmm/servicos/tts/venv/bin/python3 /home/mmm/servicos/tts/server_tts.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

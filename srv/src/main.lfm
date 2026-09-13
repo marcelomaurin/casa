@@ -1,0 +1,15 @@
+object frmmain: Tfrmmain
+  Left = 389
+  Height = 240
+  Top = 230
+  Width = 320
+  Caption = 'Srv Casa'
+  OnCreate = FormCreate
+  LCLVersion = '2.0.12.0'
+  object IdUDPServer1: TIdUDPServer
+    Bindings = <>
+    DefaultPort = 8090
+    Left = 105
+    Top = 52
+  end
+end

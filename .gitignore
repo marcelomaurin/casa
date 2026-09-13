@@ -1,0 +1,14 @@
+# Executaveis e binarios compilados
+*.exe
+*.o
+*.ppu
+*.or
+*.compiled
+backup/
+lib/
+
+# Pacotes temporarios
+*.deb
+*.tmp
+*.swp
+*.bak

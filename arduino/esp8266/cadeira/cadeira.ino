@@ -17,7 +17,7 @@ const long utcOffsetInSeconds = -10800; //- 3h * 60 * 60
 char daysOfTheWeek[7][12] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
 
 const uint16_t portClient = 8090;
-//const char * host = "192.168.0.213";
+//const char * host = "192.168.0.105";
 
 // Define NTP Client to get time
 WiFiUDP ntpUDP;
@@ -53,7 +53,8 @@ SoftwareSerial swSer;
 const char* ssid     = STASSID;
 const char* password = STAPSK;
 
-const char* host = "maurinsoft.com.br";
+//const char* host = "maurinsoft.com.br";
+const char* host = "192.168.0.105";
 const uint16_t port = 17;
 
 String Buffer;
