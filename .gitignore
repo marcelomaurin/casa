@@ -12,3 +12,9 @@ lib/
 *.tmp
 *.swp
 *.bak
+
+# Arquivos temporarios e sensiveis
+.env
+__pycache__/
+*.pyc
+
