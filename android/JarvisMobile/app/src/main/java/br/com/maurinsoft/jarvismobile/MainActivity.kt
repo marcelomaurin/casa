@@ -1,7 +1,6 @@
 package br.com.maurinsoft.jarvismobile
 
 import android.Manifest
-import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioAttributes
@@ -20,7 +19,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -29,7 +27,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     private var recognizer: SpeechRecognizer? = null
@@ -135,6 +132,19 @@ class MainActivity : ComponentActivity() {
         }.start()
     }
 
+    private fun openTetherSettings() {
+        try {
+            startActivity(Intent("android.settings.TETHER_SETTINGS"))
+        } catch (_: Exception) {
+            try {
+                startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS))
+            } catch (_: Exception) {
+                startActivity(Intent(Settings.ACTION_SETTINGS))
+            }
+        }
+    }
+
+    @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     private fun JarvisScreen() {
         val scope = rememberCoroutineScope()
@@ -213,15 +223,14 @@ class MainActivity : ComponentActivity() {
                         ) { Text(if (busy) "Aguarde" else "🎤 Falar") }
                     }
 
-                    Divider()
+                    HorizontalDivider()
                     Text("Relógio e internet", style = MaterialTheme.typography.titleMedium)
                     Text("O app mantém uma ponte BLE para o JARVIS Watch. O relógio pode enviar comandos ao celular; o celular usa sua conexão com a internet e devolve a resposta pelo BLE.")
-                    Button(onClick = {
-                        try { startActivity(Intent(Settings.ACTION_TETHER_SETTINGS)) }
-                        catch (_: Exception) { startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS)) }
-                    }) { Text("Abrir compartilhamento de internet") }
+                    Button(onClick = { openTetherSettings() }) {
+                        Text("Abrir compartilhamento de internet")
+                    }
 
-                    Divider()
+                    HorizontalDivider()
                     Text("Configuração", style = MaterialTheme.typography.titleMedium)
                     OutlinedTextField(
                         value = server,
