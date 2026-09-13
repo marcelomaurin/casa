@@ -10,8 +10,10 @@
 // - configuracoes_sistema
 
 header('Content-Type: application/json; charset=utf-8');
-include_once(__DIR__ . '/../casa/config.php');
-include_once(__DIR__ . '/../casa/funcs.php');
+require_once(__DIR__ . '/db.php');
+
+// Verificação de Segurança (Sessão Web ou Token de API)
+verify_api_auth();
 
 $pdo = get_db_pdo();
 
@@ -20,7 +22,8 @@ $acao = isset($_GET['acao']) ? $_GET['acao'] : (isset($_GET['action']) ? $_GET['
 
 $tabelas_permitidas = [
     'devices', 'devpar', 'sensores_telemetria', 'frases', 
-    'usuarios', 'arm_nodes', 'configuracoes_sistema', 'comandos_log', 'falas', 'llm_conversas'
+    'usuarios', 'arm_nodes', 'configuracoes_sistema', 'comandos_log', 'falas', 'llm_conversas',
+    'tarefas_agendadas'
 ];
 
 if (!in_array($tabela, $tabelas_permitidas)) {
@@ -194,6 +197,61 @@ try {
         }
 
         echo json_encode(['status' => 'sucesso', 'mensagem' => 'Heartbeat recebido']);
+        exit;
+    }
+
+    if ($acao === 'executar_tarefa') {
+        $id_tarefa = isset($input['id']) ? intval($input['id']) : (isset($_GET['id']) ? intval($_GET['id']) : 0);
+        if ($id_tarefa <= 0) {
+            echo json_encode(['status' => 'erro', 'mensagem' => 'ID de tarefa inválido']);
+            exit;
+        }
+
+        $stmt = $pdo->prepare("SELECT * FROM tarefas_agendadas WHERE id = :id");
+        $stmt->execute([':id' => $id_tarefa]);
+        $tarefa = $stmt->fetch();
+
+        if (!$tarefa) {
+            echo json_encode(['status' => 'erro', 'mensagem' => 'Tarefa não encontrada']);
+            exit;
+        }
+
+        $res_exec = "Disparado com sucesso";
+        // Executar ação de acordo com o tipo
+        if ($tarefa['tipo_acao'] === 'comando_jarvis') {
+            $ch = curl_init("http://127.0.0.1/api/jarvis.php");
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode(['comando' => $tarefa['payload']]));
+            curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json', 'X-API-Key: ' . get_system_api_token()]);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+            $r = curl_exec($ch);
+            curl_close($ch);
+            if ($r) {
+                $j = json_decode($r, true);
+                $res_exec = isset($j['resposta']) ? $j['resposta'] : $r;
+            }
+        } elseif ($tarefa['tipo_acao'] === 'aviso_fala') {
+            $target = $tarefa['target_node'];
+            $url = ($target === 'local' || empty($target)) ? "http://127.0.0.1:8097/falar" : "http://{$target}:8098/falar";
+            $ch = curl_init($url);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode(['texto' => $tarefa['payload'], 'reproduzir' => true]));
+            curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+            $r = curl_exec($ch);
+            curl_close($ch);
+            $res_exec = "Áudio disparado para {$target}";
+        }
+
+        $pdo->prepare("UPDATE tarefas_agendadas SET ultima_execucao = CURRENT_TIMESTAMP WHERE id = :id")
+            ->execute([':id' => $id_tarefa]);
+
+        $pdo->prepare("INSERT INTO comandos_log (comando, origem, resultado) VALUES (:cmd, 'MANUAL_SCHEDULER', :res)")
+            ->execute([':cmd' => "Disparo manual da tarefa: " . $tarefa['titulo'], ':res' => $res_exec]);
+
+        echo json_encode(['status' => 'sucesso', 'mensagem' => "Tarefa '{$tarefa['titulo']}' executada!", 'detalhes' => $res_exec], JSON_UNESCAPED_UNICODE);
         exit;
     }
 

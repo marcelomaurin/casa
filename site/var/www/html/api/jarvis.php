@@ -8,8 +8,10 @@
 // 5. Sintese de resposta em voz neural/clonada
 
 header('Content-Type: application/json; charset=utf-8');
-include_once(__DIR__ . '/../casa/config.php');
-include_once(__DIR__ . '/../casa/funcs.php');
+require_once(__DIR__ . '/db.php');
+
+// Verificação de Segurança (Sessão Web ou Token de API)
+verify_api_auth();
 
 $input = json_decode(file_get_contents('php://input'), true);
 $comando = '';

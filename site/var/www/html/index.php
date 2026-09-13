@@ -1,8 +1,18 @@
 <?php
   // Interface Central JARVIS & Gestao Residencial
+  if (session_status() === PHP_SESSION_NONE) {
+      session_start();
+  }
+  if (empty($_SESSION['auth_user'])) {
+      header("Location: /login.php");
+      exit;
+  }
+  $auth_user = $_SESSION['auth_user'];
+  $auth_name = !empty($_SESSION['auth_name']) ? $_SESSION['auth_name'] : $auth_user;
+  $auth_perfil = !empty($_SESSION['auth_perfil']) ? $_SESSION['auth_perfil'] : 'Operador';
+
   ini_set('display_errors', 'Off');
-  include_once(__DIR__ . '/casa/config.php');
-  include_once(__DIR__ . '/casa/funcs.php');
+  require_once(__DIR__ . '/api/db.php');
   $pdo = get_db_pdo();
 
   // Contadores para o Dashboard
@@ -371,10 +381,13 @@
       </div>
       <div class="col-xs-6 text-right" style="display: flex; align-items: center; justify-content: flex-end; gap: 15px;">
         <span class="text-muted" style="font-size: 13px;">
-          <i class="fa-solid fa-microchip text-info"></i> ARM Quad-Core Cluster
+          <i class="fa-solid fa-microchip text-info"></i> Cluster ARM
         </span>
-        <a href="/casa/index.php" class="btn btn-xs hud-btn-outline" style="border-radius: 6px;" title="Interface Clássica">
-          <i class="fa-solid fa-table-cells"></i> Painel Antigo
+        <span style="color: var(--cyan); font-weight: 600; font-size: 13px; background: rgba(0, 240, 255, 0.1); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(0, 240, 255, 0.2);">
+          <i class="fa-solid fa-user-shield"></i> <?= htmlspecialchars($auth_name) ?> [<?= htmlspecialchars($auth_perfil) ?>]
+        </span>
+        <a href="/login.php?logout=1" class="btn btn-xs btn-danger" style="border-radius: 6px; padding: 4px 12px; font-weight: 600;" title="Encerrar Sessão Segura">
+          <i class="fa-solid fa-right-from-bracket"></i> Sair
         </a>
       </div>
     </div>
@@ -396,6 +409,9 @@
     </button>
     <button onclick="switchTab('tab-nodes')">
       <i class="fa-solid fa-network-wired"></i> Cluster ARM (4 Nós)
+    </button>
+    <button onclick="switchTab('tab-agendamentos')">
+      <i class="fa-solid fa-calendar-check"></i> Agendamentos
     </button>
     <button onclick="switchTab('tab-frases')">
       <i class="fa-solid fa-quote-left"></i> Frases & Avisos
@@ -699,6 +715,40 @@
     </div>
   </div>
 
+  <!-- TAB 8: AGENDAMENTOS DE TAREFAS -->
+  <div id="tab-agendamentos" class="tab-content-item" style="display: none;">
+    <div class="glass-card">
+      <div class="glass-header">
+        <div class="glass-title"><i class="fa-solid fa-calendar-check"></i> Agendamentos de Tarefas & Automação Residencial</div>
+        <div>
+          <button class="btn btn-sm hud-btn-outline" onclick="carregarAgendamentos()"><i class="fa-solid fa-rotate"></i> Atualizar</button>
+          <button class="hud-btn" onclick="abrirModalAgendamento()"><i class="fa-solid fa-plus"></i> Novo Agendamento</button>
+        </div>
+      </div>
+      <div class="table-responsive">
+        <table class="table hud-table" id="tabelaAgendamentos">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Título / Descrição</th>
+              <th>Horário</th>
+              <th>Dias</th>
+              <th>Tipo de Ação</th>
+              <th>Payload / Comando</th>
+              <th>Alvo (Nó)</th>
+              <th>Status</th>
+              <th>Última Execução</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Preenchido via AJAX -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <!-- MODAL GENÉRICO DE CRUD -->
@@ -735,6 +785,7 @@ function switchTab(tabId) {
   if (tabId === 'tab-devices') carregarDevices();
   if (tabId === 'tab-sensores') carregarSensores();
   if (tabId === 'tab-nodes') carregarNodes();
+  if (tabId === 'tab-agendamentos') carregarAgendamentos();
   if (tabId === 'tab-frases') carregarFrases();
   if (tabId === 'tab-usuarios') carregarUsuarios();
   if (tabId === 'tab-config') carregarConfiguracoes();
@@ -1238,6 +1289,141 @@ function salvarConfiguracoes() {
 
   $.when.apply($, requests).done(function() {
     alert('Configurações atualizadas com sucesso no banco de dados!');
+  });
+}
+
+// ----------------- CRUD AGENDAMENTOS -----------------
+function carregarAgendamentos() {
+  $.getJSON('api/crud.php?tabela=tarefas_agendadas&acao=listar', function(res) {
+    var tbody = $('#tabelaAgendamentos tbody');
+    tbody.empty();
+    if (res.dados) {
+      res.dados.forEach(function(t) {
+        var stBadge = t.ativo ? '<span class="label label-success">Ativo</span>' : '<span class="label label-default">Pausado</span>';
+        var tr = '<tr>' +
+          '<td>#' + t.id + '</td>' +
+          '<td><strong>' + t.titulo + '</strong><br><small class="text-muted">' + (t.descricao || '') + '</small></td>' +
+          '<td><span class="label label-info" style="font-size: 13px;"><i class="fa-regular fa-clock"></i> ' + t.horario + '</span></td>' +
+          '<td><code>' + t.dias_semana + '</code></td>' +
+          '<td><span class="label label-primary">' + t.tipo_acao + '</span></td>' +
+          '<td style="max-width: 200px; word-break: break-all;"><small>' + t.payload + '</small></td>' +
+          '<td><small>' + (t.target_node || 'local') + '</small></td>' +
+          '<td>' + stBadge + '</td>' +
+          '<td style="font-size: 11px; color: var(--text-muted);">' + (t.ultima_execucao || 'Nunca') + '</td>' +
+          '<td style="white-space: nowrap;">' +
+            '<button class="btn btn-xs hud-btn" onclick="executarTarefaAgora(' + t.id + ', \'' + t.titulo.replace(/'/g, "\\'") + '\')" title="Executar Agora"><i class="fa-solid fa-play"></i> Rodar</button> ' +
+            '<button class="btn btn-xs hud-btn-outline" onclick="alternarStatusAgendamento(' + t.id + ', ' + (!t.ativo) + ')" title="Pausar/Ativar"><i class="fa-solid fa-power-off"></i></button> ' +
+            '<button class="btn btn-xs hud-btn-outline" onclick="editarAgendamento(' + JSON.stringify(t).replace(/"/g, '&quot;') + ')" title="Editar"><i class="fa-solid fa-pen"></i></button> ' +
+            '<button class="btn btn-xs btn-danger" onclick="excluirItem(\'tarefas_agendadas\', ' + t.id + ', carregarAgendamentos)" title="Excluir"><i class="fa-solid fa-trash"></i></button>' +
+          '</td>' +
+        '</tr>';
+        tbody.append(tr);
+      });
+    }
+  });
+}
+
+function alternarStatusAgendamento(id, novoStatus) {
+  $.ajax({
+    url: 'api/crud.php?tabela=tarefas_agendadas&acao=atualizar',
+    type: 'POST',
+    contentType: 'application/json',
+    data: JSON.stringify({ id: id, ativo: novoStatus }),
+    success: function() {
+      carregarAgendamentos();
+    }
+  });
+}
+
+function executarTarefaAgora(id, titulo) {
+  var btn = event.currentTarget;
+  $(btn).prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin"></i> Executando...');
+  $.ajax({
+    url: 'api/crud.php?tabela=tarefas_agendadas&acao=executar_tarefa&id=' + id,
+    type: 'POST',
+    contentType: 'application/json',
+    success: function(res) {
+      alert('Tarefa [' + titulo + '] executada com sucesso!\n' + (res.detalhes || ''));
+      carregarAgendamentos();
+    },
+    error: function(err) {
+      alert('Falha ao disparar tarefa: ' + (err.responseText || 'Erro'));
+    },
+    complete: function() {
+      $(btn).prop('disabled', false).html('<i class="fa-solid fa-play"></i> Rodar');
+    }
+  });
+}
+
+function abrirModalAgendamento() {
+  $('#modalCrudTitle').text('Novo Agendamento Automatizado');
+  $('#modalCrudBody').html(
+    '<input type="hidden" id="f_agend_id" value="">' +
+    '<div class="form-group"><label>Título:</label><input class="form-control hud-input" id="f_agend_titulo" placeholder="ex: Irrigação Noturna"></div>' +
+    '<div class="form-group"><label>Descrição:</label><input class="form-control hud-input" id="f_agend_desc" placeholder="Detalhes da rotina"></div>' +
+    '<div class="row">' +
+      '<div class="col-xs-6"><div class="form-group"><label>Horário (HH:MM ou */minutos):</label><input class="form-control hud-input" id="f_agend_horario" placeholder="18:30 ou */15" value="18:00"></div></div>' +
+      '<div class="col-xs-6"><div class="form-group"><label>Dias da Semana (* ou 1,2,3,4,5):</label><input class="form-control hud-input" id="f_agend_dias" placeholder="*" value="*"></div></div>' +
+    '</div>' +
+    '<div class="row">' +
+      '<div class="col-xs-6"><div class="form-group"><label>Tipo de Ação:</label>' +
+        '<select class="form-control hud-input" id="f_agend_tipo">' +
+          '<option value="comando_jarvis">Comando do JARVIS (Linguagem Natural)</option>' +
+          '<option value="aviso_fala">Aviso de Voz / Despertador</option>' +
+          '<option value="dispositivo_devpar">Acionamento Direto (devpar)</option>' +
+        '</select>' +
+      '</div></div>' +
+      '<div class="col-xs-6"><div class="form-group"><label>Nó de Destino (Alvo):</label>' +
+        '<select class="form-control hud-input" id="f_agend_node">' +
+          '<option value="local">Nó Mestre Local (192.168.2.12)</option>' +
+          '<option value="192.168.2.6">Satélite de Áudio (192.168.2.6)</option>' +
+          '<option value="192.168.2.8">Nó Secundário (192.168.2.8)</option>' +
+        '</select>' +
+      '</div></div>' +
+    '</div>' +
+    '<div class="form-group"><label>Payload / Comando:</label><textarea class="form-control hud-input" style="height: 70px;" id="f_agend_payload" placeholder="ex: Ligue a irrigacao da piscina"></textarea></div>'
+  );
+  $('#btnSalvarModal').attr('onclick', 'salvarAgendamento()');
+  $('#modalCrud').modal('show');
+}
+
+function editarAgendamento(t) {
+  abrirModalAgendamento();
+  $('#modalCrudTitle').text('Editar Agendamento #' + t.id);
+  $('#f_agend_id').val(t.id);
+  $('#f_agend_titulo').val(t.titulo);
+  $('#f_agend_desc').val(t.descricao);
+  $('#f_agend_horario').val(t.horario);
+  $('#f_agend_dias').val(t.dias_semana);
+  $('#f_agend_tipo').val(t.tipo_acao);
+  $('#f_agend_node').val(t.target_node);
+  $('#f_agend_payload').val(t.payload);
+}
+
+function salvarAgendamento() {
+  var id = $('#f_agend_id').val();
+  var payload = {
+    titulo: $('#f_agend_titulo').val(),
+    descricao: $('#f_agend_desc').val(),
+    horario: $('#f_agend_horario').val(),
+    dias_semana: $('#f_agend_dias').val(),
+    tipo_acao: $('#f_agend_tipo').val(),
+    target_node: $('#f_agend_node').val(),
+    payload: $('#f_agend_payload').val()
+  };
+
+  var url = 'api/crud.php?tabela=tarefas_agendadas&acao=' + (id ? 'atualizar' : 'criar');
+  if (id) payload.id = parseInt(id);
+
+  $.ajax({
+    url: url,
+    type: 'POST',
+    contentType: 'application/json',
+    data: JSON.stringify(payload),
+    success: function() {
+      $('#modalCrud').modal('hide');
+      carregarAgendamentos();
+    }
   });
 }
 
