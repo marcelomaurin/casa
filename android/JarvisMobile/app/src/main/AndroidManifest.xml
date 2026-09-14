@@ -35,6 +35,11 @@
         </activity>
 
         <activity
+            android:name=".NewDevicesActivity"
+            android:exported="false"
+            android:theme="@style/Theme.JarvisMobile" />
+
+        <activity
             android:name=".WatchSetupActivity"
             android:exported="false"
             android:theme="@style/Theme.JarvisMobile" />
@@ -44,11 +49,6 @@
             android:exported="false"
             android:theme="@style/Theme.JarvisMobile" />
 
-        <!--
-          O serviço inicia como dataSync para não exigir BLUETOOTH_CONNECT antes
-          de o usuário concluir o diálogo de permissões. A camada BLE só é
-          ativada quando as permissões estiverem disponíveis.
-        -->
         <service
             android:name=".JarvisConnectionService"
             android:exported="false"
