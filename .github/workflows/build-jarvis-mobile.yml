@@ -68,15 +68,18 @@ jobs:
         working-directory: ${{ github.workspace }}
         shell: bash
         run: |
-          mkdir -p bin/android
-          cp JarvisMobile-debug.apk bin/android/JarvisMobile-debug.apk
+          cp JarvisMobile-debug.apk /tmp/JarvisMobile-debug.apk
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin master
+          git reset --hard origin/master
+          mkdir -p bin/android
+          cp /tmp/JarvisMobile-debug.apk bin/android/JarvisMobile-debug.apk
           git add bin/android/JarvisMobile-debug.apk
           if git diff --cached --quiet; then
             echo "APK sem alteracoes; nada para commitar."
           else
-            git commit -m "Atualiza APK Jarvis Mobile"
+            git commit -m "Atualiza APK Jarvis Mobile [skip ci]"
             git push origin HEAD:master
           fi
 
