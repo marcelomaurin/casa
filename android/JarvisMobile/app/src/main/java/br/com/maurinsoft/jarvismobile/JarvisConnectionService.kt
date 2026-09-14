@@ -36,6 +36,16 @@ class JarvisConnectionService : Service() {
         startConnectionLoop()
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == WatchCameraActivity.ACTION_CAMERA_RESULT) {
+            val ok = intent.getBooleanExtra(WatchCameraActivity.EXTRA_CAMERA_OK, false)
+            val path = intent.getStringExtra(WatchCameraActivity.EXTRA_CAMERA_PATH).orEmpty()
+            runCatching { bleBridge?.broadcastCameraResult(ok, path) }
+            updateServiceNotification(withWatch(if (ok) "Foto capturada para o relógio" else "Captura de foto cancelada"))
+        }
+        return START_STICKY
+    }
+
     override fun onDestroy() {
         try { connectivity.unregisterNetworkCallback(networkCallback) } catch (_: Exception) {}
         bleBridge?.stop()
@@ -78,6 +88,11 @@ class JarvisConnectionService : Service() {
             .notify(NOTIFICATION_ID, serviceNotification(text))
     }
 
+    private fun withWatch(text: String): String {
+        val count = bleBridge?.connectedCount() ?: 0
+        return if (count > 0) "$text • Watch conectado" else "$text • aguardando Watch"
+    }
+
     private fun notifyWatchState() {
         runCatching { bleBridge?.broadcastStatus() }
     }
@@ -93,7 +108,7 @@ class JarvisConnectionService : Service() {
 
         override fun onLost(network: Network) {
             jarvisOnline = false
-            updateServiceNotification("Offline — aguardando reconexão")
+            updateServiceNotification(withWatch("Offline — aguardando reconexão"))
             notifyWatchState()
             if (lastWifiState) {
                 lastWifiState = false
@@ -142,7 +157,7 @@ class JarvisConnectionService : Service() {
             while (isActive) {
                 if (!JarvisApi.isConfigured(this@JarvisConnectionService)) {
                     jarvisOnline = false
-                    updateServiceNotification("Configure a URL e o token do JARVIS")
+                    updateServiceNotification(withWatch("Configure a URL e o token do JARVIS"))
                     if (lastPublishedState != false) {
                         notifyWatchState()
                         lastPublishedState = false
@@ -171,7 +186,7 @@ class JarvisConnectionService : Service() {
                         pending > 0 -> "Online — $pending comando(s) aguardando envio"
                         else -> "Online — conectado ao JARVIS"
                     }
-                    updateServiceNotification(msg)
+                    updateServiceNotification(withWatch(msg))
                     notifyWatchState()
 
                     runCatching {
@@ -184,8 +199,10 @@ class JarvisConnectionService : Service() {
                 } else {
                     val pending = JarvisApi.pendingCount(this@JarvisConnectionService)
                     updateServiceNotification(
-                        if (pending > 0) "Offline — $pending comando(s) na fila; tentando reconectar"
-                        else "Offline — tentando reconectar"
+                        withWatch(
+                            if (pending > 0) "Offline — $pending comando(s) na fila; tentando reconectar"
+                            else "Offline — tentando reconectar"
+                        )
                     )
                     notifyWatchState()
                     delay(retryDelay)
