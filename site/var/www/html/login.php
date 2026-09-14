@@ -44,8 +44,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo = get_db_pdo();
             $dbAtual = (string)$pdo->query('SELECT DATABASE()')->fetchColumn();
             login_log('BANCO_OK', 'database=' . $dbAtual);
-            $stmt = $pdo->prepare('SELECT * FROM usuarios WHERE (LOWER(login) = LOWER(:u) OR LOWER(email) = LOWER(:u)) AND ativo = 1 LIMIT 1');
-            $stmt->execute([':u' => $usuario]);
+
+            // Usa nomes de parâmetros distintos. Alguns drivers PDO/MySQL não aceitam
+            // reutilizar o mesmo placeholder nomeado duas vezes quando prepares nativos estão ativos.
+            $stmt = $pdo->prepare(
+                'SELECT * FROM usuarios '
+                . 'WHERE (LOWER(login) = LOWER(:login) OR LOWER(email) = LOWER(:email)) '
+                . 'AND ativo = 1 LIMIT 1'
+            );
+            $stmt->execute([
+                ':login' => $usuario,
+                ':email' => $usuario,
+            ]);
+
             $user = $stmt->fetch();
             $autenticado = false;
             if (!$user) {
