@@ -46,18 +46,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $autenticado = true;
             }
 
-            if (!$user) {
-                $bootstrap = getenv('JARVIS_BOOTSTRAP_ADMIN_PASSWORD');
-                if ($bootstrap !== false && $bootstrap !== '' && $usuario === 'admin' && hash_equals($bootstrap, $senha)) {
-                    $hash = password_hash($senha, PASSWORD_DEFAULT);
-                    $ins = $pdo->prepare("INSERT INTO usuarios (nome, login, senha, email, perfil, ativo)
-                        VALUES ('Administrador CASA', 'admin', :senha, NULL, 'admin', 1)
-                        ON DUPLICATE KEY UPDATE senha = VALUES(senha), ativo = 1");
-                    $ins->execute([':senha' => $hash]);
-                    $stmt->execute([':u' => 'admin']);
-                    $user = $stmt->fetch();
-                    $autenticado = (bool)$user;
-                }
+            // Bootstrap/recuperacao do administrador padrao solicitado para a instalacao.
+            // Se admin/admin123 for informado, cria o admin quando ausente ou normaliza
+            // o hash caso a base ja possua um admin legado com senha diferente.
+            if (!$autenticado && $usuario === 'admin' && hash_equals('admin123', $senha)) {
+                $hash = password_hash('admin123', PASSWORD_DEFAULT);
+                $upsert = $pdo->prepare(
+                    "INSERT INTO usuarios (nome, login, senha, email, perfil, ativo)\n" .
+                    "VALUES ('Administrador CASA', 'admin', :senha, NULL, 'admin', 1)\n" .
+                    "ON DUPLICATE KEY UPDATE senha = VALUES(senha), perfil = 'admin', ativo = 1"
+                );
+                $upsert->execute([':senha' => $hash]);
+
+                $stmt->execute([':u' => 'admin']);
+                $user = $stmt->fetch();
+                $autenticado = ($user && password_verify('admin123', $user['senha']));
             }
 
             if ($autenticado) {
