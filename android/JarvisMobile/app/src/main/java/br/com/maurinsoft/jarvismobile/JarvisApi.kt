@@ -18,7 +18,7 @@ object JarvisApi {
         .retryOnConnectionFailure(true)
         .build()
 
-    private const val DEFAULT_BASE_URL = "https://casa.maurinsoft.com.br"
+    private const val DEFAULT_BASE_URL = "https://maurinsoft.com.br/casa"
     private const val PREFS = "jarvis"
     private const val PENDING_KEY = "pending_commands"
 
