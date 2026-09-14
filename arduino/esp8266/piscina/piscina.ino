@@ -15,7 +15,7 @@
 #define STASSID "SUA_REDE_WIFI"
 #define STAPSK  "SUA_SENHA_WIFI"
 
-const char* CASA_URL = "https://casa.maurinsoft.com.br";
+const char* CASA_URL = "https://maurinsoft.com.br/casa";
 const char* DEVICE_ID = "esp8266-piscina-01";
 const char* DEVICE_TOKEN = "TOKEN_INDIVIDUAL_DA_PISCINA";
 const char* DEVICE_CAPABILITIES = "pool,relay,telemetry,rssi";
@@ -122,7 +122,7 @@ void setup() {
   set_wifi();
   enviarHeartbeat();
   ultimoHeartbeat = millis();
-  Serial.println("CASA/JARVIS piscina pronta: https://casa.maurinsoft.com.br");
+  Serial.println("CASA/JARVIS piscina pronta: https://maurinsoft.com.br/casa");
 }
 
 void loop() {
