@@ -3,6 +3,7 @@
 // Valida cliente, escopo, rate limit e payload antes de encaminhar ao roteador legado.
 
 require_once(__DIR__ . '/../db.php');
+require_once(__DIR__ . '/../seguranca.php');
 require_once(__DIR__ . '/security_v1.php');
 
 $pdo = get_db_pdo();
@@ -31,8 +32,6 @@ api_v1_log($pdo, 'REQUEST_ALLOWED', 'INFO', $client['nome'] ?? null, [
     'method' => $method
 ]);
 
-// Rotas mais usadas por celular/relógio são respondidas diretamente pelo gateway
-// para não depender das URLs antigas do roteador legado.
 if ($subpath === '' || $subpath === 'status') {
     $totalDev=$totalNodes=$pendingMobile=$pendingWatch=0;
     try { $totalDev=(int)$pdo->query("SELECT COUNT(*) FROM dispositivos_cluster WHERE status='online'")->fetchColumn(); } catch(Throwable $e){}
@@ -68,15 +67,8 @@ if ($subpath === 'comando') {
     $cmd=trim((string)($input['comando'] ?? ''));
     if ($cmd==='') api_v1_json_response(400,['status'=>'erro','mensagem'=>'Parâmetro comando obrigatório']);
 
-    // Mantém o núcleo JARVIS existente, mas usa o endereço canônico /casa.
-    $stmt=$pdo->prepare("SELECT valor FROM configuracoes_sistema WHERE chave='system_api_token' LIMIT 1");
-    $stmt->execute();
-    $internalToken=$stmt->fetchColumn();
-    if (!$internalToken && function_exists('get_system_api_token')) $internalToken=get_system_api_token();
-
+    $internalToken=get_system_api_token();
     $ch=curl_init('https://maurinsoft.com.br/casa/api/jarvis.php');
-    $headers=['Content-Type: application/json'];
-    if ($internalToken) $headers[]='X-API-Key: '.$internalToken;
     curl_setopt_array($ch,[
         CURLOPT_RETURNTRANSFER=>true,
         CURLOPT_POST=>true,
@@ -87,7 +79,7 @@ if ($subpath === 'comando') {
             'idioma'=>$input['idioma'] ?? null,
             'locale'=>$input['locale'] ?? null
         ],JSON_UNESCAPED_UNICODE),
-        CURLOPT_HTTPHEADER=>$headers,
+        CURLOPT_HTTPHEADER=>['Content-Type: application/json','X-API-Key: '.$internalToken],
         CURLOPT_TIMEOUT=>45
     ]);
     $res=curl_exec($ch); $http=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE); $err=curl_error($ch); curl_close($ch);
@@ -103,8 +95,6 @@ if ($subpath === 'comando') {
     ]);
 }
 
-// O roteador legado possui uma segunda autenticação. A chave mestre é usada
-// somente dentro do servidor depois que o token individual já foi validado.
 $stmt = $pdo->prepare("SELECT valor FROM configuracoes_sistema WHERE chave='external_api_key' LIMIT 1");
 $stmt->execute();
 $master = $stmt->fetchColumn();
