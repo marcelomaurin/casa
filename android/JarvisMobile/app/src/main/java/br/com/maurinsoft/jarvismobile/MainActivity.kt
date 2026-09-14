@@ -19,10 +19,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -33,6 +37,12 @@ class MainActivity : ComponentActivity() {
     private var onSpeechResult: ((String) -> Unit)? = null
     private val http = OkHttpClient()
 
+    private enum class Screen(val title: String) {
+        OPERATIONS("Operações"),
+        VOICE("Voz"),
+        CONFIG("Configuração")
+    }
+
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { }
@@ -40,9 +50,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestPermissionsIfNeeded()
-        startJarvisService()
         setupSpeechRecognizer()
-        setContent { JarvisScreen() }
+        runCatching { startJarvisService() }
+        setContent { JarvisApp() }
     }
 
     override fun onDestroy() {
@@ -51,19 +61,19 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestPermissionsIfNeeded() {
-        val p = mutableListOf(Manifest.permission.RECORD_AUDIO)
-        if (Build.VERSION.SDK_INT >= 33) p += Manifest.permission.POST_NOTIFICATIONS
+        val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
+        if (Build.VERSION.SDK_INT >= 33) permissions += Manifest.permission.POST_NOTIFICATIONS
         if (Build.VERSION.SDK_INT >= 31) {
-            p += Manifest.permission.BLUETOOTH_CONNECT
-            p += Manifest.permission.BLUETOOTH_SCAN
-            p += Manifest.permission.BLUETOOTH_ADVERTISE
+            permissions += Manifest.permission.BLUETOOTH_CONNECT
+            permissions += Manifest.permission.BLUETOOTH_SCAN
+            permissions += Manifest.permission.BLUETOOTH_ADVERTISE
         }
-        permissionLauncher.launch(p.toTypedArray())
+        permissionLauncher.launch(permissions.toTypedArray())
     }
 
     private fun startJarvisService() {
-        val i = Intent(this, JarvisConnectionService::class.java)
-        ContextCompat.startForegroundService(this, i)
+        val intent = Intent(this, JarvisConnectionService::class.java)
+        ContextCompat.startForegroundService(this, intent)
     }
 
     private fun setupSpeechRecognizer() {
@@ -87,15 +97,18 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun listen(callback: (String) -> Unit) {
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            callback("")
+            return
+        }
         onSpeechResult = callback
-        val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "pt-BR")
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
             putExtra(RecognizerIntent.EXTRA_PROMPT, "Fale com o JARVIS")
         }
-        recognizer?.startListening(i)
+        recognizer?.startListening(intent)
     }
 
     private fun playAudio(path: String?) {
@@ -106,29 +119,31 @@ class MainActivity : ComponentActivity() {
         Thread {
             try {
                 val req = Request.Builder().url(url).header("X-Device-Token", cfg.token).build()
-                val response = http.newCall(req).execute()
-                val bytes = response.body?.bytes() ?: return@Thread
-                response.close()
-                val file = createTempFile("jarvis_", ".wav", cacheDir)
-                file.writeBytes(bytes)
-                runOnUiThread {
-                    MediaPlayer().apply {
-                        setAudioAttributes(
-                            AudioAttributes.Builder()
-                                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                                .setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY)
-                                .build()
-                        )
-                        setDataSource(file.absolutePath)
-                        setOnPreparedListener { it.start() }
-                        setOnCompletionListener {
-                            it.release()
-                            file.delete()
+                http.newCall(req).execute().use { response ->
+                    if (!response.isSuccessful) return@use
+                    val bytes = response.body?.bytes() ?: return@use
+                    val file = createTempFile("jarvis_", ".wav", cacheDir)
+                    file.writeBytes(bytes)
+                    runOnUiThread {
+                        MediaPlayer().apply {
+                            setAudioAttributes(
+                                AudioAttributes.Builder()
+                                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY)
+                                    .build()
+                            )
+                            setDataSource(file.absolutePath)
+                            setOnPreparedListener { it.start() }
+                            setOnCompletionListener {
+                                it.release()
+                                file.delete()
+                            }
+                            prepareAsync()
                         }
-                        prepareAsync()
                     }
                 }
-            } catch (_: Exception) { }
+            } catch (_: Exception) {
+            }
         }.start()
     }
 
@@ -144,121 +159,333 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    @OptIn(ExperimentalMaterial3Api::class)
     @Composable
-    private fun JarvisScreen() {
-        val scope = rememberCoroutineScope()
-        var cfg by remember { mutableStateOf(JarvisApi.loadConfig(this)) }
-        var server by remember { mutableStateOf(cfg.baseUrl) }
-        var token by remember { mutableStateOf(cfg.token) }
-        var typed by remember { mutableStateOf("") }
-        var heard by remember { mutableStateOf("") }
-        var answer by remember { mutableStateOf("Pronto para conversar.") }
-        var busy by remember { mutableStateOf(false) }
+    private fun JarvisApp() {
+        var splash by remember { mutableStateOf(true) }
+        LaunchedEffect(Unit) {
+            delay(1200)
+            splash = false
+        }
 
         MaterialTheme {
-            Scaffold(
-                topBar = { TopAppBar(title = { Text("JARVIS Mobile") }) }
-            ) { pad ->
-                Column(
-                    modifier = Modifier
-                        .padding(pad)
-                        .padding(16.dp)
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text("Conversa com IA", style = MaterialTheme.typography.titleLarge)
-                    if (heard.isNotBlank()) Text("Você: $heard")
-                    Text("JARVIS: $answer")
+            if (splash) {
+                SplashScreen()
+            } else {
+                MainShell()
+            }
+        }
+    }
 
-                    OutlinedTextField(
-                        value = typed,
-                        onValueChange = { typed = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Mensagem") }
-                    )
+    @Composable
+    private fun SplashScreen() {
+        Surface(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text("JARVIS", style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(12.dp))
+                Text("Assistente residencial inteligente", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(28.dp))
+                CircularProgressIndicator()
+                Spacer(Modifier.height(18.dp))
+                Text("Inicializando serviços, voz e conexão...", textAlign = TextAlign.Center)
+            }
+        }
+    }
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(
-                            enabled = !busy && typed.isNotBlank(),
-                            onClick = {
-                                val q = typed.trim()
-                                typed = ""
-                                heard = q
-                                busy = true
-                                scope.launch {
-                                    try {
-                                        val a = withContext(Dispatchers.IO) { JarvisApi.askJarvis(this@MainActivity, q) }
-                                        answer = a.text
-                                        playAudio(a.audioUrl)
-                                    } catch (e: Exception) {
-                                        answer = "Erro: ${e.message}"
-                                    } finally { busy = false }
-                                }
-                            }
-                        ) { Text("Enviar") }
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Composable
+    private fun MainShell() {
+        var screen by remember { mutableStateOf(Screen.OPERATIONS) }
 
-                        Button(
-                            enabled = !busy,
-                            onClick = {
-                                listen { text ->
-                                    if (text.isBlank()) {
-                                        answer = "Não consegui entender o áudio."
-                                        return@listen
-                                    }
-                                    heard = text
-                                    busy = true
-                                    scope.launch {
-                                        try {
-                                            val a = withContext(Dispatchers.IO) { JarvisApi.askJarvis(this@MainActivity, text) }
-                                            answer = a.text
-                                            playAudio(a.audioUrl)
-                                        } catch (e: Exception) {
-                                            answer = "Erro: ${e.message}"
-                                        } finally { busy = false }
-                                    }
-                                }
-                            }
-                        ) { Text(if (busy) "Aguarde" else "🎤 Falar") }
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text("JARVIS Mobile", fontWeight = FontWeight.Bold)
+                            Text(screen.title, style = MaterialTheme.typography.bodySmall)
+                        }
                     }
-
-                    HorizontalDivider()
-                    Text("Relógio e internet", style = MaterialTheme.typography.titleMedium)
-                    Text("O app mantém uma ponte BLE para o JARVIS Watch. O relógio pode enviar comandos ao celular; o celular usa sua conexão com a internet e devolve a resposta pelo BLE.")
-                    Button(onClick = { openTetherSettings() }) {
-                        Text("Abrir compartilhamento de internet")
+                )
+            },
+            bottomBar = {
+                NavigationBar {
+                    Screen.values().forEach { item ->
+                        NavigationBarItem(
+                            selected = screen == item,
+                            onClick = { screen = item },
+                            icon = { Text(when (item) {
+                                Screen.OPERATIONS -> "⌂"
+                                Screen.VOICE -> "●"
+                                Screen.CONFIG -> "⚙"
+                            }) },
+                            label = { Text(item.title) }
+                        )
                     }
-
-                    HorizontalDivider()
-                    Text("Configuração", style = MaterialTheme.typography.titleMedium)
-                    OutlinedTextField(
-                        value = server,
-                        onValueChange = { server = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Servidor JARVIS") },
-                        placeholder = { Text("http://192.168.2.12") }
-                    )
-                    OutlinedTextField(
-                        value = token,
-                        onValueChange = { token = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Token do dispositivo Android") }
-                    )
-                    Button(onClick = {
-                        JarvisApi.saveConfig(this@MainActivity, server, token)
-                        cfg = JarvisApi.loadConfig(this@MainActivity)
-                        startJarvisService()
-                        answer = "Configuração salva."
-                    }) { Text("Salvar") }
-
-                    Spacer(Modifier.height(20.dp))
-                    Text(
-                        "O serviço em segundo plano informa ao JARVIS quando o celular entra/sai do Wi‑Fi, consulta notificações e mantém o serviço BLE ativo.",
-                        style = MaterialTheme.typography.bodySmall
-                    )
                 }
             }
+        ) { padding ->
+            Box(modifier = Modifier.padding(padding).fillMaxSize()) {
+                when (screen) {
+                    Screen.OPERATIONS -> OperationsScreen()
+                    Screen.VOICE -> VoiceScreen()
+                    Screen.CONFIG -> ConfigScreen()
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun OperationsScreen() {
+        val scope = rememberCoroutineScope()
+        var command by remember { mutableStateOf("") }
+        var response by remember { mutableStateOf("Selecione uma operação ou envie um comando manual.") }
+        var busy by remember { mutableStateOf(false) }
+        var connected by remember { mutableStateOf<Boolean?>(null) }
+
+        fun send(text: String) {
+            if (text.isBlank() || busy) return
+            busy = true
+            response = "Executando: $text"
+            scope.launch {
+                try {
+                    val answer = withContext(Dispatchers.IO) { JarvisApi.askJarvis(this@MainActivity, text) }
+                    response = answer.text.ifBlank { "Comando enviado." }
+                    playAudio(answer.audioUrl)
+                    connected = true
+                } catch (e: Exception) {
+                    connected = false
+                    response = "Falha ao comunicar com o JARVIS: ${e.message ?: "erro desconhecido"}"
+                } finally {
+                    busy = false
+                }
+            }
+        }
+
+        Column(
+            modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Estado da conexão", fontWeight = FontWeight.Bold)
+                    Text(when (connected) {
+                        true -> "JARVIS acessível"
+                        false -> "Sem comunicação com o JARVIS"
+                        null -> "Ainda não testado"
+                    })
+                    Button(onClick = {
+                        scope.launch {
+                            busy = true
+                            try {
+                                response = withContext(Dispatchers.IO) { JarvisApi.testConnection(this@MainActivity) }
+                                connected = true
+                            } catch (e: Exception) {
+                                connected = false
+                                response = "Teste falhou: ${e.message}"
+                            } finally { busy = false }
+                        }
+                    }, enabled = !busy) { Text("Testar conexão") }
+                }
+            }
+
+            Text("Operações rápidas", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { send("Ligue a luz da sala") }, modifier = Modifier.weight(1f), enabled = !busy) { Text("Ligar luz") }
+                OutlinedButton(onClick = { send("Desligue a luz da sala") }, modifier = Modifier.weight(1f), enabled = !busy) { Text("Desligar luz") }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { send("Ligue a irrigação") }, modifier = Modifier.weight(1f), enabled = !busy) { Text("Irrigação ON") }
+                OutlinedButton(onClick = { send("Desligue a irrigação") }, modifier = Modifier.weight(1f), enabled = !busy) { Text("Irrigação OFF") }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { send("Informe o status da casa") }, modifier = Modifier.weight(1f), enabled = !busy) { Text("Status") }
+                Button(onClick = { send("Qual a temperatura atual dos sensores?") }, modifier = Modifier.weight(1f), enabled = !busy) { Text("Temperatura") }
+            }
+
+            HorizontalDivider()
+            Text("Comando manual", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            OutlinedTextField(
+                value = command,
+                onValueChange = { command = it },
+                label = { Text("Digite uma ordem para o JARVIS") },
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 2
+            )
+            Button(
+                onClick = {
+                    val text = command.trim()
+                    command = ""
+                    send(text)
+                },
+                enabled = command.isNotBlank() && !busy,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(if (busy) "Executando..." else "Executar") }
+
+            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("Resposta", fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(6.dp))
+                    Text(response)
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun VoiceScreen() {
+        val scope = rememberCoroutineScope()
+        var heard by remember { mutableStateOf("") }
+        var answer by remember { mutableStateOf("Toque em Falar e faça seu pedido.") }
+        var listening by remember { mutableStateOf(false) }
+        var busy by remember { mutableStateOf(false) }
+
+        fun submit(text: String) {
+            if (text.isBlank()) return
+            busy = true
+            scope.launch {
+                try {
+                    val result = withContext(Dispatchers.IO) { JarvisApi.askJarvis(this@MainActivity, text) }
+                    answer = result.text.ifBlank { "O JARVIS respondeu sem texto." }
+                    playAudio(result.audioUrl)
+                } catch (e: Exception) {
+                    answer = "Erro de comunicação: ${e.message ?: "falha desconhecida"}"
+                } finally {
+                    busy = false
+                }
+            }
+        }
+
+        Column(
+            modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text("Conversa por voz", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text("Use o microfone do celular para falar com o JARVIS. A resposta pode ser reproduzida em áudio pela API.", textAlign = TextAlign.Center)
+
+            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Você", fontWeight = FontWeight.Bold)
+                    Text(if (heard.isBlank()) "Nenhuma frase reconhecida ainda." else heard)
+                    HorizontalDivider()
+                    Text("JARVIS", fontWeight = FontWeight.Bold)
+                    Text(answer)
+                }
+            }
+
+            Button(
+                onClick = {
+                    listening = true
+                    answer = "Ouvindo..."
+                    listen { text ->
+                        listening = false
+                        if (text.isBlank()) {
+                            answer = "Não consegui reconhecer a fala. Verifique a permissão do microfone e tente novamente."
+                        } else {
+                            heard = text
+                            answer = "Enviando para o JARVIS..."
+                            submit(text)
+                        }
+                    }
+                },
+                enabled = !busy && !listening,
+                modifier = Modifier.fillMaxWidth().height(64.dp)
+            ) {
+                Text(when {
+                    listening -> "Ouvindo..."
+                    busy -> "Processando..."
+                    else -> "FALAR COM O JARVIS"
+                })
+            }
+
+            OutlinedButton(
+                onClick = { playAudio(JarvisApi.lastAudioUrl) },
+                enabled = !JarvisApi.lastAudioUrl.isNullOrBlank(),
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Repetir último áudio") }
+        }
+    }
+
+    @Composable
+    private fun ConfigScreen() {
+        val scope = rememberCoroutineScope()
+        val current = remember { JarvisApi.loadConfig(this) }
+        var server by remember { mutableStateOf(current.baseUrl) }
+        var token by remember { mutableStateOf(current.token) }
+        var status by remember { mutableStateOf("Configuração carregada.") }
+        var busy by remember { mutableStateOf(false) }
+
+        Column(
+            modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text("Servidor JARVIS", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            OutlinedTextField(
+                value = server,
+                onValueChange = { server = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("URL do servidor") },
+                placeholder = { Text("http://192.168.2.12") },
+                singleLine = true
+            )
+            OutlinedTextField(
+                value = token,
+                onValueChange = { token = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Token do dispositivo Android") },
+                singleLine = true
+            )
+
+            Button(
+                onClick = {
+                    JarvisApi.saveConfig(this@MainActivity, server, token)
+                    runCatching { startJarvisService() }
+                    status = "Configuração salva."
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Salvar configuração") }
+
+            OutlinedButton(
+                onClick = {
+                    JarvisApi.saveConfig(this@MainActivity, server, token)
+                    busy = true
+                    scope.launch {
+                        try {
+                            status = withContext(Dispatchers.IO) { JarvisApi.testConnection(this@MainActivity) }
+                        } catch (e: Exception) {
+                            status = "Falha: ${e.message ?: "sem resposta"}"
+                        } finally { busy = false }
+                    }
+                },
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(if (busy) "Testando..." else "Testar servidor") }
+
+            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Estado", fontWeight = FontWeight.Bold)
+                    Text(status)
+                }
+            }
+
+            HorizontalDivider()
+            Text("Relógio e conectividade", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text("O serviço mantém a ponte BLE para o relógio e consulta notificações do JARVIS em segundo plano.")
+            Button(onClick = { runCatching { startJarvisService() }; status = "Serviço JARVIS iniciado." }, modifier = Modifier.fillMaxWidth()) {
+                Text("Iniciar serviço JARVIS")
+            }
+            OutlinedButton(onClick = { openTetherSettings() }, modifier = Modifier.fillMaxWidth()) {
+                Text("Abrir compartilhamento de internet")
+            }
+
+            Text(
+                "Se estiver fora da rede local, configure aqui o endereço HTTPS público do JARVIS. Não use um token administrativo; use um token próprio do dispositivo Android.",
+                style = MaterialTheme.typography.bodySmall
+            )
         }
     }
 }
