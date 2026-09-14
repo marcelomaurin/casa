@@ -25,6 +25,12 @@ String rxBuffer;
 String lastMessage = "Inicializando sistema...";
 String connectionState = "OFFLINE";
 
+// Protótipos explícitos: os callbacks BLE são declarados antes das funções de UI.
+void drawUi();
+void drawClockStatus();
+void drawMessagePanel();
+bool connectPhone();
+
 // LCARS claro: alto contraste e boa leitura no display de 240x240.
 static const uint16_t LCARS_BG       = 0xFFDF; // marfim claro
 static const uint16_t LCARS_TEXT     = 0x18C3; // grafite
