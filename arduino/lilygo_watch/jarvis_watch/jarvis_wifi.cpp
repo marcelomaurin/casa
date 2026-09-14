@@ -29,7 +29,6 @@ void jarvisWifiBegin(){
 
 void jarvisWifiLoop(){
   if(WiFi.status()==WL_CONNECTED) return;
-  // Evita scans automáticos frequentes, que consomem energia e podem degradar a UI.
   if(millis()-lastRetry < 120000UL || scanRunning) return;
   lastRetry = millis();
 }
@@ -55,7 +54,7 @@ bool jarvisWifiGetProfile(uint8_t slot, String &ssid, String &password){
 
 int jarvisWifiFindFreeSlot(){
   for(uint8_t i=0;i<5;i++) if(wifiPrefs.getString(keySsid(i).c_str(), "").isEmpty()) return i;
-  return 0; // se lotado, substitui o slot 0 explicitamente pela UI.
+  return 0;
 }
 
 void jarvisWifiClearProfiles(){
@@ -93,7 +92,6 @@ int jarvisWifiScanPoll(JarvisWifiNetwork *out, int maxItems){
     out[copied].known = isKnownSsid(ssid);
     copied++;
   }
-  // Ordena por melhor RSSI.
   for(int i=0;i<copied-1;i++) for(int j=i+1;j<copied;j++) if(out[j].rssi > out[i].rssi){ JarvisWifiNetwork t=out[i]; out[i]=out[j]; out[j]=t; }
   WiFi.scanDelete();
   return copied;
@@ -110,6 +108,15 @@ void jarvisWifiSetCasa(const String &baseUrl, const String &deviceToken){
   wifiPrefs.putString("token", casaToken);
 }
 
+bool jarvisWifiStartProfile(uint8_t slot){
+  String ssid, pass;
+  if(!jarvisWifiGetProfile(slot, ssid, pass)) return false;
+  if(WiFi.status()==WL_CONNECTED && WiFi.SSID()==ssid) return true;
+  WiFi.disconnect(false, false);
+  WiFi.begin(ssid.c_str(), pass.c_str());
+  return true;
+}
+
 static bool waitConnected(uint32_t timeoutMs){
   unsigned long start=millis();
   while(WiFi.status()!=WL_CONNECTED && millis()-start<timeoutMs){ delay(20); yield(); }
@@ -117,12 +124,7 @@ static bool waitConnected(uint32_t timeoutMs){
 }
 
 bool jarvisWifiConnectProfile(uint8_t slot, uint32_t timeoutMs){
-  String ssid, pass;
-  if(!jarvisWifiGetProfile(slot, ssid, pass)) return false;
-  if(WiFi.status()==WL_CONNECTED && WiFi.SSID()==ssid) return true;
-  WiFi.disconnect(false, false);
-  delay(20);
-  WiFi.begin(ssid.c_str(), pass.c_str());
+  if(!jarvisWifiStartProfile(slot)) return false;
   return waitConnected(timeoutMs);
 }
 
@@ -146,7 +148,6 @@ bool jarvisWifiConnectBestKnown(uint32_t timeoutMs){
 bool jarvisWifiPostJson(const String &path, const String &jsonPayload, String *response){
   if(!jarvisWifiIsConnected() || casaToken.isEmpty()) return false;
   WiFiClientSecure tls;
-  // Fase de transição: trocar por setCACert() antes de produção.
   tls.setInsecure();
   tls.setTimeout(5);
   HTTPClient http;
