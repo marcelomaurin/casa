@@ -1,55 +1,58 @@
 <?php
-// Módulo Central de Banco de Dados e Segurança do JARVIS
-// Totalmente independente de código legado
+// Banco central do JARVIS/CASA.
+// Produção Hostinger: MySQL/MariaDB configurado por variáveis de ambiente.
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-define("DB_HOST", "127.0.0.1");
-define("DB_PORT", "5432");
-define("DB_NAME", "casadb");
-define("DB_USER", "casadb_user");
-define("DB_PASS", "casadb_password_2026");
+function env_value(string $key, ?string $default = null): ?string {
+    $value = getenv($key);
+    return ($value === false || $value === '') ? $default : $value;
+}
 
-define("DB_SEC_HOST", "192.168.2.8");
-define("DB_SEC_PORT", "5432");
-
-function get_db_pdo() {
+function get_db_pdo(): PDO {
     static $pdo = null;
-    if ($pdo === null) {
-        $dsn = "pgsql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . DB_NAME;
-        $pdo = new PDO($dsn, DB_USER, DB_PASS, [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
-        ]);
+    if ($pdo instanceof PDO) {
+        return $pdo;
     }
+
+    $host = env_value('JARVIS_DB_HOST', '127.0.0.1');
+    $port = env_value('JARVIS_DB_PORT', '3306');
+    $name = env_value('JARVIS_DB_NAME', 'casadb');
+    $user = env_value('JARVIS_DB_USER', '');
+    $pass = env_value('JARVIS_DB_PASS', '');
+    $charset = env_value('JARVIS_DB_CHARSET', 'utf8mb4');
+
+    if ($user === '' || $pass === '') {
+        throw new RuntimeException('Banco MySQL não configurado no ambiente.');
+    }
+
+    $dsn = "mysql:host={$host};port={$port};dbname={$name};charset={$charset}";
+    $pdo = new PDO($dsn, $user, $pass, [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        PDO::ATTR_EMULATE_PREPARES => false,
+    ]);
+
     return $pdo;
 }
 
 function get_secondary_db_pdo() {
-    static $sec_pdo = null;
-    if ($sec_pdo === null) {
-        try {
-            $dsn = "pgsql:host=" . DB_SEC_HOST . ";port=" . DB_SEC_PORT . ";dbname=" . DB_NAME;
-            $sec_pdo = new PDO($dsn, DB_USER, DB_PASS, [
-                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-                PDO::ATTR_TIMEOUT => 2
-            ]);
-        } catch (Exception $e) {
-            $sec_pdo = false;
-        }
-    }
-    return $sec_pdo;
+    // Serviços locais devem acessar a Hostinger pela API, não pelo banco.
+    return false;
 }
 
 function qryExec($sql) {
-    $pdo = get_db_pdo();
-    return $pdo->exec($sql);
+    return get_db_pdo()->exec($sql);
 }
 
-function get_system_api_token() {
+function get_system_api_token(): string {
+    $envToken = env_value('JARVIS_SYSTEM_API_TOKEN', '');
+    if ($envToken !== '') {
+        return $envToken;
+    }
+
     try {
         $pdo = get_db_pdo();
         $stmt = $pdo->prepare("SELECT valor FROM configuracoes_sistema WHERE chave = 'system_api_token' LIMIT 1");
@@ -58,44 +61,43 @@ function get_system_api_token() {
         if ($row && !empty($row['valor'])) {
             return $row['valor'];
         }
-    } catch (Exception $e) {}
-    return "jarvis_secret_token_2026";
+    } catch (Throwable $e) {
+        // Não revelar detalhes de banco na resposta HTTP.
+    }
+
+    return '';
 }
 
-// Guarda de Autenticação para APIs
 function verify_api_auth() {
-    // 1. Sessão web ativa
     if (!empty($_SESSION['auth_user'])) {
         return true;
     }
 
-    // 2. Requisições internas locais ou da rede de nós ARM confiáveis
-    $ip = isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : '';
-    if ($ip === '127.0.0.1' || $ip === '::1' || strpos($ip, '192.168.2.') === 0) {
+    $expectedToken = get_system_api_token();
+    if ($expectedToken === '') {
+        http_response_code(503);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode([
+            'status' => 'erro',
+            'mensagem' => 'API ainda não configurada no ambiente de produção.'
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+    if (preg_match('/Bearer\s+(\S+)/i', $authHeader, $m) && hash_equals($expectedToken, $m[1])) {
         return true;
     }
 
-    // 3. Verificação por Token de API nos cabeçalhos
-    $expected_token = get_system_api_token();
-    
-    // Header Authorization: Bearer <token>
-    $auth_header = isset($_SERVER['HTTP_AUTHORIZATION']) ? $_SERVER['HTTP_AUTHORIZATION'] : '';
-    if (preg_match('/Bearer\s+(\S+)/i', $auth_header, $m)) {
-        if ($m[1] === $expected_token) {
-            return true;
-        }
-    }
-
-    // Header X-API-Key: <token>
-    if (isset($_SERVER['HTTP_X_API_KEY']) && $_SERVER['HTTP_X_API_KEY'] === $expected_token) {
+    if (isset($_SERVER['HTTP_X_API_KEY']) && hash_equals($expectedToken, $_SERVER['HTTP_X_API_KEY'])) {
         return true;
     }
 
-    // Se nenhuma autenticação for válida, bloquear com 401
     http_response_code(401);
+    header('Content-Type: application/json; charset=utf-8');
     echo json_encode([
         'status' => 'erro',
-        'mensagem' => 'Acesso negado: Autenticação requerida (Sessão inválida ou Token de API ausente)'
+        'mensagem' => 'Acesso negado: autenticação requerida.'
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
