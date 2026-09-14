@@ -1,6 +1,8 @@
 <?php
 // Banco central do JARVIS/CASA.
 // Produção Hostinger: MySQL/MariaDB via config.local.php privado ou variáveis de ambiente.
+// Banco atual: u820932905_casa | usuário: u820932905_mmaurin
+// A senha nunca deve ser versionada no Git.
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -41,15 +43,17 @@ function get_db_pdo(): PDO {
         return $pdo;
     }
 
-    $host = cfg_value('db_host', 'JARVIS_DB_HOST', '127.0.0.1');
+    // Em hospedagem Hostinger o PHP normalmente acessa o MySQL localmente.
+    // Se o hPanel informar outro host, configure JARVIS_DB_HOST/config.local.php.
+    $host = cfg_value('db_host', 'JARVIS_DB_HOST', 'localhost');
     $port = cfg_value('db_port', 'JARVIS_DB_PORT', '3306');
-    $name = cfg_value('db_name', 'JARVIS_DB_NAME', 'casadb');
-    $user = cfg_value('db_user', 'JARVIS_DB_USER', '');
+    $name = cfg_value('db_name', 'JARVIS_DB_NAME', 'u820932905_casa');
+    $user = cfg_value('db_user', 'JARVIS_DB_USER', 'u820932905_mmaurin');
     $pass = cfg_value('db_pass', 'JARVIS_DB_PASS', '');
     $charset = cfg_value('db_charset', 'JARVIS_DB_CHARSET', 'utf8mb4');
 
-    if ($user === '' || $pass === '') {
-        throw new RuntimeException('Banco MySQL não configurado no ambiente.');
+    if ($pass === '') {
+        throw new RuntimeException('Senha do banco MySQL não configurada no ambiente.');
     }
 
     $dsn = "mysql:host={$host};port={$port};dbname={$name};charset={$charset}";
@@ -63,7 +67,7 @@ function get_db_pdo(): PDO {
 }
 
 function get_secondary_db_pdo() {
-    // Serviços locais/Raspberry acessam a Hostinger pela API, não pelo MySQL.
+    // Serviços distribuídos acessam o domínio CASA pela API, não diretamente o MySQL.
     return false;
 }
 
