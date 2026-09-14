@@ -18,6 +18,10 @@ object JarvisApi {
         .retryOnConnectionFailure(true)
         .build()
 
+    private const val DEFAULT_BASE_URL = "https://casa.maurinsoft.com.br"
+    private const val PREFS = "jarvis"
+    private const val PENDING_KEY = "pending_commands"
+
     data class Config(val baseUrl: String, val token: String)
     data class JarvisAnswer(val text: String, val audioUrl: String?, val action: String?)
     data class MobileNotification(val id: Long, val title: String, val message: String, val audioUrl: String?, val priority: String)
@@ -26,28 +30,28 @@ object JarvisApi {
     @Volatile var lastAudioUrl: String? = null
         private set
 
-    private const val PREFS = "jarvis"
-    private const val PENDING_KEY = "pending_commands"
-
     fun loadConfig(context: Context): Config {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        return Config(p.getString("base_url", "")?.trim()?.trimEnd('/') ?: "", p.getString("device_token", "")?.trim() ?: "")
+        val stored = p.getString("base_url", DEFAULT_BASE_URL)?.trim()?.trimEnd('/').orEmpty()
+        val baseUrl = stored.ifBlank { DEFAULT_BASE_URL }
+        return Config(baseUrl, p.getString("device_token", "")?.trim() ?: "")
     }
 
     fun saveConfig(context: Context, baseUrl: String, token: String) {
+        val normalized = baseUrl.trim().trimEnd('/').ifBlank { DEFAULT_BASE_URL }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putString("base_url", baseUrl.trim().trimEnd('/'))
+            .putString("base_url", normalized)
             .putString("device_token", token.trim()).apply()
     }
 
     fun isConfigured(context: Context): Boolean {
         val cfg = loadConfig(context)
-        return (cfg.baseUrl.startsWith("http://") || cfg.baseUrl.startsWith("https://")) && cfg.token.isNotBlank()
+        return cfg.baseUrl.startsWith("https://") && cfg.token.isNotBlank()
     }
 
     private fun ensureConfigured(context: Context): Config {
         val cfg = loadConfig(context)
-        require(cfg.baseUrl.startsWith("http://") || cfg.baseUrl.startsWith("https://")) { "Informe a URL externa completa do JARVIS" }
+        require(cfg.baseUrl.startsWith("https://")) { "Use uma URL HTTPS do JARVIS" }
         require(cfg.token.isNotBlank()) { "Token do dispositivo Android não configurado" }
         return cfg
     }
