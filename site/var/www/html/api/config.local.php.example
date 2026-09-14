@@ -1,0 +1,12 @@
+<?php
+// Copie este arquivo para config.local.php SOMENTE no servidor de produção.
+// Nunca versione config.local.php preenchido com senhas/tokens reais.
+return [
+    'db_host' => 'localhost',
+    'db_port' => '3306',
+    'db_name' => 'u820932905_casa',
+    'db_user' => 'u820932905_mmaurin',
+    'db_pass' => 'COLOQUE_A_SENHA_NO_SERVIDOR',
+    'db_charset' => 'utf8mb4',
+    'system_api_token' => 'GERE_UM_TOKEN_FORTE_E_PRIVADO',
+];
