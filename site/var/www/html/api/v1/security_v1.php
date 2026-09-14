@@ -114,16 +114,13 @@ function api_v1_rate_limit($pdo, $token, $limit = 60, $windowSeconds = 60) {
 function api_v1_decode_scopes($value) {
     if (is_array($value)) return $value;
     if (!is_string($value) || trim($value) === '') return [];
-
     $decoded = json_decode($value, true);
     if (is_array($decoded)) return $decoded;
-
-    // Compatibilidade com instalações PostgreSQL antigas: {a,b,c}
     $legacy = trim($value, '{}');
     return $legacy === '' ? [] : str_getcsv($legacy);
 }
 
-function api_v1_auth_client($pdo, array $requiredScopes = []) {
+function api_v1_load_client($pdo) {
     $token = api_v1_token_from_request();
     if ($token === '') {
         api_v1_log($pdo, 'AUTH_MISSING', 'ALTO');
@@ -132,7 +129,6 @@ function api_v1_auth_client($pdo, array $requiredScopes = []) {
 
     api_v1_rate_limit($pdo, $token);
     $hash = hash('sha256', $token);
-
     try {
         $stmt = $pdo->prepare("SELECT id,nome,scopes,ativo,expira_em FROM api_client_tokens WHERE token_hash=:h LIMIT 1");
         $stmt->execute([':h'=>$hash]);
@@ -141,22 +137,46 @@ function api_v1_auth_client($pdo, array $requiredScopes = []) {
             api_v1_log($pdo, 'AUTH_DENIED', 'ALTO');
             api_v1_json_response(401, ['status'=>'erro','mensagem'=>'Token inválido, inativo ou expirado']);
         }
-
-        $scopes = api_v1_decode_scopes($client['scopes']);
-        foreach ($requiredScopes as $scope) {
-            if (!in_array($scope, $scopes, true) && !in_array('*', $scopes, true)) {
-                api_v1_log($pdo, 'SCOPE_DENIED', 'ALTO', $client['nome'], ['required'=>$scope]);
-                api_v1_json_response(403, ['status'=>'erro','mensagem'=>'Token sem permissão para esta operação']);
-            }
-        }
-
+        $client['scopes'] = api_v1_decode_scopes($client['scopes']);
         $pdo->prepare("UPDATE api_client_tokens SET ultimo_uso=NOW(), ultimo_ip=:ip WHERE id=:id")
             ->execute([':ip'=>api_v1_client_ip(), ':id'=>$client['id']]);
-        api_v1_log($pdo, 'AUTH_OK', 'INFO', $client['nome']);
-        $client['scopes'] = $scopes;
         return $client;
     } catch (PDOException $e) {
         api_v1_json_response(503, ['status'=>'erro','mensagem'=>'Estrutura de segurança da API ainda não foi aplicada no banco']);
     }
+}
+
+function api_v1_auth_client($pdo, array $requiredScopes = []) {
+    $client = api_v1_load_client($pdo);
+    $scopes = $client['scopes'];
+    foreach ($requiredScopes as $scope) {
+        if (!in_array($scope, $scopes, true) && !in_array('*', $scopes, true)) {
+            api_v1_log($pdo, 'SCOPE_DENIED', 'ALTO', $client['nome'], ['required'=>$scope]);
+            api_v1_json_response(403, ['status'=>'erro','mensagem'=>'Token sem permissão para esta operação']);
+        }
+    }
+    api_v1_log($pdo, 'AUTH_OK', 'INFO', $client['nome']);
+    return $client;
+}
+
+/**
+ * Autoriza quando o token possui ao menos um dos scopes informados.
+ * Útil para recursos compartilhados entre Android, Watch e navegador/gateway.
+ */
+function api_v1_auth_client_any($pdo, array $acceptedScopes = []) {
+    $client = api_v1_load_client($pdo);
+    $scopes = $client['scopes'];
+    if (!$acceptedScopes || in_array('*', $scopes, true)) {
+        api_v1_log($pdo, 'AUTH_OK', 'INFO', $client['nome']);
+        return $client;
+    }
+    foreach ($acceptedScopes as $scope) {
+        if (in_array($scope, $scopes, true)) {
+            api_v1_log($pdo, 'AUTH_OK', 'INFO', $client['nome'], ['matched_scope'=>$scope]);
+            return $client;
+        }
+    }
+    api_v1_log($pdo, 'SCOPE_DENIED', 'ALTO', $client['nome'], ['accepted'=>$acceptedScopes]);
+    api_v1_json_response(403, ['status'=>'erro','mensagem'=>'Token sem permissão para esta operação']);
 }
 ?>
