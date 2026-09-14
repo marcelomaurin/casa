@@ -10,7 +10,8 @@ WorkingDirectory=/opt/casa-node-agent
 ExecStart=/usr/bin/python3 /opt/casa-node-agent/casa-node-agent.py
 Restart=always
 RestartSec=10
-Environment="JARVIS_MASTER_URL=https://casa.maurinsoft.com.br/api/crud.php"
+Environment="CASA_BASE_URL=https://maurinsoft.com.br/casa"
+Environment="JARVIS_MASTER_URL=https://maurinsoft.com.br/casa/api/crud.php"
 Environment="AGENT_PORT=8098"
 Environment="HEARTBEAT_INTERVAL=20"
 EnvironmentFile=-/etc/casa-node-agent.env
