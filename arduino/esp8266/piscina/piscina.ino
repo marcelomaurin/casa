@@ -1,181 +1,141 @@
-
+/*
+ * CASA/JARVIS - CONTROLADOR DA PISCINA
+ * ESP8266 + 2 reles.
+ *
+ * Arquitetura distribuida:
+ *   - o dispositivo continua executando os reles localmente;
+ *   - registra estado/telemetria no dominio central;
+ *   - credenciais Wi-Fi e token nao sao versionados com valores reais.
+ */
 
 #include <ESP8266WiFi.h>
-#include <WiFiUdp.h>
+#include <ESP8266HTTPClient.h>
+#include <WiFiClientSecureBearSSL.h>
 
-#ifndef STASSID
-#define STASSID "maurinsrv_1"
-#define STAPSK  "1425361425"
+#define STASSID "SUA_REDE_WIFI"
+#define STAPSK  "SUA_SENHA_WIFI"
+
+const char* CASA_URL = "https://casa.maurinsoft.com.br";
+const char* DEVICE_ID = "esp8266-piscina-01";
+const char* DEVICE_TOKEN = "TOKEN_INDIVIDUAL_DA_PISCINA";
+const char* DEVICE_CAPABILITIES = "pool,relay,telemetry,rssi";
+
+#ifndef D5
+#define D5 (14)
+#define D6 (12)
 #endif
-
-WiFiServer wifiServer(8090);
-
-const uint16_t portClient = 8090;
-//const char * host = "192.168.0.105";
-
 
 #define RELE01 D5
 #define RELE02 D6
 
+bool rele01 = false;
+bool rele02 = false;
+unsigned long ultimoHeartbeat = 0;
+const unsigned long HEARTBEAT_MS = 30000UL;
 
-#ifndef D5
-#if defined(ESP8266)
-#define D5 (14)
-#define D6 (12)
-#define D7 (13)
-#define D8 (15)
-#define TX (1)
-#elif defined(ESP32)
-#define D5 (18)
-#define D6 (19)
-#define D7 (23)
-#define D8 (5)
-#define TX (1)
-#endif
-#endif
-
-const char* ssid     = STASSID;
-const char* password = STAPSK;
-
-//const char* host = "maurinsoft.com.br";
-const char* host = "192.168.0.105";
-const uint16_t port = 17;
-
-String Buffer;
-int flag;
-int flgImprime;
-
-String inputString = "";         // a String to hold incoming data
-bool stringComplete = false;  // whether the string is complete
-
-void set_rele01(bool status);
-void set_rele02(bool status);
-void processacmd(String info);
-
-void set_serial(){
-   Serial.begin(9600);
+void set_rele01(bool status) {
+  rele01 = status;
+  digitalWrite(RELE01, status ? LOW : HIGH);
 }
 
-void processacmd(String info){
-  Serial.print("Processou");
-  Serial.println(info);
+void set_rele02(bool status) {
+  rele02 = status;
+  digitalWrite(RELE02, status ? LOW : HIGH);
 }
 
 void set_wifi() {
-   /* Explicitly set the ESP8266 to be a WiFi-client, otherwise, it by default,
-     would try to act as both a client and an access-point and could cause
-     network-issues with your other WiFi-devices on your WiFi-network. */
   WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
-
+  WiFi.begin(STASSID, STAPSK);
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
-    Serial.print(".");
+    Serial.print('.');
+    yield();
   }
   Serial.println();
-  Serial.println();
-  Serial.print("Connecting to ");
-  Serial.println(ssid);  
+  Serial.println("WiFi conectado: " + WiFi.localIP().toString());
 }
 
-void set_pins(){
-    pinMode(RELE01, OUTPUT);
-    pinMode(RELE02, OUTPUT);
-    set_rele01(false);
-    set_rele02(false);
+void set_pins() {
+  pinMode(RELE01, OUTPUT);
+  pinMode(RELE02, OUTPUT);
+  set_rele01(false);
+  set_rele02(false);
 }
 
-void myip(){
-  Serial.println("");
-  Serial.println("WiFi connected");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
+void enviarHeartbeat() {
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  std::unique_ptr<BearSSL::WiFiClientSecure> client(new BearSSL::WiFiClientSecure);
+  client->setInsecure();
+
+  HTTPClient http;
+  String url = String(CASA_URL) + "/api/crud.php?tabela=dispositivos_cluster&acao=heartbeat_iot";
+  if (!http.begin(*client, url)) return;
+
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("Authorization", String("Bearer ") + DEVICE_TOKEN);
+  http.addHeader("X-Device-Token", DEVICE_TOKEN);
+  http.addHeader("X-Device-Id", DEVICE_ID);
+  http.addHeader("X-Device-Capabilities", DEVICE_CAPABILITIES);
+
+  String payload = "{";
+  payload += "\"device_id\":\"" + String(DEVICE_ID) + "\",";
+  payload += "\"capabilities\":\"" + String(DEVICE_CAPABILITIES) + "\",";
+  payload += "\"sinal_rssi\":" + String(WiFi.RSSI()) + ",";
+  payload += "\"uptime_s\":" + String(millis() / 1000UL) + ",";
+  payload += "\"reles_status\":{\"rele01\":" + String(rele01 ? 1 : 0) + ",\"rele02\":" + String(rele02 ? 1 : 0) + "}";
+  payload += "}";
+
+  int code = http.POST(payload);
+  Serial.printf("[CASA] Heartbeat HTTP %d\n", code);
+  http.end();
 }
 
+void processacmd(String info) {
+  info.trim();
+  info.toUpperCase();
 
-void start_srv(){
-    wifiServer.begin();
+  if (info == "RELE01_ON") set_rele01(true);
+  else if (info == "RELE01_OFF") set_rele01(false);
+  else if (info == "RELE02_ON") set_rele02(true);
+  else if (info == "RELE02_OFF") set_rele02(false);
+
+  enviarHeartbeat();
 }
 
-
+void serialEvent() {
+  static String inputString = "";
+  while (Serial.available()) {
+    char inChar = (char)Serial.read();
+    if (inChar == '\n') {
+      processacmd(inputString);
+      inputString = "";
+    } else if (inChar != '\r') {
+      inputString += inChar;
+    }
+  }
+}
 
 void setup() {
-  set_serial();
+  Serial.begin(9600);
   set_pins();
-  // We start by connecting to a WiFi network
   set_wifi();
-  
-  
-  myip();
-  Buffer = "";
-  start_srv();
-  flag = 0;
-  flgImprime = 0;
-
+  enviarHeartbeat();
+  ultimoHeartbeat = millis();
+  Serial.println("CASA/JARVIS piscina pronta: https://casa.maurinsoft.com.br");
 }
 
-void set_rele01(bool status){
-  digitalWrite(RELE01,((status==false)?HIGH:LOW));
-}
-
-void set_rele02(bool status){
-  digitalWrite(RELE02,((status==false)?HIGH:LOW));
-}
-
-
-
-void le_srv(){
-  WiFiClient client = wifiServer.available();
-  String buffer;
- 
-  if (client) {
- 
-    while (client.connected()) { 
-      while (client.available()>0) {
-        char c = client.read();
-        client.write(c);
-        if (c==0x10){
-          processacmd(buffer);
-          buffer = "";
-        } else {
-           buffer=+c;
-        }
-        
-      }
- 
-      delay(10);
-    }
- 
-    client.stop();
-    Serial.println("Client disconnected");
- 
-  }
-}
-
-void loop() { 
-  le_srv();
+void loop() {
   serialEvent();
 
-}
-
-
-
-/*
-  SerialEvent occurs whenever a new data comes in the hardware serial RX. This
-  routine is run between each time loop() runs, so using delay inside loop can
-  delay response. Multiple bytes of data may be available.
-*/
-void serialEvent() {
-  while (Serial.available()) {
-    // get the new byte:
-    char inChar = (char)Serial.read();
-    // add it to the inputString:
-    inputString += inChar;
-    Serial.print(inChar);
-    // if the incoming character is a newline, set a flag so the main loop can
-    // do something about it:
-    if (inChar == '\n') {
-      stringComplete = true;
-    }
+  if (WiFi.status() != WL_CONNECTED) {
+    set_wifi();
   }
+
+  if (millis() - ultimoHeartbeat >= HEARTBEAT_MS) {
+    ultimoHeartbeat = millis();
+    enviarHeartbeat();
+  }
+
+  delay(20);
 }
