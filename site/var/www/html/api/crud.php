@@ -1,413 +1,232 @@
 <?php
-// API REST generica para CRUDs das principais tabelas do casadb
-// Suporta:
-// - devices
-// - devpar
-// - sensores_telemetria
-// - frases
-// - usuarios
-// - arm_nodes
-// - configuracoes_sistema
-
+// CASA/JARVIS - CRUD central MySQL/MariaDB
 header('Content-Type: application/json; charset=utf-8');
 require_once(__DIR__ . '/db.php');
-
-// Verificação de Segurança (Sessão Web ou Token de API)
 verify_api_auth();
-
-$pdo = get_db_pdo();
-
-$tabela = isset($_GET['tabela']) ? preg_replace('/[^a-zA-Z0-9_]/', '', $_GET['tabela']) : '';
-$acao = isset($_GET['acao']) ? $_GET['acao'] : (isset($_GET['action']) ? $_GET['action'] : 'listar');
-
 require_once(__DIR__ . '/seguranca.php');
 
+$pdo = get_db_pdo();
+$tabela = isset($_GET['tabela']) ? preg_replace('/[^a-zA-Z0-9_]/', '', $_GET['tabela']) : '';
+$acao = $_GET['acao'] ?? ($_GET['action'] ?? 'listar');
+$input = json_decode(file_get_contents('php://input'), true);
+if (!is_array($input)) $input = $_POST;
+
 $tabelas_permitidas = [
-    'devices', 'devpar', 'sensores_telemetria', 'frases', 
-    'usuarios', 'arm_nodes', 'configuracoes_sistema', 'comandos_log', 'falas', 'llm_conversas',
-    'tarefas_agendadas', 'dispositivos_cluster', 'seguranca_logs', 'seguranca_ips_bloqueados', 'agentes_externos'
+    'devices','devpar','sensores_telemetria','frases','usuarios','arm_nodes',
+    'configuracoes_sistema','comandos_log','falas','llm_conversas','tarefas_agendadas',
+    'dispositivos_cluster','seguranca_logs','seguranca_ips_bloqueados','agentes_externos',
+    'iot_leituras','camera_eventos','mobile_eventos','mobile_notificacoes','watch_notificacoes',
+    'jarvis_planos','jarvis_tarefas','internet_pesquisas','api_client_tokens'
 ];
 
-if (!in_array($tabela, $tabelas_permitidas)) {
-    echo json_encode(['status' => 'erro', 'mensagem' => 'Tabela invalida']);
+function crud_json($payload, $code = 200) {
+    http_response_code($code);
+    echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
 }
 
-$input = json_decode(file_get_contents('php://input'), true);
-if (!is_array($input)) {
-    $input = $_POST;
+function crud_pk($tabela) {
+    if ($tabela === 'devices') return 'iddevice';
+    if ($tabela === 'devpar') return 'idpar';
+    if ($tabela === 'falas') return 'idfala';
+    if ($tabela === 'configuracoes_sistema') return 'chave';
+    if ($tabela === 'seguranca_ips_bloqueados') return 'ip_address';
+    return 'id';
+}
+
+function crud_clean_columns($input) {
+    $out = [];
+    foreach ($input as $k => $v) {
+        if (preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $k)) $out[$k] = $v;
+    }
+    return $out;
+}
+
+if ($tabela !== '' && !in_array($tabela, $tabelas_permitidas, true)) {
+    crud_json(['status'=>'erro','mensagem'=>'Tabela inválida'], 400);
 }
 
 try {
     if ($acao === 'listar') {
-        $limite = isset($_GET['limite']) ? intval($_GET['limite']) : 100;
-        $busca = isset($_GET['q']) ? trim($_GET['q']) : '';
-        
-        // Identificar coluna de ordenação primária
-        $ordem_col = 'id';
-        if ($tabela === 'devices') $ordem_col = 'iddevice';
-        elseif ($tabela === 'devpar') $ordem_col = 'idpar';
-        elseif ($tabela === 'falas') $ordem_col = 'idfala';
-        elseif ($tabela === 'configuracoes_sistema') $ordem_col = 'chave';
-
-        $target_pdo = $pdo;
-        $db_origem = "mestre (192.168.2.12)";
-        if ($tabela === 'sensores_telemetria' || $tabela === 'comandos_log') {
-            $sec = get_secondary_db_pdo();
-            if ($sec) {
-                $target_pdo = $sec;
-                $db_origem = "secundario_cluster (192.168.2.8 - Cubieboard)";
-            }
-        }
-
-        $sql = "SELECT * FROM {$tabela} ORDER BY {$ordem_col} DESC LIMIT {$limite}";
-        $stmt = $target_pdo->query($sql);
-        $dados = $stmt->fetchAll();
-
-        echo json_encode(['status' => 'sucesso', 'tabela' => $tabela, 'origem_dados' => $db_origem, 'total' => count($dados), 'dados' => $dados], JSON_UNESCAPED_UNICODE);
-        exit;
+        if ($tabela === '') crud_json(['status'=>'erro','mensagem'=>'Tabela obrigatória'], 400);
+        $limite = max(1, min(500, intval($_GET['limite'] ?? 100)));
+        $pk = crud_pk($tabela);
+        $stmt = $pdo->query("SELECT * FROM `{$tabela}` ORDER BY `{$pk}` DESC LIMIT {$limite}");
+        crud_json([
+            'status'=>'sucesso',
+            'tabela'=>$tabela,
+            'origem_dados'=>'casa.maurinsoft.com.br / MySQL',
+            'total'=>$stmt->rowCount(),
+            'dados'=>$stmt->fetchAll()
+        ]);
     }
 
     if ($acao === 'criar') {
-        if (empty($input)) {
-            echo json_encode(['status' => 'erro', 'mensagem' => 'Dados vazios para insercao']);
-            exit;
-        }
+        if ($tabela === '') crud_json(['status'=>'erro','mensagem'=>'Tabela obrigatória'], 400);
+        $input = crud_clean_columns($input);
+        $pk = crud_pk($tabela);
+        if ($pk !== 'chave' && $pk !== 'ip_address') unset($input[$pk]);
+        if (!$input) crud_json(['status'=>'erro','mensagem'=>'Dados vazios'], 400);
 
-        // Remover campos nulos ou ids autoincremento se vazios
-        unset($input['id']);
-        unset($input['iddevice']);
-        unset($input['idpar']);
-        unset($input['idfala']);
-
-        $colunas = array_keys($input);
-        $placeholders = array_map(function($c) { return ":{$c}"; }, $colunas);
-
-        $sql = "INSERT INTO {$tabela} (" . implode(',', $colunas) . ") VALUES (" . implode(',', $placeholders) . ")";
-        $stmt = $pdo->prepare($sql);
-        
+        $cols = array_keys($input);
+        $quoted = array_map(fn($c)=>"`{$c}`", $cols);
+        $marks = array_map(fn($c)=>":{$c}", $cols);
+        $stmt = $pdo->prepare("INSERT INTO `{$tabela}` (" . implode(',', $quoted) . ") VALUES (" . implode(',', $marks) . ")");
         $params = [];
-        foreach ($input as $k => $v) {
-            $params[":{$k}"] = $v;
-        }
+        foreach ($input as $k=>$v) $params[":{$k}"] = is_array($v) ? json_encode($v, JSON_UNESCAPED_UNICODE) : $v;
         $stmt->execute($params);
-
-        echo json_encode(['status' => 'sucesso', 'mensagem' => 'Registro criado com sucesso!']);
-        exit;
+        crud_json(['status'=>'sucesso','mensagem'=>'Registro criado','id'=>$pdo->lastInsertId() ?: null]);
     }
 
     if ($acao === 'atualizar') {
-        $pk_col = 'id';
-        if ($tabela === 'devices') $pk_col = 'iddevice';
-        elseif ($tabela === 'devpar') $pk_col = 'idpar';
-        elseif ($tabela === 'falas') $pk_col = 'idfala';
-        elseif ($tabela === 'configuracoes_sistema') $pk_col = 'chave';
+        if ($tabela === '') crud_json(['status'=>'erro','mensagem'=>'Tabela obrigatória'], 400);
+        $input = crud_clean_columns($input);
+        $pk = crud_pk($tabela);
+        $pkVal = $input[$pk] ?? ($_GET['id'] ?? null);
+        if ($pkVal === null || $pkVal === '') crud_json(['status'=>'erro','mensagem'=>"Identificador {$pk} ausente"], 400);
+        unset($input[$pk]);
+        if (!$input) crud_json(['status'=>'erro','mensagem'=>'Nenhum campo para atualizar'], 400);
 
-        $pk_val = isset($input[$pk_col]) ? $input[$pk_col] : (isset($_GET['id']) ? $_GET['id'] : null);
-        if (!$pk_val) {
-            echo json_encode(['status' => 'erro', 'mensagem' => "Identificador ({$pk_col}) ausente"]);
-            exit;
+        $sets=[]; $params=[':pk'=>$pkVal];
+        foreach ($input as $k=>$v) {
+            $sets[] = "`{$k}`=:{$k}";
+            $params[":{$k}"] = is_array($v) ? json_encode($v, JSON_UNESCAPED_UNICODE) : $v;
         }
-
-        unset($input[$pk_col]);
-        $sets = [];
-        $params = [":pk" => $pk_val];
-        foreach ($input as $k => $v) {
-            $sets[] = "{$k} = :{$k}";
-            $params[":{$k}"] = $v;
-        }
-
-        $sql = "UPDATE {$tabela} SET " . implode(', ', $sets) . " WHERE {$pk_col} = :pk";
-        $stmt = $pdo->prepare($sql);
+        $stmt=$pdo->prepare("UPDATE `{$tabela}` SET " . implode(',', $sets) . " WHERE `{$pk}`=:pk");
         $stmt->execute($params);
-
-        echo json_encode(['status' => 'sucesso', 'mensagem' => 'Registro atualizado com sucesso!']);
-        exit;
+        crud_json(['status'=>'sucesso','mensagem'=>'Registro atualizado']);
     }
 
     if ($acao === 'excluir') {
-        $pk_col = 'id';
-        if ($tabela === 'devices') $pk_col = 'iddevice';
-        elseif ($tabela === 'devpar') $pk_col = 'idpar';
-        elseif ($tabela === 'falas') $pk_col = 'idfala';
-        elseif ($tabela === 'configuracoes_sistema') $pk_col = 'chave';
-
-        $pk_val = isset($input[$pk_col]) ? $input[$pk_col] : (isset($_GET['id']) ? $_GET['id'] : null);
-        if (!$pk_val) {
-            echo json_encode(['status' => 'erro', 'mensagem' => "Identificador ({$pk_col}) ausente"]);
-            exit;
-        }
-
-        $sql = "DELETE FROM {$tabela} WHERE {$pk_col} = :pk";
-        $stmt = $pdo->prepare($sql);
-        $stmt->execute([':pk' => $pk_val]);
-
-        echo json_encode(['status' => 'sucesso', 'mensagem' => 'Registro removido com sucesso!']);
-        exit;
-    }
-
-    if ($acao === 'ping_nodes') {
-        // Testar conectividade com os 4 nós ARM
-        $stmt = $pdo->query("SELECT * FROM arm_nodes");
-        $nodes = $stmt->fetchAll();
-        $resultados = [];
-
-        foreach ($nodes as $n) {
-            $ip = $n['ip_address'];
-            $online = false;
-            // Teste rápido via socket na porta 22 (SSH) com timeout de 0.5s
-            $fp = @fsockopen($ip, 22, $errno, $errstr, 0.5);
-            if ($fp) {
-                $online = true;
-                fclose($fp);
-            }
-            $status = $online ? 'online' : 'inacessivel';
-            
-            $pdo->prepare("UPDATE arm_nodes SET status = :st, ultimo_ping = CURRENT_TIMESTAMP WHERE id = :id")
-                ->execute([':st' => $status, ':id' => $n['id']]);
-
-            $resultados[] = [
-                'id' => $n['id'],
-                'hostname' => $n['hostname'],
-                'ip' => $ip,
-                'papel' => $n['papel'],
-                'status' => $status
-            ];
-        }
-
-        echo json_encode(['status' => 'sucesso', 'nodes' => $resultados]);
-        exit;
+        if ($tabela === '') crud_json(['status'=>'erro','mensagem'=>'Tabela obrigatória'], 400);
+        $pk=crud_pk($tabela);
+        $pkVal=$input[$pk] ?? ($_GET['id'] ?? null);
+        if ($pkVal === null || $pkVal === '') crud_json(['status'=>'erro','mensagem'=>"Identificador {$pk} ausente"], 400);
+        $pdo->prepare("DELETE FROM `{$tabela}` WHERE `{$pk}`=:pk")->execute([':pk'=>$pkVal]);
+        crud_json(['status'=>'sucesso','mensagem'=>'Registro removido']);
     }
 
     if ($acao === 'heartbeat') {
-        $hostname = isset($input['hostname']) ? $input['hostname'] : 'arm-node';
-        $ip = isset($input['ip_address']) ? $input['ip_address'] : $_SERVER['REMOTE_ADDR'];
-        $cpu = isset($input['cpu_info']) ? $input['cpu_info'] : 'ARM';
-        $ram = isset($input['ram_info']) ? $input['ram_info'] : '';
-        $st = isset($input['status']) ? $input['status'] : 'online';
+        $deviceId = trim($input['device_id'] ?? '');
+        $hostname = trim($input['hostname'] ?? 'arm-node');
+        $ip = trim($input['ip_address'] ?? get_client_ip());
+        $cpu = trim($input['cpu_info'] ?? 'ARM');
+        $ram = trim($input['ram_info'] ?? '');
+        $status = trim($input['status'] ?? 'online');
+        $caps = json_encode($input['capabilities'] ?? ['arm-agent'], JSON_UNESCAPED_UNICODE);
 
-        $check = $pdo->prepare("SELECT id FROM arm_nodes WHERE ip_address = :ip");
-        $check->execute([':ip' => $ip]);
-        $row = $check->fetch();
-
-        if ($row) {
-            $up = $pdo->prepare("UPDATE arm_nodes SET hostname = :h, ip_address = :ip, cpu_info = :c, ram_info = :r, status = :s, ultimo_ping = CURRENT_TIMESTAMP WHERE id = :id");
-            $up->execute([':h' => $hostname, ':ip' => $ip, ':c' => $cpu, ':r' => $ram, ':s' => $st, ':id' => $row['id']]);
+        if ($deviceId !== '') {
+            $stmt=$pdo->prepare("SELECT id FROM arm_nodes WHERE device_id=:d LIMIT 1");
+            $stmt->execute([':d'=>$deviceId]);
         } else {
-            $ins = $pdo->prepare("INSERT INTO arm_nodes (hostname, ip_address, papel, status, cpu_info, ram_info) VALUES (:h, :ip, 'Nó Adicional', :s, :c, :r)");
-            $ins->execute([':h' => $hostname, ':ip' => $ip, ':s' => $st, ':c' => $cpu, ':r' => $ram]);
+            $stmt=$pdo->prepare("SELECT id FROM arm_nodes WHERE hostname=:h LIMIT 1");
+            $stmt->execute([':h'=>$hostname]);
         }
+        $id=$stmt->fetchColumn();
 
-        echo json_encode(['status' => 'sucesso', 'mensagem' => 'Heartbeat recebido']);
-        exit;
-    }
-
-    if ($acao === 'executar_tarefa') {
-        $id_tarefa = isset($input['id']) ? intval($input['id']) : (isset($_GET['id']) ? intval($_GET['id']) : 0);
-        if ($id_tarefa <= 0) {
-            echo json_encode(['status' => 'erro', 'mensagem' => 'ID de tarefa inválido']);
-            exit;
+        if ($id) {
+            $up=$pdo->prepare("UPDATE arm_nodes SET device_id=COALESCE(NULLIF(:d,''),device_id),hostname=:h,ip_address=:ip,cpu_info=:c,ram_info=:r,status=:s,capabilities=:caps,ultimo_ping=NOW() WHERE id=:id");
+            $up->execute([':d'=>$deviceId,':h'=>$hostname,':ip'=>$ip,':c'=>$cpu,':r'=>$ram,':s'=>$status,':caps'=>$caps,':id'=>$id]);
+        } else {
+            $ins=$pdo->prepare("INSERT INTO arm_nodes (device_id,hostname,ip_address,papel,status,cpu_info,ram_info,capabilities,ultimo_ping) VALUES (NULLIF(:d,''),:h,:ip,'No Distribuido',:s,:c,:r,:caps,NOW())");
+            $ins->execute([':d'=>$deviceId,':h'=>$hostname,':ip'=>$ip,':s'=>$status,':c'=>$cpu,':r'=>$ram,':caps'=>$caps]);
+            $id=$pdo->lastInsertId();
         }
-
-        $stmt = $pdo->prepare("SELECT * FROM tarefas_agendadas WHERE id = :id");
-        $stmt->execute([':id' => $id_tarefa]);
-        $tarefa = $stmt->fetch();
-
-        if (!$tarefa) {
-            echo json_encode(['status' => 'erro', 'mensagem' => 'Tarefa não encontrada']);
-            exit;
-        }
-
-        $res_exec = "Disparado com sucesso";
-        // Executar ação de acordo com o tipo
-        if ($tarefa['tipo_acao'] === 'comando_jarvis') {
-            $ch = curl_init("http://127.0.0.1/api/jarvis.php");
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_POST, true);
-            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode(['comando' => $tarefa['payload']]));
-            curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json', 'X-API-Key: ' . get_system_api_token()]);
-            curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-            $r = curl_exec($ch);
-            curl_close($ch);
-            if ($r) {
-                $j = json_decode($r, true);
-                $res_exec = isset($j['resposta']) ? $j['resposta'] : $r;
-            }
-        } elseif ($tarefa['tipo_acao'] === 'aviso_fala') {
-            $target = $tarefa['target_node'];
-            $url = ($target === 'local' || empty($target)) ? "http://127.0.0.1:8097/falar" : "http://{$target}:8098/falar";
-            $ch = curl_init($url);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_POST, true);
-            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode(['texto' => $tarefa['payload'], 'reproduzir' => true]));
-            curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-            curl_setopt($ch, CURLOPT_TIMEOUT, 15);
-            $r = curl_exec($ch);
-            curl_close($ch);
-            $res_exec = "Áudio disparado para {$target}";
-        }
-
-        $pdo->prepare("UPDATE tarefas_agendadas SET ultima_execucao = CURRENT_TIMESTAMP WHERE id = :id")
-            ->execute([':id' => $id_tarefa]);
-
-        $pdo->prepare("INSERT INTO comandos_log (comando, origem, resultado) VALUES (:cmd, 'MANUAL_SCHEDULER', :res)")
-            ->execute([':cmd' => "Disparo manual da tarefa: " . $tarefa['titulo'], ':res' => $res_exec]);
-
-        echo json_encode(['status' => 'sucesso', 'mensagem' => "Tarefa '{$tarefa['titulo']}' executada!", 'detalhes' => $res_exec], JSON_UNESCAPED_UNICODE);
-        exit;
+        crud_json(['status'=>'sucesso','mensagem'=>'Heartbeat recebido','node_id'=>intval($id)]);
     }
 
     if ($acao === 'heartbeat_iot') {
-        $token = isset($_SERVER['HTTP_X_DEVICE_TOKEN']) ? $_SERVER['HTTP_X_DEVICE_TOKEN'] : (isset($input['device_token']) ? $input['device_token'] : '');
-        $dev = validar_hardware_token($token);
-        if (!$dev) {
-            http_response_code(401);
-            echo json_encode(['status' => 'erro', 'mensagem' => 'Hardware Token inválido ou não autorizado']);
-            exit;
-        }
+        $token=$_SERVER['HTTP_X_DEVICE_TOKEN'] ?? ($input['device_token'] ?? '');
+        $dev=validar_hardware_token($token);
+        if (!$dev) crud_json(['status'=>'erro','mensagem'=>'Hardware token inválido'], 401);
 
-        $ram = isset($input['ram_livre']) ? intval($input['ram_livre']) : $dev['ram_livre'];
-        $rssi = isset($input['sinal_rssi']) ? intval($input['sinal_rssi']) : $dev['sinal_rssi'];
-        $reles = isset($input['reles_status']) ? (is_array($input['reles_status']) ? json_encode($input['reles_status']) : $input['reles_status']) : (is_array($dev['reles_status']) ? json_encode($dev['reles_status']) : $dev['reles_status']);
-        $ip = get_client_ip();
+        $ram=intval($input['ram_livre'] ?? $dev['ram_livre'] ?? 0);
+        $rssi=intval($input['sinal_rssi'] ?? $dev['sinal_rssi'] ?? 0);
+        $reles=$input['reles_status'] ?? $dev['reles_status'] ?? [];
+        if (is_string($reles)) $reles=json_decode($reles,true) ?: [];
+        $caps=$input['capabilities'] ?? null;
 
-        $up = $pdo->prepare("UPDATE dispositivos_cluster SET 
-            ip_address = :ip, 
-            status = 'online', 
-            ram_livre = :ram, 
-            sinal_rssi = :rssi, 
-            reles_status = :reles::jsonb, 
-            ultimo_heartbeat = CURRENT_TIMESTAMP 
-            WHERE id = :id");
-        $up->execute([
-            ':ip' => $ip,
-            ':ram' => $ram,
-            ':rssi' => $rssi,
-            ':reles' => $reles,
-            ':id' => $dev['id']
-        ]);
-
-        // Registrar métrica no histórico de sensores_telemetria
-        if ($ram > 0) {
-            $pdo->prepare("INSERT INTO sensores_telemetria (iddevice, sensor_nome, valor_numerico, unidade, raw_data) VALUES (1, :sname, :val, 'bytes', :raw)")
-                ->execute([
-                    ':sname' => 'RAM_Livre_' . $dev['nome'],
-                    ':val' => $ram,
-                    ':raw' => "RSSI: {$rssi} dBm, IP: {$ip}"
-                ]);
-        }
-
-        echo json_encode(['status' => 'sucesso', 'mensagem' => 'Telemetria IoT recebida pelo cluster JARVIS', 'device_id' => $dev['id']]);
-        exit;
+        $sql="UPDATE dispositivos_cluster SET ip_address=:ip,status='online',ram_livre=:ram,sinal_rssi=:rssi,reles_status=:reles,ultimo_heartbeat=NOW()";
+        $params=[':ip'=>get_client_ip(),':ram'=>$ram,':rssi'=>$rssi,':reles'=>json_encode($reles,JSON_UNESCAPED_UNICODE),':id'=>$dev['id']];
+        if ($caps !== null) { $sql .= ",capabilities=:caps"; $params[':caps']=json_encode($caps,JSON_UNESCAPED_UNICODE); }
+        $sql .= " WHERE id=:id";
+        $pdo->prepare($sql)->execute($params);
+        crud_json(['status'=>'sucesso','mensagem'=>'Telemetria IoT recebida','device_id'=>intval($dev['id'])]);
     }
 
     if ($acao === 'acionar_rele_iot') {
-        $dev_id = isset($input['device_id']) ? intval($input['device_id']) : 0;
-        $rele_num = isset($input['rele']) ? preg_replace('/[^a-zA-Z0-9_]/', '', $input['rele']) : 'rele1';
-        $novo_estado = !empty($input['estado']) ? 1 : 0;
+        $devId=intval($input['device_id'] ?? 0);
+        $rele=preg_replace('/[^a-zA-Z0-9_\-]/','',$input['rele'] ?? 'rele1');
+        $estado=!empty($input['estado']) ? 1 : 0;
+        $stmt=$pdo->prepare("SELECT * FROM dispositivos_cluster WHERE id=:id");
+        $stmt->execute([':id'=>$devId]);
+        $dev=$stmt->fetch();
+        if (!$dev) crud_json(['status'=>'erro','mensagem'=>'Dispositivo não encontrado'],404);
 
-        $stmt = $pdo->prepare("SELECT * FROM dispositivos_cluster WHERE id = :id");
-        $stmt->execute([':id' => $dev_id]);
-        $dev = $stmt->fetch();
-
-        if (!$dev) {
-            echo json_encode(['status' => 'erro', 'mensagem' => 'Dispositivo não encontrado']);
-            exit;
-        }
-
-        $reles = !empty($dev['reles_status']) ? (is_array($dev['reles_status']) ? $dev['reles_status'] : json_decode($dev['reles_status'], true)) : [];
-        $reles[$rele_num] = $novo_estado;
-
-        $pdo->prepare("UPDATE dispositivos_cluster SET reles_status = :r::jsonb WHERE id = :id")
-            ->execute([':r' => json_encode($reles), ':id' => $dev_id]);
-
-        // Se o dispositivo tiver IP online, despachar comando HTTP REST diretamente para a placa
-        if (!empty($dev['ip_address']) && $dev['status'] === 'online') {
-            $ch = curl_init("http://{$dev['ip_address']}/rele/{$rele_num}/" . ($novo_estado ? '1' : '0'));
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_TIMEOUT, 2);
-            curl_setopt($ch, CURLOPT_HTTPHEADER, ["X-JARVIS-TOKEN: " . $dev['device_token']]);
-            @curl_exec($ch);
-            curl_close($ch);
-        }
-
-        $pdo->prepare("INSERT INTO comandos_log (comando, origem, resultado) VALUES (:cmd, 'WEB_HUD_IOT', :res)")
-            ->execute([':cmd' => "Acionamento IoT {$dev['nome']} ({$rele_num} = {$novo_estado})", ':res' => 'Executado']);
-
-        echo json_encode(['status' => 'sucesso', 'reles_status' => $reles]);
-        exit;
-    }
-
-    if ($acao === 'desbloquear_ip') {
-        $ip = isset($input['ip']) ? trim($input['ip']) : (isset($_GET['ip']) ? trim($_GET['ip']) : '');
-        if (!empty($ip)) {
-            $pdo->prepare("DELETE FROM seguranca_ips_bloqueados WHERE ip_address = :ip")->execute([':ip' => $ip]);
-            registrar_evento_seguranca($ip, 'DESBLOQUEIO_MANUAL', "IP desbloqueado manualmente pelo administrador via painel", 'INFO');
-            echo json_encode(['status' => 'sucesso', 'mensagem' => "IP $ip desbloqueado com sucesso"]);
-            exit;
-        }
+        $reles=$dev['reles_status'] ? json_decode($dev['reles_status'],true) : [];
+        if (!is_array($reles)) $reles=[];
+        $reles[$rele]=$estado;
+        $pdo->prepare("UPDATE dispositivos_cluster SET reles_status=:j WHERE id=:id")
+            ->execute([':j'=>json_encode($reles,JSON_UNESCAPED_UNICODE),':id'=>$devId]);
+        $pdo->prepare("INSERT INTO comandos_log (comando,origem,resultado) VALUES (:c,'WEB_HUD_IOT','Pendente para no distribuido')")
+            ->execute([':c'=>"{$dev['nome']} {$rele}={$estado}"]);
+        crud_json(['status'=>'sucesso','device_id'=>$devId,'reles_status'=>$reles]);
     }
 
     if ($acao === 'gerar_token_iot') {
-        $nome = isset($input['nome']) ? trim($input['nome']) : 'Novo Dispositivo';
-        $tipo = isset($input['tipo']) ? trim($input['tipo']) : 'esp32_generic';
-        $local = isset($input['localizacao']) ? trim($input['localizacao']) : 'Residência';
-        $token = gerar_novo_hardware_token($tipo);
-
-        $stmt = $pdo->prepare("INSERT INTO dispositivos_cluster (nome, tipo, device_token, localizacao, status) 
-            VALUES (:n, :t, :tok, :loc, 'aguardando_conexao') RETURNING id, device_token");
-        $stmt->execute([':n' => $nome, ':t' => $tipo, ':tok' => $token, ':loc' => $local]);
-        $row = $stmt->fetch();
-
-        echo json_encode(['status' => 'sucesso', 'device' => $row, 'token' => $token]);
-        exit;
-    }
-
-    if ($acao === 'status_tunnel') {
-        $status_data = ['status' => 'offline', 'url' => '', 'atualizado_em' => ''];
-        if (file_exists('/var/www/html/api/tunnel_status.json')) {
-            $status_data = json_decode(file_get_contents('/var/www/html/api/tunnel_status.json'), true);
-        }
-        $stmt = $pdo->query("SELECT valor FROM configuracoes_sistema WHERE chave = 'external_web_url'");
-        $db_url = $stmt->fetchColumn();
-        if (empty($status_data['url']) && !empty($db_url)) {
-            $status_data['url'] = $db_url;
-            $status_data['status'] = 'online';
-        }
-        echo json_encode(['status' => 'sucesso', 'tunnel' => $status_data]);
-        exit;
+        $nome=trim($input['nome'] ?? 'Novo Dispositivo');
+        $tipo=trim($input['tipo'] ?? 'iot_generic');
+        $local=trim($input['localizacao'] ?? 'Residencia');
+        $deviceId=trim($input['device_id'] ?? '');
+        $token=gerar_novo_hardware_token($tipo);
+        $stmt=$pdo->prepare("INSERT INTO dispositivos_cluster (device_id,nome,tipo,device_token,localizacao,status) VALUES (NULLIF(:did,''),:n,:t,:tok,:loc,'aguardando_conexao')");
+        $stmt->execute([':did'=>$deviceId,':n'=>$nome,':t'=>$tipo,':tok'=>$token,':loc'=>$local]);
+        crud_json(['status'=>'sucesso','device'=>['id'=>intval($pdo->lastInsertId()),'device_id'=>$deviceId ?: null,'nome'=>$nome,'tipo'=>$tipo],'token'=>$token]);
     }
 
     if ($acao === 'obter_external_api_key') {
-        $stmt = $pdo->query("SELECT valor FROM configuracoes_sistema WHERE chave = 'external_api_key'");
-        $key = $stmt->fetchColumn();
+        $key=$pdo->query("SELECT valor FROM configuracoes_sistema WHERE chave='external_api_key' LIMIT 1")->fetchColumn();
         if (!$key) {
-            $key = "jarvis_sec_v1_" . bin2hex(random_bytes(24));
-            $pdo->prepare("INSERT INTO configuracoes_sistema (chave, valor) VALUES ('external_api_key', :k) ON CONFLICT (chave) DO UPDATE SET valor = :k")
-                ->execute([':k' => $key]);
+            $key='jarvis_sec_v1_' . bin2hex(random_bytes(24));
+            $pdo->prepare("INSERT INTO configuracoes_sistema (chave,valor,descricao) VALUES ('external_api_key',:k,'Chave mestre API v1') ON DUPLICATE KEY UPDATE valor=VALUES(valor)")
+                ->execute([':k'=>$key]);
         }
-        echo json_encode(['status' => 'sucesso', 'api_key' => $key]);
-        exit;
+        crud_json(['status'=>'sucesso','api_key'=>$key]);
     }
 
     if ($acao === 'rotacionar_external_api_key') {
-        $nova_chave = "jarvis_sec_v1_" . bin2hex(random_bytes(24));
-        $pdo->prepare("INSERT INTO configuracoes_sistema (chave, valor) VALUES ('external_api_key', :k) ON CONFLICT (chave) DO UPDATE SET valor = :k")
-            ->execute([':k' => $nova_chave]);
-        registrar_evento_seguranca(get_client_ip(), 'ROTACAO_CHAVE_API', "Chave Mestre de Acesso Externo à API v1 rotacionada pelo administrador", 'AVISO');
-        echo json_encode(['status' => 'sucesso', 'mensagem' => 'Nova chave de API gerada com sucesso!', 'nova_api_key' => $nova_chave]);
-        exit;
+        $key='jarvis_sec_v1_' . bin2hex(random_bytes(24));
+        $pdo->prepare("INSERT INTO configuracoes_sistema (chave,valor,descricao) VALUES ('external_api_key',:k,'Chave mestre API v1') ON DUPLICATE KEY UPDATE valor=VALUES(valor),atualizado_em=NOW()")
+            ->execute([':k'=>$key]);
+        registrar_evento_seguranca(get_client_ip(),'ROTACAO_CHAVE_API','Chave externa rotacionada','AVISO');
+        crud_json(['status'=>'sucesso','mensagem'=>'Nova chave gerada','nova_api_key'=>$key]);
     }
 
-    if ($acao === 'reiniciar_tunnel') {
-        exec("sudo systemctl restart casa-tunnel > /dev/null 2>&1 &");
-        registrar_evento_seguranca(get_client_ip(), 'REINICIO_TUNEL', "Comando de reinicialização do túnel externo Cloudflare executado", 'INFO');
-        echo json_encode(['status' => 'sucesso', 'mensagem' => 'Serviço do túnel seguro reiniciado. A nova URL estará disponível em alguns segundos.']);
-        exit;
+    if ($acao === 'executar_tarefa') {
+        $id=intval($input['id'] ?? ($_GET['id'] ?? 0));
+        if ($id<=0) crud_json(['status'=>'erro','mensagem'=>'ID de tarefa inválido'],400);
+        $stmt=$pdo->prepare("SELECT * FROM tarefas_agendadas WHERE id=:id");
+        $stmt->execute([':id'=>$id]);
+        $t=$stmt->fetch();
+        if (!$t) crud_json(['status'=>'erro','mensagem'=>'Tarefa não encontrada'],404);
+        $pdo->prepare("UPDATE tarefas_agendadas SET ultima_execucao=NOW() WHERE id=:id")->execute([':id'=>$id]);
+        $pdo->prepare("INSERT INTO comandos_log (comando,origem,resultado) VALUES (:c,'MANUAL_SCHEDULER','Enfileirado')")
+            ->execute([':c'=>'Disparo manual: ' . $t['titulo']]);
+        crud_json(['status'=>'sucesso','mensagem'=>'Tarefa enfileirada para arquitetura distribuída','tarefa'=>$t]);
     }
 
-} catch (Exception $e) {
-    echo json_encode(['status' => 'erro', 'mensagem' => $e->getMessage()]);
-    exit;
+    if ($acao === 'desbloquear_ip') {
+        $ip=trim($input['ip'] ?? ($_GET['ip'] ?? ''));
+        if ($ip==='') crud_json(['status'=>'erro','mensagem'=>'IP obrigatório'],400);
+        $pdo->prepare("DELETE FROM seguranca_ips_bloqueados WHERE ip_address=:ip")->execute([':ip'=>$ip]);
+        registrar_evento_seguranca($ip,'DESBLOQUEIO_MANUAL','IP desbloqueado pelo administrador','INFO');
+        crud_json(['status'=>'sucesso','mensagem'=>'IP desbloqueado']);
+    }
+
+    crud_json(['status'=>'erro','mensagem'=>'Ação desconhecida'],404);
+
+} catch (Throwable $e) {
+    error_log('CRUD CASA: ' . $e->getMessage());
+    crud_json(['status'=>'erro','mensagem'=>'Falha interna ao acessar o banco CASA'],500);
 }
 ?>
