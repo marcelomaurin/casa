@@ -2,34 +2,35 @@
  * JARVIS RESIDENCIAL - ESP-01 SENSOR DE TEMPERATURA E UMIDADE
  * Hardware: ESP-01 / ESP8266 + DHT22 (padrao) ou DHT11
  *
+ * Runtime distribuido:
+ *   Telemetria -> https://casa.maurinsoft.com.br
+ *   Cada dispositivo deve possuir token individual.
+ *
  * Ligacao sugerida:
  *   DHT VCC  -> 3.3V
  *   DHT GND  -> GND
  *   DHT DATA -> GPIO2 do ESP-01
  *   resistor 4.7k a 10k entre DATA e 3.3V
- *
- * Bibliotecas:
- *   - ESP8266WiFi
- *   - ESP8266HTTPClient
- *   - DHT sensor library (Adafruit)
  */
 
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
-#include <WiFiClient.h>
+#include <WiFiClientSecureBearSSL.h>
 #include <DHT.h>
 
 // ========================= CONFIGURACAO =========================
 const char* WIFI_SSID = "SUA_REDE_WIFI";
 const char* WIFI_PASSWORD = "SUA_SENHA_WIFI";
 
-const char* JARVIS_URL = "http://192.168.2.12/api/iot_sensor.php";
+const char* JARVIS_URL = "https://casa.maurinsoft.com.br/api/iot_sensor.php";
+const char* DEVICE_ID = "esp01-dht-01";
 const char* DEVICE_TOKEN = "TOKEN_INDIVIDUAL_DO_ESP01";
+const char* DEVICE_CAPABILITIES = "temperature,humidity,rssi,telemetry";
 
 #define DHT_PIN 2
-#define DHT_TYPE DHT22   // troque por DHT11 se necessario
+#define DHT_TYPE DHT22
 
-const unsigned long INTERVALO_ENVIO_MS = 60000UL; // 1 minuto
+const unsigned long INTERVALO_ENVIO_MS = 60000UL;
 const unsigned long INTERVALO_RECONEXAO_MS = 10000UL;
 
 DHT dht(DHT_PIN, DHT_TYPE);
@@ -70,38 +71,45 @@ void conectarWiFi() {
 bool enviarLeitura(float temperatura, float umidade) {
   if (WiFi.status() != WL_CONNECTED) return false;
 
-  WiFiClient client;
-  HTTPClient http;
+  std::unique_ptr<BearSSL::WiFiClientSecure> client(new BearSSL::WiFiClientSecure);
+  // Em producao, preferir CA/fingerprint gerenciado. Mantido permissivo para
+  // compatibilidade inicial com renovacao automatica de certificado da hospedagem.
+  client->setInsecure();
 
-  if (!http.begin(client, JARVIS_URL)) {
-    Serial.println("[HTTP] Falha ao iniciar cliente.");
+  HTTPClient http;
+  if (!http.begin(*client, JARVIS_URL)) {
+    Serial.println("[HTTPS] Falha ao iniciar cliente.");
     return false;
   }
 
   http.addHeader("Content-Type", "application/json");
+  http.addHeader("Authorization", String("Bearer ") + DEVICE_TOKEN);
   http.addHeader("X-Device-Token", DEVICE_TOKEN);
+  http.addHeader("X-Device-Id", DEVICE_ID);
+  http.addHeader("X-Device-Capabilities", DEVICE_CAPABILITIES);
   http.setTimeout(8000);
 
   String payload = "{";
+  payload += "\"device_id\":\"" + String(DEVICE_ID) + "\",";
+  payload += "\"capabilities\":\"" + String(DEVICE_CAPABILITIES) + "\",";
   payload += "\"tipo_sensor\":\"" + tipoSensor() + "\",";
   payload += "\"temperatura_c\":" + String(temperatura, 2) + ",";
   payload += "\"umidade_pct\":" + String(umidade, 2) + ",";
   payload += "\"rssi\":" + String(WiFi.RSSI()) + ",";
   payload += "\"uptime_s\":" + String(millis() / 1000UL) + ",";
-  payload += "\"free_heap\":" + String(ESP.getFreeHeap()) +
-             "}";
+  payload += "\"free_heap\":" + String(ESP.getFreeHeap()) + "}";
 
-  Serial.println("[HTTP] POST " + payload);
+  Serial.println("[HTTPS] POST " + payload);
   int code = http.POST(payload);
 
   if (code > 0) {
     String resposta = http.getString();
-    Serial.printf("[HTTP] Codigo=%d Resposta=%s\n", code, resposta.c_str());
+    Serial.printf("[HTTPS] Codigo=%d Resposta=%s\n", code, resposta.c_str());
     http.end();
     return code >= 200 && code < 300;
   }
 
-  Serial.printf("[HTTP] Erro: %s\n", http.errorToString(code).c_str());
+  Serial.printf("[HTTPS] Erro: %s\n", http.errorToString(code).c_str());
   http.end();
   return false;
 }
@@ -129,14 +137,13 @@ void setup() {
   Serial.begin(115200);
   delay(200);
   Serial.println();
-  Serial.println("JARVIS ESP-01 TEMP/UMIDADE");
+  Serial.println("JARVIS ESP-01 TEMP/UMIDADE - CASA DISTRIBUIDA");
 
   dht.begin();
   WiFi.persistent(false);
   WiFi.setAutoReconnect(true);
   conectarWiFi();
 
-  // Primeira leitura logo apos iniciar.
   delay(2000);
   lerEEnviar();
   ultimoEnvio = millis();
