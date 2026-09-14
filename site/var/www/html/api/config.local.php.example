@@ -4,7 +4,7 @@
 return [
     'db_host' => 'localhost',
     'db_port' => '3306',
-    'db_name' => 'u820932905_casadb1',
+    'db_name' => 'u820932905_casadb',
     'db_user' => 'u820932905_root',
     'db_pass' => 'COLOQUE_A_SENHA_NO_SERVIDOR',
     'db_charset' => 'utf8mb4',
