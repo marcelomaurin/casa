@@ -3,7 +3,7 @@
  * ESP8266 + interface serial.
  *
  * Arquitetura distribuida:
- *   comandos -> https://casa.maurinsoft.com.br/api/v1/comando
+ *   comandos -> https://maurinsoft.com.br/casa/api/v1/comando
  *   autenticacao por token individual do dispositivo.
  */
 
@@ -17,7 +17,7 @@
 #define STASSID "SUA_REDE_WIFI"
 #define STAPSK  "SUA_SENHA_WIFI"
 
-const char* CASA_URL = "https://casa.maurinsoft.com.br";
+const char* CASA_URL = "https://maurinsoft.com.br/casa";
 const char* DEVICE_ID = "esp8266-cadeira-01";
 const char* DEVICE_TOKEN = "TOKEN_INDIVIDUAL_DA_CADEIRA";
 const char* DEVICE_CAPABILITIES = "nextion,chair,commands,clock";
@@ -131,7 +131,7 @@ void setup() {
   set_time();
   Buffer = "";
   Mainpage();
-  Serial.println("CASA/JARVIS cadeira pronta: https://casa.maurinsoft.com.br");
+  Serial.println("CASA/JARVIS cadeira pronta: https://maurinsoft.com.br/casa");
 }
 
 void loop() {
