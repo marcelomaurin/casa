@@ -1,6 +1,6 @@
 # JARVIS Watch — LILYGO T-Watch 2020 V3
 
-O firmware trata o T-Watch como um smartwatch JARVIS completo, com mostradores, launcher de aplicativos, voz, alarme, atividade, automação residencial, assistência familiar e integração com celular/site.
+O firmware trata o T-Watch como smartwatch JARVIS com mostradores, launcher, voz, alarme, atividade, automação residencial, Wi-Fi de contingência e integração com celular/site.
 
 ## Hardware alvo
 
@@ -13,157 +13,117 @@ O firmware trata o T-Watch como um smartwatch JARVIS completo, com mostradores, 
 - acelerômetro BMA423
 - motor de vibração
 - microfone PDM SPM1423
-- Wi-Fi do ESP32
+- Wi-Fi ESP32
 
-O T-Watch 2020 V3 não possui câmera nem receptor GPS integrados. Essas funções usam o celular como extensão.
+O T-Watch 2020 V3 usado neste projeto não fornece câmera, GPS nem alto-falante de reprodução ao firmware. Câmera, GPS, vídeo e áudio de resposta usam o celular/site; o relógio oferece microfone, texto e vibração.
+
+## Estabilidade / prevenção de travamentos
+
+A revisão atual remove operações bloqueantes do caminho principal sempre que possível:
+
+- scan de Wi-Fi assíncrono;
+- conexão Wi-Fi iniciada sem aguardar em loop na tela de configuração;
+- captura PDM processada em pequenas leituras no `loop()`;
+- alarme por máquina de estados, sem sequência longa de `delay()`;
+- timeouts curtos para HTTPS;
+- validação de ponteiros de hardware antes de uso;
+- botão físico com debounce;
+- touch ignorado com tela apagada;
+- botão físico também configurado como fonte de wake no modo de economia.
+
+Não existe `try/catch` útil para a maior parte do firmware Arduino porque a configuração embarcada normalmente compila C++ sem exceções. O tratamento é feito por retorno de erro, timeout e máquinas de estado.
+
+## Botão físico
+
+O botão PEK/AXP202 é a chave principal da tela:
+
+```text
+pressionar -> apaga a tela
+pressionar -> acende a tela
+```
+
+O firmware usa `AXP202_PEK_SHORTPRESS_IRQ`, conforme o mecanismo oficial da biblioteca do T-Watch. No modo ULTRA o botão também pode acordar o ESP32 do deep sleep.
 
 ## Navegação
 
 ```text
-esquerda / direita  -> troca de skin
+esquerda / direita  -> troca skin
 para cima            -> abre aplicativos
 para baixo           -> retorna
+botão físico          -> tela ON/OFF
 ```
 
-O firmware separa tap de swipe para não disparar botões durante um gesto.
-
-## Skins
-
-- CLASSIC
-- ANA-DIGI
-- AVIATION
-
-O skin escolhido é persistido em `Preferences`.
-
-## Launcher atual
+## Launcher
 
 ```text
 VOZ     ALM     CAM     GPS
 CASA    PASSOS  STATUS  CONFIG
 ```
 
-A camada de assistência/família foi adicionada em módulos próprios e será ligada ao launcher após a validação de compilação do transporte novo.
+## Wi-Fi no próprio relógio
 
-## Assistência familiar / uso com idosos
+Em `CONFIG -> WIFI`:
 
-Arquivos:
+1. toque em `BUSCAR`;
+2. o Watch faz scan sem congelar a UI;
+3. mostra as redes por RSSI;
+4. toque no SSID;
+5. abre teclado touch;
+6. `PAG` alterna minúsculas/maiúsculas/números e símbolos;
+7. `APAGA` corrige a senha;
+8. `SALVAR` grava a rede e inicia a associação Wi-Fi sem bloquear a interface.
 
-```text
-jarvis_assistance.h
-jarvis_assistance.cpp
-```
-
-Recursos implementados na camada de assistência:
-
-- telemetria periódica de passos/movimento;
-- contador de minutos sem movimento;
-- alerta de inatividade prolongada;
-- check-in manual;
-- SOS manual;
-- abertura de chamada familiar;
-- preferência persistente para habilitar/desabilitar monitoramento;
-- limite configurável de inatividade;
-- envio preferencial pelo celular/BLE e fallback por Wi-Fi.
-
-Importante: o relógio **não diagnostica queda, desmaio ou emergência médica**. A ausência de movimento gera um alerta de verificação, que precisa ser confirmado pela família/usuário.
-
-## Canal Família CASA
-
-O site possui um canal lógico comum para:
-
-```text
-site <-> celular <-> relógio
-```
-
-Endpoint externo:
-
-```text
-/casa/api/v1/family.php
-```
-
-Console web autenticado:
-
-```text
-/casa/familia.php
-```
-
-O canal suporta:
-
-- presença online;
-- mensagens em broadcast;
-- alertas do JARVIS;
-- eventos de assistência;
-- início e encerramento de chamadas;
-- sinalização WebRTC;
-- conversa de site para celular/relógio.
-
-## Videochamada familiar
-
-O site usa WebRTC e o banco apenas como camada de sinalização.
-
-No T-Watch:
-
-- pode iniciar/aceitar a chamada;
-- pode usar o microfone como origem de voz quando o transporte de áudio for concluído;
-- não possui câmera própria.
-
-Para vídeo, o celular pareado atua como câmera/tela/gateway do relógio. Assim, uma chamada iniciada pelo relógio pode abrir a experiência de vídeo no telefone da pessoa usando o Watch.
-
-## Wi-Fi de contingência
-
-Arquivos:
-
-```text
-jarvis_wifi.h
-jarvis_wifi.cpp
-```
-
-O relógio pode armazenar até cinco redes domésticas previamente provisionadas pelo aplicativo. Quando o celular não estiver disponível:
-
-1. o Watch faz scan das redes próximas;
-2. considera somente SSIDs previamente autorizados;
-3. compara o RSSI;
-4. conecta à rede conhecida de melhor sinal;
-5. usa HTTPS para comunicar diretamente com CASA/JARVIS.
-
-O relógio **não tenta redes desconhecidas** e não escolhe apenas pelo nome/sinal sem possuir credencial válida.
-
-O Watch deve usar somente um token individual com escopos mínimos. Nunca deve receber token mestre, senha de banco ou chave RunPod.
-
-### Segurança TLS
-
-A implementação Wi-Fi atual usa `WiFiClientSecure` e possui `setInsecure()` somente como etapa de transição para teste. Antes de produção deve ser instalado o CA correspondente e usado `setCACert()`.
-
-## Alarme
-
-Funciona localmente no relógio, sem celular:
-
-- hora e minuto configuráveis;
-- ativar/desativar;
-- persistência;
-- RTC local;
-- vibração e wake da tela.
+Até cinco redes conhecidas podem ser armazenadas. Redes desconhecidas nunca são conectadas automaticamente.
 
 ## Voz / JARVIS
 
-Fluxo esperado:
+A captura de voz PDM não bloqueia mais a interface inteira por quase dois segundos. O estado é processado no loop.
+
+A tela de voz permite escolher a saída da resposta:
+
+- `CELULAR`: resposta falada no smartphone;
+- `TEXTO`: somente texto/feedback visual;
+- `AMBOS`: áudio no celular e texto no Watch.
+
+Fluxo:
 
 ```text
-T-Watch -> celular -> STT -> JARVIS/IA -> resposta
+Watch microfone -> celular -> STT -> JARVIS/IA -> celular/Watch
 ```
 
-O microfone PDM já possui captura/detecção de atividade de voz. O streaming completo de áudio depende do transporte Watch <-> Android.
+O T-Watch não reproduz voz diretamente porque não há saída de alto-falante disponível nesta configuração de hardware.
 
-## Câmera e GPS
+## Alarme
 
-Câmera e GPS são fornecidos pelo celular pareado.
+O alarme local usa RTC e funciona sem Internet. Agora possui seleção de padrão:
+
+- `CURTO`;
+- `DUPLO`;
+- `URGENTE`;
+- `CELULAR`.
+
+Os três primeiros são padrões de vibração do próprio Watch. `CELULAR` solicita toque sonoro no telefone quando o transporte Watch <-> Android estiver ativo.
+
+A vibração foi reescrita sem sequência bloqueante de `delay()`.
+
+## Câmera e videochamada
+
+A tela `CAMERA / VIDEO` oferece:
+
+- `FOTOGRAFAR`: usa a câmera do celular;
+- `VIDEO FAMILIA`: cria/inicia chamada no canal Família CASA.
+
+Se o celular estiver conectado por BLE, o pedido é encaminhado ao Android. Se BLE estiver indisponível mas o Watch estiver conectado ao Wi-Fi e configurado com token próprio, ele cria a chamada diretamente em:
 
 ```text
-camera_capture
- gps_request
+/casa/api/v1/family.php?acao=call_start
 ```
 
-O relógio funciona como controle e visualização resumida; não há câmera ou GPS físicos no T-Watch.
+Como o Watch não tem câmera, o vídeo sempre vem do celular/site.
+
+## GPS
+
+O GPS é fornecido pelo celular pareado. O Watch envia `gps_request` e exibe o resultado resumido quando o transporte estiver ativo.
 
 ## Economia de energia
 
@@ -173,47 +133,38 @@ Perfis:
 - ECO
 - ULTRA
 
-O modo ULTRA reduz brilho, aumenta o intervalo do loop, desliga o display por inatividade e pode entrar em deep sleep usando o BMA423 como wake-up.
+O modo ULTRA limita brilho, aumenta o intervalo do loop, apaga o display e pode entrar em deep sleep. O botão físico é fonte de wake-up; o movimento pelo BMA423 continua opcional.
 
-## Banco de dados / assistência
+## Canal Família e assistência
 
-Migração:
+O site mantém:
 
 ```text
-database/family_assistance.sql
+/casa/familia.php
+/casa/api/v1/family.php
 ```
 
-Estruturas:
+para presença, broadcast, assistência e sinalização de chamadas.
 
-- `family_channels`
-- `family_presence`
-- `family_messages`
-- `family_calls`
-- `family_call_signals`
-- `assistencia_eventos`
-
-A API também cria essas tabelas com `CREATE TABLE IF NOT EXISTS` para instalações existentes.
+A camada de assistência continua separada em `jarvis_assistance.*`. Alertas de inatividade são alertas de verificação, não diagnóstico médico.
 
 ## Estado atual
 
 | Recurso | Estado |
 |---|---|
-| Skins | Implementado |
-| Swipe | Implementado |
-| Launcher | Implementado |
-| Alarme local | Implementado |
-| RTC / bateria | Implementado |
-| Passos BMA423 | Implementado |
-| Perfis de energia | Implementado |
-| Microfone PDM | Implementado; validar hardware |
-| Canal Família no site/API | Implementado |
-| WebRTC no site | Implementado; validar navegador/NAT |
-| API Android Família | Implementada |
-| Assistência/SOS/inatividade | Módulo implementado; falta ligar ao launcher/loop principal |
-| Wi-Fi melhor rede conhecida | Módulo implementado; falta provisionamento BLE e ligar ao fluxo principal |
-| Voz -> IA | Transporte Android pendente |
-| Câmera remota | Android preparado; integração Watch BLE pendente |
-| GPS via celular | Android preparado; integração Watch BLE pendente |
-| BLE Watch -> Android | Precisa ser invertido para Watch periférico / Android central |
+| Skins / swipe / launcher | Implementado |
+| Botão físico tela ON/OFF | Implementado; validar hardware |
+| Alarme não bloqueante | Implementado |
+| Seleção de padrão do alarme | Implementado |
+| Microfone PDM não bloqueante | Implementado; validar hardware |
+| Saída de resposta voz celular/texto/ambos | Interface implementada |
+| Busca Wi-Fi | Implementada assíncrona |
+| Teclado de senha Wi-Fi | Implementado |
+| Associação Wi-Fi após salvar | Implementada sem espera bloqueante |
+| Videochamada Família | Pedido via BLE ou Wi-Fi/site implementado |
+| Foto remota | UI implementada; depende do transporte Android |
+| GPS | depende do transporte Android |
+| BLE Watch -> Android | ainda precisa implementação GATT estável no Watch |
+| Assistência/SOS | módulo disponível; integração completa ainda pendente |
 
-> Compile e valide no T-Watch físico. Microfone, deep sleep, wake-up por movimento, Wi-Fi, consumo, WebRTC e sensibilidade dos gestos precisam de teste real antes de uso cotidiano.
+> Esta revisão precisa ser compilada no ambiente ESP32 2.0.14 e validada no T-Watch físico. A prioridade do teste é: botão, touch, Wi-Fi, microfone e estabilidade por pelo menos 30 minutos.
