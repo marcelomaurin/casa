@@ -1,5 +1,5 @@
 <?php
-// Segurança comum da API externa v1.
+// Segurança comum da API externa v1 - MySQL/MariaDB.
 
 function api_v1_json_response($code, $payload) {
     http_response_code($code);
@@ -17,7 +17,6 @@ function api_v1_token_from_request() {
 }
 
 function api_v1_client_ip() {
-    // Não confiar cegamente em X-Forwarded-For. Cloudflare só é usado quando REMOTE_ADDR existe.
     $remote = $_SERVER['REMOTE_ADDR'] ?? '';
     $cf = $_SERVER['HTTP_CF_CONNECTING_IP'] ?? '';
     if ($cf !== '' && filter_var($cf, FILTER_VALIDATE_IP)) return $cf;
@@ -28,7 +27,7 @@ function api_v1_log($pdo, $evento, $severidade = 'INFO', $cliente = null, $detal
     try {
         $stmt = $pdo->prepare("INSERT INTO api_v1_security_log
             (ip, cliente, rota, metodo, evento, severidade, detalhes)
-            VALUES (:ip, :c, :r, :m, :e, :s, CAST(:d AS jsonb))");
+            VALUES (:ip, :c, :r, :m, :e, :s, :d)");
         $stmt->execute([
             ':ip' => api_v1_client_ip(),
             ':c' => $cliente,
@@ -36,7 +35,7 @@ function api_v1_log($pdo, $evento, $severidade = 'INFO', $cliente = null, $detal
             ':m' => $_SERVER['REQUEST_METHOD'] ?? '',
             ':e' => $evento,
             ':s' => $severidade,
-            ':d' => json_encode($detalhes, JSON_UNESCAPED_UNICODE)
+            ':d' => json_encode($detalhes, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
         ]);
     } catch (Throwable $e) {}
 }
@@ -98,8 +97,7 @@ function api_v1_rate_limit($pdo, $token, $limit = 60, $windowSeconds = 60) {
         }
 
         $count = intval($row['contador']) + 1;
-        $blockedUntil = null;
-        if ($count > $limit) $blockedUntil = date('Y-m-d H:i:s', $now + 300);
+        $blockedUntil = $count > $limit ? date('Y-m-d H:i:s', $now + 300) : null;
         $pdo->prepare("UPDATE api_v1_rate_limit SET contador=:c, bloqueado_ate=:b, atualizado_em=NOW() WHERE chave=:k")
             ->execute([':c'=>$count, ':b'=>$blockedUntil, ':k'=>$key]);
         $pdo->commit();
@@ -111,6 +109,18 @@ function api_v1_rate_limit($pdo, $token, $limit = 60, $windowSeconds = 60) {
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
     }
+}
+
+function api_v1_decode_scopes($value) {
+    if (is_array($value)) return $value;
+    if (!is_string($value) || trim($value) === '') return [];
+
+    $decoded = json_decode($value, true);
+    if (is_array($decoded)) return $decoded;
+
+    // Compatibilidade com instalações PostgreSQL antigas: {a,b,c}
+    $legacy = trim($value, '{}');
+    return $legacy === '' ? [] : str_getcsv($legacy);
 }
 
 function api_v1_auth_client($pdo, array $requiredScopes = []) {
@@ -132,11 +142,7 @@ function api_v1_auth_client($pdo, array $requiredScopes = []) {
             api_v1_json_response(401, ['status'=>'erro','mensagem'=>'Token inválido, inativo ou expirado']);
         }
 
-        $scopes = $client['scopes'];
-        if (is_string($scopes)) {
-            $scopes = trim($scopes, '{}');
-            $scopes = $scopes === '' ? [] : str_getcsv($scopes);
-        }
+        $scopes = api_v1_decode_scopes($client['scopes']);
         foreach ($requiredScopes as $scope) {
             if (!in_array($scope, $scopes, true) && !in_array('*', $scopes, true)) {
                 api_v1_log($pdo, 'SCOPE_DENIED', 'ALTO', $client['nome'], ['required'=>$scope]);
@@ -147,6 +153,7 @@ function api_v1_auth_client($pdo, array $requiredScopes = []) {
         $pdo->prepare("UPDATE api_client_tokens SET ultimo_uso=NOW(), ultimo_ip=:ip WHERE id=:id")
             ->execute([':ip'=>api_v1_client_ip(), ':id'=>$client['id']]);
         api_v1_log($pdo, 'AUTH_OK', 'INFO', $client['nome']);
+        $client['scopes'] = $scopes;
         return $client;
     } catch (PDOException $e) {
         api_v1_json_response(503, ['status'=>'erro','mensagem'=>'Estrutura de segurança da API ainda não foi aplicada no banco']);
