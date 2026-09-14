@@ -1,0 +1,389 @@
+/* CASA/JARVIS - LCARS inspirado na era TNG, adaptado para uso residencial real.
+   Sem fundos espaciais, sem estrelas e sem efeitos HUD escuros. */
+
+:root {
+  --lcars-bg: #f2eadc;
+  --lcars-surface: #fffaf0;
+  --lcars-surface-2: #f8f1e6;
+  --lcars-ink: #221f22;
+  --lcars-muted: #665f62;
+  --lcars-orange: #e58a55;
+  --lcars-salmon: #d96f78;
+  --lcars-lavender: #9b83ad;
+  --lcars-blue: #6f8ca8;
+  --lcars-gold: #d3a04d;
+  --lcars-green: #6f987e;
+  --lcars-line: #d8cdbf;
+  --cyan: #6f8ca8;
+  --blue: #6f8ca8;
+  --accent: #d96f78;
+  --text-main: #221f22;
+  --text-muted: #665f62;
+  --border-color: #d8cdbf;
+  --border-glow: #9b83ad;
+  --bg-panel: #fffaf0;
+  --bg-panel-hover: #fff7e9;
+}
+
+body:has(.hud-navbar) {
+  background: var(--lcars-bg) !important;
+  color: var(--lcars-ink) !important;
+  font-family: 'Outfit', Arial, sans-serif !important;
+  padding-bottom: 28px !important;
+}
+
+body:has(.hud-navbar) .text-muted { color: var(--lcars-muted) !important; }
+
+/* Cabeçalho LCARS: a moldura passa a fazer parte da navegação. */
+.hud-navbar {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 1000 !important;
+  margin: 0 !important;
+  padding: 12px 18px 14px 190px !important;
+  min-height: 76px !important;
+  background: var(--lcars-surface) !important;
+  border: 0 !important;
+  border-bottom: 14px solid var(--lcars-orange) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+
+.hud-navbar::before {
+  content: "CASA";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 172px;
+  height: 76px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 0 18px 11px 8px;
+  border-radius: 0 0 48px 0;
+  background: var(--lcars-orange);
+  color: var(--lcars-ink);
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 2px;
+}
+
+.hud-navbar::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -14px;
+  width: 260px;
+  height: 14px;
+  background: var(--lcars-salmon);
+  border-radius: 0 12px 12px 0;
+}
+
+.hud-brand {
+  color: var(--lcars-ink) !important;
+  background: none !important;
+  -webkit-text-fill-color: currentColor !important;
+  font-size: 24px !important;
+  letter-spacing: 3px !important;
+}
+.hud-brand i { color: var(--lcars-salmon) !important; -webkit-text-fill-color: currentColor !important; }
+
+.hud-status-badge {
+  background: var(--lcars-green) !important;
+  color: #fff !important;
+  border: 0 !important;
+  border-radius: 14px !important;
+  padding: 6px 12px !important;
+  font-weight: 700 !important;
+  box-shadow: none !important;
+}
+.hud-status-badge .pulse-dot {
+  background: #fff !important;
+  box-shadow: none !important;
+  animation: none !important;
+}
+.hud-navbar .hud-status-badge span:last-child { font-size: 0; }
+.hud-navbar .hud-status-badge span:last-child::after { content: "CASA DISTRIBUÍDA • ONLINE"; font-size: 11px; }
+
+.hud-navbar .btn-danger {
+  background: var(--lcars-salmon) !important;
+  border: 0 !important;
+  color: var(--lcars-ink) !important;
+  border-radius: 18px !important;
+  text-transform: uppercase;
+  letter-spacing: .6px;
+}
+
+/* Navegação segmentada, em vez de abas convencionais. */
+.nav-tabs-hud {
+  position: relative;
+  margin: 20px 0 28px 0 !important;
+  padding: 14px 14px 14px 150px !important;
+  min-height: 84px;
+  display: flex !important;
+  align-items: stretch !important;
+  gap: 6px !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+.nav-tabs-hud::before {
+  content: "CONTROLES";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 136px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 0 16px 13px 8px;
+  background: var(--lcars-lavender);
+  border-radius: 38px 0 0 38px;
+  color: var(--lcars-ink);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1.3px;
+}
+.nav-tabs-hud button {
+  flex: 1 1 150px;
+  min-height: 52px;
+  justify-content: center !important;
+  text-align: center;
+  background: var(--lcars-salmon) !important;
+  color: var(--lcars-ink) !important;
+  border: 0 !important;
+  border-radius: 18px !important;
+  padding: 9px 12px !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+  text-transform: uppercase;
+  letter-spacing: .45px;
+  font-size: 12px !important;
+  transition: transform .12s ease, filter .12s ease !important;
+}
+.nav-tabs-hud button:nth-child(3n+2) { background: var(--lcars-orange) !important; }
+.nav-tabs-hud button:nth-child(3n+3) { background: var(--lcars-blue) !important; color: #fff !important; }
+.nav-tabs-hud button:nth-child(4n) { background: var(--lcars-lavender) !important; }
+.nav-tabs-hud button:hover { filter: brightness(.96); transform: translateY(-1px); }
+.nav-tabs-hud button.active {
+  background: var(--lcars-ink) !important;
+  color: #fff !important;
+  box-shadow: inset 0 -5px 0 var(--lcars-gold) !important;
+}
+
+/* Painéis claros, com a faixa funcional LCARS no topo. */
+.glass-card {
+  position: relative;
+  background: var(--lcars-surface) !important;
+  color: var(--lcars-ink) !important;
+  border: 0 !important;
+  border-top: 12px solid var(--lcars-orange) !important;
+  border-radius: 0 0 24px 24px !important;
+  padding: 22px !important;
+  margin-bottom: 22px !important;
+  box-shadow: 0 2px 0 rgba(34,31,34,.08) !important;
+  backdrop-filter: none !important;
+}
+.glass-card::before {
+  content: "";
+  position: absolute;
+  top: -12px;
+  left: 0;
+  width: 100px;
+  height: 12px;
+  background: var(--lcars-lavender);
+  border-radius: 0 10px 10px 0;
+}
+.glass-card:hover { border-color: var(--lcars-orange) !important; }
+.glass-header {
+  border-bottom: 1px solid var(--lcars-line) !important;
+  padding-bottom: 12px !important;
+  margin-bottom: 18px !important;
+}
+.glass-title {
+  color: var(--lcars-ink) !important;
+  font-size: 17px !important;
+  text-transform: uppercase;
+  letter-spacing: .7px !important;
+}
+.glass-title i { color: var(--lcars-salmon) !important; }
+
+/* O antigo “reator” vira um grande controle tátil de voz. */
+.jarvis-reactor {
+  width: min(100%, 340px) !important;
+  height: 86px !important;
+  margin: 20px auto 14px !important;
+  border: 0 !important;
+  border-radius: 44px 14px 14px 44px !important;
+  background: var(--lcars-lavender) !important;
+  box-shadow: none !important;
+  animation: none !important;
+}
+.jarvis-reactor::after {
+  content: "FALAR COM JARVIS";
+  margin-left: 16px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 1.2px;
+  color: var(--lcars-ink);
+}
+.jarvis-reactor:hover,
+.jarvis-reactor.listening {
+  background: var(--lcars-salmon) !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+.jarvis-core {
+  width: 60px !important;
+  height: 60px !important;
+  border-radius: 50% !important;
+  background: var(--lcars-surface) !important;
+  color: var(--lcars-ink) !important;
+  box-shadow: none !important;
+}
+
+.chat-window {
+  background: #fff !important;
+  border: 1px solid var(--lcars-line) !important;
+  border-left: 8px solid var(--lcars-blue) !important;
+  border-radius: 0 16px 16px 0 !important;
+  color: var(--lcars-ink) !important;
+}
+.msg-bubble {
+  border-radius: 16px !important;
+  box-shadow: none !important;
+}
+.msg-user {
+  background: var(--lcars-blue) !important;
+  color: #fff !important;
+}
+.msg-jarvis {
+  background: var(--lcars-surface-2) !important;
+  border: 1px solid var(--lcars-line) !important;
+  color: var(--lcars-ink) !important;
+}
+
+.stat-box {
+  background: var(--lcars-surface) !important;
+  border: 1px solid var(--lcars-line) !important;
+  border-top: 8px solid var(--lcars-salmon) !important;
+  border-radius: 0 0 18px 18px !important;
+  color: var(--lcars-ink) !important;
+  box-shadow: none !important;
+}
+.stat-box:hover { background: #fff !important; border-color: var(--lcars-line) !important; }
+.stat-val { color: var(--lcars-ink) !important; font-family: 'JetBrains Mono', monospace; }
+.stat-lbl { color: var(--lcars-muted) !important; }
+
+.hud-table {
+  border-collapse: collapse !important;
+  border-spacing: 0 !important;
+  background: #fff;
+}
+.hud-table th {
+  background: var(--lcars-lavender) !important;
+  color: var(--lcars-ink) !important;
+  border: 0 !important;
+  padding: 11px 12px !important;
+}
+.hud-table th:first-child { border-radius: 14px 0 0 0; }
+.hud-table th:last-child { border-radius: 0 14px 0 0; }
+.hud-table tr td {
+  background: #fff !important;
+  color: var(--lcars-ink) !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--lcars-line) !important;
+  border-radius: 0 !important;
+  padding: 11px 12px !important;
+}
+.hud-table tr:hover td { background: var(--lcars-surface-2) !important; }
+code { color: #5c4a65 !important; background: #eee6f0 !important; }
+
+.hud-input,
+.form-control.hud-input {
+  background: #fff !important;
+  color: var(--lcars-ink) !important;
+  border: 1px solid #b9ad9f !important;
+  border-radius: 14px !important;
+  box-shadow: none !important;
+}
+.hud-input:focus,
+.form-control.hud-input:focus {
+  border-color: var(--lcars-lavender) !important;
+  box-shadow: 0 0 0 3px rgba(155,131,173,.16) !important;
+}
+
+.hud-btn,
+.btn.hud-btn {
+  background: var(--lcars-salmon) !important;
+  color: var(--lcars-ink) !important;
+  border: 0 !important;
+  border-radius: 18px !important;
+  box-shadow: none !important;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}
+.hud-btn:hover,
+.btn.hud-btn:hover { background: var(--lcars-orange) !important; transform: none !important; }
+.hud-btn-outline,
+.btn.hud-btn-outline {
+  background: var(--lcars-surface-2) !important;
+  color: var(--lcars-ink) !important;
+  border: 1px solid var(--lcars-lavender) !important;
+  border-radius: 16px !important;
+}
+.hud-btn-outline:hover,
+.btn.hud-btn-outline:hover { background: #eee5ef !important; color: var(--lcars-ink) !important; }
+
+.modal-content-hud {
+  background: var(--lcars-surface) !important;
+  color: var(--lcars-ink) !important;
+  border: 0 !important;
+  border-top: 14px solid var(--lcars-orange) !important;
+  border-radius: 0 0 24px 24px !important;
+  box-shadow: 0 16px 40px rgba(34,31,34,.18) !important;
+}
+.modal-header-hud,
+.modal-footer-hud { border-color: var(--lcars-line) !important; }
+.modal-title { color: var(--lcars-ink) !important; }
+
+.alert-info {
+  background: #eef1f4 !important;
+  border-color: var(--lcars-blue) !important;
+  color: var(--lcars-ink) !important;
+}
+.alert-warning {
+  background: #fff2db !important;
+  border-color: var(--lcars-gold) !important;
+  color: var(--lcars-ink) !important;
+}
+
+pre {
+  background: #f6f2eb !important;
+  color: #3d4e5d !important;
+  border-color: var(--lcars-line) !important;
+}
+
+/* Retira referências visuais “espaciais” desnecessárias sem mudar a lógica. */
+.fa-atom { display: none !important; }
+
+@media (max-width: 900px) {
+  .hud-navbar { padding-left: 110px !important; }
+  .hud-navbar::before { width: 96px; font-size: 11px; border-radius: 0 0 34px 0; }
+  .hud-navbar .row { flex-wrap: wrap; gap: 8px; }
+  .hud-navbar .col-xs-6 { width: 100% !important; justify-content: flex-start !important; text-align: left !important; }
+  .nav-tabs-hud { padding-left: 0 !important; padding-top: 64px !important; }
+  .nav-tabs-hud::before { width: 100%; height: 52px; bottom: auto; border-radius: 28px 0 28px 0; align-items: center; justify-content: flex-start; padding: 0 18px; }
+  .nav-tabs-hud button { flex-basis: 46%; }
+}
+
+@media (max-width: 560px) {
+  .hud-navbar { padding-left: 84px !important; }
+  .hud-navbar::before { width: 72px; content: "C"; }
+  .hud-brand { font-size: 19px !important; }
+  .hud-status-badge { display: none !important; }
+  .nav-tabs-hud button { flex-basis: 100%; }
+  .glass-card { padding: 16px !important; }
+  .jarvis-reactor { height: 72px !important; }
+  .jarvis-core { width: 50px !important; height: 50px !important; }
+}
