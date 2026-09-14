@@ -8,5 +8,10 @@ return [
     'db_user' => 'u820932905_mmaurin',
     'db_pass' => 'COLOQUE_A_SENHA_NO_SERVIDOR',
     'db_charset' => 'utf8mb4',
+
+    // true = ao abrir o site/API, verifica o schema e cria tabelas ausentes.
+    'auto_init_db' => true,
+
+    // Configure um token forte e privado em produção.
     'system_api_token' => 'GERE_UM_TOKEN_FORTE_E_PRIVADO',
 ];
