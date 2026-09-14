@@ -8,6 +8,7 @@ require_once(__DIR__ . '/api/db.php');
 
 $mensagem_erro = '';
 $mensagem_sucesso = '';
+$basePath = '/casa';
 
 if (isset($_GET['logout'])) {
     $_SESSION = [];
@@ -23,7 +24,7 @@ if (isset($_GET['logout'])) {
 }
 
 if (!empty($_SESSION['auth_user'])) {
-    header('Location: /');
+    header('Location: ' . $basePath . '/index.php');
     exit;
 }
 
@@ -45,9 +46,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $autenticado = true;
             }
 
-            // Bootstrap opcional e seguro para instalação nova.
-            // Defina JARVIS_BOOTSTRAP_ADMIN_PASSWORD apenas para criar o primeiro admin
-            // e remova a variável após o primeiro login.
             if (!$user) {
                 $bootstrap = getenv('JARVIS_BOOTSTRAP_ADMIN_PASSWORD');
                 if ($bootstrap !== false && $bootstrap !== '' && $usuario === 'admin' && hash_equals($bootstrap, $senha)) {
@@ -78,7 +76,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ]);
                 } catch (Throwable $e) {}
 
-                header('Location: /');
+                header('Location: ' . $basePath . '/index.php');
                 exit;
             }
 
@@ -130,14 +128,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="sub">Controle de acesso distribuído</div>
         <?php if ($mensagem_erro !== ''): ?><div class="alert"><?= htmlspecialchars($mensagem_erro) ?></div><?php endif; ?>
         <?php if ($mensagem_sucesso !== ''): ?><div class="alert success"><?= htmlspecialchars($mensagem_sucesso) ?></div><?php endif; ?>
-        <form method="POST" action="/login.php">
+        <form method="POST" action="<?= htmlspecialchars($basePath) ?>/login.php">
             <label for="usuario">Operador</label>
             <input type="text" id="usuario" name="usuario" required autocomplete="username" autofocus>
             <label for="senha">Senha</label>
             <input type="password" id="senha" name="senha" required autocomplete="current-password">
             <button type="submit">AUTORIZAR ACESSO</button>
         </form>
-        <div class="foot">MAURINSOFT • MYSQL • CASA.MAURINSOFT.COM.BR</div>
+        <div class="foot">MAURINSOFT • MYSQL • MAURINSOFT.COM.BR/CASA</div>
     </main>
 </div>
 </body>
