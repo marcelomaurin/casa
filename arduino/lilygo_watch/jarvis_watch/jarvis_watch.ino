@@ -1,36 +1,15 @@
 #include "config.h"
-#include <NimBLEDevice.h>
-#include <ArduinoJson.h>
+#include "jarvis_ble.h"
 
 TTGOClass *watch = nullptr;
 TFT_eSPI *tft = nullptr;
 
-static const NimBLEUUID serviceUUID(JARVIS_BLE_SERVICE_UUID);
-static const NimBLEUUID rxUUID(JARVIS_BLE_RX_UUID);
-static const NimBLEUUID txUUID(JARVIS_BLE_TX_UUID);
-
-NimBLEClient *bleClient = nullptr;
-NimBLERemoteCharacteristic *rxChar = nullptr;
-NimBLERemoteCharacteristic *txChar = nullptr;
-const NimBLEAdvertisedDevice *phoneDevice = nullptr;
-
-bool connected = false;
-bool connecting = false;
-unsigned long lastReconnect = 0;
 unsigned long lastClockRefresh = 0;
-String rxBuffer;
-String lastMessage = "Inicializando sistema...";
-String connectionState = "OFFLINE";
+String lastMessage = "Modo standalone iniciado";
+String connectionState = "STANDALONE";
 
-// Protótipos explícitos: os callbacks BLE são declarados antes das funções de UI.
-void drawUi();
-void drawClockStatus();
-void drawMessagePanel();
-bool connectPhone();
-
-// LCARS claro: alto contraste e boa leitura no display de 240x240.
-static const uint16_t LCARS_BG       = 0xFFDF; // marfim claro
-static const uint16_t LCARS_TEXT     = 0x18C3; // grafite
+static const uint16_t LCARS_BG       = 0xFFDF;
+static const uint16_t LCARS_TEXT     = 0x18C3;
 static const uint16_t LCARS_ORANGE   = 0xFBE0;
 static const uint16_t LCARS_SALMON   = 0xFB2C;
 static const uint16_t LCARS_LAVENDER = 0xB57F;
@@ -39,40 +18,9 @@ static const uint16_t LCARS_GREEN    = 0x6E6B;
 static const uint16_t LCARS_RED      = 0xF9E7;
 static const uint16_t LCARS_MUTED    = 0x7BEF;
 
-class ClientCallbacks : public NimBLEClientCallbacks {
-  void onConnect(NimBLEClient *client) override {
-    connected = true;
-    connecting = false;
-    connectionState = "BLE OK";
-    lastMessage = "Celular conectado";
-    drawUi();
-  }
-
-  void onDisconnect(NimBLEClient *client, int reason) override {
-    connected = false;
-    connecting = false;
-    rxChar = nullptr;
-    txChar = nullptr;
-    phoneDevice = nullptr;
-    connectionState = "SEM BLE";
-    lastMessage = "Celular desconectado";
-    drawUi();
-  }
-};
-
-ClientCallbacks clientCallbacks;
-
-class ScanCallbacks : public NimBLEScanCallbacks {
-  void onResult(const NimBLEAdvertisedDevice *advertisedDevice) override {
-    if (!advertisedDevice) return;
-    if (!advertisedDevice->isAdvertisingService(serviceUUID)) return;
-
-    phoneDevice = advertisedDevice;
-    NimBLEDevice::getScan()->stop();
-  }
-};
-
-ScanCallbacks scanCallbacks;
+void drawUi();
+void drawClockStatus();
+void drawMessagePanel();
 
 String twoDigits(uint8_t value) {
   return value < 10 ? "0" + String(value) : String(value);
@@ -80,6 +28,8 @@ String twoDigits(uint8_t value) {
 
 String dayName(uint8_t day, uint8_t month, uint16_t year) {
   static const char *days[] = {"DOM", "SEG", "TER", "QUA", "QUI", "SEX", "SAB"};
+  if (!watch || !watch->rtc) return "---";
+
   int dow = watch->rtc->getDayOfWeek(day, month, year);
   if (dow < 0 || dow > 6) return "---";
   return String(days[dow]);
@@ -87,6 +37,7 @@ String dayName(uint8_t day, uint8_t month, uint16_t year) {
 
 int batteryPercent() {
   if (!watch || !watch->power || !watch->power->isBatteryConnect()) return -1;
+
   int p = watch->power->getBattPercentage();
   if (p < 0) p = 0;
   if (p > 100) p = 100;
@@ -103,7 +54,9 @@ void drawBatteryIcon(int x, int y, int percentage, bool charging) {
 
   if (percentage >= 0) {
     int fill = (w - 4) * percentage / 100;
-    if (fill > 0) tft->fillRect(x + 2, y + 2, fill, h - 4, color);
+    if (fill > 0) {
+      tft->fillRect(x + 2, y + 2, fill, h - 4, color);
+    }
   }
 
   if (charging) {
@@ -113,6 +66,8 @@ void drawBatteryIcon(int x, int y, int percentage, bool charging) {
 }
 
 void drawClockStatus() {
+  if (!watch || !watch->rtc || !tft) return;
+
   RTC_Date now = watch->rtc->getDateTime();
   int batt = batteryPercent();
   bool charging = watch->power && watch->power->isChargeing();
@@ -134,7 +89,9 @@ void drawClockStatus() {
   tft->drawString(dateText, 55, 34, 2);
   tft->drawRightString("JARVIS", 226, 34, 2);
 
-  uint16_t statusColor = connected ? LCARS_GREEN : (connecting ? LCARS_LAVENDER : LCARS_RED);
+  uint16_t statusColor = jarvisBleIsConnected() ? LCARS_GREEN : LCARS_LAVENDER;
+  connectionState = jarvisBleIsConnected() ? "BLE OK" : "STANDALONE";
+
   tft->fillRoundRect(52, 57, 91, 17, 8, statusColor);
   tft->setTextColor(LCARS_TEXT, statusColor);
   tft->drawCentreString(connectionState, 97, 59, 1);
@@ -148,18 +105,23 @@ void drawClockStatus() {
 void drawWrapped(const String &text, int y, uint16_t color = LCARS_TEXT) {
   tft->setTextColor(color, LCARS_BG);
   tft->setTextSize(1);
+
   const int maxChars = 31;
   int pos = 0;
   int line = 0;
+
   while (pos < (int)text.length() && line < 3) {
     int end = min(pos + maxChars, (int)text.length());
+
     if (end < (int)text.length()) {
       int space = text.lastIndexOf(' ', end);
       if (space > pos) end = space;
     }
+
     String part = text.substring(pos, end);
     part.trim();
     tft->drawString(part, 12, y + line * 14, 2);
+
     pos = end;
     while (pos < (int)text.length() && text[pos] == ' ') pos++;
     line++;
@@ -174,15 +136,19 @@ void lcarsButton(int x, int y, int w, int h, uint16_t color, const char *label) 
 }
 
 void drawMessagePanel() {
+  if (!tft) return;
+
   tft->fillRoundRect(5, 164, 230, 73, 14, LCARS_LAVENDER);
   tft->fillRect(17, 164, 218, 73, LCARS_LAVENDER);
   tft->fillRoundRect(14, 170, 215, 61, 9, LCARS_BG);
   tft->setTextColor(LCARS_MUTED, LCARS_BG);
-  tft->drawString("RESPOSTA", 18, 173, 1);
+  tft->drawString("SISTEMA", 18, 173, 1);
   drawWrapped(lastMessage, 184, LCARS_TEXT);
 }
 
 void drawUi() {
+  if (!tft) return;
+
   tft->fillScreen(LCARS_BG);
   drawClockStatus();
 
@@ -194,174 +160,30 @@ void drawUi() {
   drawMessagePanel();
 }
 
-void handlePhoneJson(const String &jsonText) {
-  StaticJsonDocument<1024> doc;
-  DeserializationError err = deserializeJson(doc, jsonText);
-  if (err) {
-    lastMessage = jsonText;
-    drawUi();
-    return;
-  }
-
-  const char *type = doc["type"] | "";
-  bool ok = doc["ok"] | false;
-
-  if (strcmp(type, "jarvis_result") == 0) {
-    lastMessage = String(doc["text"] | "Sem resposta");
-  } else if (strcmp(type, "status") == 0) {
-    lastMessage = String(doc["message"] | (ok ? "Celular online" : "Celular offline"));
-  } else if (strcmp(type, "queued") == 0) {
-    lastMessage = "Offline: comando guardado no celular";
-  } else if (strcmp(type, "pong") == 0) {
-    lastMessage = "Ponte BLE OK";
-  } else {
-    lastMessage = jsonText;
-  }
-  drawUi();
-}
-
-static void notifyCallback(
-  NimBLERemoteCharacteristic *characteristic,
-  uint8_t *data,
-  size_t length,
-  bool isNotify
-) {
-  for (size_t i = 0; i < length; i++) {
-    char c = (char)data[i];
-    if (c == '\n') {
-      if (rxBuffer.length() > 0) {
-        handlePhoneJson(rxBuffer);
-        rxBuffer = "";
-      }
-    } else {
-      rxBuffer += c;
-      if (rxBuffer.length() > 4096) rxBuffer = "";
-    }
-  }
-}
-
-bool connectPhone() {
-  if (connecting || connected) return connected;
-
-  connecting = true;
-  connectionState = "PROCURANDO";
-  drawClockStatus();
-
-  NimBLEScan *scan = NimBLEDevice::getScan();
-  scan->setScanCallbacks(&scanCallbacks, false);
-  scan->setActiveScan(true);
-  scan->setInterval(100);
-  scan->setWindow(100);
-
-  phoneDevice = nullptr;
-  scan->start(4000, false, true);
-
-  if (!phoneDevice) {
-    connecting = false;
-    connectionState = "SEM BLE";
-    drawClockStatus();
-    return false;
-  }
-
-  if (!bleClient) {
-    bleClient = NimBLEDevice::createClient();
-    bleClient->setClientCallbacks(&clientCallbacks, false);
-  }
-
-  if (!bleClient->connect(phoneDevice)) {
-    connecting = false;
-    connectionState = "FALHA BLE";
-    drawClockStatus();
-    return false;
-  }
-
-  NimBLERemoteService *service = bleClient->getService(serviceUUID);
-  if (!service) {
-    bleClient->disconnect();
-    connecting = false;
-    return false;
-  }
-
-  rxChar = service->getCharacteristic(rxUUID);
-  txChar = service->getCharacteristic(txUUID);
-  if (!rxChar || !txChar) {
-    bleClient->disconnect();
-    connecting = false;
-    return false;
-  }
-
-  if (txChar->canNotify()) {
-    if (!txChar->subscribe(true, notifyCallback)) {
-      bleClient->disconnect();
-      connecting = false;
-      connectionState = "FALHA NOTIFY";
-      drawClockStatus();
-      return false;
-    }
-  }
-
-  connected = true;
-  connecting = false;
-  connectionState = "BLE OK";
-  lastMessage = "Ponte BLE pronta";
-  drawUi();
-  return true;
-}
-
-bool sendJson(const String &json) {
-  if (!connected || !rxChar) {
-    lastMessage = "Celular nao conectado";
-    drawMessagePanel();
-    return false;
-  }
-
-  bool ok = rxChar->writeValue(
-    (const uint8_t *)json.c_str(),
-    json.length(),
-    true
-  );
-
-  if (!ok) {
-    connected = false;
-    connectionState = "FALHA ENVIO";
-    lastMessage = "Falha ao enviar para o celular";
-    drawUi();
-    return false;
-  }
-
-  return true;
-}
-
-void sendJarvis(const String &text) {
-  StaticJsonDocument<384> doc;
-  doc["type"] = "jarvis";
-  doc["text"] = text;
-  doc["source"] = "watch";
-  doc["protocol"] = JARVIS_PROTOCOL_VERSION;
-  String json;
-  serializeJson(doc, json);
-  lastMessage = "Enviando ao celular...";
-  drawMessagePanel();
-  sendJson(json);
-}
-
-void sendStatus() {
-  lastMessage = "Consultando estado...";
-  drawMessagePanel();
-  sendJson("{\"type\":\"status\",\"source\":\"watch\"}");
-}
-
 void vibrateShort() {
-  watch->motor->onec();
+  if (watch && watch->motor) {
+    watch->motor->onec();
+  }
+}
+
+void showStandaloneMessage(const String &message) {
+  lastMessage = message;
+  drawMessagePanel();
 }
 
 void handleTouch(int x, int y) {
   if (y >= 82 && y <= 114) {
     if (x < 120) {
-      sendStatus();
+      int batt = batteryPercent();
+      String status = "Standalone | Bateria ";
+      status += batt >= 0 ? String(batt) + "%" : "--%";
+      showStandaloneMessage(status);
     } else {
-      sendJarvis("Alterne a luz da sala");
+      if (!jarvisBleSendCommand("Alterne a luz da sala")) {
+        showStandaloneMessage("Luz sala: comunicacao externa desativada");
+      }
     }
+
     vibrateShort();
     delay(250);
     return;
@@ -369,10 +191,15 @@ void handleTouch(int x, int y) {
 
   if (y >= 122 && y <= 154) {
     if (x < 120) {
-      sendJarvis("Qual a temperatura atual dos sensores?");
+      if (!jarvisBleSendCommand("Qual a temperatura atual dos sensores?")) {
+        showStandaloneMessage("Temperatura: aguardando modulo de comunicacao");
+      }
     } else {
-      sendJarvis("Informe o status da casa");
+      if (!jarvisBleSendCommand("Informe o status da casa")) {
+        showStandaloneMessage("JARVIS offline no modo standalone");
+      }
     }
+
     vibrateShort();
     delay(250);
   }
@@ -400,23 +227,21 @@ void setup() {
     );
   }
 
-  NimBLEDevice::init(JARVIS_WATCH_NAME);
+  jarvisBleBegin();
   drawUi();
-  connectPhone();
 }
 
 void loop() {
-  if (!connected && millis() - lastReconnect >= JARVIS_RECONNECT_MS) {
-    lastReconnect = millis();
-    connectPhone();
-  }
+  jarvisBleLoop();
 
   if (millis() - lastClockRefresh >= 1000) {
     lastClockRefresh = millis();
     drawClockStatus();
   }
 
-  int16_t x = 0, y = 0;
+  int16_t x = 0;
+  int16_t y = 0;
+
   if (watch->getTouch(x, y)) {
     handleTouch(x, y);
   }
