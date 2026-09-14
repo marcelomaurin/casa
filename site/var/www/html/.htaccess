@@ -14,3 +14,13 @@ RewriteCond %{REQUEST_FILENAME} -f [OR]
 RewriteCond %{REQUEST_FILENAME} -d
 RewriteRule ^ - [L]
 </IfModule>
+
+# Aplica a camada visual LCARS apenas ao dashboard principal sem alterar
+# a logica PHP/JavaScript existente em index.php.
+<IfModule mod_substitute.c>
+  <Files "index.php">
+    AddOutputFilterByType SUBSTITUTE text/html
+    Substitute "s|</head>|<link rel='stylesheet' href='/casa/lcars.css?v=20260914'></head>|ni"
+    Substitute "s|/login.php?logout=1|/casa/login.php?logout=1|ni"
+  </Files>
+</IfModule>
