@@ -31,13 +31,23 @@ if (!empty($_SESSION['auth_user'])) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $usuario = isset($_POST['usuario']) ? trim($_POST['usuario']) : '';
     $senha = isset($_POST['senha']) ? (string)$_POST['senha'] : '';
+    $usuarioNormalizado = function_exists('mb_strtolower')
+        ? mb_strtolower($usuario, 'UTF-8')
+        : strtolower($usuario);
 
     if ($usuario === '' || $senha === '') {
         $mensagem_erro = 'Por favor, preencha o usuário e a senha de segurança.';
     } else {
         try {
             $pdo = get_db_pdo();
-            $stmt = $pdo->prepare('SELECT * FROM usuarios WHERE (login = :u OR email = :u) AND ativo = 1 LIMIT 1');
+
+            // Login e e-mail são comparados sem diferenciar maiúsculas/minúsculas.
+            // Isso garante que admin, ADMIN, Admin etc. representem a mesma conta.
+            $stmt = $pdo->prepare(
+                'SELECT * FROM usuarios '
+                . 'WHERE (LOWER(login) = LOWER(:u) OR LOWER(email) = LOWER(:u)) '
+                . 'AND ativo = 1 LIMIT 1'
+            );
             $stmt->execute([':u' => $usuario]);
             $user = $stmt->fetch();
             $autenticado = false;
@@ -47,16 +57,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             // Bootstrap/recuperacao do administrador padrao solicitado para a instalacao.
-            // Se admin/admin123 for informado, cria o admin quando ausente ou normaliza
-            // o hash caso a base ja possua um admin legado com senha diferente.
-            if (!$autenticado && $usuario === 'admin' && hash_equals('admin123', $senha)) {
+            // A comparacao do usuario tambem e case-insensitive.
+            if (!$autenticado && $usuarioNormalizado === 'admin' && hash_equals('admin123', $senha)) {
                 $hash = password_hash('admin123', PASSWORD_DEFAULT);
-                $upsert = $pdo->prepare(
-                    "INSERT INTO usuarios (nome, login, senha, email, perfil, ativo)\n" .
-                    "VALUES ('Administrador CASA', 'admin', :senha, NULL, 'admin', 1)\n" .
-                    "ON DUPLICATE KEY UPDATE senha = VALUES(senha), perfil = 'admin', ativo = 1"
-                );
-                $upsert->execute([':senha' => $hash]);
+
+                // Procura primeiro qualquer variacao de caixa do admin existente.
+                $adminStmt = $pdo->prepare('SELECT id FROM usuarios WHERE LOWER(login) = :login LIMIT 1');
+                $adminStmt->execute([':login' => 'admin']);
+                $adminId = $adminStmt->fetchColumn();
+
+                if ($adminId) {
+                    $upd = $pdo->prepare(
+                        "UPDATE usuarios SET login = 'admin', senha = :senha, perfil = 'admin', ativo = 1 WHERE id = :id"
+                    );
+                    $upd->execute([':senha' => $hash, ':id' => $adminId]);
+                } else {
+                    $ins = $pdo->prepare(
+                        "INSERT INTO usuarios (nome, login, senha, email, perfil, ativo) "
+                        . "VALUES ('Administrador CASA', 'admin', :senha, NULL, 'admin', 1)"
+                    );
+                    $ins->execute([':senha' => $hash]);
+                }
 
                 $stmt->execute([':u' => 'admin']);
                 $user = $stmt->fetch();
@@ -133,7 +154,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php if ($mensagem_sucesso !== ''): ?><div class="alert success"><?= htmlspecialchars($mensagem_sucesso) ?></div><?php endif; ?>
         <form method="POST" action="<?= htmlspecialchars($basePath) ?>/login.php">
             <label for="usuario">Operador</label>
-            <input type="text" id="usuario" name="usuario" required autocomplete="username" autofocus>
+            <input type="text" id="usuario" name="usuario" required autocomplete="username" autofocus autocapitalize="none" spellcheck="false">
             <label for="senha">Senha</label>
             <input type="password" id="senha" name="senha" required autocomplete="current-password">
             <button type="submit">AUTORIZAR ACESSO</button>
