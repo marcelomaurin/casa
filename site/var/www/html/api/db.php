@@ -1,7 +1,7 @@
 <?php
 // Banco central do JARVIS/CASA.
 // Produção Hostinger: MySQL/MariaDB via config.local.php privado ou variáveis de ambiente.
-// Banco atual: u820932905_casa | usuário: u820932905_mmaurin
+// Banco atual: u820932905_casadb | usuário: u820932905_root
 // A senha do MySQL nunca deve ser versionada no Git.
 
 if (session_status() === PHP_SESSION_NONE) {
@@ -120,14 +120,13 @@ function ensure_database_schema(PDO $pdo): void {
         return;
     }
 
-    // Evita duas requisições simultâneas tentando montar o banco na primeira execução.
     $lockName = 'casa_jarvis_schema_install';
     try {
         $lock = $pdo->prepare('SELECT GET_LOCK(:lock_name, 20)');
         $lock->execute([':lock_name' => $lockName]);
         $acquired = (int)$lock->fetchColumn() === 1;
     } catch (Throwable $e) {
-        $acquired = true; // Alguns provedores podem restringir GET_LOCK; CREATE IF NOT EXISTS continua idempotente.
+        $acquired = true;
     }
 
     if (!$acquired) {
@@ -135,7 +134,6 @@ function ensure_database_schema(PDO $pdo): void {
     }
 
     try {
-        // Outra requisição pode ter terminado a instalação enquanto aguardávamos o lock.
         $missing = casa_missing_tables($pdo);
         if (!empty($missing)) {
             casa_execute_schema_file($pdo, __DIR__ . '/schema_mysql.sql');
@@ -151,9 +149,7 @@ function ensure_database_schema(PDO $pdo): void {
         try {
             $unlock = $pdo->prepare('SELECT RELEASE_LOCK(:lock_name)');
             $unlock->execute([':lock_name' => $lockName]);
-        } catch (Throwable $e) {
-            // Ignorar em hospedagens que não suportam named locks.
-        }
+        } catch (Throwable $e) {}
     }
 }
 
@@ -163,12 +159,10 @@ function get_db_pdo(): PDO {
         return $pdo;
     }
 
-    // Em hospedagem Hostinger o PHP normalmente acessa o MySQL localmente.
-    // Se o hPanel informar outro host, configure JARVIS_DB_HOST/config.local.php.
     $host = cfg_value('db_host', 'JARVIS_DB_HOST', 'localhost');
     $port = cfg_value('db_port', 'JARVIS_DB_PORT', '3306');
-    $name = cfg_value('db_name', 'JARVIS_DB_NAME', 'u820932905_casa');
-    $user = cfg_value('db_user', 'JARVIS_DB_USER', 'u820932905_mmaurin');
+    $name = cfg_value('db_name', 'JARVIS_DB_NAME', 'u820932905_casadb');
+    $user = cfg_value('db_user', 'JARVIS_DB_USER', 'u820932905_root');
     $pass = cfg_value('db_pass', 'JARVIS_DB_PASS', '');
     $charset = cfg_value('db_charset', 'JARVIS_DB_CHARSET', 'utf8mb4');
 
@@ -188,7 +182,6 @@ function get_db_pdo(): PDO {
 }
 
 function get_secondary_db_pdo() {
-    // Serviços distribuídos acessam o domínio CASA pela API, não diretamente o MySQL.
     return false;
 }
 
@@ -210,9 +203,7 @@ function get_system_api_token(): string {
         if ($row && !empty($row['valor'])) {
             return $row['valor'];
         }
-    } catch (Throwable $e) {
-        // Não revelar detalhes de banco na resposta HTTP.
-    }
+    } catch (Throwable $e) {}
 
     return '';
 }
