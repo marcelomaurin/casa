@@ -1,5 +1,15 @@
 RewriteEngine On
+
+# Preserva Authorization para PHP/FastCGI.
+SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+
+# Bloqueia acesso direto aos componentes internos do gateway.
+RewriteRule ^security_v1\.php$ - [F,L]
+
+# Toda rota REST externa passa pelo gateway seguro.
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule ^(.*)$ index.php [QSA,L]
-SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+RewriteRule ^(.*)$ gateway.php [QSA,L]
+
+# Impede contornar o gateway chamando index.php diretamente.
+RewriteRule ^index\.php$ gateway.php [QSA,L]
