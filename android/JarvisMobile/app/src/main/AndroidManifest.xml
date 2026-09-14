@@ -35,6 +35,11 @@
         </activity>
 
         <activity
+            android:name=".WatchSetupActivity"
+            android:exported="false"
+            android:theme="@style/Theme.JarvisMobile" />
+
+        <activity
             android:name=".WatchCameraActivity"
             android:exported="false"
             android:theme="@style/Theme.JarvisMobile" />
