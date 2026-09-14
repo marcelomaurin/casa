@@ -6,25 +6,16 @@
  * Este arquivo aplica o tema LCARS diretamente na resposta HTML, sem depender
  * de mod_substitute no Apache/Hostinger.
  */
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
-if (empty($_SESSION['auth_user'])) {
-    header('Location: /casa/login.php');
-    exit;
-}
+if (session_status() === PHP_SESSION_NONE) session_start();
+if (empty($_SESSION['auth_user'])) { header('Location: /casa/login.php'); exit; }
 
 ob_start();
 require __DIR__ . '/index_legacy.php';
 $html = ob_get_clean();
 
 $lcarsLink = '<link rel="stylesheet" href="/casa/lcars.css?v=20260914b">';
-if (stripos($html, '/casa/lcars.css') === false) {
-    $html = str_ireplace('</head>', "  {$lcarsLink}\n</head>", $html);
-}
+if (stripos($html, '/casa/lcars.css') === false) $html = str_ireplace('</head>', "  {$lcarsLink}\n</head>", $html);
 
-// Ajustes de implantação sob /casa e remoção de referências fixas do cabeçalho.
 $html = str_replace('/login.php?logout=1', '/casa/login.php?logout=1', $html);
 $html = str_replace('ONLINE • 192.168.2.12', 'CASA DISTRIBUÍDA • ONLINE', $html);
 
@@ -32,18 +23,15 @@ $html = str_replace('ONLINE • 192.168.2.12', 'CASA DISTRIBUÍDA • ONLINE', $
 $html = str_replace("url: 'api/jarvis.php'", "url: 'api/jarvis_site.php'", $html);
 $html = str_replace(
     '<option value="auto">⚡ Híbrido (Local: Residencial / Nuvem: Dev & Análise)</option>\n                <option value="local_only">🏠 Apenas Local (llama.cpp)</option>\n                <option value="cloud_only">☁️ Apenas Nuvem (RunPod GPU)</option>',
-    '<option value="cloud_only" selected>☁️ RunPod GPU</option>',
-    $html
+    '<option value="cloud_only" selected>☁️ RunPod GPU</option>', $html
 );
 $html = str_replace(
     '<option value="auto">⚡ Híbrido Inteligente (Local: Automação / Nuvem: Programação, Análise e Pesquisa)</option>\n              <option value="local_only">🏠 Apenas IA Local (Desativa nuvem, roda tudo no Raspberry)</option>\n              <option value="cloud_only">☁️ Apenas Nuvem Externa (Desativa local, direciona tudo para RunPod GPU)</option>',
-    '<option value="cloud_only" selected>☁️ Somente RunPod GPU</option>',
-    $html
+    '<option value="cloud_only" selected>☁️ Somente RunPod GPU</option>', $html
 );
 $html = str_replace(
     '<option value="local">Local (llama.cpp no Raspberry Pi 4)</option>\n              <option value="runpod">Nuvem GPU Serverless (RunPod.io)</option>',
-    '<option value="runpod" selected>RunPod.io GPU</option>',
-    $html
+    '<option value="runpod" selected>RunPod.io GPU</option>', $html
 );
 $html = str_replace('AUTO', 'RUNPOD', $html);
 $html = str_replace("var iaMode = $('#selectIaMode').val();", "var iaMode = 'cloud_only';", $html);
@@ -64,8 +52,18 @@ $html = str_replace('Modelo Nuvem (RunPod):', 'Modelo RunPod:', $html);
 $html = str_replace('Modelo Local (llama.cpp):', 'Modelo Local (não utilizado pelo site):', $html);
 $html = str_replace('Tarefas residenciais rápidas (luz, irrigação, sensores) rodam localmente com latência mínima. Perguntas complexas de programação, cálculos ou pesquisa utilizam o RunPod GPU.', 'Todas as solicitações de inteligência artificial feitas pelo site são processadas exclusivamente pelo RunPod GPU.', $html);
 
-// Força valores padrão no navegador mesmo se o banco ainda possuir configuração antiga.
-$runpodDefaults = <<<'HTML'
+$siteEnhancements = <<<'HTML'
+<style>
+.jarvis-device-bar{position:fixed;right:16px;bottom:16px;z-index:9999;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;max-width:430px}
+.jarvis-device-bar a{display:block;text-decoration:none;color:#241c25;font-weight:900;padding:11px 16px;border-radius:18px 18px 4px 18px;box-shadow:0 3px 12px #0002}
+.jarvis-device-bar .devices{background:#8eb9ee}.jarvis-device-bar .family{background:#d8b4ea}.jarvis-device-bar .watch{background:#f59c73}
+@media(max-width:720px){.jarvis-device-bar{left:8px;right:8px;bottom:8px}.jarvis-device-bar a{flex:1;text-align:center;padding:10px 6px;font-size:12px}}
+</style>
+<div class="jarvis-device-bar" aria-label="Integração celular e relógio">
+  <a class="devices" href="/casa/dispositivos_pessoais.php">CELULAR + WATCH</a>
+  <a class="family" href="/casa/familia.php">FAMÍLIA</a>
+  <a class="watch" href="/casa/dispositivos_pessoais.php#watch">WATCH STATUS</a>
+</div>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
   var mode = document.getElementById('selectIaMode');
@@ -79,9 +77,7 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 HTML;
-$html = str_ireplace('</body>', $runpodDefaults . "\n</body>", $html);
-
-// Marca explicitamente o dashboard para o CSS responsivo LCARS.
+$html = str_ireplace('</body>', $siteEnhancements . "\n</body>", $html);
 $html = str_ireplace('<body>', '<body class="lcars-dashboard">', $html);
 
 echo $html;
