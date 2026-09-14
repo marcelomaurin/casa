@@ -16,7 +16,7 @@ import okhttp3.Response;
 
 public class JarvisApiClient {
     private static final MediaType JSON = MediaType.get("application/json; charset=utf-8");
-    private static final String DEFAULT_BASE_URL = "https://casa.maurinsoft.com.br";
+    private static final String DEFAULT_BASE_URL = "https://maurinsoft.com.br/casa";
     private final Context context;
     private final OkHttpClient client;
 
