@@ -20,11 +20,12 @@ BLEAdvertisedDevice *phoneDevice = nullptr;
 bool connected = false;
 bool connecting = false;
 unsigned long lastReconnect = 0;
+unsigned long lastClockRefresh = 0;
 String rxBuffer;
 String lastMessage = "Inicializando sistema...";
 String connectionState = "OFFLINE";
 
-// LCARS claro: pensado para boa leitura no relógio em ambientes claros e escuros.
+// LCARS claro: alto contraste e boa leitura no display de 240x240.
 static const uint16_t LCARS_BG       = 0xFFDF; // marfim claro
 static const uint16_t LCARS_TEXT     = 0x18C3; // grafite
 static const uint16_t LCARS_ORANGE   = 0xFBE0;
@@ -39,7 +40,9 @@ class ClientCallbacks : public BLEClientCallbacks {
   void onConnect(BLEClient *client) override {
     connected = true;
     connecting = false;
-    connectionState = "CELULAR CONECTADO";
+    connectionState = "BLE OK";
+    lastMessage = "Celular conectado";
+    drawUi();
   }
 
   void onDisconnect(BLEClient *client) override {
@@ -47,7 +50,9 @@ class ClientCallbacks : public BLEClientCallbacks {
     connecting = false;
     rxChar = nullptr;
     txChar = nullptr;
-    connectionState = "SEM CELULAR";
+    connectionState = "SEM BLE";
+    lastMessage = "Celular desconectado";
+    drawUi();
   }
 };
 
@@ -65,6 +70,83 @@ class ScanCallbacks : public BLEAdvertisedDeviceCallbacks {
   }
 };
 
+String twoDigits(uint8_t value) {
+  return value < 10 ? "0" + String(value) : String(value);
+}
+
+String dayName(uint8_t day, uint8_t month, uint16_t year) {
+  static const char *days[] = {"DOM", "SEG", "TER", "QUA", "QUI", "SEX", "SAB"};
+  int dow = watch->rtc->getDayOfWeek(day, month, year);
+  if (dow < 0 || dow > 6) return "---";
+  return String(days[dow]);
+}
+
+int batteryPercent() {
+  if (!watch || !watch->power || !watch->power->isBatteryConnect()) return -1;
+  int p = watch->power->getBattPercentage();
+  if (p < 0) p = 0;
+  if (p > 100) p = 100;
+  return p;
+}
+
+void drawBatteryIcon(int x, int y, int percentage, bool charging) {
+  const int w = 28;
+  const int h = 12;
+  uint16_t color = percentage >= 20 ? LCARS_TEXT : LCARS_RED;
+
+  tft->drawRoundRect(x, y, w, h, 3, color);
+  tft->fillRect(x + w, y + 3, 3, h - 6, color);
+
+  if (percentage >= 0) {
+    int fill = (w - 4) * percentage / 100;
+    if (fill > 0) tft->fillRect(x + 2, y + 2, fill, h - 4, color);
+  }
+
+  if (charging) {
+    tft->setTextColor(LCARS_ORANGE, LCARS_BG);
+    tft->drawString("+", x - 9, y - 2, 2);
+  }
+}
+
+void drawClockStatus() {
+  RTC_Date now = watch->rtc->getDateTime();
+  int batt = batteryPercent();
+  bool charging = watch->power && watch->power->isChargeing();
+
+  // Limpa somente a área superior para evitar redesenhar toda a tela a cada segundo.
+  tft->fillRect(0, 0, 240, 76, LCARS_BG);
+
+  // Barra superior LCARS.
+  tft->fillRoundRect(5, 5, 230, 48, 16, LCARS_ORANGE);
+  tft->fillRect(5, 25, 230, 28, LCARS_ORANGE);
+  tft->fillRect(5, 49, 42, 20, LCARS_ORANGE);
+  tft->fillRoundRect(5, 54, 42, 22, 10, LCARS_ORANGE);
+
+  // Hora grande.
+  String hhmm = twoDigits(now.hour) + ":" + twoDigits(now.minute);
+  tft->setTextColor(LCARS_TEXT, LCARS_ORANGE);
+  tft->drawString(hhmm, 55, 7, 4);
+
+  // Data e identificação da interface.
+  String dateText = dayName(now.day, now.month, now.year) + "  " +
+                    twoDigits(now.day) + "/" + twoDigits(now.month);
+  tft->setTextColor(LCARS_TEXT, LCARS_ORANGE);
+  tft->drawString(dateText, 55, 34, 2);
+  tft->drawRightString("JARVIS", 226, 34, 2);
+
+  // Estado BLE em segmento funcional.
+  uint16_t statusColor = connected ? LCARS_GREEN : (connecting ? LCARS_LAVENDER : LCARS_RED);
+  tft->fillRoundRect(52, 57, 91, 17, 8, statusColor);
+  tft->setTextColor(LCARS_TEXT, statusColor);
+  tft->drawCentreString(connectionState, 97, 59, 1);
+
+  // Bateria sempre visível.
+  drawBatteryIcon(151, 59, batt, charging);
+  tft->setTextColor(LCARS_TEXT, LCARS_BG);
+  String battText = batt >= 0 ? String(batt) + "%" : "--%";
+  tft->drawRightString(battText, 232, 59, 2);
+}
+
 void drawWrapped(const String &text, int y, uint16_t color = LCARS_TEXT) {
   tft->setTextColor(color, LCARS_BG);
   tft->setTextSize(1);
@@ -79,7 +161,7 @@ void drawWrapped(const String &text, int y, uint16_t color = LCARS_TEXT) {
     }
     String part = text.substring(pos, end);
     part.trim();
-    tft->drawString(part, 12, y + line * 15, 2);
+    tft->drawString(part, 12, y + line * 14, 2);
     pos = end;
     while (pos < (int)text.length() && text[pos] == ' ') pos++;
     line++;
@@ -87,45 +169,33 @@ void drawWrapped(const String &text, int y, uint16_t color = LCARS_TEXT) {
 }
 
 void lcarsButton(int x, int y, int w, int h, uint16_t color, const char *label) {
-  tft->fillRoundRect(x, y, w, h, 11, color);
-  // O corte inferior dá aparência de segmento LCARS, sem imitar uma janela comum.
-  tft->fillRect(x + 10, y + h - 8, w - 10, 8, color);
+  tft->fillRoundRect(x, y, w, h, 10, color);
+  tft->fillRect(x + 9, y + h - 7, w - 9, 7, color);
   tft->setTextColor(LCARS_TEXT, color);
-  tft->drawCentreString(label, x + (w / 2), y + 11, 2);
+  tft->drawCentreString(label, x + (w / 2), y + 8, 2);
+}
+
+void drawMessagePanel() {
+  // Área inferior: moldura LCARS usada para mensagens e respostas.
+  tft->fillRoundRect(5, 164, 230, 73, 14, LCARS_LAVENDER);
+  tft->fillRect(17, 164, 218, 73, LCARS_LAVENDER);
+  tft->fillRoundRect(14, 170, 215, 61, 9, LCARS_BG);
+  tft->setTextColor(LCARS_MUTED, LCARS_BG);
+  tft->drawString("RESPOSTA", 18, 173, 1);
+  drawWrapped(lastMessage, 184, LCARS_TEXT);
 }
 
 void drawUi() {
   tft->fillScreen(LCARS_BG);
+  drawClockStatus();
 
-  // Cabeçalho LCARS: a própria moldura funciona como indicador de estado.
-  tft->fillRoundRect(5, 5, 230, 43, 16, LCARS_ORANGE);
-  tft->fillRect(5, 25, 230, 23, LCARS_ORANGE);
-  tft->fillRect(5, 44, 48, 20, LCARS_ORANGE);
-  tft->fillRoundRect(5, 49, 48, 27, 12, LCARS_ORANGE);
+  // Quatro funções principais.
+  lcarsButton(5,   82, 111, 32, LCARS_LAVENDER, "STATUS");
+  lcarsButton(124, 82, 111, 32, LCARS_SALMON,   "LUZ SALA");
+  lcarsButton(5,  122, 111, 32, LCARS_BLUE,     "TEMPERAT.");
+  lcarsButton(124,122, 111, 32, LCARS_ORANGE,   "JARVIS");
 
-  tft->setTextColor(LCARS_TEXT, LCARS_ORANGE);
-  tft->drawString("JARVIS", 66, 10, 4);
-  tft->setTextSize(1);
-  tft->drawRightString("CASA", 226, 31, 2);
-
-  uint16_t statusColor = connected ? LCARS_GREEN : LCARS_RED;
-  tft->fillRoundRect(60, 52, 175, 20, 9, statusColor);
-  tft->setTextColor(LCARS_TEXT, statusColor);
-  tft->drawCentreString(connectionState, 147, 55, 2);
-
-  // Quatro funções principais. Grandes o suficiente para toque com o dedo.
-  lcarsButton(5,   82, 111, 42, LCARS_LAVENDER, "STATUS");
-  lcarsButton(124, 82, 111, 42, LCARS_SALMON,   "LUZ SALA");
-  lcarsButton(5,  132, 111, 42, LCARS_BLUE,     "TEMPERAT.");
-  lcarsButton(124,132, 111, 42, LCARS_ORANGE,   "JARVIS");
-
-  // Moldura inferior usada como área funcional de resposta do sistema.
-  tft->fillRoundRect(5, 182, 230, 55, 14, LCARS_LAVENDER);
-  tft->fillRect(17, 182, 218, 55, LCARS_LAVENDER);
-  tft->fillRoundRect(14, 188, 215, 43, 9, LCARS_BG);
-  tft->setTextColor(LCARS_MUTED, LCARS_BG);
-  tft->drawString("RESPOSTA", 18, 190, 1);
-  drawWrapped(lastMessage, 201, LCARS_TEXT);
+  drawMessagePanel();
 }
 
 void handlePhoneJson(const String &jsonText) {
@@ -177,8 +247,8 @@ static void notifyCallback(
 bool connectPhone() {
   if (connecting || connected) return connected;
   connecting = true;
-  connectionState = "PROCURANDO CELULAR";
-  drawUi();
+  connectionState = "PROCURANDO";
+  drawClockStatus();
 
   BLEScan *scan = BLEDevice::getScan();
   scan->setAdvertisedDeviceCallbacks(new ScanCallbacks(), true);
@@ -188,8 +258,8 @@ bool connectPhone() {
 
   if (!phoneDevice) {
     connecting = false;
-    connectionState = "SEM CELULAR";
-    drawUi();
+    connectionState = "SEM BLE";
+    drawClockStatus();
     return false;
   }
 
@@ -201,7 +271,7 @@ bool connectPhone() {
   if (!bleClient->connect(phoneDevice)) {
     connecting = false;
     connectionState = "FALHA BLE";
-    drawUi();
+    drawClockStatus();
     return false;
   }
 
@@ -224,7 +294,7 @@ bool connectPhone() {
 
   connected = true;
   connecting = false;
-  connectionState = "CELULAR CONECTADO";
+  connectionState = "BLE OK";
   lastMessage = "Ponte BLE pronta";
   drawUi();
   return true;
@@ -233,7 +303,7 @@ bool connectPhone() {
 bool sendJson(const String &json) {
   if (!connected || !rxChar) {
     lastMessage = "Celular nao conectado";
-    drawUi();
+    drawMessagePanel();
     return false;
   }
   rxChar->writeValue((uint8_t *)json.c_str(), json.length(), true);
@@ -249,11 +319,13 @@ void sendJarvis(const String &text) {
   String json;
   serializeJson(doc, json);
   lastMessage = "Enviando ao celular...";
-  drawUi();
+  drawMessagePanel();
   sendJson(json);
 }
 
 void sendStatus() {
+  lastMessage = "Consultando estado...";
+  drawMessagePanel();
   sendJson("{\"type\":\"status\",\"source\":\"watch\"}");
 }
 
@@ -262,7 +334,7 @@ void vibrateShort() {
 }
 
 void handleTouch(int x, int y) {
-  if (y >= 82 && y <= 124) {
+  if (y >= 82 && y <= 114) {
     if (x < 120) {
       sendStatus();
     } else {
@@ -273,7 +345,7 @@ void handleTouch(int x, int y) {
     return;
   }
 
-  if (y >= 132 && y <= 174) {
+  if (y >= 122 && y <= 154) {
     if (x < 120) {
       sendJarvis("Qual a temperatura atual dos sensores?");
     } else {
@@ -292,6 +364,22 @@ void setup() {
   watch->openBL();
   tft = watch->tft;
 
+  // RTC interno: preserva horário mesmo quando o celular estiver desconectado.
+  if (watch->rtc) {
+    watch->rtc->check();
+  }
+
+  // Habilita leitura da bateria pela AXP202.
+  if (watch->power) {
+    watch->power->adc1Enable(
+      AXP202_VBUS_VOL_ADC1 |
+      AXP202_VBUS_CUR_ADC1 |
+      AXP202_BATT_CUR_ADC1 |
+      AXP202_BATT_VOL_ADC1,
+      true
+    );
+  }
+
   BLEDevice::init(JARVIS_WATCH_NAME);
   drawUi();
   connectPhone();
@@ -301,6 +389,12 @@ void loop() {
   if (!connected && millis() - lastReconnect >= JARVIS_RECONNECT_MS) {
     lastReconnect = millis();
     connectPhone();
+  }
+
+  // Atualiza hora, data, bateria e BLE uma vez por segundo sem repintar o restante.
+  if (millis() - lastClockRefresh >= 1000) {
+    lastClockRefresh = millis();
+    drawClockStatus();
   }
 
   int16_t x = 0, y = 0;
