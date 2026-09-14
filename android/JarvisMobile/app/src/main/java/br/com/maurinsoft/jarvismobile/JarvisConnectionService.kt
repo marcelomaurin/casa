@@ -17,6 +17,7 @@ class JarvisConnectionService : Service() {
     private lateinit var connectivity: ConnectivityManager
     private var bleBridge: BleBridge? = null
     private var lastWifiState = false
+    @Volatile private var jarvisOnline = false
 
     companion object {
         const val CHANNEL_SERVICE = "jarvis_service"
@@ -27,20 +28,12 @@ class JarvisConnectionService : Service() {
     override fun onCreate() {
         super.onCreate()
         createChannels()
-        startForeground(
-            NOTIFICATION_ID,
-            NotificationCompat.Builder(this, CHANNEL_SERVICE)
-                .setSmallIcon(android.R.drawable.stat_notify_sync)
-                .setContentTitle("JARVIS Mobile")
-                .setContentText("Conectado ao JARVIS e ao relógio")
-                .setOngoing(true)
-                .build()
-        )
+        startForeground(NOTIFICATION_ID, serviceNotification("Inicializando conexão..."))
 
         connectivity = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         connectivity.registerDefaultNetworkCallback(networkCallback)
-        bleBridge = BleBridge(this).also { it.start() }
-        startNotificationLoop()
+        bleBridge = BleBridge(this).also { runCatching { it.start() } }
+        startConnectionLoop()
     }
 
     override fun onDestroy() {
@@ -64,10 +57,39 @@ class JarvisConnectionService : Service() {
         }
     }
 
+    private fun serviceNotification(text: String): Notification {
+        val openIntent = PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        return NotificationCompat.Builder(this, CHANNEL_SERVICE)
+            .setSmallIcon(R.drawable.ic_jarvis_launcher)
+            .setContentTitle("JARVIS Mobile")
+            .setContentText(text)
+            .setOngoing(true)
+            .setContentIntent(openIntent)
+            .build()
+    }
+
+    private fun updateServiceNotification(text: String) {
+        getSystemService(NotificationManager::class.java)
+            .notify(NOTIFICATION_ID, serviceNotification(text))
+    }
+
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) = evaluateNetwork(network)
-        override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) = evaluateCaps(caps)
+        override fun onAvailable(network: Network) {
+            evaluateNetwork(network)
+        }
+
+        override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+            evaluateCaps(caps)
+        }
+
         override fun onLost(network: Network) {
+            jarvisOnline = false
+            updateServiceNotification("Offline — aguardando reconexão")
             if (lastWifiState) {
                 lastWifiState = false
                 scope.launch {
@@ -97,23 +119,60 @@ class JarvisConnectionService : Service() {
                         this@JarvisConnectionService,
                         "WIFI_CONNECTED",
                         "Celular conectado por Wi-Fi",
-                        JSONObject().put("validated", caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED))
+                        JSONObject().put(
+                            "validated",
+                            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                        )
                     )
                 }
             }
         }
     }
 
-    private fun startNotificationLoop() {
+    private fun startConnectionLoop() {
         scope.launch {
+            var retryDelay = 5_000L
             while (isActive) {
-                runCatching {
-                    JarvisApi.getNotifications(this@JarvisConnectionService).forEach { n ->
-                        showJarvisNotification(n)
-                        JarvisApi.ackNotification(this@JarvisConnectionService, n.id)
-                    }
+                if (!JarvisApi.isConfigured(this@JarvisConnectionService)) {
+                    jarvisOnline = false
+                    updateServiceNotification("Configure a URL e o token do JARVIS")
+                    delay(10_000L)
+                    continue
                 }
-                delay(10_000)
+
+                val online = JarvisApi.isOnline(this@JarvisConnectionService)
+                jarvisOnline = online
+
+                if (online) {
+                    retryDelay = 5_000L
+                    val sent = runCatching {
+                        JarvisApi.flushPending(this@JarvisConnectionService)
+                    }.getOrDefault(0)
+
+                    val pending = JarvisApi.pendingCount(this@JarvisConnectionService)
+                    val msg = when {
+                        sent > 0 -> "Online — $sent comando(s) pendente(s) enviado(s)"
+                        pending > 0 -> "Online — $pending comando(s) aguardando envio"
+                        else -> "Online — conectado ao JARVIS"
+                    }
+                    updateServiceNotification(msg)
+
+                    runCatching {
+                        JarvisApi.getNotifications(this@JarvisConnectionService).forEach { n ->
+                            showJarvisNotification(n)
+                            JarvisApi.ackNotification(this@JarvisConnectionService, n.id)
+                        }
+                    }
+                    delay(10_000L)
+                } else {
+                    val pending = JarvisApi.pendingCount(this@JarvisConnectionService)
+                    updateServiceNotification(
+                        if (pending > 0) "Offline — $pending comando(s) na fila; tentando reconectar"
+                        else "Offline — tentando reconectar"
+                    )
+                    delay(retryDelay)
+                    retryDelay = (retryDelay * 2).coerceAtMost(30_000L)
+                }
             }
         }
     }
@@ -126,7 +185,7 @@ class JarvisConnectionService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val notification = NotificationCompat.Builder(this, CHANNEL_ALERTS)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(R.drawable.ic_jarvis_launcher)
             .setContentTitle(n.title)
             .setContentText(n.message)
             .setStyle(NotificationCompat.BigTextStyle().bigText(n.message))
@@ -134,6 +193,7 @@ class JarvisConnectionService : Service() {
             .setAutoCancel(true)
             .setContentIntent(openIntent)
             .build()
-        getSystemService(NotificationManager::class.java).notify((2000 + (n.id % 100000)).toInt(), notification)
+        getSystemService(NotificationManager::class.java)
+            .notify((2000 + (n.id % 100000)).toInt(), notification)
     }
 }
