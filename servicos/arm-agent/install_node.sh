@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Instalador do Agente Distribuido CASA/JARVIS para Raspberry Pi e outros nos ARM.
-# O runtime usa https://casa.maurinsoft.com.br como ponto central de coordenacao.
+# O runtime usa https://maurinsoft.com.br/casa como ponto central de coordenacao.
 # O codigo do agente e obtido da fonte oficial do projeto no GitHub.
 
 set -euo pipefail
@@ -28,8 +28,9 @@ curl --fail --silent --show-error --location \
 if [ ! -f "$ENV_FILE" ]; then
   cat > "$ENV_FILE" <<'EOF'
 # Configuracao privada deste no. Nao versionar este arquivo.
-JARVIS_MASTER_URL=https://casa.maurinsoft.com.br/api/crud.php
-JARVIS_API_BASE=https://casa.maurinsoft.com.br/api/v1
+CASA_BASE_URL=https://maurinsoft.com.br/casa
+JARVIS_MASTER_URL=https://maurinsoft.com.br/casa/api/crud.php
+JARVIS_API_BASE=https://maurinsoft.com.br/casa/api/v1
 JARVIS_DEVICE_ID=raspberry-NOME-DO-NO
 JARVIS_DEVICE_TOKEN=COLOQUE_O_TOKEN_INDIVIDUAL_DESTE_NO
 JARVIS_CAPABILITIES=gpio,mqtt,serial,rs485,ble,scheduler,audio
@@ -45,6 +46,6 @@ systemctl enable casa-node-agent.service
 systemctl restart casa-node-agent.service
 
 echo "Agente instalado."
-echo "Dominio central: https://casa.maurinsoft.com.br"
+echo "Dominio central: https://maurinsoft.com.br/casa"
 echo "Configuracao privada: $ENV_FILE"
 systemctl status casa-node-agent.service --no-pager
