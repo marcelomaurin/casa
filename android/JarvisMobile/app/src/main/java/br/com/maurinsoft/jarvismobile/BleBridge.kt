@@ -22,6 +22,8 @@ class BleBridge(private val context: Context) {
         val RX_UUID: UUID = UUID.fromString("7a9f1001-3a8c-4b62-9e5f-1b0c0e91a001")
         val TX_UUID: UUID = UUID.fromString("7a9f1002-3a8c-4b62-9e5f-1b0c0e91a001")
         val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+        const val PROTOCOL_VERSION = "1.0"
+        const val ADVERTISED_NAME = "JARVIS-PHONE"
     }
 
     private val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
@@ -31,15 +33,13 @@ class BleBridge(private val context: Context) {
     private val connected = mutableSetOf<BluetoothDevice>()
     private val scope = CoroutineScope(Dispatchers.IO)
 
-    private fun canBluetooth(): Boolean {
-        return Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+    private fun canBluetooth(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
             ActivityCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
-    }
 
-    private fun canAdvertise(): Boolean {
-        return Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+    private fun canAdvertise(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
             ActivityCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_ADVERTISE) == PackageManager.PERMISSION_GRANTED
-    }
 
     fun start() {
         if (!canBluetooth() || !canAdvertise() || adapter == null || !adapter.isEnabled) return
@@ -75,10 +75,17 @@ class BleBridge(private val context: Context) {
             .setTimeout(0)
             .build()
         val data = AdvertiseData.Builder()
-            .setIncludeDeviceName(true)
+            .setIncludeDeviceName(false)
             .addServiceUuid(ParcelUuid(SERVICE_UUID))
             .build()
-        adapter.bluetoothLeAdvertiser?.startAdvertising(settings, data, advertiseCallback)
+        val scanResponse = AdvertiseData.Builder()
+            .setIncludeDeviceName(true)
+            .build()
+
+        runCatching {
+            if (canBluetooth()) adapter.name = ADVERTISED_NAME
+        }
+        adapter.bluetoothLeAdvertiser?.startAdvertising(settings, data, scanResponse, advertiseCallback)
     }
 
     fun stop() {
@@ -88,11 +95,29 @@ class BleBridge(private val context: Context) {
         connected.clear()
     }
 
+    fun connectedCount(): Int = synchronized(connected) { connected.size }
+
+    fun broadcastStatus() {
+        val payload = JSONObject()
+            .put("ok", JarvisApi.isOnline(context))
+            .put("type", "status")
+            .put("internet", JarvisApi.isOnline(context))
+            .put("pending", JarvisApi.pendingCount(context))
+            .put("protocol", PROTOCOL_VERSION)
+            .toString()
+        synchronized(connected) { connected.toList() }.forEach { notify(it, payload) }
+    }
+
     private val advertiseCallback = object : AdvertiseCallback() {}
 
     private val callback = object : BluetoothGattServerCallback() {
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
-            if (newState == BluetoothProfile.STATE_CONNECTED) connected += device else connected -= device
+            synchronized(connected) {
+                if (newState == BluetoothProfile.STATE_CONNECTED) connected += device else connected -= device
+            }
+            if (newState == BluetoothProfile.STATE_CONNECTED) {
+                scope.launch { notify(device, helloPayload().toString()) }
+            }
         }
 
         override fun onCharacteristicReadRequest(
@@ -102,8 +127,25 @@ class BleBridge(private val context: Context) {
             characteristic: BluetoothGattCharacteristic
         ) {
             if (!canBluetooth()) return
-            val value = if (characteristic.uuid == TX_UUID) "{\"ok\":true,\"bridge\":\"jarvis-mobile\"}".toByteArray() else byteArrayOf()
+            val value = if (characteristic.uuid == TX_UUID) {
+                (helloPayload().toString() + "\n").toByteArray()
+            } else byteArrayOf()
             gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value)
+        }
+
+        override fun onDescriptorWriteRequest(
+            device: BluetoothDevice,
+            requestId: Int,
+            descriptor: BluetoothGattDescriptor,
+            preparedWrite: Boolean,
+            responseNeeded: Boolean,
+            offset: Int,
+            value: ByteArray
+        ) {
+            if (descriptor.uuid == CCCD_UUID) descriptor.value = value
+            if (responseNeeded && canBluetooth()) {
+                gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value)
+            }
         }
 
         override fun onCharacteristicWriteRequest(
@@ -120,37 +162,56 @@ class BleBridge(private val context: Context) {
                 gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null)
             }
 
-            val text = value.toString(Charsets.UTF_8)
+            val text = value.toString(Charsets.UTF_8).trim()
             scope.launch {
                 val response = try {
-                    JarvisApi.executeBleBridgeRequest(context, JSONObject(text))
+                    val input = JSONObject(text)
+                    when (input.optString("type")) {
+                        "hello" -> helloPayload()
+                        "phone_info" -> helloPayload()
+                        else -> JarvisApi.executeBleBridgeRequest(context, input)
+                            .put("protocol", PROTOCOL_VERSION)
+                    }
                 } catch (e: Exception) {
-                    JSONObject().put("ok", false).put("error", e.message ?: "Falha BLE")
+                    JSONObject()
+                        .put("ok", false)
+                        .put("type", "error")
+                        .put("error", e.message ?: "Falha BLE")
+                        .put("protocol", PROTOCOL_VERSION)
                 }
                 notify(device, response.toString())
             }
         }
     }
 
+    private fun helloPayload(): JSONObject = JSONObject()
+        .put("ok", true)
+        .put("type", "hello")
+        .put("bridge", "jarvis-mobile")
+        .put("protocol", PROTOCOL_VERSION)
+        .put("internet", JarvisApi.isOnline(context))
+        .put("pending", JarvisApi.pendingCount(context))
+
     private fun notify(device: BluetoothDevice, text: String) {
         if (!canBluetooth()) return
         val characteristic = tx ?: return
-        val bytes = text.toByteArray(Charsets.UTF_8)
 
-        // Mensagens maiores devem ser tratadas pelo protocolo do relógio em blocos.
+        // Delimitador de mensagem. O relógio acumula notificações até receber '\n'.
+        val bytes = (text + "\n").toByteArray(Charsets.UTF_8)
         val mtuSafe = 180
         var pos = 0
         while (pos < bytes.size) {
             val end = minOf(pos + mtuSafe, bytes.size)
-            characteristic.value = bytes.copyOfRange(pos, end)
+            val part = bytes.copyOfRange(pos, end)
+            characteristic.value = part
             if (Build.VERSION.SDK_INT >= 33) {
-                gattServer?.notifyCharacteristicChanged(device, characteristic, false, characteristic.value)
+                gattServer?.notifyCharacteristicChanged(device, characteristic, false, part)
             } else {
                 @Suppress("DEPRECATION")
                 gattServer?.notifyCharacteristicChanged(device, characteristic, false)
             }
             pos = end
-            Thread.sleep(30)
+            Thread.sleep(25)
         }
     }
 }
