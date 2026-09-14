@@ -11,12 +11,25 @@ on:
 permissions:
   contents: read
 
+env:
+  HOSTINGER_SSH_HOST: 185.211.7.4
+  HOSTINGER_SSH_PORT: '65002'
+  HOSTINGER_SSH_USER: u820932905
+  CASA_DOMAIN: casa.maurinsoft.com.br
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Install SSH password client
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y sshpass rsync
 
       - name: Prepare web package
         shell: bash
@@ -25,76 +38,84 @@ jobs:
           rm -rf deploy-hostinger
           mkdir -p deploy-hostinger
           cp -a site/var/www/html/. deploy-hostinger/
+          # Production credentials stay only on the Hostinger server.
           rm -f deploy-hostinger/api/config.local.php
 
-      - name: Create private production config
+      - name: Discover Hostinger document root
+        id: remote
         shell: bash
         env:
-          DB_HOST: ${{ secrets.HOSTINGER_DB_HOST }}
-          DB_PORT: ${{ secrets.HOSTINGER_DB_PORT }}
-          DB_NAME: ${{ secrets.HOSTINGER_DB_NAME }}
-          DB_USER: ${{ secrets.HOSTINGER_DB_USER }}
-          DB_PASS: ${{ secrets.HOSTINGER_DB_PASS }}
-          API_TOKEN: ${{ secrets.HOSTINGER_SYSTEM_API_TOKEN }}
+          SSHPASS: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
         run: |
           set -euo pipefail
-          test -n "$DB_HOST"
-          test -n "$DB_NAME"
-          test -n "$DB_USER"
-          test -n "$DB_PASS"
-          test -n "$API_TOKEN"
-          export PORT="${DB_PORT:-3306}"
-          php -r '
-            $cfg = [
-              "db_host" => getenv("DB_HOST"),
-              "db_port" => getenv("PORT") ?: "3306",
-              "db_name" => getenv("DB_NAME"),
-              "db_user" => getenv("DB_USER"),
-              "db_pass" => getenv("DB_PASS"),
-              "db_charset" => "utf8mb4",
-              "system_api_token" => getenv("API_TOKEN"),
-            ];
-            file_put_contents("deploy-hostinger/api/config.local.php", "<?php\nreturn " . var_export($cfg, true) . ";\n");
-          '
+          test -n "$SSHPASS"
 
-      - name: Configure SSH
-        shell: bash
-        env:
-          SSH_KEY: ${{ secrets.HOSTINGER_SSH_PRIVATE_KEY }}
-          SSH_HOST: ${{ secrets.HOSTINGER_SSH_HOST }}
-          SSH_PORT: ${{ secrets.HOSTINGER_SSH_PORT }}
-        run: |
-          set -euo pipefail
-          test -n "$SSH_KEY"
-          test -n "$SSH_HOST"
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          PORT="${SSH_PORT:-22}"
-          ssh-keyscan -p "$PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+          SSH="sshpass -e ssh -o StrictHostKeyChecking=accept-new -p $HOSTINGER_SSH_PORT"
+
+          REMOTE_PATH="$($SSH "$HOSTINGER_SSH_USER@$HOSTINGER_SSH_HOST" 'bash -s' <<'EOS'
+          set -e
+          DOMAIN="casa.maurinsoft.com.br"
+
+          candidates=(
+            "$HOME/domains/$DOMAIN/public_html"
+            "$HOME/domains/maurinsoft.com.br/public_html/casa"
+            "$HOME/public_html"
+          )
+
+          for p in "${candidates[@]}"; do
+            if [ -d "$p" ]; then
+              printf '%s\n' "$p"
+              exit 0
+            fi
+          done
+
+          found="$(find "$HOME" -maxdepth 5 -type d \( -path "*/$DOMAIN/public_html" -o -path "*/public_html/casa" \) 2>/dev/null | head -n 1)"
+          if [ -n "$found" ]; then
+            printf '%s\n' "$found"
+            exit 0
+          fi
+
+          echo "Nao foi possivel localizar o document root de $DOMAIN" >&2
+          exit 1
+          EOS
+          )"
+
+          test -n "$REMOTE_PATH"
+          echo "path=$REMOTE_PATH" >> "$GITHUB_OUTPUT"
+          echo "Document root localizado."
 
       - name: Deploy web files only
         shell: bash
         env:
-          SSH_HOST: ${{ secrets.HOSTINGER_SSH_HOST }}
-          SSH_PORT: ${{ secrets.HOSTINGER_SSH_PORT }}
-          SSH_USER: ${{ secrets.HOSTINGER_SSH_USER }}
-          REMOTE_PATH: ${{ secrets.HOSTINGER_REMOTE_PATH }}
+          SSHPASS: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
+          REMOTE_PATH: ${{ steps.remote.outputs.path }}
         run: |
           set -euo pipefail
-          PORT="${SSH_PORT:-22}"
-          test -n "$SSH_HOST"
-          test -n "$SSH_USER"
+          test -n "$SSHPASS"
           test -n "$REMOTE_PATH"
+
           rsync -az --delete \
             --exclude='.git' \
             --exclude='.env' \
-            -e "ssh -p $PORT" \
+            --exclude='api/config.local.php' \
+            -e "sshpass -e ssh -o StrictHostKeyChecking=accept-new -p $HOSTINGER_SSH_PORT" \
             deploy-hostinger/ \
-            "$SSH_USER@$SSH_HOST:$REMOTE_PATH/"
+            "$HOSTINGER_SSH_USER@$HOSTINGER_SSH_HOST:$REMOTE_PATH/"
+
+      - name: Verify deployed files
+        shell: bash
+        env:
+          SSHPASS: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
+          REMOTE_PATH: ${{ steps.remote.outputs.path }}
+        run: |
+          set -euo pipefail
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new -p "$HOSTINGER_SSH_PORT" \
+            "$HOSTINGER_SSH_USER@$HOSTINGER_SSH_HOST" \
+            "test -f '$REMOTE_PATH/index.php' && test -d '$REMOTE_PATH/api'"
 
       - name: Smoke test
         shell: bash
         run: |
-          curl --fail --silent --show-error --max-time 20 https://casa.maurinsoft.com.br/ >/dev/null
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 20 "https://$CASA_DOMAIN/" >/dev/null
+          echo "CASA publicado em https://$CASA_DOMAIN"
