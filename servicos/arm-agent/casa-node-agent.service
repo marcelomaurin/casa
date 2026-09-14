@@ -1,6 +1,7 @@
 [Unit]
 Description=Casa Inteligente - Agente Distribuido para Nos ARM
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
@@ -9,9 +10,10 @@ WorkingDirectory=/opt/casa-node-agent
 ExecStart=/usr/bin/python3 /opt/casa-node-agent/casa-node-agent.py
 Restart=always
 RestartSec=10
-Environment="JARVIS_MASTER_URL=http://192.168.2.12/api/crud.php"
+Environment="JARVIS_MASTER_URL=https://casa.maurinsoft.com.br/api/crud.php"
 Environment="AGENT_PORT=8098"
 Environment="HEARTBEAT_INTERVAL=20"
+EnvironmentFile=-/etc/casa-node-agent.env
 
 [Install]
 WantedBy=multi-user.target
