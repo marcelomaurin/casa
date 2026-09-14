@@ -10,6 +10,7 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
+import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Bundle;
@@ -36,6 +37,15 @@ public class AssistantOverlayService extends Service {
     private static final String CHANNEL_ID = "jarvis_tv_assistant";
     private static final int NOTIFICATION_ID = 4101;
     private static final long MENU_TIMEOUT_MS = 8000L;
+
+    private static final int CREAM = Color.rgb(244, 238, 222);
+    private static final int PANEL = Color.rgb(255, 250, 240);
+    private static final int INK = Color.rgb(34, 31, 34);
+    private static final int ORANGE = Color.rgb(229, 138, 85);
+    private static final int SALMON = Color.rgb(217, 111, 120);
+    private static final int LAVENDER = Color.rgb(155, 131, 173);
+    private static final int BLUE = Color.rgb(111, 140, 168);
+    private static final int GREEN = Color.rgb(111, 152, 126);
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -118,17 +128,23 @@ public class AssistantOverlayService extends Service {
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
         panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(14), dp(14), dp(14), dp(14));
+        panel.setPadding(dp(12), dp(10), dp(12), dp(12));
+        panel.setBackground(lcarsPanelBackground());
 
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(Color.argb(235, 16, 42, 67));
-        bg.setCornerRadius(dp(18));
-        bg.setStroke(dp(2), Color.rgb(79, 195, 247));
-        panel.setBackground(bg);
+        title = label("JARVIS", 19, INK, true);
+        title.setGravity(Gravity.CENTER);
+        title.setPadding(dp(8), dp(6), dp(8), dp(6));
+        title.setBackground(rounded(ORANGE, 18));
 
-        title = label("JARVIS", 20, Color.WHITE);
-        status = label("ouvindo", 14, Color.rgb(79, 195, 247));
-        response = label("", 15, Color.WHITE);
+        status = label("OUVINDO", 12, INK, true);
+        status.setGravity(Gravity.CENTER);
+        status.setPadding(dp(8), dp(5), dp(8), dp(5));
+        status.setBackground(rounded(LAVENDER, 16));
+
+        response = label("", 15, INK, false);
+        response.setPadding(dp(10), dp(8), dp(10), dp(8));
+        response.setBackground(rounded(PANEL, 16));
+
         panel.addView(title);
         panel.addView(status);
         panel.addView(response);
@@ -138,8 +154,8 @@ public class AssistantOverlayService extends Service {
                 : WindowManager.LayoutParams.TYPE_PHONE;
 
         params = new WindowManager.LayoutParams(
-                dp(62),
-                dp(112),
+                dp(68),
+                dp(118),
                 type,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                         | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
@@ -153,27 +169,43 @@ public class AssistantOverlayService extends Service {
         collapsePanel();
     }
 
-    private TextView label(String textValue, int size, int color) {
+    private GradientDrawable lcarsPanelBackground() {
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(Color.argb(248, 244, 238, 222));
+        bg.setCornerRadius(dp(24));
+        bg.setStroke(dp(3), SALMON);
+        return bg;
+    }
+
+    private GradientDrawable rounded(int color, int radiusDp) {
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(color);
+        bg.setCornerRadius(dp(radiusDp));
+        return bg;
+    }
+
+    private TextView label(String textValue, int size, int color, boolean bold) {
         TextView v = new TextView(this);
         v.setText(textValue);
         v.setTextSize(size);
         v.setTextColor(color);
+        if (bold) v.setTypeface(Typeface.DEFAULT_BOLD);
         v.setMaxLines(6);
         return v;
     }
 
     private void createRecognizer() {
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            if (status != null) status.setText("reconhecimento de voz indisponível");
+            if (status != null) status.setText("VOZ INDISPONÍVEL");
             return;
         }
         recognizer = SpeechRecognizer.createSpeechRecognizer(this);
         recognizer.setRecognitionListener(new RecognitionListener() {
-            @Override public void onReadyForSpeech(Bundle params) { updateStatus("ouvindo"); }
-            @Override public void onBeginningOfSpeech() { updateStatus("escutando..."); }
+            @Override public void onReadyForSpeech(Bundle params) { updateStatus("OUVINDO"); }
+            @Override public void onBeginningOfSpeech() { updateStatus("ESCUTANDO"); }
             @Override public void onRmsChanged(float rmsdB) { }
             @Override public void onBufferReceived(byte[] buffer) { }
-            @Override public void onEndOfSpeech() { updateStatus("processando..."); }
+            @Override public void onEndOfSpeech() { updateStatus("PROCESSANDO"); }
             @Override public void onError(int error) { scheduleRestart(error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY ? 1800 : 900); }
             @Override public void onResults(Bundle results) {
                 ArrayList<String> list = results == null ? null : results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
@@ -189,7 +221,7 @@ public class AssistantOverlayService extends Service {
     private void startListening() {
         if (destroyed || recognizer == null) return;
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            updateStatus("microfone sem permissão");
+            updateStatus("SEM MICROFONE");
             return;
         }
         try {
@@ -215,7 +247,7 @@ public class AssistantOverlayService extends Service {
         int wake = normalized.indexOf("jarvis");
 
         if (wake >= 0) {
-            showMenu("Estou ouvindo", "");
+            showMenu("OUVINDO", "");
             String command = normalized.substring(wake + "jarvis".length()).trim();
             if (!command.isEmpty()) processCommand(command);
             return;
@@ -225,21 +257,21 @@ public class AssistantOverlayService extends Service {
     }
 
     private void processCommand(String command) {
-        showMenu("Entendi", command);
+        showMenu("ENTENDI", command);
 
         String requestedApp = launcher.detectRequestedApp(command);
         if (requestedApp != null && (command.contains("abr") || command.contains("inici") || command.contains("cham"))) {
             AppLauncher.LaunchResult result = launcher.launch(requestedApp);
-            showMenu(result.success ? "Aplicativo aberto" : "Não consegui abrir", result.message);
+            showMenu(result.success ? "APLICATIVO ABERTO" : "NÃO CONSEGUI ABRIR", result.message);
             return;
         }
 
         executor.execute(() -> {
             try {
                 String answer = api.ask(command);
-                main.post(() -> showMenu("JARVIS", answer));
+                main.post(() -> showMenu("RUNPOD", answer));
             } catch (Exception e) {
-                main.post(() -> showMenu("Sem conexão", e.getMessage() == null ? "Falha ao acessar a casa" : e.getMessage()));
+                main.post(() -> showMenu("SEM CONEXÃO", e.getMessage() == null ? "Falha ao acessar o serviço" : e.getMessage()));
             }
         });
     }
@@ -248,9 +280,10 @@ public class AssistantOverlayService extends Service {
         if (panel == null || windowManager == null) return;
         menuVisible = true;
         status.setText(state);
+        status.setBackground(rounded(state.contains("SEM") || state.contains("NÃO") ? SALMON : GREEN, 16));
         response.setText(text == null ? "" : text);
-        params.width = dp(360);
-        params.height = dp(260);
+        params.width = dp(380);
+        params.height = dp(250);
         params.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
                 | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS;
         try { windowManager.updateViewLayout(panel, params); } catch (Exception ignored) { }
@@ -261,10 +294,11 @@ public class AssistantOverlayService extends Service {
     private void collapsePanel() {
         if (panel == null || windowManager == null) return;
         menuVisible = false;
-        status.setText("ouvindo");
+        status.setText("OUVINDO");
+        status.setBackground(rounded(LAVENDER, 16));
         response.setText("");
-        params.width = dp(62);
-        params.height = dp(112);
+        params.width = dp(68);
+        params.height = dp(118);
         params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                 | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
                 | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS;
@@ -272,7 +306,12 @@ public class AssistantOverlayService extends Service {
     }
 
     private void updateStatus(String value) {
-        if (status != null) main.post(() -> status.setText(value));
+        if (status != null) main.post(() -> {
+            status.setText(value);
+            if (value.contains("PROCESSANDO")) status.setBackground(rounded(BLUE, 16));
+            else if (value.contains("SEM")) status.setBackground(rounded(SALMON, 16));
+            else status.setBackground(rounded(LAVENDER, 16));
+        });
     }
 
     private int dp(int value) {
