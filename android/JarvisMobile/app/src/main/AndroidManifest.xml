@@ -17,6 +17,8 @@
 
     <application
         android:allowBackup="true"
+        android:icon="@drawable/ic_jarvis_launcher"
+        android:roundIcon="@drawable/ic_jarvis_launcher"
         android:label="JARVIS Mobile"
         android:theme="@style/Theme.JarvisMobile"
         android:usesCleartextTraffic="true">
