@@ -1,0 +1,16 @@
+# CASA/JARVIS publicado em https://maurinsoft.com.br/casa/
+# A entrada pelo diretorio passa primeiro pelo login. Se a sessao ja estiver
+# autenticada, login.php redireciona para /casa/index.php.
+DirectoryIndex login.php index.php
+
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteBase /casa/
+
+# Mantem chamadas diretas a arquivos e diretorios existentes.
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+</IfModule>
