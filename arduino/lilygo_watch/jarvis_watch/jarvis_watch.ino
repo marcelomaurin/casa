@@ -1,565 +1,196 @@
 #include "config.h"
 #include "jarvis_ble.h"
 #include <Preferences.h>
+#include <driver/i2s.h>
+#include <esp_sleep.h>
 
 TTGOClass *watch = nullptr;
 TFT_eSPI *tft = nullptr;
 Preferences prefs;
 
-enum ScreenId {
-  SCREEN_HOME,
-  SCREEN_CONTROLS,
-  SCREEN_SENSORS,
-  SCREEN_JARVIS,
-  SCREEN_STATUS,
-  SCREEN_SETTINGS,
-  SCREEN_CLOCK
-};
+enum ScreenId { SCREEN_HOME, SCREEN_VOICE, SCREEN_CONTROLS, SCREEN_HEALTH, SCREEN_STATUS, SCREEN_SETTINGS, SCREEN_CLOCK };
+enum PowerMode { POWER_NORMAL, POWER_ECO, POWER_ULTRA };
 
 ScreenId currentScreen = SCREEN_HOME;
 ScreenId previousScreen = SCREEN_HOME;
+PowerMode powerMode = POWER_ECO;
 
-unsigned long lastClockRefresh = 0;
-unsigned long lastTouch = 0;
-unsigned long lastInteraction = 0;
 unsigned long bootMillis = 0;
+unsigned long lastClockRefresh = 0;
+unsigned long lastInteraction = 0;
+unsigned long lastTouch = 0;
+unsigned long lastStepRefresh = 0;
 bool screenAwake = true;
-
-uint8_t brightnessLevel = 180;
 bool vibrationEnabled = true;
-uint16_t screenTimeoutSec = 30;
+bool wristWakeEnabled = true;
+bool voiceReady = false;
+uint8_t brightnessLevel = 150;
+uint16_t screenTimeoutSec = 20;
+uint32_t steps = 0;
+String lastMessage = "JARVIS pronto";
+String voiceText = "TOQUE PARA FALAR";
 
-String lastMessage = "Sistema pronto";
+static const uint16_t C_BG=0xFFDF, C_TEXT=0x18C3, C_ORANGE=0xFBE0, C_SALMON=0xFB2C;
+static const uint16_t C_LAV=0xB57F, C_BLUE=0x5D7F, C_GREEN=0x6E6B, C_RED=0xF9E7, C_GOLD=0xFE60, C_WHITE=0xFFFF;
 
-static const uint16_t LCARS_BG       = 0xFFDF;
-static const uint16_t LCARS_TEXT     = 0x18C3;
-static const uint16_t LCARS_ORANGE   = 0xFBE0;
-static const uint16_t LCARS_SALMON   = 0xFB2C;
-static const uint16_t LCARS_LAVENDER = 0xB57F;
-static const uint16_t LCARS_BLUE     = 0x5D7F;
-static const uint16_t LCARS_GREEN    = 0x6E6B;
-static const uint16_t LCARS_RED      = 0xF9E7;
-static const uint16_t LCARS_GOLD     = 0xFE60;
-static const uint16_t LCARS_MUTED    = 0x7BEF;
-static const uint16_t LCARS_WHITE    = 0xFFFF;
+String twoDigits(uint8_t v){ return v<10 ? "0"+String(v) : String(v); }
+int batteryPercent(){ if(!watch||!watch->power||!watch->power->isBatteryConnect()) return -1; int p=watch->power->getBattPercentage(); return constrain(p,0,100); }
+String powerLabel(){ return powerMode==POWER_NORMAL?"NORMAL":powerMode==POWER_ECO?"ECO":"ULTRA"; }
+String uptimeText(){ unsigned long s=(millis()-bootMillis)/1000UL; return String(s/3600UL)+"h "+String((s%3600UL)/60UL)+"m"; }
 
-void drawScreen();
-void drawHeader(const char *title);
-void drawFooter();
-void drawHome();
-void drawControls();
-void drawSensors();
-void drawJarvis();
-void drawStatus();
-void drawSettings();
-void drawClockSetup();
-void handleTouch(int x, int y);
+void loadSettings(){
+  prefs.begin("jarvis",false);
+  brightnessLevel=prefs.getUChar("bright",150);
+  vibrationEnabled=prefs.getBool("vibrate",true);
+  wristWakeEnabled=prefs.getBool("wrist",true);
+  screenTimeoutSec=prefs.getUShort("timeout",20);
+  powerMode=(PowerMode)prefs.getUChar("power",POWER_ECO);
+  brightnessLevel=constrain(brightnessLevel,40,255);
+  if(powerMode>POWER_ULTRA) powerMode=POWER_ECO;
+}
+void saveSettings(){ prefs.putUChar("bright",brightnessLevel); prefs.putBool("vibrate",vibrationEnabled); prefs.putBool("wrist",wristWakeEnabled); prefs.putUShort("timeout",screenTimeoutSec); prefs.putUChar("power",(uint8_t)powerMode); }
+void vibrateShort(){ if(vibrationEnabled&&watch&&watch->motor) watch->motor->onec(); }
 
-String twoDigits(uint8_t value) {
-  return value < 10 ? "0" + String(value) : String(value);
+void applyPowerMode(){
+  uint8_t effective=brightnessLevel;
+  if(powerMode==POWER_ECO) effective=min((int)brightnessLevel,140);
+  if(powerMode==POWER_ULTRA) effective=min((int)brightnessLevel,85);
+  if(watch) watch->setBrightness(effective);
 }
 
-String dayName(uint8_t day, uint8_t month, uint16_t year) {
-  static const char *days[] = {"DOM", "SEG", "TER", "QUA", "QUI", "SEX", "SAB"};
-  if (!watch || !watch->rtc) return "---";
-  int dow = watch->rtc->getDayOfWeek(day, month, year);
-  if (dow < 0 || dow > 6) return "---";
-  return String(days[dow]);
+void wakeDisplay(){ if(!screenAwake){ watch->displayWakeup(); watch->openBL(); screenAwake=true; applyPowerMode(); } lastInteraction=millis(); }
+void sleepDisplay(){ if(!screenAwake)return; watch->displaySleep(); watch->closeBL(); screenAwake=false; }
+
+void enterDeepSleep(){
+  lastMessage="Economia maxima";
+  if(watch&&watch->bma&&wristWakeEnabled){ watch->bma->enableFeature(BMA423_WAKEUP,true); watch->bma->enableFeature(BMA423_TILT,true); watch->bma->enableWakeupInterrupt(); watch->bma->enableTiltInterrupt(); }
+  watch->displaySleep(); watch->closeBL();
+  esp_sleep_enable_ext1_wakeup(GPIO_SEL_39,ESP_EXT1_WAKEUP_ANY_HIGH);
+  esp_deep_sleep_start();
 }
 
-int batteryPercent() {
-  if (!watch || !watch->power || !watch->power->isBatteryConnect()) return -1;
-  int p = watch->power->getBattPercentage();
-  if (p < 0) p = 0;
-  if (p > 100) p = 100;
-  return p;
+void initMotion(){
+  if(!watch||!watch->bma)return;
+  Acfg cfg; cfg.odr=BMA4_OUTPUT_DATA_RATE_25HZ; cfg.range=BMA4_ACCEL_RANGE_2G; cfg.bandwidth=BMA4_ACCEL_NORMAL_AVG4; cfg.perf_mode=BMA4_CONTINUOUS_MODE;
+  watch->bma->accelConfig(cfg); watch->bma->enableAccel(); watch->bma->enableFeature(BMA423_STEP_CNTR,true);
+  if(wristWakeEnabled){ watch->bma->enableFeature(BMA423_TILT,true); watch->bma->enableFeature(BMA423_WAKEUP,true); }
 }
 
-String uptimeText() {
-  unsigned long total = (millis() - bootMillis) / 1000UL;
-  unsigned long h = total / 3600UL;
-  unsigned long m = (total % 3600UL) / 60UL;
-  return String(h) + "h " + String(m) + "m";
+bool initMicrophone(){
+  if(voiceReady)return true;
+  i2s_config_t cfg={};
+  cfg.mode=(i2s_mode_t)(I2S_MODE_MASTER|I2S_MODE_RX|I2S_MODE_PDM);
+  cfg.sample_rate=16000; cfg.bits_per_sample=I2S_BITS_PER_SAMPLE_16BIT; cfg.channel_format=I2S_CHANNEL_FMT_ONLY_LEFT;
+  cfg.communication_format=I2S_COMM_FORMAT_I2S; cfg.intr_alloc_flags=ESP_INTR_FLAG_LEVEL1; cfg.dma_buf_count=4; cfg.dma_buf_len=256; cfg.use_apll=false;
+  if(i2s_driver_install(I2S_NUM_0,&cfg,0,nullptr)!=ESP_OK)return false;
+  i2s_pin_config_t pins={}; pins.bck_io_num=I2S_PIN_NO_CHANGE; pins.ws_io_num=0; pins.data_out_num=I2S_PIN_NO_CHANGE; pins.data_in_num=2;
+  if(i2s_set_pin(I2S_NUM_0,&pins)!=ESP_OK){ i2s_driver_uninstall(I2S_NUM_0); return false; }
+  voiceReady=true; return true;
 }
 
-void loadSettings() {
-  prefs.begin("jarvis", false);
-  brightnessLevel = prefs.getUChar("bright", 180);
-  vibrationEnabled = prefs.getBool("vibrate", true);
-  screenTimeoutSec = prefs.getUShort("timeout", 30);
-  if (brightnessLevel < 40) brightnessLevel = 40;
-  if (screenTimeoutSec != 0 && screenTimeoutSec < 10) screenTimeoutSec = 10;
+int captureVoiceLevel(uint32_t ms){
+  if(!initMicrophone())return -1;
+  int16_t buf[256]; size_t got=0; uint64_t sum=0; uint32_t count=0; unsigned long until=millis()+ms;
+  while((long)(until-millis())>0){ if(i2s_read(I2S_NUM_0,buf,sizeof(buf),&got,pdMS_TO_TICKS(100))==ESP_OK){ int n=got/2; for(int i=0;i<n;i++){ sum+=abs((int)buf[i]); count++; } } }
+  return count ? (int)(sum/count) : 0;
 }
 
-void saveBrightness() {
-  prefs.putUChar("bright", brightnessLevel);
+void lcarsButton(int x,int y,int w,int h,uint16_t c,const char*label,const char*sub=nullptr){
+  tft->fillRoundRect(x,y,w,h,10,c); tft->fillRect(x+10,y+h-6,w-10,6,c); tft->setTextColor(C_TEXT,c); tft->drawCentreString(label,x+w/2,y+6,2); if(sub)tft->drawCentreString(sub,x+w/2,y+24,1);
 }
+void drawBatteryIcon(int x,int y,int p){ uint16_t c=p>=20?C_TEXT:C_RED; tft->drawRoundRect(x,y,24,10,3,c); tft->fillRect(x+24,y+3,3,4,c); if(p>=0)tft->fillRect(x+2,y+2,(20*p)/100,6,c); }
 
-void saveVibration() {
-  prefs.putBool("vibrate", vibrationEnabled);
+void drawHeader(const char*title){
+  RTC_Date n=watch->rtc->getDateTime(); int batt=batteryPercent();
+  tft->fillRect(0,0,240,57,C_BG); tft->fillRoundRect(5,5,230,43,14,C_ORANGE); tft->fillRect(5,25,230,23,C_ORANGE); tft->fillRect(5,42,37,12,C_ORANGE); tft->fillRoundRect(5,43,37,13,7,C_ORANGE);
+  tft->setTextColor(C_TEXT,C_ORANGE); tft->drawString((twoDigits(n.hour)+":"+twoDigits(n.minute)).c_str(),49,7,4); tft->drawRightString(title,228,9,2);
+  tft->drawString((twoDigits(n.day)+"/"+twoDigits(n.month)).c_str(),49,35,1); drawBatteryIcon(177,34,batt); tft->drawRightString(batt>=0?(String(batt)+"%").c_str():"--",228,34,1);
 }
-
-void saveTimeout() {
-  prefs.putUShort("timeout", screenTimeoutSec);
+void drawFooter(){
+  tft->fillRect(0,207,240,33,C_BG);
+  if(currentScreen!=SCREEN_HOME){ lcarsButton(5,211,70,25,C_LAV,"VOLTAR"); lcarsButton(80,211,70,25,C_ORANGE,"HOME"); }
+  uint16_t c=jarvisBleIsConnected()?C_GREEN:C_GOLD; tft->fillRoundRect(155,211,80,25,8,c); tft->setTextColor(C_TEXT,c); tft->drawCentreString(jarvisBleIsConnected()?"CELULAR OK":"SEM CELULAR",195,218,1);
 }
+void drawMessage(){ tft->fillRoundRect(5,181,230,22,8,C_WHITE); tft->drawRoundRect(5,181,230,22,8,C_LAV); tft->setTextColor(C_TEXT,C_WHITE); String m=lastMessage; if(m.length()>34)m=m.substring(0,31)+"..."; tft->drawCentreString(m,120,187,1); }
 
-void vibrateShort() {
-  if (vibrationEnabled && watch && watch->motor) watch->motor->onec();
-}
-
-void wakeDisplay() {
-  if (!screenAwake) {
-    watch->openBL();
-    watch->setBrightness(brightnessLevel);
-    screenAwake = true;
-    drawScreen();
-  }
-  lastInteraction = millis();
-}
-
-void sleepDisplay() {
-  if (!screenAwake) return;
-  watch->closeBL();
-  screenAwake = false;
-}
-
-void showMessage(const String &message) {
-  lastMessage = message;
-  drawScreen();
-}
-
-void drawBatteryIcon(int x, int y, int percentage, bool charging) {
-  const int w = 25;
-  const int h = 11;
-  uint16_t color = percentage >= 20 ? LCARS_TEXT : LCARS_RED;
-  tft->drawRoundRect(x, y, w, h, 3, color);
-  tft->fillRect(x + w, y + 3, 3, h - 6, color);
-  if (percentage >= 0) {
-    int fill = (w - 4) * percentage / 100;
-    if (fill > 0) tft->fillRect(x + 2, y + 2, fill, h - 4, color);
-  }
-  if (charging) {
-    tft->setTextColor(LCARS_ORANGE, LCARS_BG);
-    tft->drawString("+", x - 8, y - 3, 2);
-  }
-}
-
-void drawHeader(const char *title) {
-  RTC_Date now = watch->rtc->getDateTime();
-  int batt = batteryPercent();
-  bool charging = watch->power && watch->power->isChargeing();
-
-  tft->fillRect(0, 0, 240, 57, LCARS_BG);
-  tft->fillRoundRect(5, 5, 230, 43, 14, LCARS_ORANGE);
-  tft->fillRect(5, 25, 230, 23, LCARS_ORANGE);
-  tft->fillRect(5, 42, 37, 12, LCARS_ORANGE);
-  tft->fillRoundRect(5, 43, 37, 13, 7, LCARS_ORANGE);
-
-  String hhmm = twoDigits(now.hour) + ":" + twoDigits(now.minute);
-  tft->setTextColor(LCARS_TEXT, LCARS_ORANGE);
-  tft->drawString(hhmm, 49, 7, 4);
-
-  tft->drawRightString(title, 228, 9, 2);
-  String dateText = dayName(now.day, now.month, now.year) + " " +
-                    twoDigits(now.day) + "/" + twoDigits(now.month);
-  tft->drawString(dateText, 49, 34, 1);
-
-  drawBatteryIcon(178, 33, batt, charging);
-  tft->setTextColor(LCARS_TEXT, LCARS_ORANGE);
-  String battText = batt >= 0 ? String(batt) + "%" : "--%";
-  tft->drawRightString(battText, 228, 32, 1);
-}
-
-void lcarsButton(int x, int y, int w, int h, uint16_t color, const char *label, const char *sub = nullptr) {
-  tft->fillRoundRect(x, y, w, h, 10, color);
-  tft->fillRect(x + 10, y + h - 6, w - 10, 6, color);
-  tft->setTextColor(LCARS_TEXT, color);
-  tft->drawCentreString(label, x + w / 2, y + 7, 2);
-  if (sub) {
-    tft->setTextColor(LCARS_TEXT, color);
-    tft->drawCentreString(sub, x + w / 2, y + 25, 1);
-  }
-}
-
-void drawFooter() {
-  tft->fillRect(0, 207, 240, 33, LCARS_BG);
-  if (currentScreen != SCREEN_HOME) {
-    lcarsButton(5, 211, 72, 25, LCARS_LAVENDER, "VOLTAR");
-    lcarsButton(82, 211, 72, 25, LCARS_ORANGE, "HOME");
-  }
-
-  uint16_t stateColor = jarvisBleIsConnected() ? LCARS_GREEN : LCARS_GOLD;
-  tft->fillRoundRect(160, 211, 75, 25, 8, stateColor);
-  tft->setTextColor(LCARS_TEXT, stateColor);
-  tft->drawCentreString(jarvisBleIsConnected() ? "ONLINE" : "LOCAL", 197, 218, 1);
-}
-
-void drawMessageStrip() {
-  tft->fillRoundRect(5, 181, 230, 22, 8, LCARS_WHITE);
-  tft->drawRoundRect(5, 181, 230, 22, 8, LCARS_LAVENDER);
-  tft->setTextColor(LCARS_TEXT, LCARS_WHITE);
-  String msg = lastMessage;
-  if (msg.length() > 34) msg = msg.substring(0, 31) + "...";
-  tft->drawCentreString(msg, 120, 187, 1);
-}
-
-void drawHome() {
+void drawHome(){
   drawHeader("JARVIS");
-
-  lcarsButton(5,   62, 111, 51, LCARS_SALMON,   "CASA", "controles");
-  lcarsButton(124, 62, 111, 51, LCARS_BLUE,     "SENSORES", "telemetria");
-  lcarsButton(5,  119, 111, 51, LCARS_ORANGE,   "JARVIS", "comandos");
-  lcarsButton(124,119, 111, 51, LCARS_LAVENDER, "STATUS", "hardware");
-
-  drawMessageStrip();
-  drawFooter();
-
-  // Configuração acessível pelo segmento inferior direito.
-  tft->fillRoundRect(160, 211, 75, 25, 8, LCARS_GREEN);
-  tft->setTextColor(LCARS_TEXT, LCARS_GREEN);
-  tft->drawCentreString("CONFIG", 197, 218, 1);
+  lcarsButton(5,62,111,51,C_ORANGE,"FALAR","IA / voz"); lcarsButton(124,62,111,51,C_SALMON,"CASA","atalhos");
+  lcarsButton(5,119,111,51,C_BLUE,"ATIVIDADE","passos"); lcarsButton(124,119,111,51,C_LAV,"STATUS","sistema");
+  drawMessage(); drawFooter(); tft->fillRoundRect(155,211,80,25,8,C_GREEN); tft->setTextColor(C_TEXT,C_GREEN); tft->drawCentreString("CONFIG",195,218,1);
 }
-
-void drawControls() {
-  drawHeader("CASA");
-  lcarsButton(5,   62, 111, 51, LCARS_SALMON, "LUZ SALA", "alternar");
-  lcarsButton(124, 62, 111, 51, LCARS_ORANGE, "LUZ QUARTO", "alternar");
-  lcarsButton(5,  119, 111, 51, LCARS_BLUE, "PORTAO", "acionar");
-  lcarsButton(124,119, 111, 51, LCARS_LAVENDER, "CENA NOITE", "executar");
-  drawMessageStrip();
-  drawFooter();
+void drawVoice(){
+  drawHeader("VOZ IA"); uint16_t c=jarvisBleIsConnected()?C_GREEN:C_GOLD;
+  tft->fillRoundRect(8,64,224,105,16,c); tft->fillRoundRect(18,74,204,85,12,C_BG); tft->setTextColor(C_TEXT,C_BG);
+  tft->drawCentreString(voiceText.c_str(),120,83,2); tft->drawCentreString(jarvisBleIsConnected()?"CELULAR DETECTADO":"CELULAR NAO DETECTADO",120,108,1);
+  lcarsButton(50,128,140,25,C_ORANGE,"MICROFONE"); drawMessage(); drawFooter();
 }
-
-void drawSensors() {
-  drawHeader("SENSORES");
-  int batt = batteryPercent();
-  bool charging = watch->power && watch->power->isChargeing();
-
-  tft->fillRoundRect(8, 64, 224, 108, 14, LCARS_BLUE);
-  tft->fillRoundRect(18, 73, 204, 90, 10, LCARS_BG);
-  tft->setTextColor(LCARS_TEXT, LCARS_BG);
-  tft->drawString("BATERIA", 27, 82, 2);
-  tft->drawRightString(batt >= 0 ? (String(batt) + "%") : "--%", 211, 82, 2);
-  tft->drawString("CARGA", 27, 106, 2);
-  tft->drawRightString(charging ? "SIM" : "NAO", 211, 106, 2);
-  tft->drawString("TEMPERATURA", 27, 130, 2);
-  tft->drawRightString("REMOTA", 211, 130, 2);
-  tft->drawString("COMUNICACAO", 27, 149, 1);
-  tft->drawRightString(jarvisBleIsConnected() ? "ATIVA" : "OFFLINE", 211, 149, 1);
-  drawFooter();
+void drawControls(){ drawHeader("CASA"); lcarsButton(5,62,111,51,C_SALMON,"LUZ SALA","alternar"); lcarsButton(124,62,111,51,C_ORANGE,"LUZ QUARTO","alternar"); lcarsButton(5,119,111,51,C_BLUE,"PORTAO","acionar"); lcarsButton(124,119,111,51,C_LAV,"CENA NOITE","executar"); drawMessage(); drawFooter(); }
+void drawHealth(){
+  drawHeader("ATIVIDADE"); tft->fillRoundRect(8,64,224,108,14,C_BLUE); tft->fillRoundRect(18,73,204,90,10,C_BG); tft->setTextColor(C_TEXT,C_BG);
+  tft->drawString("PASSOS",27,82,2); tft->drawRightString(String(steps),211,82,2); tft->drawString("META",27,108,2); tft->drawRightString("6000",211,108,2);
+  int pct=min(100,(int)(steps*100UL/6000UL)); tft->drawRoundRect(27,137,184,14,6,C_TEXT); tft->fillRoundRect(29,139,(180*pct)/100,10,5,C_GREEN); tft->drawCentreString((String(pct)+"%").c_str(),120,155,1); drawFooter();
 }
-
-void sendPresetCommand(const String &command, const String &offlineText) {
-  if (jarvisBleSendCommand(command)) showMessage("Comando enviado");
-  else showMessage(offlineText);
+void drawStatus(){
+  drawHeader("STATUS"); int b=batteryPercent(); tft->fillRoundRect(8,64,224,112,14,C_LAV); tft->fillRoundRect(18,73,204,94,10,C_BG); tft->setTextColor(C_TEXT,C_BG);
+  tft->drawString("BATERIA",27,80,2); tft->drawRightString(b>=0?(String(b)+"%").c_str():"--",211,80,2); tft->drawString("CELULAR",27,104,2); tft->drawRightString(jarvisBleIsConnected()?"OK":"OFF",211,104,2);
+  tft->drawString("ENERGIA",27,128,2); tft->drawRightString(powerLabel(),211,128,2); tft->drawString("UPTIME",27,151,1); tft->drawRightString(uptimeText(),211,151,1); drawFooter();
 }
-
-void drawJarvis() {
-  drawHeader("JARVIS");
-  lcarsButton(5,   62, 111, 51, LCARS_ORANGE, "STATUS CASA", "consultar");
-  lcarsButton(124, 62, 111, 51, LCARS_SALMON, "LUZES", "estado");
-  lcarsButton(5,  119, 111, 51, LCARS_BLUE, "TEMPERAT.", "consultar");
-  lcarsButton(124,119, 111, 51, LCARS_LAVENDER, "AJUDA", "comandos");
-  drawMessageStrip();
-  drawFooter();
+String timeoutLabel(){ return screenTimeoutSec==0?"NUNCA":String(screenTimeoutSec)+"s"; }
+void drawSettings(){
+  drawHeader("CONFIG"); tft->setTextColor(C_TEXT,C_BG);
+  tft->drawString("BRILHO",8,64,2); lcarsButton(110,60,58,30,C_LAV,"-"); lcarsButton(174,60,61,30,C_ORANGE,"+");
+  tft->drawString("ENERGIA",8,98,2); lcarsButton(124,94,111,30,C_GREEN,powerLabel().c_str());
+  tft->drawString("TELA",8,132,2); lcarsButton(124,128,111,30,C_BLUE,timeoutLabel().c_str());
+  lcarsButton(5,164,72,36,C_LAV,vibrationEnabled?"VIB ON":"VIB OFF"); lcarsButton(82,164,72,36,C_GOLD,wristWakeEnabled?"PULSO ON":"PULSO OFF"); lcarsButton(159,164,76,36,C_SALMON,"RELOGIO"); drawFooter();
 }
-
-void drawStatus() {
-  drawHeader("STATUS");
-  int batt = batteryPercent();
-
-  tft->fillRoundRect(8, 64, 224, 112, 14, LCARS_LAVENDER);
-  tft->fillRoundRect(18, 73, 204, 94, 10, LCARS_BG);
-  tft->setTextColor(LCARS_TEXT, LCARS_BG);
-  tft->drawString("T-WATCH", 27, 80, 2);
-  tft->drawRightString("OK", 211, 80, 2);
-  tft->drawString("TOUCH", 27, 104, 2);
-  tft->drawRightString("ATIVO", 211, 104, 2);
-  tft->drawString("BATERIA", 27, 128, 2);
-  tft->drawRightString(batt >= 0 ? String(batt) + "%" : "--%", 211, 128, 2);
-  tft->drawString("UPTIME", 27, 149, 1);
-  tft->drawRightString(uptimeText(), 211, 149, 1);
-  drawFooter();
+void drawClock(){
+  drawHeader("RELOGIO"); RTC_Date n=watch->rtc->getDateTime(); tft->setTextColor(C_TEXT,C_BG); tft->drawCentreString((twoDigits(n.hour)+":"+twoDigits(n.minute)).c_str(),120,65,4); tft->drawCentreString((twoDigits(n.day)+"/"+twoDigits(n.month)+"/"+String(n.year)).c_str(),120,95,2);
+  lcarsButton(5,121,52,38,C_LAV,"H-"); lcarsButton(62,121,52,38,C_ORANGE,"H+"); lcarsButton(124,121,52,38,C_BLUE,"M-"); lcarsButton(181,121,54,38,C_SALMON,"M+"); lcarsButton(5,165,111,32,C_GOLD,"DIA+"); lcarsButton(124,165,111,32,C_GREEN,"MES+"); drawFooter();
 }
+void drawScreen(){ if(!screenAwake||!tft)return; tft->fillScreen(C_BG); switch(currentScreen){case SCREEN_HOME:drawHome();break;case SCREEN_VOICE:drawVoice();break;case SCREEN_CONTROLS:drawControls();break;case SCREEN_HEALTH:drawHealth();break;case SCREEN_STATUS:drawStatus();break;case SCREEN_SETTINGS:drawSettings();break;case SCREEN_CLOCK:drawClock();break;} }
+void navigate(ScreenId s){ previousScreen=currentScreen; currentScreen=s; lastMessage=""; drawScreen(); }
+void sendCommand(const String&cmd){ if(jarvisBleSendCommand(cmd))lastMessage="Enviado ao celular"; else lastMessage="Celular necessario"; drawScreen(); }
 
-String timeoutLabel() {
-  if (screenTimeoutSec == 0) return "NUNCA";
-  return String(screenTimeoutSec) + "s";
-}
-
-void drawSettings() {
-  drawHeader("CONFIG");
-
-  tft->setTextColor(LCARS_TEXT, LCARS_BG);
-  tft->drawString("BRILHO", 10, 64, 2);
-  lcarsButton(112, 60, 55, 32, LCARS_LAVENDER, "-");
-  lcarsButton(174, 60, 61, 32, LCARS_ORANGE, "+");
-
-  tft->drawString("VIBRACAO", 10, 101, 2);
-  lcarsButton(124, 97, 111, 32, vibrationEnabled ? LCARS_GREEN : LCARS_RED,
-              vibrationEnabled ? "LIGADA" : "DESLIG.");
-
-  tft->drawString("TELA", 10, 138, 2);
-  lcarsButton(124, 134, 111, 32, LCARS_BLUE, timeoutLabel().c_str());
-
-  lcarsButton(5, 171, 111, 30, LCARS_GOLD, "AJUSTAR HORA");
-  lcarsButton(124,171,111, 30, LCARS_SALMON, "PADRAO");
-
-  drawFooter();
-}
-
-void drawClockSetup() {
-  drawHeader("RELOGIO");
-  RTC_Date now = watch->rtc->getDateTime();
-
-  tft->setTextColor(LCARS_TEXT, LCARS_BG);
-  tft->drawCentreString((twoDigits(now.hour) + ":" + twoDigits(now.minute)).c_str(), 120, 64, 4);
-  tft->drawCentreString((twoDigits(now.day) + "/" + twoDigits(now.month) + "/" + String(now.year)).c_str(), 120, 94, 2);
-
-  lcarsButton(5,   121, 52, 38, LCARS_LAVENDER, "H-");
-  lcarsButton(62,  121, 52, 38, LCARS_ORANGE, "H+");
-  lcarsButton(124, 121, 52, 38, LCARS_LAVENDER, "M-");
-  lcarsButton(181, 121, 54, 38, LCARS_ORANGE, "M+");
-
-  lcarsButton(5,   165, 111, 36, LCARS_BLUE, "DIA +");
-  lcarsButton(124, 165, 111, 36, LCARS_SALMON, "MES +");
-  drawFooter();
-}
-
-void drawScreen() {
-  if (!tft || !screenAwake) return;
-  tft->fillScreen(LCARS_BG);
-
-  switch (currentScreen) {
-    case SCREEN_CONTROLS: drawControls(); break;
-    case SCREEN_SENSORS: drawSensors(); break;
-    case SCREEN_JARVIS: drawJarvis(); break;
-    case SCREEN_STATUS: drawStatus(); break;
-    case SCREEN_SETTINGS: drawSettings(); break;
-    case SCREEN_CLOCK: drawClockSetup(); break;
-    case SCREEN_HOME:
-    default: drawHome(); break;
-  }
-}
-
-void goTo(ScreenId screen) {
-  previousScreen = currentScreen;
-  currentScreen = screen;
+void startVoice(){
+  voiceText="OUVINDO..."; lastMessage="Fale agora"; drawScreen(); vibrateShort(); int level=captureVoiceLevel(1800);
+  if(level<0){ voiceText="MICROFONE INDISP."; lastMessage="Falha ao iniciar PDM"; drawScreen(); return; }
+  if(level<60){ voiceText="NAO OUVI"; lastMessage="Toque e fale mais perto"; drawScreen(); return; }
+  voiceText="VOZ DETECTADA";
+  if(jarvisBleIsConnected()){ jarvisBleSendCommand("voice_capture"); lastMessage="Voz detectada; celular/IA acionado"; }
+  else lastMessage="Voz OK; aguardando celular para IA";
   drawScreen();
 }
 
-void goBack() {
-  if (currentScreen == SCREEN_HOME) return;
-  ScreenId target = previousScreen;
-  if (target == currentScreen) target = SCREEN_HOME;
-  currentScreen = target;
-  previousScreen = SCREEN_HOME;
-  drawScreen();
+void adjustClock(int dh,int dm,int dd,int dmo){ RTC_Date n=watch->rtc->getDateTime(); int h=(n.hour+dh+24)%24,m=(n.minute+dm+60)%60,d=n.day+dd,mo=n.month+dmo; if(d>31)d=1;if(d<1)d=31;if(mo>12)mo=1;if(mo<1)mo=12; watch->rtc->setDateTime(n.year,mo,d,h,m,0); drawScreen(); }
+
+void handleTouch(int x,int y){
+  if(millis()-lastTouch<220)return; lastTouch=millis(); wakeDisplay(); vibrateShort();
+  if(currentScreen!=SCREEN_HOME&&y>=207){ if(x<78){ScreenId s=previousScreen;previousScreen=SCREEN_HOME;currentScreen=s;drawScreen();return;} if(x<154){navigate(SCREEN_HOME);return;} }
+  if(currentScreen==SCREEN_HOME){ if(y>=62&&y<=113){navigate(x<120?SCREEN_VOICE:SCREEN_CONTROLS);return;} if(y>=119&&y<=170){navigate(x<120?SCREEN_HEALTH:SCREEN_STATUS);return;} if(y>=207&&x>=150){navigate(SCREEN_SETTINGS);return;} }
+  else if(currentScreen==SCREEN_VOICE){ if(y>=74&&y<=160){startVoice();return;} }
+  else if(currentScreen==SCREEN_CONTROLS){ if(y>=62&&y<=113)sendCommand(x<120?"Alterne a luz da sala":"Alterne a luz do quarto"); else if(y>=119&&y<=170)sendCommand(x<120?"Acione o portao":"Ative a cena noite"); }
+  else if(currentScreen==SCREEN_SETTINGS){
+    if(y>=60&&y<=91){ if(x>=110&&x<171)brightnessLevel=max(40,(int)brightnessLevel-20); else if(x>=171)brightnessLevel=min(255,(int)brightnessLevel+20); applyPowerMode(); saveSettings(); drawScreen(); }
+    else if(y>=94&&y<=125&&x>=120){ powerMode=(PowerMode)(((int)powerMode+1)%3); if(powerMode==POWER_NORMAL)screenTimeoutSec=30; else if(powerMode==POWER_ECO)screenTimeoutSec=20; else screenTimeoutSec=10; applyPowerMode(); saveSettings(); drawScreen(); }
+    else if(y>=128&&y<=159&&x>=120){ screenTimeoutSec=screenTimeoutSec==10?20:screenTimeoutSec==20?30:screenTimeoutSec==30?60:screenTimeoutSec==60?0:10; saveSettings(); drawScreen(); }
+    else if(y>=164&&y<=201){ if(x<80){vibrationEnabled=!vibrationEnabled;saveSettings();drawScreen();} else if(x<157){wristWakeEnabled=!wristWakeEnabled;saveSettings();initMotion();drawScreen();} else navigate(SCREEN_CLOCK); }
+  } else if(currentScreen==SCREEN_CLOCK){ if(y>=121&&y<=160){if(x<58)adjustClock(-1,0,0,0);else if(x<120)adjustClock(1,0,0,0);else if(x<180)adjustClock(0,-1,0,0);else adjustClock(0,1,0,0);} else if(y>=165&&y<=201){if(x<120)adjustClock(0,0,1,0);else adjustClock(0,0,0,1);} }
 }
 
-void adjustClock(int hourDelta, int minuteDelta, int dayDelta, int monthDelta) {
-  RTC_Date now = watch->rtc->getDateTime();
-  int hour = now.hour + hourDelta;
-  int minute = now.minute + minuteDelta;
-  int day = now.day + dayDelta;
-  int month = now.month + monthDelta;
-
-  if (hour < 0) hour = 23;
-  if (hour > 23) hour = 0;
-  if (minute < 0) minute = 59;
-  if (minute > 59) minute = 0;
-  if (day < 1) day = 31;
-  if (day > 31) day = 1;
-  if (month < 1) month = 12;
-  if (month > 12) month = 1;
-
-  watch->rtc->setDateTime(now.year, month, day, hour, minute, 0);
-  drawClockSetup();
+void setup(){
+  Serial.begin(115200); bootMillis=millis(); watch=TTGOClass::getWatch(); watch->begin(); watch->openBL(); tft=watch->tft; if(watch->rtc)watch->rtc->check();
+  if(watch->power)watch->power->adc1Enable(AXP202_VBUS_VOL_ADC1|AXP202_VBUS_CUR_ADC1|AXP202_BATT_CUR_ADC1|AXP202_BATT_VOL_ADC1,true);
+  loadSettings(); applyPowerMode(); initMotion(); jarvisBleBegin(); lastInteraction=millis(); drawScreen();
 }
 
-void cycleTimeout() {
-  if (screenTimeoutSec == 15) screenTimeoutSec = 30;
-  else if (screenTimeoutSec == 30) screenTimeoutSec = 60;
-  else if (screenTimeoutSec == 60) screenTimeoutSec = 0;
-  else screenTimeoutSec = 15;
-  saveTimeout();
-}
-
-void resetSettings() {
-  brightnessLevel = 180;
-  vibrationEnabled = true;
-  screenTimeoutSec = 30;
-  saveBrightness();
-  saveVibration();
-  saveTimeout();
-  watch->setBrightness(brightnessLevel);
-  lastMessage = "Configuracao restaurada";
-}
-
-void handleFooterTouch(int x, int y) {
-  if (y < 207) return;
-
-  if (currentScreen == SCREEN_HOME) {
-    if (x >= 155) goTo(SCREEN_SETTINGS);
-    return;
-  }
-
-  if (x < 78) goBack();
-  else if (x < 157) goTo(SCREEN_HOME);
-}
-
-void handleTouch(int x, int y) {
-  lastInteraction = millis();
-  if (millis() - lastTouch < 180) return;
-  lastTouch = millis();
-
-  vibrateShort();
-
-  if (y >= 207) {
-    handleFooterTouch(x, y);
-    return;
-  }
-
-  switch (currentScreen) {
-    case SCREEN_HOME:
-      if (y >= 62 && y <= 113) {
-        if (x < 120) goTo(SCREEN_CONTROLS);
-        else goTo(SCREEN_SENSORS);
-      } else if (y >= 119 && y <= 170) {
-        if (x < 120) goTo(SCREEN_JARVIS);
-        else goTo(SCREEN_STATUS);
-      }
-      break;
-
-    case SCREEN_CONTROLS:
-      if (y >= 62 && y <= 113) {
-        if (x < 120) sendPresetCommand("Alterne a luz da sala", "Luz sala: offline");
-        else sendPresetCommand("Alterne a luz do quarto", "Luz quarto: offline");
-      } else if (y >= 119 && y <= 170) {
-        if (x < 120) sendPresetCommand("Acione o portao", "Portao: offline");
-        else sendPresetCommand("Ative a cena noite", "Cena noite: offline");
-      }
-      break;
-
-    case SCREEN_JARVIS:
-      if (y >= 62 && y <= 113) {
-        if (x < 120) sendPresetCommand("Informe o status da casa", "JARVIS offline");
-        else sendPresetCommand("Informe o estado das luzes", "JARVIS offline");
-      } else if (y >= 119 && y <= 170) {
-        if (x < 120) sendPresetCommand("Qual a temperatura atual dos sensores?", "JARVIS offline");
-        else showMessage("Use os botoes para comandos rapidos");
-      }
-      break;
-
-    case SCREEN_SETTINGS:
-      if (y >= 58 && y <= 94) {
-        if (x >= 108 && x < 171) {
-          brightnessLevel = brightnessLevel > 60 ? brightnessLevel - 30 : 40;
-          watch->setBrightness(brightnessLevel);
-          saveBrightness();
-          drawSettings();
-        } else if (x >= 171) {
-          brightnessLevel = brightnessLevel < 225 ? brightnessLevel + 30 : 255;
-          watch->setBrightness(brightnessLevel);
-          saveBrightness();
-          drawSettings();
-        }
-      } else if (y >= 96 && y <= 131 && x >= 118) {
-        vibrationEnabled = !vibrationEnabled;
-        saveVibration();
-        drawSettings();
-      } else if (y >= 133 && y <= 168 && x >= 118) {
-        cycleTimeout();
-        drawSettings();
-      } else if (y >= 170 && y <= 203) {
-        if (x < 120) goTo(SCREEN_CLOCK);
-        else {
-          resetSettings();
-          drawSettings();
-        }
-      }
-      break;
-
-    case SCREEN_CLOCK:
-      if (y >= 119 && y <= 162) {
-        if (x < 58) adjustClock(-1, 0, 0, 0);
-        else if (x < 119) adjustClock(1, 0, 0, 0);
-        else if (x < 179) adjustClock(0, -1, 0, 0);
-        else adjustClock(0, 1, 0, 0);
-      } else if (y >= 164 && y <= 203) {
-        if (x < 120) adjustClock(0, 0, 1, 0);
-        else adjustClock(0, 0, 0, 1);
-      }
-      break;
-
-    case SCREEN_SENSORS:
-    case SCREEN_STATUS:
-    default:
-      break;
-  }
-}
-
-void setup() {
-  Serial.begin(115200);
-  bootMillis = millis();
-
-  watch = TTGOClass::getWatch();
-  watch->begin();
-  watch->openBL();
-  tft = watch->tft;
-
-  if (watch->rtc) watch->rtc->check();
-
-  if (watch->power) {
-    watch->power->adc1Enable(
-      AXP202_VBUS_VOL_ADC1 |
-      AXP202_VBUS_CUR_ADC1 |
-      AXP202_BATT_CUR_ADC1 |
-      AXP202_BATT_VOL_ADC1,
-      true
-    );
-  }
-
-  loadSettings();
-  watch->setBrightness(brightnessLevel);
-  jarvisBleBegin();
-
-  lastInteraction = millis();
-  drawScreen();
-}
-
-void loop() {
+void loop(){
   jarvisBleLoop();
-
-  if (screenAwake && millis() - lastClockRefresh >= 1000) {
-    lastClockRefresh = millis();
-    if (currentScreen == SCREEN_HOME || currentScreen == SCREEN_STATUS || currentScreen == SCREEN_SENSORS) {
-      drawScreen();
-    } else {
-      drawHeader(
-        currentScreen == SCREEN_CONTROLS ? "CASA" :
-        currentScreen == SCREEN_JARVIS ? "JARVIS" :
-        currentScreen == SCREEN_SETTINGS ? "CONFIG" :
-        currentScreen == SCREEN_CLOCK ? "RELOGIO" : "JARVIS"
-      );
-    }
-  }
-
-  if (screenTimeoutSec > 0 && screenAwake &&
-      millis() - lastInteraction >= (unsigned long)screenTimeoutSec * 1000UL) {
-    sleepDisplay();
-  }
-
-  int16_t x = 0;
-  int16_t y = 0;
-  if (watch->getTouch(x, y)) {
-    if (!screenAwake) {
-      wakeDisplay();
-      delay(250);
-    } else {
-      handleTouch(x, y);
-    }
-  }
-
-  delay(30);
+  if(watch&&watch->bma&&millis()-lastStepRefresh>2000){ lastStepRefresh=millis(); steps=watch->bma->getCounter(); if(screenAwake&&currentScreen==SCREEN_HEALTH)drawScreen(); }
+  if(screenAwake&&millis()-lastClockRefresh>1000){ lastClockRefresh=millis(); if(currentScreen==SCREEN_HOME||currentScreen==SCREEN_STATUS)drawScreen(); }
+  int16_t x=0,y=0; if(watch->getTouch(x,y)){ if(!screenAwake){wakeDisplay();drawScreen();delay(250);} else handleTouch(x,y); }
+  uint16_t timeout=screenTimeoutSec; if(powerMode==POWER_ULTRA&&timeout==0)timeout=10;
+  if(screenAwake&&timeout>0&&millis()-lastInteraction>(unsigned long)timeout*1000UL)sleepDisplay();
+  if(!screenAwake&&powerMode==POWER_ULTRA&&millis()-lastInteraction>60000UL)enterDeepSleep();
+  delay(powerMode==POWER_NORMAL?20:powerMode==POWER_ECO?50:100);
 }
