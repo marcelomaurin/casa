@@ -11,42 +11,43 @@ api_v1_basic_guard($pdo);
 $uri = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?: '';
 $path = trim($uri, '/');
 $subpath = '';
-if (preg_match('#api/v1/(.*)#', $path, $m)) {
-    $subpath = trim($m[1], '/');
-}
+if (preg_match('#api/v1/(.*)#', $path, $m)) $subpath = trim($m[1], '/');
 if ($subpath === 'gateway.php' || $subpath === 'index.php') $subpath = '';
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
-$scope = 'status.read';
+$acceptedScopes = ['status.read'];
 
 if ($subpath === '' || $subpath === 'status') {
-    $scope = 'status.read';
+    $acceptedScopes = ['status.read','mobile.read','watch.read'];
 } elseif ($subpath === 'comando') {
-    $scope = 'jarvis.command';
+    $acceptedScopes = ['jarvis.command','mobile.write','watch.write'];
 } elseif ($subpath === 'dispositivos/acionar') {
-    $scope = 'devices.write';
+    $acceptedScopes = ['devices.write','mobile.write'];
 } elseif ($subpath === 'dispositivos') {
-    $scope = 'devices.read';
+    $acceptedScopes = ['devices.read','mobile.read','watch.read'];
 } elseif ($subpath === 'sensores') {
-    $scope = 'sensors.read';
+    $acceptedScopes = ['sensors.read','mobile.read'];
 } elseif ($subpath === 'clima') {
-    $scope = 'climate.read';
+    $acceptedScopes = ['climate.read','mobile.read'];
 } elseif ($subpath === 'camera/snapshot') {
-    $scope = 'camera.read';
+    $acceptedScopes = ['camera.read','mobile.read'];
 }
 
-$client = api_v1_auth_client($pdo, [$scope]);
+$client = api_v1_auth_client_any($pdo, $acceptedScopes);
 
-// O roteador antigo ainda possui uma segunda autenticação. Depois que o novo
-// middleware aprova o cliente, usamos apenas internamente a chave mestre para
-// atravessar essa camada sem expor a chave ao aplicativo ou à Internet.
+// O roteador legado possui uma segunda autenticação. A chave mestre é usada
+// somente dentro do servidor depois que o token individual já foi validado.
 $stmt = $pdo->prepare("SELECT valor FROM configuracoes_sistema WHERE chave='external_api_key' LIMIT 1");
 $stmt->execute();
 $master = $stmt->fetchColumn();
 if (!$master) {
-    $master = 'jarvis_sec_v1_' . bin2hex(random_bytes(24));
-    $pdo->prepare("INSERT INTO configuracoes_sistema(chave,valor) VALUES('external_api_key',:v) ON CONFLICT(chave) DO NOTHING")
-        ->execute([':v'=>$master]);
+    $candidate = 'jarvis_sec_v1_' . bin2hex(random_bytes(24));
+    $pdo->prepare("INSERT INTO configuracoes_sistema(chave,valor,descricao)
+        VALUES('external_api_key',:v,'Chave mestre interna da API externa')
+        ON DUPLICATE KEY UPDATE valor=valor")
+        ->execute([':v'=>$candidate]);
+    $stmt->execute();
+    $master = $stmt->fetchColumn() ?: $candidate;
 }
 
 $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $master;
@@ -54,7 +55,7 @@ unset($_SERVER['HTTP_X_API_KEY']);
 unset($_GET['api_key']);
 
 api_v1_log($pdo, 'REQUEST_ALLOWED', 'INFO', $client['nome'] ?? null, [
-    'scope' => $scope,
+    'accepted_scopes' => $acceptedScopes,
     'subpath' => $subpath,
     'method' => $method
 ]);
