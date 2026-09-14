@@ -12,9 +12,10 @@ import java.util.concurrent.TimeUnit
 object JarvisApi {
     private val jsonType = "application/json; charset=utf-8".toMediaType()
     private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(45, TimeUnit.SECONDS)
+        .writeTimeout(20, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
         .build()
 
     data class Config(val baseUrl: String, val token: String)
@@ -26,13 +27,22 @@ object JarvisApi {
         val audioUrl: String?,
         val priority: String
     )
+    data class SendResult(
+        val delivered: Boolean,
+        val queued: Boolean,
+        val answer: JarvisAnswer?,
+        val message: String
+    )
 
     @Volatile
     var lastAudioUrl: String? = null
         private set
 
+    private const val PREFS = "jarvis"
+    private const val PENDING_KEY = "pending_commands"
+
     fun loadConfig(context: Context): Config {
-        val p = context.getSharedPreferences("jarvis", Context.MODE_PRIVATE)
+        val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         return Config(
             p.getString("base_url", "")?.trim()?.trimEnd('/') ?: "",
             p.getString("device_token", "")?.trim() ?: ""
@@ -40,17 +50,22 @@ object JarvisApi {
     }
 
     fun saveConfig(context: Context, baseUrl: String, token: String) {
-        context.getSharedPreferences("jarvis", Context.MODE_PRIVATE)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
             .putString("base_url", baseUrl.trim().trimEnd('/'))
             .putString("device_token", token.trim())
             .apply()
     }
 
+    fun isConfigured(context: Context): Boolean {
+        val cfg = loadConfig(context)
+        return (cfg.baseUrl.startsWith("http://") || cfg.baseUrl.startsWith("https://")) && cfg.token.isNotBlank()
+    }
+
     private fun ensureConfigured(context: Context): Config {
         val cfg = loadConfig(context)
         require(cfg.baseUrl.startsWith("http://") || cfg.baseUrl.startsWith("https://")) {
-            "Informe a URL externa completa do JARVIS, por exemplo https://casa.exemplo.com"
+            "Informe a URL externa completa do JARVIS"
         }
         require(cfg.token.isNotBlank()) { "Token do dispositivo Android não configurado" }
         return cfg
@@ -66,11 +81,7 @@ object JarvisApi {
     private fun request(context: Context, path: String, body: JSONObject? = null): String {
         val cfg = ensureConfigured(context)
         val b = builder(cfg, cfg.baseUrl + path)
-        if (body != null) {
-            b.post(body.toString().toRequestBody(jsonType))
-        } else {
-            b.get()
-        }
+        if (body != null) b.post(body.toString().toRequestBody(jsonType)) else b.get()
 
         client.newCall(b.build()).execute().use { response ->
             val raw = response.body?.string().orEmpty()
@@ -89,6 +100,8 @@ object JarvisApi {
         val clientName = j.optString("cliente", "dispositivo Android")
         return "Conectado a $system ($version) como $clientName"
     }
+
+    fun isOnline(context: Context): Boolean = runCatching { testConnection(context) }.isSuccess
 
     fun askJarvis(context: Context, text: String): JarvisAnswer {
         val raw = request(
@@ -109,6 +122,70 @@ object JarvisApi {
         )
     }
 
+    @Synchronized
+    fun queueCommand(context: Context, text: String) {
+        if (text.isBlank()) return
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val arr = runCatching { JSONArray(prefs.getString(PENDING_KEY, "[]")) }.getOrElse { JSONArray() }
+        arr.put(
+            JSONObject()
+                .put("text", text.trim())
+                .put("created_at", System.currentTimeMillis())
+                .put("attempts", 0)
+        )
+        while (arr.length() > 100) arr.remove(0)
+        prefs.edit().putString(PENDING_KEY, arr.toString()).apply()
+    }
+
+    @Synchronized
+    fun pendingCount(context: Context): Int {
+        val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(PENDING_KEY, "[]")
+        return runCatching { JSONArray(raw).length() }.getOrDefault(0)
+    }
+
+    fun sendOrQueue(context: Context, text: String): SendResult {
+        return try {
+            val answer = askJarvis(context, text)
+            SendResult(true, false, answer, answer.text)
+        } catch (e: Exception) {
+            queueCommand(context, text)
+            SendResult(false, true, null, "Sem conexão. Comando salvo na fila para envio automático.")
+        }
+    }
+
+    @Synchronized
+    fun flushPending(context: Context): Int {
+        if (!isConfigured(context)) return 0
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val source = runCatching { JSONArray(prefs.getString(PENDING_KEY, "[]")) }.getOrElse { JSONArray() }
+        if (source.length() == 0) return 0
+
+        val remaining = JSONArray()
+        var sent = 0
+        for (i in 0 until source.length()) {
+            val item = source.optJSONObject(i) ?: continue
+            val text = item.optString("text")
+            if (text.isBlank()) continue
+
+            if (sent == 0 || isOnline(context)) {
+                val ok = runCatching { askJarvis(context, text) }.isSuccess
+                if (ok) {
+                    sent++
+                    continue
+                }
+            }
+
+            item.put("attempts", item.optInt("attempts", 0) + 1)
+            remaining.put(item)
+            for (j in (i + 1) until source.length()) {
+                source.optJSONObject(j)?.let { remaining.put(it) }
+            }
+            break
+        }
+        prefs.edit().putString(PENDING_KEY, remaining.toString()).apply()
+        return sent
+    }
+
     fun getNotifications(context: Context): List<MobileNotification> {
         val raw = request(context, "/api/v1/mobile.php?acao=notificacoes")
         val arr: JSONArray = JSONObject(raw).optJSONArray("notificacoes") ?: JSONArray()
@@ -127,26 +204,14 @@ object JarvisApi {
     }
 
     fun ackNotification(context: Context, id: Long) {
-        request(
-            context,
-            "/api/v1/mobile.php?acao=ack",
-            JSONObject().put("id", id)
-        )
+        request(context, "/api/v1/mobile.php?acao=ack", JSONObject().put("id", id))
     }
 
-    fun sendNetworkEvent(
-        context: Context,
-        type: String,
-        description: String,
-        details: JSONObject = JSONObject()
-    ) {
+    fun sendNetworkEvent(context: Context, type: String, description: String, details: JSONObject = JSONObject()) {
         request(
             context,
             "/api/v1/mobile.php?acao=network_event",
-            JSONObject()
-                .put("tipo", type)
-                .put("descricao", description)
-                .put("dados", details)
+            JSONObject().put("tipo", type).put("descricao", description).put("dados", details)
         )
     }
 
@@ -158,22 +223,21 @@ object JarvisApi {
     fun executeBleBridgeRequest(context: Context, input: JSONObject): JSONObject {
         return when (input.optString("type")) {
             "jarvis" -> {
-                val a = askJarvis(context, input.optString("text"))
+                val text = input.optString("text")
+                val result = sendOrQueue(context, text)
                 JSONObject()
-                    .put("ok", true)
+                    .put("ok", result.delivered)
+                    .put("queued", result.queued)
                     .put("type", "jarvis_result")
-                    .put("text", a.text)
-                    .put("audio_url", a.audioUrl ?: JSONObject.NULL)
-                    .put("action", a.action ?: JSONObject.NULL)
+                    .put("text", result.answer?.text ?: result.message)
+                    .put("audio_url", result.answer?.audioUrl ?: JSONObject.NULL)
+                    .put("action", result.answer?.action ?: JSONObject.NULL)
             }
-            "status" -> {
-                val result = runCatching { testConnection(context) }
-                JSONObject()
-                    .put("ok", result.isSuccess)
-                    .put("type", "status")
-                    .put("internet", result.isSuccess)
-                    .put("message", result.getOrElse { it.message ?: "offline" })
-            }
+            "status" -> JSONObject()
+                .put("ok", isOnline(context))
+                .put("type", "status")
+                .put("internet", isOnline(context))
+                .put("pending", pendingCount(context))
             "ping" -> JSONObject().put("ok", true).put("type", "pong")
             else -> JSONObject().put("ok", false).put("error", "Tipo BLE desconhecido")
         }
