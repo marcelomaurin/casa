@@ -1,41 +1,40 @@
-# Arquitetura CASA/JARVIS — Hostinger x Raspberry Pi
+# Arquitetura CASA/JARVIS — Distribuída
 
-Este documento define o que roda na hospedagem pública da Hostinger e o que permanece dentro da rede local da residência.
+Este documento define a arquitetura distribuída do CASA/JARVIS.
 
-## Regra geral
+## Princípio central
 
-- **Hostinger**: interface web pública, API pública e banco MySQL.
-- **Raspberry Pi / rede local**: integração física, automação, sensores, câmeras, voz, agentes e serviços locais.
-- **Celular / relógio / TV**: clientes do sistema. Falam com a API pública e, quando aplicável, com serviços locais.
+Todos os componentes do ecossistema usam como ponto comum de entrada:
 
 ```text
-Internet
-   |
-   v
 https://casa.maurinsoft.com.br
-   |
-   +-- Site LCARS
-   +-- Login
-   +-- API /api/v1
-   +-- MySQL
-           ^
-           |
-      HTTPS autenticado
-           |
-   +-------+------------------------------+
-   |                                      |
-Raspberry Pi 1                       Raspberry Pi 2...
-Gateway / automação                  câmera / sensores
-   |                                      |
-   +-- MQTT / GPIO / serial / BLE         +-- ESP32-CAM
-   +-- scheduler                           +-- análise local
-   +-- agentes                             +-- dispositivos
-   +-- áudio/TTS                           +-- atuadores
+```
+
+Não existe um mestre local fixo baseado em IP privado. Cada componente é um nó especializado e pode executar em Hostinger, Raspberry Pi, servidor de IA, celular, TV, relógio, ESP32/ESP8266 ou outro equipamento.
+
+A API pública mantém identidade, autenticação, estado, filas, descoberta lógica, telemetria e coordenação. A execução permanece distribuída.
+
+```text
+                         +---------------------------+
+                         | casa.maurinsoft.com.br    |
+                         | Site LCARS + API + MySQL  |
+                         +-------------+-------------+
+                                       |
+                              HTTPS autenticado
+                                       |
+            +--------------------------+---------------------------+
+            |                          |                           |
+       Raspberry Pi               Android/TV                 Servidor IA
+       automação física            clientes                    GPU/LLM/TTS
+            |                          |                           |
+      GPIO/MQTT/RS485             BLE/voz/UI                  inferência
+            |
+       ESP32/ESP8266
 ```
 
 ## HOSTINGER
 
-### Deve ficar na Hostinger
+A Hostinger mantém o núcleo público e persistente:
 
 ```text
 site/var/www/html/
@@ -43,39 +42,57 @@ site/var/www/html/
 
 Inclui:
 
-- `index.php` e interface web LCARS;
-- `login.php`;
-- APIs PHP;
-- `/api/v1/`;
-- autenticação de usuários;
-- autenticação de dispositivos/clientes;
-- recepção de eventos enviados pelos Raspberry Pi;
-- fila de comandos destinados aos nós locais;
-- notificações para celular, TV e relógio;
-- banco MySQL/MariaDB;
-- histórico, telemetria e estados persistentes.
+- site LCARS;
+- login e autenticação;
+- API pública `/api/v1/`;
+- cadastro e identidade dos dispositivos;
+- filas de comandos e eventos;
+- descoberta lógica dos serviços disponíveis;
+- telemetria e histórico;
+- notificações;
+- MySQL/MariaDB;
+- configuração de roteamento entre nós.
 
-### Não deve ficar na Hostinger
+A Hostinger não executa obrigatoriamente IA, TTS, GPIO ou processamento pesado. Ela coordena os nós que anunciam essas capacidades.
 
-- llama.cpp;
-- modelos GGUF;
-- TTS pesado;
-- captura direta de câmera local;
-- GPIO;
-- serial/RS485;
-- drivers USB locais;
-- MQTT broker interno, quando usado somente dentro da casa;
-- processos Python que precisem controlar hardware;
-- credenciais locais de Wi-Fi;
-- chaves privadas dos nós.
+## NÓS DISTRIBUÍDOS
+
+Todo nó deve possuir:
+
+- identificador próprio;
+- token próprio e escopos mínimos;
+- tipo/capacidades declaradas;
+- heartbeat;
+- estado online/offline;
+- versão do software;
+- fila de trabalho ou mecanismo de polling quando aplicável;
+- reconexão automática;
+- comunicação HTTPS com `casa.maurinsoft.com.br`.
+
+Exemplos de capacidades:
+
+```text
+gpio
+mqtt
+rs485
+camera
+microphone
+speaker
+tts
+stt
+llm
+vision
+gps
+bluetooth
+notification
+scheduler
+```
 
 ## RASPBERRY PI
 
-Os Raspberry Pi são os **nós de execução física** da casa.
+Os Raspberry Pi são nós de execução física e gateways de hardware.
 
-### Serviço-base em cada Raspberry
-
-O serviço principal recomendado é:
+Serviço-base:
 
 ```text
 servicos/arm-agent/
@@ -83,143 +100,151 @@ servicos/arm-agent/
 
 Responsabilidades:
 
-- identificar o nó;
-- autenticar-se na API pública;
+- registrar o nó na API central;
 - enviar heartbeat;
-- informar sensores e estado do hardware;
-- buscar comandos pendentes;
-- executar apenas comandos autorizados para aquele nó;
-- devolver resultado da execução;
-- manter operação local básica quando a internet cair;
-- reconectar automaticamente à API.
+- publicar recursos disponíveis;
+- receber/buscar tarefas destinadas ao nó;
+- executar somente tarefas autorizadas;
+- publicar resultados;
+- operar hardware local;
+- manter uma fila local temporária em falhas de Internet;
+- sincronizar novamente ao reconectar.
 
-### Serviços que podem rodar nos Raspberry
+Serviços que podem rodar nos Raspberry:
 
 | Serviço | Uso |
 |---|---|
-| `servicos/arm-agent/` | Agente principal do nó Raspberry |
-| `servicos/casa-scheduler/` | Agendamentos que precisem continuar sem internet |
-| `servicos/espcam/` | Recepção/processamento de câmeras locais |
-| `servicos/tts/` | Voz local quando o Raspberry tiver capacidade suficiente |
-| `servicos/web-agent/` | Nó destinado a agentes/pesquisa |
-| `servicos/casa-tunnel/` | Comunicação segura quando necessária |
+| `servicos/arm-agent/` | agente principal do nó |
+| `servicos/casa-scheduler/` | execução distribuída de agendamentos |
+| `servicos/espcam/` | câmera/visão local |
+| `servicos/tts/` | síntese local |
+| `servicos/web-agent/` | agente de pesquisa/navegação |
+| `servicos/casa-tunnel/` | conectividade auxiliar quando necessária |
 
-### Hardware controlado pelos Raspberry
+## SERVIDOR DE IA
 
-- relés e iluminação;
-- sensores ambientais e presença;
-- portas e portões;
-- GPIO;
-- serial e RS485/Modbus;
-- Bluetooth/BLE;
-- câmeras locais;
-- microfones e alto-falantes;
-- ESP32/ESP8266;
-- interfaces Nextion;
-- outros controladores locais.
+O servidor de IA é apenas outro nó distribuído.
 
-## Organização recomendada
-
-### Raspberry Gateway
-
-- `arm-agent`;
-- comunicação Hostinger ↔ casa;
-- MQTT local;
-- descoberta dos dispositivos;
-- comandos para ESP32/ESP8266;
-- automação crítica local;
-- fila local em caso de perda de internet.
-
-### Raspberry Câmeras
-
-- ESP32-CAM/câmeras USB/IP;
-- captura local;
-- pré-processamento;
-- detecção de eventos;
-- envio somente dos eventos/metadados necessários para a Hostinger.
-
-Vídeos privados não devem ser enviados continuamente para a Hostinger sem necessidade.
-
-### Raspberry Voz
-
-- microfone ambiente;
-- wake word;
-- STT local ou encaminhamento ao servidor de IA;
-- TTS;
-- reprodução de respostas.
-
-### Servidor de IA local
-
-Modelos grandes não precisam rodar no Raspberry. O Raspberry pode chamar o servidor local com GPU pela rede interna.
+Pode anunciar capacidades como:
 
 ```text
-Raspberry
-   |
-   +--> servidor IA local / llama.cpp
-   |
-   +--> Hostinger API para estado e histórico
+llm
+tts
+stt
+vision
+embedding
+rag
 ```
 
-## Fluxo de comando
+Fluxo típico:
 
 ```text
-Celular / TV / Web / Relógio
-          |
-          v
-Hostinger /api/v1
-          |
-          | comando pendente
-          v
-Raspberry arm-agent
-          |
-          v
-relé / ESP / dispositivo físico
-          |
-          v
-Raspberry envia resultado
-          |
-          v
-Hostinger atualiza estado/histórico
+cliente -> casa.maurinsoft.com.br -> fila/roteamento -> nó IA
+                                             |
+                                             +-> resultado -> API -> cliente
 ```
 
-A Hostinger não deve acessar diretamente IP privado do Raspberry. O Raspberry inicia a comunicação HTTPS de saída para `casa.maurinsoft.com.br`.
+O endereço privado do servidor de IA não deve ficar embutido nos clientes.
 
-## Funcionamento sem internet
+## ESP32 / ESP8266 / IoT
 
-Os Raspberry devem manter funções essenciais locais quando a Hostinger estiver temporariamente inacessível:
+Dispositivos capazes de HTTPS podem publicar diretamente em `casa.maurinsoft.com.br` usando token individual.
 
-- alarmes e timers locais;
-- regras básicas de automação;
+Dispositivos limitados podem usar um Raspberry como gateway, mas continuam pertencendo à mesma arquitetura distribuída e devem possuir identidade lógica própria.
+
+Credenciais Wi-Fi e tokens não devem ser versionados.
+
+## ANDROID MOBILE / TV
+
+O servidor padrão dos aplicativos é:
+
+```text
+https://casa.maurinsoft.com.br
+```
+
+Cada instalação recebe token próprio. Os aplicativos não devem depender de IP privado da residência.
+
+## RELÓGIO
+
+O relógio pode operar por BLE através do celular. Nesse caso, o celular é o gateway físico, mas o destino lógico permanece o domínio CASA.
+
+```text
+Watch -> BLE -> JARVIS Mobile -> https://casa.maurinsoft.com.br
+```
+
+## FLUXO DISTRIBUÍDO
+
+Exemplo: ligar uma luz.
+
+```text
+Celular
+   |
+   v
+casa.maurinsoft.com.br/api/v1
+   |
+   v
+fila/roteamento
+   |
+   v
+Raspberry responsável pelo ambiente
+   |
+   v
+relé / ESP / dispositivo
+   |
+   v
+resultado -> API -> histórico/cliente
+```
+
+Exemplo: pergunta para IA.
+
+```text
+Celular/TV/Web
+      |
+      v
+CASA API
+      |
+      v
+nó IA disponível
+      |
+      v
+resultado
+      |
+      v
+CASA API -> cliente
+```
+
+## Operação com perda de conexão
+
+A arquitetura centralizada logicamente no domínio não significa dependência total de Internet para funções críticas.
+
+Nós locais podem manter regras essenciais em cache, por exemplo:
+
+- alarmes;
+- automação de segurança;
+- controle local manual;
+- timers;
 - sensores;
-- automações de segurança;
-- scheduler local;
-- fila de eventos para sincronização posterior.
+- watchdogs.
 
-Ao recuperar a conexão:
-
-1. o agente reconecta;
-2. envia eventos pendentes;
-3. sincroniza estados;
-4. busca novos comandos;
-5. volta à operação normal.
+Quando a conexão volta, o nó sincroniza eventos e estados.
 
 ## Segurança
 
-- cada Raspberry deve possuir token próprio;
-- tokens não devem ser gravados no Git;
-- comunicação com Hostinger deve ser HTTPS;
-- MySQL não deve ser exposto aos Raspberry pela Internet;
-- Raspberry conversa com o banco somente através da API;
-- serviços locais devem permanecer protegidos pela rede/firewall;
-- comandos devem possuir escopo/autorização por nó.
+- HTTPS obrigatório nas comunicações externas;
+- token exclusivo por dispositivo/nó;
+- escopos de menor privilégio;
+- tokens nunca no Git;
+- MySQL não é acessado diretamente pelos nós;
+- toda persistência externa passa pela API;
+- falhas de autenticação devem ser auditadas;
+- limites de payload e rate limiting devem ser aplicados;
+- serviços locais não devem ser expostos diretamente à Internet sem necessidade.
 
 ## Implantação Hostinger
 
-A publicação deve enviar apenas o conteúdo web necessário para o diretório público da hospedagem. Serviços Python, firmwares, builds Android e arquivos locais não fazem parte do pacote do site.
+Somente o conteúdo web/API é publicado no diretório público da hospedagem. Os nós distribuídos permanecem em seus equipamentos, mas todos utilizam o domínio central para coordenação.
 
-A configuração de banco deve ser fornecida no ambiente de produção, nunca versionada.
-
-Variáveis esperadas pelo PHP:
+Configuração de produção esperada:
 
 ```text
 JARVIS_DB_HOST
@@ -233,4 +258,4 @@ JARVIS_SYSTEM_API_TOKEN
 
 ## Fonte oficial
 
-O GitHub continua sendo a fonte oficial do projeto. Alterações de produção devem sair de uma versão identificável do repositório, evitando edições manuais permanentes diretamente na hospedagem.
+O GitHub é a fonte oficial do projeto. Alterações de arquitetura, clientes, firmwares e serviços devem ser versionadas antes da implantação.
