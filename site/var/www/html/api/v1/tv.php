@@ -14,7 +14,7 @@ require_once(__DIR__ . '/../family_common.php');
 $pdo = get_db_pdo();
 api_v1_basic_guard($pdo);
 family_ensure_schema($pdo);
-$client = api_v1_auth_any_scope($pdo, ['tv.read','mobile.read','family.read']);
+$client = api_v1_auth_client_any($pdo, ['tv.read','mobile.read','family.read']);
 $action = $_GET['acao'] ?? 'dashboard';
 
 if ($action !== 'dashboard') api_v1_json_response(404, ['status'=>'erro','mensagem'=>'Ação TV desconhecida']);
