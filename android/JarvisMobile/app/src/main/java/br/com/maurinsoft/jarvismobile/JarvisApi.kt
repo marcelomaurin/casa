@@ -12,9 +12,9 @@ import java.util.concurrent.TimeUnit
 object JarvisApi {
     private val jsonType = "application/json; charset=utf-8".toMediaType()
     private val client = OkHttpClient.Builder()
-        .connectTimeout(8, TimeUnit.SECONDS)
-        .readTimeout(45, TimeUnit.SECONDS)
-        .writeTimeout(20, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 
     data class Config(val baseUrl: String, val token: String)
@@ -27,63 +27,90 @@ object JarvisApi {
         val priority: String
     )
 
+    @Volatile
+    var lastAudioUrl: String? = null
+        private set
+
     fun loadConfig(context: Context): Config {
         val p = context.getSharedPreferences("jarvis", Context.MODE_PRIVATE)
         return Config(
-            p.getString("base_url", "http://192.168.2.12")!!.trimEnd('/'),
-            p.getString("device_token", "") ?: ""
+            p.getString("base_url", "")?.trim()?.trimEnd('/') ?: "",
+            p.getString("device_token", "")?.trim() ?: ""
         )
     }
 
     fun saveConfig(context: Context, baseUrl: String, token: String) {
         context.getSharedPreferences("jarvis", Context.MODE_PRIVATE)
             .edit()
-            .putString("base_url", baseUrl.trimEnd('/'))
+            .putString("base_url", baseUrl.trim().trimEnd('/'))
             .putString("device_token", token.trim())
             .apply()
     }
 
-    private fun req(context: Context, path: String, body: JSONObject? = null): String {
+    private fun ensureConfigured(context: Context): Config {
         val cfg = loadConfig(context)
-        require(cfg.baseUrl.isNotBlank()) { "URL do JARVIS não configurada" }
-        require(cfg.token.isNotBlank()) { "Token do dispositivo não configurado" }
-
-        val b = Request.Builder()
-            .url(cfg.baseUrl + path)
-            .header("X-Device-Token", cfg.token)
-
-        if (body != null) b.post(body.toString().toRequestBody(jsonType)) else b.get()
-
-        client.newCall(b.build()).execute().use { r ->
-            val text = r.body?.string().orEmpty()
-            if (!r.isSuccessful) throw IllegalStateException("HTTP ${r.code}: $text")
-            return text
+        require(cfg.baseUrl.startsWith("http://") || cfg.baseUrl.startsWith("https://")) {
+            "Informe a URL externa completa do JARVIS, por exemplo https://casa.exemplo.com"
         }
+        require(cfg.token.isNotBlank()) { "Token do dispositivo Android não configurado" }
+        return cfg
+    }
+
+    private fun builder(cfg: Config, url: String): Request.Builder =
+        Request.Builder()
+            .url(url)
+            .header("Authorization", "Bearer ${cfg.token}")
+            .header("X-Device-Token", cfg.token)
+            .header("Accept", "application/json")
+
+    private fun request(context: Context, path: String, body: JSONObject? = null): String {
+        val cfg = ensureConfigured(context)
+        val b = builder(cfg, cfg.baseUrl + path)
+        if (body != null) {
+            b.post(body.toString().toRequestBody(jsonType))
+        } else {
+            b.get()
+        }
+
+        client.newCall(b.build()).execute().use { response ->
+            val raw = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw IllegalStateException("HTTP ${response.code}: ${raw.take(300)}")
+            }
+            return raw
+        }
+    }
+
+    fun testConnection(context: Context): String {
+        val raw = request(context, "/api/v1/status")
+        val j = JSONObject(raw)
+        val system = j.optString("sistema", "JARVIS")
+        val version = j.optString("versao_api", "v1")
+        val clientName = j.optString("cliente", "dispositivo Android")
+        return "Conectado a $system ($version) como $clientName"
     }
 
     fun askJarvis(context: Context, text: String): JarvisAnswer {
-        val cfg = loadConfig(context)
-        val payload = JSONObject().put("comando", text).put("origem", "ANDROID_APP")
-        val request = Request.Builder()
-            .url(cfg.baseUrl + "/api/jarvis.php")
-            .header("X-Device-Token", cfg.token)
-            .post(payload.toString().toRequestBody(jsonType))
-            .build()
-
-        client.newCall(request).execute().use { r ->
-            val raw = r.body?.string().orEmpty()
-            if (!r.isSuccessful) throw IllegalStateException("HTTP ${r.code}: $raw")
-            val j = JSONObject(raw)
-            return JarvisAnswer(
-                text = j.optString("resposta"),
-                audioUrl = j.optString("audio_url").takeIf { it.isNotBlank() },
-                action = j.optString("acao").takeIf { it.isNotBlank() }
-            )
-        }
+        val raw = request(
+            context,
+            "/api/v1/comando",
+            JSONObject()
+                .put("comando", text)
+                .put("ia_mode", "auto")
+                .put("origem", "ANDROID_APP")
+        )
+        val j = JSONObject(raw)
+        val audio = j.optString("audio_url").takeIf { it.isNotBlank() && it != "null" }
+        lastAudioUrl = audio
+        return JarvisAnswer(
+            text = j.optString("resposta", j.optString("mensagem", "Sem resposta do JARVIS")),
+            audioUrl = audio,
+            action = j.optString("acao_executada").takeIf { it.isNotBlank() && it != "null" }
+        )
     }
 
     fun getNotifications(context: Context): List<MobileNotification> {
-        val raw = req(context, "/api/mobile.php?acao=notificacoes")
+        val raw = request(context, "/api/v1/mobile.php?acao=notificacoes")
         val arr: JSONArray = JSONObject(raw).optJSONArray("notificacoes") ?: JSONArray()
         val out = ArrayList<MobileNotification>()
         for (i in 0 until arr.length()) {
@@ -92,7 +119,7 @@ object JarvisApi {
                 n.optLong("id"),
                 n.optString("titulo", "JARVIS"),
                 n.optString("mensagem"),
-                n.optString("audio_url").takeIf { it.isNotBlank() },
+                n.optString("audio_url").takeIf { it.isNotBlank() && it != "null" },
                 n.optString("prioridade", "normal")
             )
         }
@@ -100,20 +127,32 @@ object JarvisApi {
     }
 
     fun ackNotification(context: Context, id: Long) {
-        req(context, "/api/mobile.php?acao=ack", JSONObject().put("id", id))
+        request(
+            context,
+            "/api/v1/mobile.php?acao=ack",
+            JSONObject().put("id", id)
+        )
     }
 
-    fun sendNetworkEvent(context: Context, type: String, description: String, details: JSONObject = JSONObject()) {
-        req(
+    fun sendNetworkEvent(
+        context: Context,
+        type: String,
+        description: String,
+        details: JSONObject = JSONObject()
+    ) {
+        request(
             context,
-            "/api/mobile.php?acao=network_event",
-            JSONObject().put("tipo", type).put("descricao", description).put("dados", details)
+            "/api/v1/mobile.php?acao=network_event",
+            JSONObject()
+                .put("tipo", type)
+                .put("descricao", description)
+                .put("dados", details)
         )
     }
 
     fun absoluteUrl(context: Context, path: String): String {
         if (path.startsWith("http://") || path.startsWith("https://")) return path
-        return loadConfig(context).baseUrl + path
+        return ensureConfigured(context).baseUrl + path
     }
 
     fun executeBleBridgeRequest(context: Context, input: JSONObject): JSONObject {
@@ -127,7 +166,14 @@ object JarvisApi {
                     .put("audio_url", a.audioUrl ?: JSONObject.NULL)
                     .put("action", a.action ?: JSONObject.NULL)
             }
-            "status" -> JSONObject().put("ok", true).put("type", "status").put("internet", true)
+            "status" -> {
+                val result = runCatching { testConnection(context) }
+                JSONObject()
+                    .put("ok", result.isSuccess)
+                    .put("type", "status")
+                    .put("internet", result.isSuccess)
+                    .put("message", result.getOrElse { it.message ?: "offline" })
+            }
             "ping" -> JSONObject().put("ok", true).put("type", "pong")
             else -> JSONObject().put("ok", false).put("error", "Tipo BLE desconhecido")
         }
