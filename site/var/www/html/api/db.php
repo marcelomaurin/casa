@@ -1,13 +1,37 @@
 <?php
 // Banco central do JARVIS/CASA.
-// Produção Hostinger: MySQL/MariaDB configurado por variáveis de ambiente.
+// Produção Hostinger: MySQL/MariaDB via config.local.php privado ou variáveis de ambiente.
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-function env_value(string $key, ?string $default = null): ?string {
-    $value = getenv($key);
+function local_config(): array {
+    static $cfg = null;
+    if (is_array($cfg)) {
+        return $cfg;
+    }
+
+    $file = __DIR__ . '/config.local.php';
+    if (is_file($file)) {
+        $loaded = require $file;
+        if (is_array($loaded)) {
+            $cfg = $loaded;
+            return $cfg;
+        }
+    }
+
+    $cfg = [];
+    return $cfg;
+}
+
+function cfg_value(string $configKey, string $envKey, ?string $default = null): ?string {
+    $cfg = local_config();
+    if (array_key_exists($configKey, $cfg) && $cfg[$configKey] !== '') {
+        return (string)$cfg[$configKey];
+    }
+
+    $value = getenv($envKey);
     return ($value === false || $value === '') ? $default : $value;
 }
 
@@ -17,12 +41,12 @@ function get_db_pdo(): PDO {
         return $pdo;
     }
 
-    $host = env_value('JARVIS_DB_HOST', '127.0.0.1');
-    $port = env_value('JARVIS_DB_PORT', '3306');
-    $name = env_value('JARVIS_DB_NAME', 'casadb');
-    $user = env_value('JARVIS_DB_USER', '');
-    $pass = env_value('JARVIS_DB_PASS', '');
-    $charset = env_value('JARVIS_DB_CHARSET', 'utf8mb4');
+    $host = cfg_value('db_host', 'JARVIS_DB_HOST', '127.0.0.1');
+    $port = cfg_value('db_port', 'JARVIS_DB_PORT', '3306');
+    $name = cfg_value('db_name', 'JARVIS_DB_NAME', 'casadb');
+    $user = cfg_value('db_user', 'JARVIS_DB_USER', '');
+    $pass = cfg_value('db_pass', 'JARVIS_DB_PASS', '');
+    $charset = cfg_value('db_charset', 'JARVIS_DB_CHARSET', 'utf8mb4');
 
     if ($user === '' || $pass === '') {
         throw new RuntimeException('Banco MySQL não configurado no ambiente.');
@@ -39,7 +63,7 @@ function get_db_pdo(): PDO {
 }
 
 function get_secondary_db_pdo() {
-    // Serviços locais devem acessar a Hostinger pela API, não pelo banco.
+    // Serviços locais/Raspberry acessam a Hostinger pela API, não pelo MySQL.
     return false;
 }
 
@@ -48,9 +72,9 @@ function qryExec($sql) {
 }
 
 function get_system_api_token(): string {
-    $envToken = env_value('JARVIS_SYSTEM_API_TOKEN', '');
-    if ($envToken !== '') {
-        return $envToken;
+    $token = cfg_value('system_api_token', 'JARVIS_SYSTEM_API_TOKEN', '');
+    if ($token !== '') {
+        return $token;
     }
 
     try {
