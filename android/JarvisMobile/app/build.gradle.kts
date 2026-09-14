@@ -11,21 +11,17 @@ android {
         applicationId = "br.com.maurinsoft.jarvismobile"
         minSdk = 26
         targetSdk = 35
-        versionCode = 220
-        versionName = "2.2.0"
+        versionCode = 230
+        versionName = "2.3.0"
     }
 
     buildTypes {
         getByName("debug") {
-            // O APK de desenvolvimento usa outro applicationId para evitar
-            // conflito de assinatura com builds anteriores ou futuras releases.
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
         }
         getByName("release") {
             isMinifyEnabled = false
-            // A release mantém br.com.maurinsoft.jarvismobile e deve ser
-            // assinada por keystore estável fornecido via secrets do CI.
         }
     }
 
