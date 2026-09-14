@@ -44,9 +44,14 @@
             android:exported="false"
             android:theme="@style/Theme.JarvisMobile" />
 
+        <!--
+          O serviço inicia como dataSync para não exigir BLUETOOTH_CONNECT antes
+          de o usuário concluir o diálogo de permissões. A camada BLE só é
+          ativada quando as permissões estiverem disponíveis.
+        -->
         <service
             android:name=".JarvisConnectionService"
             android:exported="false"
-            android:foregroundServiceType="dataSync|connectedDevice" />
+            android:foregroundServiceType="dataSync" />
     </application>
 </manifest>
