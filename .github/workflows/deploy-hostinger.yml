@@ -43,7 +43,7 @@ jobs:
           test -n "$DB_USER"
           test -n "$DB_PASS"
           test -n "$API_TOKEN"
-          PORT="${DB_PORT:-3306}"
+          export PORT="${DB_PORT:-3306}"
           php -r '
             $cfg = [
               "db_host" => getenv("DB_HOST"),
@@ -56,13 +56,6 @@ jobs:
             ];
             file_put_contents("deploy-hostinger/api/config.local.php", "<?php\nreturn " . var_export($cfg, true) . ";\n");
           '
-        env:
-          DB_HOST: ${{ secrets.HOSTINGER_DB_HOST }}
-          PORT: ${{ secrets.HOSTINGER_DB_PORT }}
-          DB_NAME: ${{ secrets.HOSTINGER_DB_NAME }}
-          DB_USER: ${{ secrets.HOSTINGER_DB_USER }}
-          DB_PASS: ${{ secrets.HOSTINGER_DB_PASS }}
-          API_TOKEN: ${{ secrets.HOSTINGER_SYSTEM_API_TOKEN }}
 
       - name: Configure SSH
         shell: bash
@@ -72,6 +65,8 @@ jobs:
           SSH_PORT: ${{ secrets.HOSTINGER_SSH_PORT }}
         run: |
           set -euo pipefail
+          test -n "$SSH_KEY"
+          test -n "$SSH_HOST"
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
