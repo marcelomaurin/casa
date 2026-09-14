@@ -7,7 +7,6 @@ import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -38,9 +37,7 @@ class MainActivity : ComponentActivity() {
     private val http = OkHttpClient()
 
     private enum class Screen(val title: String) {
-        OPERATIONS("Operações"),
-        VOICE("Voz"),
-        CONFIG("Configuração")
+        OPERATIONS("Operações"), VOICE("Voz"), CONFIG("Configuração")
     }
 
     private val permissionLauncher = registerForActivityResult(
@@ -72,8 +69,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startJarvisService() {
-        val intent = Intent(this, JarvisConnectionService::class.java)
-        ContextCompat.startForegroundService(this, intent)
+        ContextCompat.startForegroundService(this, Intent(this, JarvisConnectionService::class.java))
     }
 
     private fun setupSpeechRecognizer() {
@@ -114,11 +110,14 @@ class MainActivity : ComponentActivity() {
     private fun playAudio(path: String?) {
         if (path.isNullOrBlank()) return
         val cfg = JarvisApi.loadConfig(this)
-        val url = JarvisApi.absoluteUrl(this, path)
-
+        val url = runCatching { JarvisApi.absoluteUrl(this, path) }.getOrNull() ?: return
         Thread {
             try {
-                val req = Request.Builder().url(url).header("X-Device-Token", cfg.token).build()
+                val req = Request.Builder()
+                    .url(url)
+                    .header("Authorization", "Bearer ${cfg.token}")
+                    .header("X-Device-Token", cfg.token)
+                    .build()
                 http.newCall(req).execute().use { response ->
                     if (!response.isSuccessful) return@use
                     val bytes = response.body?.bytes() ?: return@use
@@ -142,96 +141,113 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
-            } catch (_: Exception) {
-            }
+            } catch (_: Exception) {}
         }.start()
-    }
-
-    private fun openTetherSettings() {
-        try {
-            startActivity(Intent("android.settings.TETHER_SETTINGS"))
-        } catch (_: Exception) {
-            try {
-                startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS))
-            } catch (_: Exception) {
-                startActivity(Intent(Settings.ACTION_SETTINGS))
-            }
-        }
     }
 
     @Composable
     private fun JarvisApp() {
         var splash by remember { mutableStateOf(true) }
+        var online by remember { mutableStateOf(false) }
+        var configured by remember { mutableStateOf(JarvisApi.isConfigured(this)) }
+        var pending by remember { mutableIntStateOf(JarvisApi.pendingCount(this)) }
+
         LaunchedEffect(Unit) {
-            delay(1200)
+            delay(1000)
             splash = false
         }
 
-        MaterialTheme {
-            if (splash) {
-                SplashScreen()
-            } else {
-                MainShell()
+        LaunchedEffect(splash) {
+            if (!splash) {
+                while (true) {
+                    configured = JarvisApi.isConfigured(this@MainActivity)
+                    online = if (configured) withContext(Dispatchers.IO) {
+                        JarvisApi.isOnline(this@MainActivity)
+                    } else false
+                    pending = JarvisApi.pendingCount(this@MainActivity)
+                    delay(if (online) 10_000 else 5_000)
+                }
             }
+        }
+
+        MaterialTheme {
+            if (splash) SplashScreen() else MainShell(online, configured, pending)
         }
     }
 
     @Composable
     private fun SplashScreen() {
-        Surface(modifier = Modifier.fillMaxSize()) {
+        Surface(Modifier.fillMaxSize()) {
             Column(
                 modifier = Modifier.fillMaxSize().padding(32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                Text("JARVIS", style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(12.dp))
-                Text("Assistente residencial inteligente", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(28.dp))
+                Text("J", style = MaterialTheme.typography.displayLarge, fontWeight = FontWeight.Black)
+                Text("JARVIS", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(8.dp))
+                Text("Assistente residencial inteligente")
+                Spacer(Modifier.height(24.dp))
                 CircularProgressIndicator()
-                Spacer(Modifier.height(18.dp))
-                Text("Inicializando serviços, voz e conexão...", textAlign = TextAlign.Center)
+                Spacer(Modifier.height(12.dp))
+                Text("Inicializando modo local e conexão...", textAlign = TextAlign.Center)
             }
         }
     }
 
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
-    private fun MainShell() {
+    private fun MainShell(online: Boolean, configured: Boolean, pending: Int) {
         var screen by remember { mutableStateOf(Screen.OPERATIONS) }
-
         Scaffold(
             topBar = {
                 TopAppBar(
                     title = {
                         Column {
                             Text("JARVIS Mobile", fontWeight = FontWeight.Bold)
-                            Text(screen.title, style = MaterialTheme.typography.bodySmall)
+                            Text(
+                                when {
+                                    !configured -> "Não configurado"
+                                    online -> "Online"
+                                    else -> "Offline — reconectando"
+                                },
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    },
+                    actions = {
+                        if (pending > 0) {
+                            AssistChip(onClick = {}, label = { Text("Fila: $pending") })
+                            Spacer(Modifier.width(8.dp))
                         }
                     }
                 )
             },
             bottomBar = {
                 NavigationBar {
-                    Screen.values().forEach { item ->
+                    Screen.entries.forEach { item ->
                         NavigationBarItem(
                             selected = screen == item,
                             onClick = { screen = item },
-                            icon = { Text(when (item) {
-                                Screen.OPERATIONS -> "⌂"
-                                Screen.VOICE -> "●"
-                                Screen.CONFIG -> "⚙"
-                            }) },
+                            icon = {
+                                Text(
+                                    when (item) {
+                                        Screen.OPERATIONS -> "⌂"
+                                        Screen.VOICE -> "●"
+                                        Screen.CONFIG -> "⚙"
+                                    }
+                                )
+                            },
                             label = { Text(item.title) }
                         )
                     }
                 }
             }
-        ) { padding ->
-            Box(modifier = Modifier.padding(padding).fillMaxSize()) {
+        ) { pad ->
+            Box(Modifier.padding(pad).fillMaxSize()) {
                 when (screen) {
-                    Screen.OPERATIONS -> OperationsScreen()
-                    Screen.VOICE -> VoiceScreen()
+                    Screen.OPERATIONS -> OperationsScreen(online, pending)
+                    Screen.VOICE -> VoiceScreen(online)
                     Screen.CONFIG -> ConfigScreen()
                 }
             }
@@ -239,80 +255,60 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun OperationsScreen() {
+    private fun ConnectionCard(online: Boolean, pending: Int) {
+        ElevatedCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Conexão", fontWeight = FontWeight.Bold)
+                Text(if (online) "Online — conectado à casa" else "Offline — o app continua disponível e tenta reconectar automaticamente")
+                if (pending > 0) Text("$pending comando(s) aguardando envio.")
+            }
+        }
+    }
+
+    @Composable
+    private fun OperationsScreen(online: Boolean, pending: Int) {
         val scope = rememberCoroutineScope()
         var command by remember { mutableStateOf("") }
-        var response by remember { mutableStateOf("Selecione uma operação ou envie um comando manual.") }
+        var response by remember { mutableStateOf("Pronto para operações manuais.") }
         var busy by remember { mutableStateOf(false) }
-        var connected by remember { mutableStateOf<Boolean?>(null) }
 
         fun send(text: String) {
             if (text.isBlank() || busy) return
             busy = true
-            response = "Executando: $text"
             scope.launch {
-                try {
-                    val answer = withContext(Dispatchers.IO) { JarvisApi.askJarvis(this@MainActivity, text) }
-                    response = answer.text.ifBlank { "Comando enviado." }
-                    playAudio(answer.audioUrl)
-                    connected = true
-                } catch (e: Exception) {
-                    connected = false
-                    response = "Falha ao comunicar com o JARVIS: ${e.message ?: "erro desconhecido"}"
-                } finally {
-                    busy = false
+                val result = withContext(Dispatchers.IO) {
+                    JarvisApi.sendOrQueue(this@MainActivity, text)
                 }
+                if (result.delivered) {
+                    response = result.answer?.text ?: "Comando executado."
+                    playAudio(result.answer?.audioUrl)
+                } else {
+                    response = result.message
+                }
+                busy = false
             }
         }
 
         Column(
-            modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
+            Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Estado da conexão", fontWeight = FontWeight.Bold)
-                    Text(when (connected) {
-                        true -> "JARVIS acessível"
-                        false -> "Sem comunicação com o JARVIS"
-                        null -> "Ainda não testado"
-                    })
-                    Button(onClick = {
-                        scope.launch {
-                            busy = true
-                            try {
-                                response = withContext(Dispatchers.IO) { JarvisApi.testConnection(this@MainActivity) }
-                                connected = true
-                            } catch (e: Exception) {
-                                connected = false
-                                response = "Teste falhou: ${e.message}"
-                            } finally { busy = false }
-                        }
-                    }, enabled = !busy) { Text("Testar conexão") }
-                }
-            }
-
+            ConnectionCard(online, pending)
             Text("Operações rápidas", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { send("Ligue a luz da sala") }, modifier = Modifier.weight(1f), enabled = !busy) { Text("Ligar luz") }
                 OutlinedButton(onClick = { send("Desligue a luz da sala") }, modifier = Modifier.weight(1f), enabled = !busy) { Text("Desligar luz") }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { send("Ligue a irrigação") }, modifier = Modifier.weight(1f), enabled = !busy) { Text("Irrigação ON") }
-                OutlinedButton(onClick = { send("Desligue a irrigação") }, modifier = Modifier.weight(1f), enabled = !busy) { Text("Irrigação OFF") }
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { send("Informe o status da casa") }, modifier = Modifier.weight(1f), enabled = !busy) { Text("Status") }
-                Button(onClick = { send("Qual a temperatura atual dos sensores?") }, modifier = Modifier.weight(1f), enabled = !busy) { Text("Temperatura") }
+                Button(onClick = { send("Qual a temperatura atual dos sensores?") }, modifier = Modifier.weight(1f), enabled = !busy) { Text("Sensores") }
             }
-
             HorizontalDivider()
-            Text("Comando manual", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             OutlinedTextField(
                 value = command,
                 onValueChange = { command = it },
-                label = { Text("Digite uma ordem para o JARVIS") },
                 modifier = Modifier.fillMaxWidth(),
+                label = { Text("Comando manual") },
                 minLines = 2
             )
             Button(
@@ -321,13 +317,12 @@ class MainActivity : ComponentActivity() {
                     command = ""
                     send(text)
                 },
-                enabled = command.isNotBlank() && !busy,
-                modifier = Modifier.fillMaxWidth()
-            ) { Text(if (busy) "Executando..." else "Executar") }
-
-            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                modifier = Modifier.fillMaxWidth(),
+                enabled = command.isNotBlank() && !busy
+            ) { Text(if (busy) "Processando..." else if (online) "Executar" else "Salvar na fila") }
+            ElevatedCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp)) {
-                    Text("Resposta", fontWeight = FontWeight.Bold)
+                    Text("Resultado", fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(6.dp))
                     Text(response)
                 }
@@ -336,58 +331,52 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun VoiceScreen() {
+    private fun VoiceScreen(online: Boolean) {
         val scope = rememberCoroutineScope()
         var heard by remember { mutableStateOf("") }
-        var answer by remember { mutableStateOf("Toque em Falar e faça seu pedido.") }
-        var listening by remember { mutableStateOf(false) }
+        var answer by remember { mutableStateOf(if (online) "Toque em Falar." else "Offline. A fala reconhecida será enfileirada para envio quando a conexão voltar.") }
         var busy by remember { mutableStateOf(false) }
+        var listening by remember { mutableStateOf(false) }
 
         fun submit(text: String) {
-            if (text.isBlank()) return
             busy = true
             scope.launch {
-                try {
-                    val result = withContext(Dispatchers.IO) { JarvisApi.askJarvis(this@MainActivity, text) }
-                    answer = result.text.ifBlank { "O JARVIS respondeu sem texto." }
-                    playAudio(result.audioUrl)
-                } catch (e: Exception) {
-                    answer = "Erro de comunicação: ${e.message ?: "falha desconhecida"}"
-                } finally {
-                    busy = false
+                val result = withContext(Dispatchers.IO) {
+                    JarvisApi.sendOrQueue(this@MainActivity, text)
                 }
+                if (result.delivered) {
+                    answer = result.answer?.text ?: "Comando executado."
+                    playAudio(result.answer?.audioUrl)
+                } else answer = result.message
+                busy = false
             }
         }
 
         Column(
-            modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
+            Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text("Conversa por voz", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text("Use o microfone do celular para falar com o JARVIS. A resposta pode ser reproduzida em áudio pela API.", textAlign = TextAlign.Center)
-
-            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+            Text("Voz", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text(if (online) "Conectado ao JARVIS" else "Modo offline — reconexão automática ativa")
+            ElevatedCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Você", fontWeight = FontWeight.Bold)
-                    Text(if (heard.isBlank()) "Nenhuma frase reconhecida ainda." else heard)
+                    Text(if (heard.isBlank()) "Nenhuma frase ainda." else heard)
                     HorizontalDivider()
                     Text("JARVIS", fontWeight = FontWeight.Bold)
                     Text(answer)
                 }
             }
-
             Button(
                 onClick = {
                     listening = true
                     answer = "Ouvindo..."
                     listen { text ->
                         listening = false
-                        if (text.isBlank()) {
-                            answer = "Não consegui reconhecer a fala. Verifique a permissão do microfone e tente novamente."
-                        } else {
+                        if (text.isBlank()) answer = "Não consegui reconhecer a fala."
+                        else {
                             heard = text
-                            answer = "Enviando para o JARVIS..."
                             submit(text)
                         }
                     }
@@ -396,17 +385,11 @@ class MainActivity : ComponentActivity() {
                 modifier = Modifier.fillMaxWidth().height(64.dp)
             ) {
                 Text(when {
-                    listening -> "Ouvindo..."
-                    busy -> "Processando..."
+                    listening -> "OUVINDO..."
+                    busy -> "PROCESSANDO..."
                     else -> "FALAR COM O JARVIS"
                 })
             }
-
-            OutlinedButton(
-                onClick = { playAudio(JarvisApi.lastAudioUrl) },
-                enabled = !JarvisApi.lastAudioUrl.isNullOrBlank(),
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("Repetir último áudio") }
         }
     }
 
@@ -420,72 +403,53 @@ class MainActivity : ComponentActivity() {
         var busy by remember { mutableStateOf(false) }
 
         Column(
-            modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
+            Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("Servidor JARVIS", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text("Configuração", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text("Use a URL HTTPS externa da API da casa. O aplicativo funciona offline e continuará tentando a conexão após salvar.")
             OutlinedTextField(
                 value = server,
                 onValueChange = { server = it },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("URL do servidor") },
-                placeholder = { Text("http://192.168.2.12") },
+                label = { Text("URL pública da casa") },
+                placeholder = { Text("https://seu-host") },
                 singleLine = true
             )
             OutlinedTextField(
                 value = token,
                 onValueChange = { token = it },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("Token do dispositivo Android") },
+                label = { Text("Token deste celular") },
                 singleLine = true
             )
-
             Button(
                 onClick = {
                     JarvisApi.saveConfig(this@MainActivity, server, token)
                     runCatching { startJarvisService() }
-                    status = "Configuração salva."
+                    status = "Configuração salva. Reconexão automática ativa."
                 },
                 modifier = Modifier.fillMaxWidth()
-            ) { Text("Salvar configuração") }
-
+            ) { Text("Salvar") }
             OutlinedButton(
                 onClick = {
                     JarvisApi.saveConfig(this@MainActivity, server, token)
                     busy = true
                     scope.launch {
-                        try {
-                            status = withContext(Dispatchers.IO) { JarvisApi.testConnection(this@MainActivity) }
+                        status = try {
+                            withContext(Dispatchers.IO) { JarvisApi.testConnection(this@MainActivity) }
                         } catch (e: Exception) {
-                            status = "Falha: ${e.message ?: "sem resposta"}"
-                        } finally { busy = false }
+                            "Sem conexão agora. O serviço continuará tentando automaticamente. ${e.message ?: ""}"
+                        }
+                        busy = false
                     }
                 },
-                enabled = !busy,
-                modifier = Modifier.fillMaxWidth()
-            ) { Text(if (busy) "Testando..." else "Testar servidor") }
-
-            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Estado", fontWeight = FontWeight.Bold)
-                    Text(status)
-                }
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !busy
+            ) { Text(if (busy) "Testando..." else "Testar agora") }
+            ElevatedCard(Modifier.fillMaxWidth()) {
+                Text(status, modifier = Modifier.padding(16.dp))
             }
-
-            HorizontalDivider()
-            Text("Relógio e conectividade", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text("O serviço mantém a ponte BLE para o relógio e consulta notificações do JARVIS em segundo plano.")
-            Button(onClick = { runCatching { startJarvisService() }; status = "Serviço JARVIS iniciado." }, modifier = Modifier.fillMaxWidth()) {
-                Text("Iniciar serviço JARVIS")
-            }
-            OutlinedButton(onClick = { openTetherSettings() }, modifier = Modifier.fillMaxWidth()) {
-                Text("Abrir compartilhamento de internet")
-            }
-
-            Text(
-                "Se estiver fora da rede local, configure aqui o endereço HTTPS público do JARVIS. Não use um token administrativo; use um token próprio do dispositivo Android.",
-                style = MaterialTheme.typography.bodySmall
-            )
         }
     }
 }
