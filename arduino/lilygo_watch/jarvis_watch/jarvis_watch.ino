@@ -21,8 +21,19 @@ bool connected = false;
 bool connecting = false;
 unsigned long lastReconnect = 0;
 String rxBuffer;
-String lastMessage = "Inicializando...";
+String lastMessage = "Inicializando sistema...";
 String connectionState = "OFFLINE";
+
+// LCARS claro: pensado para boa leitura no relógio em ambientes claros e escuros.
+static const uint16_t LCARS_BG       = 0xFFDF; // marfim claro
+static const uint16_t LCARS_TEXT     = 0x18C3; // grafite
+static const uint16_t LCARS_ORANGE   = 0xFBE0;
+static const uint16_t LCARS_SALMON   = 0xFB2C;
+static const uint16_t LCARS_LAVENDER = 0xB57F;
+static const uint16_t LCARS_BLUE     = 0x5D7F;
+static const uint16_t LCARS_GREEN    = 0x6E6B;
+static const uint16_t LCARS_RED      = 0xF9E7;
+static const uint16_t LCARS_MUTED    = 0x7BEF;
 
 class ClientCallbacks : public BLEClientCallbacks {
   void onConnect(BLEClient *client) override {
@@ -54,13 +65,13 @@ class ScanCallbacks : public BLEAdvertisedDeviceCallbacks {
   }
 };
 
-void drawWrapped(const String &text, int y, uint16_t color = TFT_WHITE) {
-  tft->setTextColor(color, TFT_BLACK);
+void drawWrapped(const String &text, int y, uint16_t color = LCARS_TEXT) {
+  tft->setTextColor(color, LCARS_BG);
   tft->setTextSize(1);
-  const int maxChars = 32;
+  const int maxChars = 31;
   int pos = 0;
   int line = 0;
-  while (pos < (int)text.length() && line < 8) {
+  while (pos < (int)text.length() && line < 3) {
     int end = min(pos + maxChars, (int)text.length());
     if (end < (int)text.length()) {
       int space = text.lastIndexOf(' ', end);
@@ -68,37 +79,53 @@ void drawWrapped(const String &text, int y, uint16_t color = TFT_WHITE) {
     }
     String part = text.substring(pos, end);
     part.trim();
-    tft->drawString(part, 8, y + line * 16, 2);
+    tft->drawString(part, 12, y + line * 15, 2);
     pos = end;
     while (pos < (int)text.length() && text[pos] == ' ') pos++;
     line++;
   }
 }
 
+void lcarsButton(int x, int y, int w, int h, uint16_t color, const char *label) {
+  tft->fillRoundRect(x, y, w, h, 11, color);
+  // O corte inferior dá aparência de segmento LCARS, sem imitar uma janela comum.
+  tft->fillRect(x + 10, y + h - 8, w - 10, 8, color);
+  tft->setTextColor(LCARS_TEXT, color);
+  tft->drawCentreString(label, x + (w / 2), y + 11, 2);
+}
+
 void drawUi() {
-  tft->fillScreen(TFT_BLACK);
-  tft->setTextColor(TFT_CYAN, TFT_BLACK);
-  tft->setTextSize(2);
-  tft->drawString("JARVIS", 10, 8, 2);
+  tft->fillScreen(LCARS_BG);
 
+  // Cabeçalho LCARS: a própria moldura funciona como indicador de estado.
+  tft->fillRoundRect(5, 5, 230, 43, 16, LCARS_ORANGE);
+  tft->fillRect(5, 25, 230, 23, LCARS_ORANGE);
+  tft->fillRect(5, 44, 48, 20, LCARS_ORANGE);
+  tft->fillRoundRect(5, 49, 48, 27, 12, LCARS_ORANGE);
+
+  tft->setTextColor(LCARS_TEXT, LCARS_ORANGE);
+  tft->drawString("JARVIS", 66, 10, 4);
   tft->setTextSize(1);
-  uint16_t statusColor = connected ? TFT_GREEN : TFT_RED;
-  tft->setTextColor(statusColor, TFT_BLACK);
-  tft->drawString(connectionState, 10, 38, 2);
+  tft->drawRightString("CASA", 226, 31, 2);
 
-  tft->drawRoundRect(8, 68, 108, 48, 8, TFT_BLUE);
-  tft->drawRoundRect(124, 68, 108, 48, 8, TFT_BLUE);
-  tft->drawRoundRect(8, 124, 108, 48, 8, TFT_BLUE);
-  tft->drawRoundRect(124, 124, 108, 48, 8, TFT_BLUE);
+  uint16_t statusColor = connected ? LCARS_GREEN : LCARS_RED;
+  tft->fillRoundRect(60, 52, 175, 20, 9, statusColor);
+  tft->setTextColor(LCARS_TEXT, statusColor);
+  tft->drawCentreString(connectionState, 147, 55, 2);
 
-  tft->setTextColor(TFT_WHITE, TFT_BLACK);
-  tft->drawCentreString("STATUS", 62, 84, 2);
-  tft->drawCentreString("LUZ SALA", 178, 84, 2);
-  tft->drawCentreString("TEMPERAT.", 62, 140, 2);
-  tft->drawCentreString("JARVIS", 178, 140, 2);
+  // Quatro funções principais. Grandes o suficiente para toque com o dedo.
+  lcarsButton(5,   82, 111, 42, LCARS_LAVENDER, "STATUS");
+  lcarsButton(124, 82, 111, 42, LCARS_SALMON,   "LUZ SALA");
+  lcarsButton(5,  132, 111, 42, LCARS_BLUE,     "TEMPERAT.");
+  lcarsButton(124,132, 111, 42, LCARS_ORANGE,   "JARVIS");
 
-  tft->drawFastHLine(8, 182, 224, TFT_DARKGREY);
-  drawWrapped(lastMessage, 190, TFT_LIGHTGREY);
+  // Moldura inferior usada como área funcional de resposta do sistema.
+  tft->fillRoundRect(5, 182, 230, 55, 14, LCARS_LAVENDER);
+  tft->fillRect(17, 182, 218, 55, LCARS_LAVENDER);
+  tft->fillRoundRect(14, 188, 215, 43, 9, LCARS_BG);
+  tft->setTextColor(LCARS_MUTED, LCARS_BG);
+  tft->drawString("RESPOSTA", 18, 190, 1);
+  drawWrapped(lastMessage, 201, LCARS_TEXT);
 }
 
 void handlePhoneJson(const String &jsonText) {
@@ -118,7 +145,7 @@ void handlePhoneJson(const String &jsonText) {
   } else if (strcmp(type, "status") == 0) {
     lastMessage = String(doc["message"] | (ok ? "Celular online" : "Celular offline"));
   } else if (strcmp(type, "queued") == 0) {
-    lastMessage = String("Offline: comando guardado no celular");
+    lastMessage = "Offline: comando guardado no celular";
   } else if (strcmp(type, "pong") == 0) {
     lastMessage = "Ponte BLE OK";
   } else {
@@ -235,7 +262,7 @@ void vibrateShort() {
 }
 
 void handleTouch(int x, int y) {
-  if (y >= 68 && y <= 116) {
+  if (y >= 82 && y <= 124) {
     if (x < 120) {
       sendStatus();
     } else {
@@ -246,7 +273,7 @@ void handleTouch(int x, int y) {
     return;
   }
 
-  if (y >= 124 && y <= 172) {
+  if (y >= 132 && y <= 174) {
     if (x < 120) {
       sendJarvis("Qual a temperatura atual dos sensores?");
     } else {
