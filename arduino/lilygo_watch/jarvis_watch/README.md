@@ -138,6 +138,8 @@ config.h
 
 O firmware procura pelo serviço BLE do JARVIS Mobile, conecta automaticamente e tenta reconectar quando a conexão é perdida.
 
+A implementação atual usa **NimBLE-Arduino** e não usa mais os headers BLE clássicos `BLEDevice.h`, `BLEUtils.h`, `BLEScan.h` e `BLEAdvertisedDevice.h` do Arduino-ESP32.
+
 ## Interface atual
 
 O firmware inclui quatro operações básicas de teste:
@@ -167,19 +169,28 @@ Alvo inicial:
 LILYGO T-Watch 2020 V3
 ```
 
-Biblioteca:
+Ambiente recomendado:
 
 ```text
-LilyGoWatch
+Placa: ESP32 Dev Module
+ESP32 by Espressif Systems: 2.0.14
 ```
 
-Também utiliza BLE do ESP32 e ArduinoJson.
+Bibliotecas:
+
+```text
+TTGO_TWatch_Library / LilyGoWatch
+ArduinoJson
+NimBLE-Arduino 2.x
+```
+
+No Arduino IDE, instale `NimBLE-Arduino` pelo Gerenciador de Bibliotecas. Não instale `ESP32_BLE_Arduino`; ela é uma biblioteca antiga e entra em conflito com os componentes do core ESP32.
 
 ## Estado
 
 | Recurso | Estado |
 |---|---|
-| BLE Watch -> Android | Implementado |
+| BLE Watch -> Android | Implementado com NimBLE |
 | Reconexão BLE | Implementado |
 | Comando texto -> JARVIS | Implementado |
 | Estado online/offline | Implementado |
@@ -189,4 +200,4 @@ Também utiliza BLE do ESP32 e ArduinoJson.
 | Reprodução de áudio JARVIS no Watch | Pendente |
 
 > [!WARNING]
-> O firmware precisa ser validado no hardware físico T-Watch. Código compilável e protocolo definido não comprovam funcionamento elétrico, áudio ou BLE em todos os ambientes.
+> O firmware precisa ser validado no hardware físico T-Watch. O código foi migrado para NimBLE para evitar a dependência da API BLE clássica, mas a compilação e o funcionamento no dispositivo ainda precisam ser confirmados no ambiente Arduino do hardware real.
