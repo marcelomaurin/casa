@@ -1,0 +1,105 @@
+name: Deploy CASA to Hostinger
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master ]
+    paths:
+      - 'site/var/www/html/**'
+      - '.github/workflows/deploy-hostinger.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare web package
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf deploy-hostinger
+          mkdir -p deploy-hostinger
+          cp -a site/var/www/html/. deploy-hostinger/
+          rm -f deploy-hostinger/api/config.local.php
+
+      - name: Create private production config
+        shell: bash
+        env:
+          DB_HOST: ${{ secrets.HOSTINGER_DB_HOST }}
+          DB_PORT: ${{ secrets.HOSTINGER_DB_PORT }}
+          DB_NAME: ${{ secrets.HOSTINGER_DB_NAME }}
+          DB_USER: ${{ secrets.HOSTINGER_DB_USER }}
+          DB_PASS: ${{ secrets.HOSTINGER_DB_PASS }}
+          API_TOKEN: ${{ secrets.HOSTINGER_SYSTEM_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$DB_HOST"
+          test -n "$DB_NAME"
+          test -n "$DB_USER"
+          test -n "$DB_PASS"
+          test -n "$API_TOKEN"
+          PORT="${DB_PORT:-3306}"
+          php -r '
+            $cfg = [
+              "db_host" => getenv("DB_HOST"),
+              "db_port" => getenv("PORT") ?: "3306",
+              "db_name" => getenv("DB_NAME"),
+              "db_user" => getenv("DB_USER"),
+              "db_pass" => getenv("DB_PASS"),
+              "db_charset" => "utf8mb4",
+              "system_api_token" => getenv("API_TOKEN"),
+            ];
+            file_put_contents("deploy-hostinger/api/config.local.php", "<?php\nreturn " . var_export($cfg, true) . ";\n");
+          '
+        env:
+          DB_HOST: ${{ secrets.HOSTINGER_DB_HOST }}
+          PORT: ${{ secrets.HOSTINGER_DB_PORT }}
+          DB_NAME: ${{ secrets.HOSTINGER_DB_NAME }}
+          DB_USER: ${{ secrets.HOSTINGER_DB_USER }}
+          DB_PASS: ${{ secrets.HOSTINGER_DB_PASS }}
+          API_TOKEN: ${{ secrets.HOSTINGER_SYSTEM_API_TOKEN }}
+
+      - name: Configure SSH
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.HOSTINGER_SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.HOSTINGER_SSH_HOST }}
+          SSH_PORT: ${{ secrets.HOSTINGER_SSH_PORT }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          PORT="${SSH_PORT:-22}"
+          ssh-keyscan -p "$PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Deploy web files only
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.HOSTINGER_SSH_HOST }}
+          SSH_PORT: ${{ secrets.HOSTINGER_SSH_PORT }}
+          SSH_USER: ${{ secrets.HOSTINGER_SSH_USER }}
+          REMOTE_PATH: ${{ secrets.HOSTINGER_REMOTE_PATH }}
+        run: |
+          set -euo pipefail
+          PORT="${SSH_PORT:-22}"
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          test -n "$REMOTE_PATH"
+          rsync -az --delete \
+            --exclude='.git' \
+            --exclude='.env' \
+            -e "ssh -p $PORT" \
+            deploy-hostinger/ \
+            "$SSH_USER@$SSH_HOST:$REMOTE_PATH/"
+
+      - name: Smoke test
+        shell: bash
+        run: |
+          curl --fail --silent --show-error --max-time 20 https://casa.maurinsoft.com.br/ >/dev/null
