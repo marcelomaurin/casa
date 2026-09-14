@@ -17,29 +17,160 @@ O firmware trata o T-Watch como smartwatch JARVIS com mostradores, launcher, voz
 
 O T-Watch 2020 V3 usado neste projeto não fornece câmera, GPS nem alto-falante de reprodução ao firmware. Câmera, GPS, vídeo e áudio de resposta usam o celular/site; o relógio oferece microfone, texto e vibração.
 
+## Arquitetura por eventos e máquinas de estado
+
+A revisão atual passa a usar um controlador central orientado a eventos.
+
+```text
+hardware / RTC / touch / botão / comunicação
+                    |
+                    v
+             JarvisEventQueue
+                    |
+                    v
+            JarvisController
+             /      |       \
+            v       v        v
+      PowerSM    AlarmSM   NetworkSM
+            \       |        /
+             \      |       /
+                    v
+                 UI atual
+```
+
+Arquivos:
+
+```text
+jarvis_events.h/.cpp
+jarvis_power_sm.h/.cpp
+jarvis_alarm_sm.h/.cpp
+jarvis_network_sm.h/.cpp
+jarvis_controller.h/.cpp
+```
+
+A fila suporta prioridades `LOW`, `NORMAL`, `HIGH` e `CRITICAL`. Eventos críticos podem substituir eventos menos importantes caso a fila esteja cheia. O controlador processa no máximo 12 eventos por ciclo para impedir starvation de touch e renderização.
+
+Eventos já previstos incluem:
+
+```text
+BUTTON_SHORT / BUTTON_LONG
+TOUCH_TAP
+SWIPE_LEFT / RIGHT / UP / DOWN
+SCREEN_TIMEOUT
+ALARM_TRIGGER / ALARM_STOP
+WIFI_SCAN_REQUEST / SCAN_DONE / CONNECTED / FAILED
+BLE_CONNECTED / BLE_DISCONNECTED
+VOICE_START / STOP / RESULT
+CALL_START / INCOMING / ACCEPT / END
+SOS / CHECKIN
+INTERNAL_ERROR
+```
+
+O ISR do botão físico apenas levanta uma flag. O evento real é criado no `loop()`, evitando manipulação de `String`, display, PMIC ou fila dentro da interrupção.
+
 ## Estabilidade / prevenção de travamentos
 
 A revisão atual remove operações bloqueantes do caminho principal sempre que possível:
 
 - scan de Wi-Fi assíncrono;
-- conexão Wi-Fi iniciada sem aguardar em loop na tela de configuração;
+- conexão Wi-Fi por `NetworkStateMachine`, com deadline e sem espera longa na UI;
 - captura PDM processada em pequenas leituras no `loop()`;
-- alarme por máquina de estados, sem sequência longa de `delay()`;
+- alarme por `AlarmStateMachine`, sem sequência longa de `delay()`;
+- controle de display/deep sleep pela `PowerStateMachine`;
 - timeouts curtos para HTTPS;
 - validação de ponteiros de hardware antes de uso;
 - botão físico com debounce;
 - touch ignorado com tela apagada;
-- botão físico também configurado como fonte de wake no modo de economia.
+- botão físico configurado como fonte de wake;
+- fila de eventos com contador de eventos descartados, exibido na tela STATUS.
 
-Não existe `try/catch` útil para a maior parte do firmware Arduino porque a configuração embarcada normalmente compila C++ sem exceções. O tratamento é feito por retorno de erro, timeout e máquinas de estado.
+Não existe `try/catch` útil para a maior parte do firmware Arduino porque a configuração embarcada normalmente compila C++ sem exceções. O tratamento é feito por retorno de erro, timeout, isolamento de drivers e máquinas de estado.
+
+O `loop()` agora tem responsabilidade reduzida: lê hardware, gera eventos, atualiza módulos e retorna rapidamente. Não deve existir `while` aguardando rede nem `delay` longo em uma máquina de estado.
+
+## PowerStateMachine
+
+Estados:
+
+```text
+SCREEN_ON
+SCREEN_OFF
+PREPARE_SLEEP
+DEEP_SLEEP
+```
+
+Responsabilidades:
+
+- botão físico alterna tela ON/OFF;
+- touch apenas renova atividade com tela ligada;
+- timeout apaga a tela;
+- `ALARME`, `CALL_INCOMING` e `SOS` acordam a tela;
+- modo ULTRA entra em deep sleep após período com tela apagada.
+
+## AlarmStateMachine
+
+Estados:
+
+```text
+IDLE
+WAITING
+RINGING
+SNOOZE
+```
+
+O RTC gera `EVT_TICK_1S`. Ao chegar ao horário configurado, a máquina gera `EVT_ALARM_TRIGGER` de prioridade alta. O padrão de vibração avança por tempo, sem bloquear o loop. O usuário confirma com `EVT_ALARM_STOP`.
+
+## NetworkStateMachine
+
+Estados:
+
+```text
+OFFLINE
+IDLE
+SCANNING
+SELECTING
+CONNECTING
+CONNECTED
+ERROR
+```
+
+A busca e a associação Wi-Fi agora pertencem à máquina de rede. A UI solicita a operação e recebe eventos de conclusão/erro.
+
+```text
+UI -> WIFI_SCAN_REQUEST
+        |
+        v
+     SCANNING
+        |
+        +--> WIFI_SCAN_DONE -> lista de SSIDs
+
+senha salva
+        |
+        v
+    CONNECTING
+      /     \
+     v       v
+CONNECTED  ERROR
+```
+
+## Voice e Call
+
+O controlador já possui estados comuns para voz e chamada:
+
+```text
+VOICE: IDLE -> LISTENING -> SENDING -> WAITING -> PLAYING / ERROR
+CALL : IDLE -> DIALING -> RINGING -> CONNECTING -> ACTIVE -> ENDING / ERROR
+```
+
+Nesta etapa eles já recebem eventos e refletem estado no controlador, mas a migração completa do transporte de voz e da videochamada para classes próprias será feita depois da validação desta base no hardware.
 
 ## Botão físico
 
 O botão PEK/AXP202 é a chave principal da tela:
 
 ```text
-pressionar -> apaga a tela
-pressionar -> acende a tela
+pressionar -> EVT_BUTTON_SHORT -> PowerStateMachine
+                               -> apaga/acende tela
 ```
 
 O firmware usa `AXP202_PEK_SHORTPRESS_IRQ`, conforme o mecanismo oficial da biblioteca do T-Watch. No modo ULTRA o botão também pode acordar o ESP32 do deep sleep.
@@ -53,6 +184,8 @@ para baixo           -> retorna
 botão físico          -> tela ON/OFF
 ```
 
+Gestos também geram eventos, mesmo enquanto a UI existente continua tratando a navegação. Isso permite migrar a interface para `UiStateMachine` sem reescrever tudo de uma vez.
+
 ## Launcher
 
 ```text
@@ -65,21 +198,22 @@ CASA    PASSOS  STATUS  CONFIG
 Em `CONFIG -> WIFI`:
 
 1. toque em `BUSCAR`;
-2. o Watch faz scan sem congelar a UI;
-3. mostra as redes por RSSI;
-4. toque no SSID;
-5. abre teclado touch;
-6. `PAG` alterna minúsculas/maiúsculas/números e símbolos;
-7. `APAGA` corrige a senha;
-8. `SALVAR` grava a rede e inicia a associação Wi-Fi sem bloquear a interface.
+2. a UI gera `EVT_WIFI_SCAN_REQUEST`;
+3. `NetworkStateMachine` faz scan assíncrono;
+4. `EVT_WIFI_SCAN_DONE` atualiza a lista;
+5. toque no SSID;
+6. abre teclado touch;
+7. digite a senha;
+8. `SALVAR` persiste o perfil e coloca a máquina em `CONNECTING`;
+9. a UI continua responsiva até `WIFI_CONNECTED` ou `WIFI_FAILED`.
 
 Até cinco redes conhecidas podem ser armazenadas. Redes desconhecidas nunca são conectadas automaticamente.
 
 ## Voz / JARVIS
 
-A captura de voz PDM não bloqueia mais a interface inteira por quase dois segundos. O estado é processado no loop.
+A captura de voz PDM não bloqueia a interface inteira. O controlador recebe `EVT_VOICE_START`, `EVT_VOICE_STOP` e `EVT_VOICE_RESULT`.
 
-A tela de voz permite escolher a saída da resposta:
+A tela permite escolher:
 
 - `CELULAR`: resposta falada no smartphone;
 - `TEXTO`: somente texto/feedback visual;
@@ -91,20 +225,18 @@ Fluxo:
 Watch microfone -> celular -> STT -> JARVIS/IA -> celular/Watch
 ```
 
-O T-Watch não reproduz voz diretamente porque não há saída de alto-falante disponível nesta configuração de hardware.
-
 ## Alarme
 
-O alarme local usa RTC e funciona sem Internet. Agora possui seleção de padrão:
+O alarme local usa RTC e funciona sem Internet. Padrões:
 
 - `CURTO`;
 - `DUPLO`;
 - `URGENTE`;
 - `CELULAR`.
 
-Os três primeiros são padrões de vibração do próprio Watch. `CELULAR` solicita toque sonoro no telefone quando o transporte Watch <-> Android estiver ativo.
+Os três primeiros são padrões de vibração. `CELULAR` solicita toque sonoro no telefone quando o transporte estiver ativo.
 
-A vibração foi reescrita sem sequência bloqueante de `delay()`.
+Quando está tocando, o botão da tela de alarme passa a mostrar `PARAR ALARME`.
 
 ## Câmera e videochamada
 
@@ -113,13 +245,7 @@ A tela `CAMERA / VIDEO` oferece:
 - `FOTOGRAFAR`: usa a câmera do celular;
 - `VIDEO FAMILIA`: cria/inicia chamada no canal Família CASA.
 
-Se o celular estiver conectado por BLE, o pedido é encaminhado ao Android. Se BLE estiver indisponível mas o Watch estiver conectado ao Wi-Fi e configurado com token próprio, ele cria a chamada diretamente em:
-
-```text
-/casa/api/v1/family.php?acao=call_start
-```
-
-Como o Watch não tem câmera, o vídeo sempre vem do celular/site.
+A ação de chamada já gera `EVT_CALL_START` e atualiza o estado da chamada no controlador. Como o Watch não tem câmera, o vídeo vem do celular/site.
 
 ## GPS
 
@@ -133,7 +259,7 @@ Perfis:
 - ECO
 - ULTRA
 
-O modo ULTRA limita brilho, aumenta o intervalo do loop, apaga o display e pode entrar em deep sleep. O botão físico é fonte de wake-up; o movimento pelo BMA423 continua opcional.
+O modo ULTRA limita brilho, apaga o display e pode entrar em deep sleep. A decisão agora pertence à `PowerStateMachine`.
 
 ## Canal Família e assistência
 
@@ -152,19 +278,24 @@ A camada de assistência continua separada em `jarvis_assistance.*`. Alertas de 
 
 | Recurso | Estado |
 |---|---|
+| EventQueue prioritária | Implementada |
+| JarvisController | Implementado |
+| PowerStateMachine | Implementada e integrada |
+| AlarmStateMachine | Implementada e integrada |
+| NetworkStateMachine | Implementada e integrada |
+| Voice state | Estrutura integrada; migração completa pendente |
+| Call state | Estrutura integrada; migração completa pendente |
+| UiStateMachine separada | Próxima etapa após validação |
 | Skins / swipe / launcher | Implementado |
-| Botão físico tela ON/OFF | Implementado; validar hardware |
-| Alarme não bloqueante | Implementado |
-| Seleção de padrão do alarme | Implementado |
+| Botão físico tela ON/OFF | Agora passa pela PowerSM; validar hardware |
+| Seleção de padrão do alarme | Implementada |
 | Microfone PDM não bloqueante | Implementado; validar hardware |
-| Saída de resposta voz celular/texto/ambos | Interface implementada |
-| Busca Wi-Fi | Implementada assíncrona |
+| Busca Wi-Fi | Gerenciada pela NetworkSM |
 | Teclado de senha Wi-Fi | Implementado |
-| Associação Wi-Fi após salvar | Implementada sem espera bloqueante |
 | Videochamada Família | Pedido via BLE ou Wi-Fi/site implementado |
 | Foto remota | UI implementada; depende do transporte Android |
 | GPS | depende do transporte Android |
-| BLE Watch -> Android | ainda precisa implementação GATT estável no Watch |
-| Assistência/SOS | módulo disponível; integração completa ainda pendente |
+| BLE Watch -> Android | transporte GATT estável do Watch ainda pendente |
+| Assistência/SOS | módulo disponível; integração completa ao EventQueue ainda pendente |
 
-> Esta revisão precisa ser compilada no ambiente ESP32 2.0.14 e validada no T-Watch físico. A prioridade do teste é: botão, touch, Wi-Fi, microfone e estabilidade por pelo menos 30 minutos.
+> Esta revisão precisa ser compilada no ambiente ESP32 2.0.14 e validada no T-Watch físico antes da próxima migração. Prioridade do teste: botão, timeout, alarme, touch, Wi-Fi e estabilidade por pelo menos 30 minutos.
