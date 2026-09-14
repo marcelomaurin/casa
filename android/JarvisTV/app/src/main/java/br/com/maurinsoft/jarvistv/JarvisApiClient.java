@@ -16,6 +16,7 @@ import okhttp3.Response;
 
 public class JarvisApiClient {
     private static final MediaType JSON = MediaType.get("application/json; charset=utf-8");
+    private static final String DEFAULT_BASE_URL = "https://casa.maurinsoft.com.br";
     private final Context context;
     private final OkHttpClient client;
 
@@ -34,8 +35,8 @@ public class JarvisApiClient {
     }
 
     private String baseUrl() {
-        String value = prefs().getString(MainActivity.KEY_URL, "");
-        if (value == null) return "";
+        String value = prefs().getString(MainActivity.KEY_URL, DEFAULT_BASE_URL);
+        if (value == null || value.trim().isEmpty()) value = DEFAULT_BASE_URL;
         value = value.trim().replaceAll("/+$", "");
         if (value.endsWith("/api/v1")) return value.substring(0, value.length() - 7);
         return value;
@@ -51,7 +52,7 @@ public class JarvisApiClient {
     }
 
     private Request.Builder requestBuilder(String path) {
-        if (!isConfigured()) throw new IllegalStateException("Configure URL HTTPS e token da TV");
+        if (!isConfigured()) throw new IllegalStateException("Configure o token da TV");
         return new Request.Builder()
                 .url(baseUrl() + path)
                 .header("Authorization", "Bearer " + token())
