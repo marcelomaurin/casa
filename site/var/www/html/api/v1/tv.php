@@ -32,7 +32,7 @@ try {
 
 $alerts = [];
 try {
-    $stmt = $pdo->query("SELECT id,tipo_evento AS tipo,severidade,mensagem,dispositivo,criado_em FROM assistencia_eventos WHERE confirmado=0 ORDER BY CASE severidade WHEN 'critica' THEN 0 WHEN 'alta' THEN 1 ELSE 2 END, criado_em DESC LIMIT 20");
+    $stmt = $pdo->query("SELECT id,tipo,severidade,mensagem,dispositivo_ref AS dispositivo,criado_em FROM assistencia_eventos WHERE confirmado=0 ORDER BY CASE severidade WHEN 'critica' THEN 0 WHEN 'alta' THEN 1 ELSE 2 END, criado_em DESC LIMIT 20");
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) $alerts[] = $r;
 } catch (Throwable $e) {}
 
