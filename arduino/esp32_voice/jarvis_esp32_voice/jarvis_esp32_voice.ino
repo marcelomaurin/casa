@@ -2,7 +2,7 @@
  * JARVIS RESIDENCIAL - SATELITE DE VOZ ESP32
  *
  * Arquitetura distribuida:
- *  - dominio central: https://casa.maurinsoft.com.br
+ *  - dominio central: https://maurinsoft.com.br/casa
  *  - cada dispositivo possui DEVICE_ID e token individual
  *  - capacidades declaradas permitem roteamento logico pelo CASA
  */
@@ -16,7 +16,7 @@
 const char* ssid = "SUA_REDE_WIFI";
 const char* password = "SUA_SENHA_WIFI";
 
-const char* jarvis_server = "https://casa.maurinsoft.com.br";
+const char* jarvis_server = "https://maurinsoft.com.br/casa";
 const char* device_id = "esp32-voice-sala";
 const char* device_token = "TOKEN_INDIVIDUAL_DO_ESP32_VOICE";
 const char* device_name = "ESP32 Voice Sala";
