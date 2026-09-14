@@ -37,8 +37,6 @@ class BleBridge(private val context: Context) {
         const val KEY_LAST_WATCH = "last_watch"
         const val KEY_LAST_SEEN = "last_seen"
 
-        const val ACTION_WATCH_CAMERA = "br.com.maurinsoft.jarvismobile.WATCH_CAMERA"
-        const val EXTRA_WATCH_REQUEST = "watch_request"
         private const val CHANNEL_WATCH = "jarvis_watch_actions"
         private const val CAMERA_NOTIFICATION_ID = 1401
 
@@ -144,9 +142,22 @@ class BleBridge(private val context: Context) {
 
     fun connectedCount(): Int = synchronized(connected) { connected.size }
 
-    fun broadcastStatus() {
-        val payload = statusPayload().toString()
-        synchronized(connected) { connected.toList() }.forEach { notify(it, payload) }
+    fun broadcastStatus() = broadcast(statusPayload())
+
+    fun broadcastCameraResult(ok: Boolean, path: String = "") {
+        broadcast(
+            JSONObject()
+                .put("ok", ok)
+                .put("type", "camera_result")
+                .put("message", if (ok) "Foto capturada no celular" else "Captura cancelada")
+                .put("local_path", if (ok) path else JSONObject.NULL)
+                .put("protocol", PROTOCOL_VERSION)
+        )
+    }
+
+    private fun broadcast(payload: JSONObject) {
+        val text = payload.toString()
+        synchronized(connected) { connected.toList() }.forEach { notify(it, text) }
     }
 
     private val advertiseCallback = object : AdvertiseCallback() {}
@@ -309,9 +320,7 @@ class BleBridge(private val context: Context) {
 
     private fun cameraPayload(): JSONObject {
         createWatchChannel()
-        val intent = Intent(context, MainActivity::class.java).apply {
-            action = ACTION_WATCH_CAMERA
-            putExtra(EXTRA_WATCH_REQUEST, true)
+        val intent = Intent(context, WatchCameraActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
         val pending = PendingIntent.getActivity(
@@ -323,7 +332,7 @@ class BleBridge(private val context: Context) {
         val notification = NotificationCompat.Builder(context, CHANNEL_WATCH)
             .setSmallIcon(R.drawable.ic_jarvis_launcher)
             .setContentTitle("JARVIS Watch")
-            .setContentText("O relógio solicitou a câmera. Toque para abrir.")
+            .setContentText("O relógio solicitou a câmera. Toque para fotografar.")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setContentIntent(pending)
