@@ -78,6 +78,10 @@ class JarvisConnectionService : Service() {
             .notify(NOTIFICATION_ID, serviceNotification(text))
     }
 
+    private fun notifyWatchState() {
+        runCatching { bleBridge?.broadcastStatus() }
+    }
+
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
             evaluateNetwork(network)
@@ -90,6 +94,7 @@ class JarvisConnectionService : Service() {
         override fun onLost(network: Network) {
             jarvisOnline = false
             updateServiceNotification("Offline — aguardando reconexão")
+            notifyWatchState()
             if (lastWifiState) {
                 lastWifiState = false
                 scope.launch {
@@ -132,16 +137,27 @@ class JarvisConnectionService : Service() {
     private fun startConnectionLoop() {
         scope.launch {
             var retryDelay = 5_000L
+            var lastPublishedState: Boolean? = null
+
             while (isActive) {
                 if (!JarvisApi.isConfigured(this@JarvisConnectionService)) {
                     jarvisOnline = false
                     updateServiceNotification("Configure a URL e o token do JARVIS")
+                    if (lastPublishedState != false) {
+                        notifyWatchState()
+                        lastPublishedState = false
+                    }
                     delay(10_000L)
                     continue
                 }
 
                 val online = JarvisApi.isOnline(this@JarvisConnectionService)
                 jarvisOnline = online
+
+                if (lastPublishedState != online) {
+                    notifyWatchState()
+                    lastPublishedState = online
+                }
 
                 if (online) {
                     retryDelay = 5_000L
@@ -156,6 +172,7 @@ class JarvisConnectionService : Service() {
                         else -> "Online — conectado ao JARVIS"
                     }
                     updateServiceNotification(msg)
+                    notifyWatchState()
 
                     runCatching {
                         JarvisApi.getNotifications(this@JarvisConnectionService).forEach { n ->
@@ -170,6 +187,7 @@ class JarvisConnectionService : Service() {
                         if (pending > 0) "Offline — $pending comando(s) na fila; tentando reconectar"
                         else "Offline — tentando reconectar"
                     )
+                    notifyWatchState()
                     delay(retryDelay)
                     retryDelay = (retryDelay * 2).coerceAtMost(30_000L)
                 }
