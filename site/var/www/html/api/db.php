@@ -2,7 +2,7 @@
 // Banco central do JARVIS/CASA.
 // Produção Hostinger: MySQL/MariaDB via config.local.php privado ou variáveis de ambiente.
 // Banco atual: u820932905_casa | usuário: u820932905_mmaurin
-// A senha nunca deve ser versionada no Git.
+// A senha do MySQL nunca deve ser versionada no Git.
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -37,6 +37,126 @@ function cfg_value(string $configKey, string $envKey, ?string $default = null): 
     return ($value === false || $value === '') ? $default : $value;
 }
 
+function cfg_bool(string $configKey, string $envKey, bool $default = true): bool {
+    $value = cfg_value($configKey, $envKey, $default ? '1' : '0');
+    return !in_array(strtolower((string)$value), ['0', 'false', 'off', 'no'], true);
+}
+
+function casa_required_tables(): array {
+    return [
+        'configuracoes_sistema', 'usuarios', 'devices', 'devpar',
+        'sensores_telemetria', 'falas', 'frases', 'llm_conversas',
+        'comandos_log', 'arm_nodes', 'dispositivos_cluster', 'iot_leituras',
+        'camera_eventos', 'seguranca_logs', 'seguranca_ips_bloqueados',
+        'agentes_externos', 'api_client_tokens', 'api_v1_rate_limit',
+        'api_v1_security_log', 'mobile_eventos', 'mobile_notificacoes',
+        'watch_notificacoes', 'internet_pesquisas', 'jarvis_planos',
+        'jarvis_tarefas', 'tarefas_agendadas'
+    ];
+}
+
+function casa_missing_tables(PDO $pdo): array {
+    $dbName = (string)$pdo->query('SELECT DATABASE()')->fetchColumn();
+    if ($dbName === '') {
+        throw new RuntimeException('Nenhum banco MySQL selecionado.');
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = :db'
+    );
+    $stmt->execute([':db' => $dbName]);
+    $existing = array_fill_keys($stmt->fetchAll(PDO::FETCH_COLUMN), true);
+
+    $missing = [];
+    foreach (casa_required_tables() as $table) {
+        if (!isset($existing[$table])) {
+            $missing[] = $table;
+        }
+    }
+    return $missing;
+}
+
+function casa_execute_schema_file(PDO $pdo, string $file): void {
+    if (!is_file($file)) {
+        throw new RuntimeException('Arquivo de schema MySQL não encontrado: ' . basename($file));
+    }
+
+    $lines = file($file, FILE_IGNORE_NEW_LINES);
+    if ($lines === false) {
+        throw new RuntimeException('Não foi possível ler o schema MySQL.');
+    }
+
+    $statement = '';
+    foreach ($lines as $line) {
+        $trim = trim($line);
+        if ($trim === '' || strpos($trim, '--') === 0) {
+            continue;
+        }
+
+        $statement .= $line . "\n";
+        if (substr(rtrim($trim), -1) === ';') {
+            $sql = trim($statement);
+            $statement = '';
+            if ($sql !== '') {
+                $pdo->exec($sql);
+            }
+        }
+    }
+
+    if (trim($statement) !== '') {
+        $pdo->exec($statement);
+    }
+}
+
+function ensure_database_schema(PDO $pdo): void {
+    static $checked = false;
+    if ($checked || !cfg_bool('auto_init_db', 'JARVIS_AUTO_INIT_DB', true)) {
+        return;
+    }
+    $checked = true;
+
+    $missing = casa_missing_tables($pdo);
+    if (empty($missing)) {
+        return;
+    }
+
+    // Evita duas requisições simultâneas tentando montar o banco na primeira execução.
+    $lockName = 'casa_jarvis_schema_install';
+    try {
+        $lock = $pdo->prepare('SELECT GET_LOCK(:lock_name, 20)');
+        $lock->execute([':lock_name' => $lockName]);
+        $acquired = (int)$lock->fetchColumn() === 1;
+    } catch (Throwable $e) {
+        $acquired = true; // Alguns provedores podem restringir GET_LOCK; CREATE IF NOT EXISTS continua idempotente.
+    }
+
+    if (!$acquired) {
+        throw new RuntimeException('Timeout aguardando instalação automática do banco.');
+    }
+
+    try {
+        // Outra requisição pode ter terminado a instalação enquanto aguardávamos o lock.
+        $missing = casa_missing_tables($pdo);
+        if (!empty($missing)) {
+            casa_execute_schema_file($pdo, __DIR__ . '/schema_mysql.sql');
+        }
+
+        $remaining = casa_missing_tables($pdo);
+        if (!empty($remaining)) {
+            throw new RuntimeException(
+                'Instalação automática incompleta. Tabelas ausentes: ' . implode(', ', $remaining)
+            );
+        }
+    } finally {
+        try {
+            $unlock = $pdo->prepare('SELECT RELEASE_LOCK(:lock_name)');
+            $unlock->execute([':lock_name' => $lockName]);
+        } catch (Throwable $e) {
+            // Ignorar em hospedagens que não suportam named locks.
+        }
+    }
+}
+
 function get_db_pdo(): PDO {
     static $pdo = null;
     if ($pdo instanceof PDO) {
@@ -63,6 +183,7 @@ function get_db_pdo(): PDO {
         PDO::ATTR_EMULATE_PREPARES => false,
     ]);
 
+    ensure_database_schema($pdo);
     return $pdo;
 }
 
