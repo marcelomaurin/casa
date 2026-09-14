@@ -1,0 +1,9 @@
+<resources>
+    <style name="Theme.JarvisTV" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:colorAccent">#4FC3F7</item>
+        <item name="android:navigationBarColor">#101820</item>
+        <item name="android:windowBackground">#101820</item>
+    </style>
+</resources>
