@@ -1,0 +1,3 @@
+# CASA/JARVIS - logs internos
+# Impede acesso HTTP direto aos arquivos de log.
+Require all denied
