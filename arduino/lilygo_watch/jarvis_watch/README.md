@@ -1,214 +1,94 @@
 # JARVIS Watch — LILYGO T-Watch 2020 V3
 
-[![UI](https://img.shields.io/badge/UI-LCARS-orange.svg)]()
-[![Touch](https://img.shields.io/badge/touch-enabled-green.svg)]()
-[![Mode](https://img.shields.io/badge/mode-standalone-yellow.svg)]()
-
-## Visão geral
-
-O **JARVIS Watch** é o cliente vestível do projeto CASA/JARVIS. Nesta etapa o firmware foi reorganizado para funcionar de forma confiável no T-Watch sem depender de bibliotecas BLE externas.
-
-A interface atual é totalmente orientada a toque e usa um layout LCARS claro, com alto contraste para leitura em ambientes iluminados.
+O firmware passa a tratar o T-Watch como um relógio JARVIS completo, com prioridade para voz, baixo consumo, interação rápida e operação vestível.
 
 ## Hardware alvo
 
-```text
-LILYGO T-Watch 2020 V3
-Placa Arduino: ESP32 Dev Module
-ESP32 by Espressif Systems: 2.0.14
-```
+- LILYGO T-Watch 2020 V3
+- ESP32 Dev Module / core ESP32 2.0.14
+- TFT ST7789 240x240
+- touch FT6336
+- RTC PCF8563
+- PMIC AXP202
+- acelerômetro BMA423
+- motor de vibração
+- microfone digital PDM SPM1423 (DATA GPIO2, CLK GPIO0)
 
-Bibliotecas utilizadas nesta etapa:
+O firmware principal continua sem dependência de `ESP32_BLE_Arduino`, `NimBLE-Arduino` ou `ArduinoBLE`.
 
-```text
-TTGO_TWatch_Library / LilyGoWatch
-Preferences (incluída no core ESP32)
-```
+## Design LCARS vestível
 
-Não é necessário instalar:
-
-```text
-ESP32_BLE_Arduino
-NimBLE-Arduino
-ArduinoBLE
-```
-
-## Interface por toque
-
-A tela inicial possui quatro áreas funcionais:
+A tela inicial foi simplificada para quatro ações grandes, adequadas ao uso no pulso:
 
 ```text
-CASA       SENSORES
-JARVIS     STATUS
+FALAR        CASA
+ATIVIDADE    STATUS
 ```
 
-O segmento inferior direito abre o painel `CONFIG`.
+O rodapé mostra `CONFIG` e o estado do celular. A linguagem visual mantém LCARS claro, alto contraste, áreas grandes de toque e informação curta.
 
-### CASA
+## Voz / IA — função principal
 
-Painel preparado para ações rápidas:
+`FALAR` abre a tela dedicada de voz. O relógio inicializa o microfone PDM nativo e mede/captura atividade de voz a 16 kHz. O fluxo visual possui estados `TOQUE PARA FALAR`, `OUVINDO`, `VOZ DETECTADA` e falha/ausência de voz.
 
-- Luz da sala
-- Luz do quarto
-- Portão
-- Cena noite
-
-Enquanto a comunicação externa estiver desativada, os botões continuam funcionando como interface e retornam estado `offline` em vez de travar o sistema.
-
-### SENSORES
-
-Exibe informações locais disponíveis no relógio:
-
-- nível da bateria;
-- estado de carga;
-- estado da comunicação;
-- indicação de telemetria remota.
-
-### JARVIS
-
-Tela de comandos rápidos preparada para:
-
-- status da casa;
-- estado das luzes;
-- temperatura;
-- ajuda.
-
-### STATUS
-
-Mostra diagnóstico local:
-
-- T-Watch ativo;
-- touch ativo;
-- bateria;
-- uptime.
-
-## Painel de configuração
-
-A nova tela `CONFIG` permite alterar parâmetros diretamente pelo touch.
-
-### Brilho
-
-Botões `-` e `+` ajustam a iluminação usando `TTGOClass::setBrightness()`.
-
-O valor é gravado na memória persistente do ESP32 através de `Preferences`.
-
-### Vibração
-
-Pode ser ligada ou desligada pelo usuário.
-
-A configuração também é persistida.
-
-### Timeout da tela
-
-Modos disponíveis:
+A arquitetura prevista é:
 
 ```text
-15 s
-30 s
-60 s
-NUNCA
+microfone T-Watch -> detecção/captura -> celular -> STT/IA JARVIS -> resposta
 ```
 
-Quando o timeout é atingido, o backlight é desligado. Um novo toque acorda a tela sem executar acidentalmente o comando que estava sob o dedo.
+Nesta revisão a captura/detecção local do microfone foi implementada. A transmissão de áudio e o reconhecimento STT completo dependem da reativação do transporte Watch <-> Android. O firmware não finge reconhecimento local quando o gateway não está disponível.
 
-### Ajuste do relógio
+## Detecção do celular
 
-A tela `RELOGIO` permite ajustar diretamente o RTC:
+A interface de transporte `jarvis_ble` permanece desacoplada. A UI já diferencia `CELULAR OK`, `SEM CELULAR`, `CELULAR DETECTADO` e `CELULAR NAO DETECTADO`. O Android já possui o GATT server `JARVIS-PHONE`; a próxima camada é religar o transporte no relógio sem voltar à biblioteca BLE conflitante.
 
-- hora -;
-- hora +;
-- minuto -;
-- minuto +;
-- dia +;
-- mês +.
+## Economia de energia
 
-O ajuste usa o RTC interno do T-Watch.
+Há três perfis persistentes:
 
-### Restaurar padrão
+- `NORMAL`: resposta e brilho normais;
+- `ECO`: padrão do relógio, reduz brilho e frequência do loop;
+- `ULTRA`: brilho limitado, timeout agressivo e entrada em deep sleep após inatividade.
 
-O botão `PADRAO` retorna para:
+O backlight é desligado no timeout. Em `ULTRA`, depois de um período apagado o ESP32 entra em deep sleep e utiliza o BMA423/INT GPIO39 como fonte de wake-up. A opção `PULSO ON/OFF` controla a preparação dos recursos de movimento para acordar o relógio.
 
-```text
-Brilho: 180
-Vibração: ligada
-Timeout: 30 segundos
-```
+## Funções de relógio
 
-## Navegação
-
-As telas internas possuem botões inferiores:
-
-```text
-VOLTAR
-HOME
-```
-
-Todos os toques válidos podem gerar feedback por vibração, quando esta opção estiver habilitada.
-
-## Estrutura do firmware
-
-```text
-jarvis_watch.ino   interface, touch, RTC, bateria e configurações
-config.h           configuração do hardware e constantes do projeto
-jarvis_ble.h       interface abstrata de comunicação
-jarvis_ble.cpp     implementação standalone atual
-```
-
-O arquivo principal não inclui nenhuma biblioteca Bluetooth.
-
-## Comunicação externa
-
-A camada externa foi propositalmente desacoplada.
-
-Nesta versão:
-
-```text
-Watch UI -> jarvis_ble interface -> standalone/offline
-```
-
-Na próxima etapa poderemos implementar novamente:
-
-```text
-Watch -> Android -> HTTPS -> CASA/JARVIS
-```
-
-sem alterar toda a interface gráfica.
-
-Os UUIDs BLE anteriores permanecem reservados em `config.h` para futura compatibilidade com o aplicativo Android.
+- hora e data via RTC;
+- ajuste de hora/minuto/dia/mês pelo touch;
+- bateria e carga;
+- brilho configurável;
+- vibração configurável;
+- timeout de tela;
+- wake por movimento/pulso preparado pelo BMA423;
+- contador de passos BMA423;
+- meta visual de 6.000 passos;
+- uptime e diagnóstico;
+- configurações persistentes em `Preferences`;
+- atalhos da casa e cenas;
+- interface de voz prioritária.
 
 ## Segurança
 
-O relógio não deve armazenar:
+O relógio não armazena senha Wi-Fi, token mestre da CASA, credenciais de banco ou chave RunPod. A inferência remota deve passar pelo aplicativo/gateway autorizado.
 
-```text
-SSID da residência
-senha Wi-Fi
-token mestre da API
-credenciais de banco de dados
-chaves RunPod
-segredos de serviços externos
-```
-
-A arquitetura continua prevendo que credenciais de infraestrutura fiquem fora do firmware do relógio.
-
-## Estado atual
+## Estado
 
 | Recurso | Estado |
 |---|---|
-| Interface LCARS | Implementado |
-| Touch screen | Implementado |
-| Navegação entre telas | Implementado |
-| Bateria | Implementado |
-| RTC / hora e data | Implementado |
-| Ajuste de horário | Implementado |
-| Controle de brilho | Implementado |
-| Vibração configurável | Implementado |
-| Timeout de tela | Implementado |
-| Configuração persistente | Implementado |
-| Controles da casa | Interface pronta, comunicação pendente |
-| JARVIS remoto | Interface pronta, comunicação pendente |
-| BLE Watch -> Android | Temporariamente desativado |
-| Áudio Watch -> Android | Pendente |
+| LCARS touch | Implementado |
+| RTC / bateria | Implementado |
+| Perfis NORMAL/ECO/ULTRA | Implementado |
+| Timeout/backlight | Implementado |
+| Deep sleep | Implementado |
+| BMA423 / passos | Implementado |
+| Wake por movimento | Preparado/necessita validação física |
+| Microfone PDM | Implementado/necessita validação física |
+| Detecção de atividade de voz | Implementado |
+| STT/IA por voz | Fluxo preparado; transporte Android pendente |
+| Detecção visual do celular | Integrada à interface de transporte |
+| BLE Watch -> Android | Transporte do relógio ainda desativado |
+| Controles CASA | UI pronta; depende do transporte |
 
-> [!WARNING]
-> O firmware precisa ser validado no hardware físico após cada alteração. A compilação confirma compatibilidade de API, mas os limites exatos de brilho, sensibilidade do touch e comportamento de energia devem ser conferidos no T-Watch real.
+> O firmware precisa ser compilado e validado no T-Watch físico. Em especial, PDM, wake-up por BMA423 e consumo em deep sleep precisam de teste no hardware antes de serem considerados validados.
