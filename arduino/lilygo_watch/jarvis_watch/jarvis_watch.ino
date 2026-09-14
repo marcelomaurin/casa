@@ -1,21 +1,18 @@
 #include "config.h"
-#include <BLEDevice.h>
-#include <BLEUtils.h>
-#include <BLEScan.h>
-#include <BLEAdvertisedDevice.h>
+#include <NimBLEDevice.h>
 #include <ArduinoJson.h>
 
 TTGOClass *watch = nullptr;
 TFT_eSPI *tft = nullptr;
 
-static BLEUUID serviceUUID(JARVIS_BLE_SERVICE_UUID);
-static BLEUUID rxUUID(JARVIS_BLE_RX_UUID);
-static BLEUUID txUUID(JARVIS_BLE_TX_UUID);
+static const NimBLEUUID serviceUUID(JARVIS_BLE_SERVICE_UUID);
+static const NimBLEUUID rxUUID(JARVIS_BLE_RX_UUID);
+static const NimBLEUUID txUUID(JARVIS_BLE_TX_UUID);
 
-BLEClient *bleClient = nullptr;
-BLERemoteCharacteristic *rxChar = nullptr;
-BLERemoteCharacteristic *txChar = nullptr;
-BLEAdvertisedDevice *phoneDevice = nullptr;
+NimBLEClient *bleClient = nullptr;
+NimBLERemoteCharacteristic *rxChar = nullptr;
+NimBLERemoteCharacteristic *txChar = nullptr;
+const NimBLEAdvertisedDevice *phoneDevice = nullptr;
 
 bool connected = false;
 bool connecting = false;
@@ -42,8 +39,8 @@ static const uint16_t LCARS_GREEN    = 0x6E6B;
 static const uint16_t LCARS_RED      = 0xF9E7;
 static const uint16_t LCARS_MUTED    = 0x7BEF;
 
-class ClientCallbacks : public BLEClientCallbacks {
-  void onConnect(BLEClient *client) override {
+class ClientCallbacks : public NimBLEClientCallbacks {
+  void onConnect(NimBLEClient *client) override {
     connected = true;
     connecting = false;
     connectionState = "BLE OK";
@@ -51,30 +48,31 @@ class ClientCallbacks : public BLEClientCallbacks {
     drawUi();
   }
 
-  void onDisconnect(BLEClient *client) override {
+  void onDisconnect(NimBLEClient *client, int reason) override {
     connected = false;
     connecting = false;
     rxChar = nullptr;
     txChar = nullptr;
+    phoneDevice = nullptr;
     connectionState = "SEM BLE";
     lastMessage = "Celular desconectado";
     drawUi();
   }
 };
 
-class ScanCallbacks : public BLEAdvertisedDeviceCallbacks {
-  void onResult(BLEAdvertisedDevice advertisedDevice) override {
-    if (!advertisedDevice.haveServiceUUID()) return;
-    if (!advertisedDevice.isAdvertisingService(serviceUUID)) return;
+ClientCallbacks clientCallbacks;
 
-    if (phoneDevice) {
-      delete phoneDevice;
-      phoneDevice = nullptr;
-    }
-    phoneDevice = new BLEAdvertisedDevice(advertisedDevice);
-    BLEDevice::getScan()->stop();
+class ScanCallbacks : public NimBLEScanCallbacks {
+  void onResult(const NimBLEAdvertisedDevice *advertisedDevice) override {
+    if (!advertisedDevice) return;
+    if (!advertisedDevice->isAdvertisingService(serviceUUID)) return;
+
+    phoneDevice = advertisedDevice;
+    NimBLEDevice::getScan()->stop();
   }
 };
+
+ScanCallbacks scanCallbacks;
 
 String twoDigits(uint8_t value) {
   return value < 10 ? "0" + String(value) : String(value);
@@ -119,34 +117,28 @@ void drawClockStatus() {
   int batt = batteryPercent();
   bool charging = watch->power && watch->power->isChargeing();
 
-  // Limpa somente a área superior para evitar redesenhar toda a tela a cada segundo.
   tft->fillRect(0, 0, 240, 76, LCARS_BG);
 
-  // Barra superior LCARS.
   tft->fillRoundRect(5, 5, 230, 48, 16, LCARS_ORANGE);
   tft->fillRect(5, 25, 230, 28, LCARS_ORANGE);
   tft->fillRect(5, 49, 42, 20, LCARS_ORANGE);
   tft->fillRoundRect(5, 54, 42, 22, 10, LCARS_ORANGE);
 
-  // Hora grande.
   String hhmm = twoDigits(now.hour) + ":" + twoDigits(now.minute);
   tft->setTextColor(LCARS_TEXT, LCARS_ORANGE);
   tft->drawString(hhmm, 55, 7, 4);
 
-  // Data e identificação da interface.
   String dateText = dayName(now.day, now.month, now.year) + "  " +
                     twoDigits(now.day) + "/" + twoDigits(now.month);
   tft->setTextColor(LCARS_TEXT, LCARS_ORANGE);
   tft->drawString(dateText, 55, 34, 2);
   tft->drawRightString("JARVIS", 226, 34, 2);
 
-  // Estado BLE em segmento funcional.
   uint16_t statusColor = connected ? LCARS_GREEN : (connecting ? LCARS_LAVENDER : LCARS_RED);
   tft->fillRoundRect(52, 57, 91, 17, 8, statusColor);
   tft->setTextColor(LCARS_TEXT, statusColor);
   tft->drawCentreString(connectionState, 97, 59, 1);
 
-  // Bateria sempre visível.
   drawBatteryIcon(151, 59, batt, charging);
   tft->setTextColor(LCARS_TEXT, LCARS_BG);
   String battText = batt >= 0 ? String(batt) + "%" : "--%";
@@ -182,7 +174,6 @@ void lcarsButton(int x, int y, int w, int h, uint16_t color, const char *label) 
 }
 
 void drawMessagePanel() {
-  // Área inferior: moldura LCARS usada para mensagens e respostas.
   tft->fillRoundRect(5, 164, 230, 73, 14, LCARS_LAVENDER);
   tft->fillRect(17, 164, 218, 73, LCARS_LAVENDER);
   tft->fillRoundRect(14, 170, 215, 61, 9, LCARS_BG);
@@ -195,7 +186,6 @@ void drawUi() {
   tft->fillScreen(LCARS_BG);
   drawClockStatus();
 
-  // Quatro funções principais.
   lcarsButton(5,   82, 111, 32, LCARS_LAVENDER, "STATUS");
   lcarsButton(124, 82, 111, 32, LCARS_SALMON,   "LUZ SALA");
   lcarsButton(5,  122, 111, 32, LCARS_BLUE,     "TEMPERAT.");
@@ -231,7 +221,7 @@ void handlePhoneJson(const String &jsonText) {
 }
 
 static void notifyCallback(
-  BLERemoteCharacteristic *characteristic,
+  NimBLERemoteCharacteristic *characteristic,
   uint8_t *data,
   size_t length,
   bool isNotify
@@ -252,15 +242,19 @@ static void notifyCallback(
 
 bool connectPhone() {
   if (connecting || connected) return connected;
+
   connecting = true;
   connectionState = "PROCURANDO";
   drawClockStatus();
 
-  BLEScan *scan = BLEDevice::getScan();
-  scan->setAdvertisedDeviceCallbacks(new ScanCallbacks(), true);
+  NimBLEScan *scan = NimBLEDevice::getScan();
+  scan->setScanCallbacks(&scanCallbacks, false);
   scan->setActiveScan(true);
+  scan->setInterval(100);
+  scan->setWindow(100);
+
   phoneDevice = nullptr;
-  scan->start(4, false);
+  scan->start(4000, false, true);
 
   if (!phoneDevice) {
     connecting = false;
@@ -270,8 +264,8 @@ bool connectPhone() {
   }
 
   if (!bleClient) {
-    bleClient = BLEDevice::createClient();
-    bleClient->setClientCallbacks(new ClientCallbacks());
+    bleClient = NimBLEDevice::createClient();
+    bleClient->setClientCallbacks(&clientCallbacks, false);
   }
 
   if (!bleClient->connect(phoneDevice)) {
@@ -281,7 +275,7 @@ bool connectPhone() {
     return false;
   }
 
-  BLERemoteService *service = bleClient->getService(serviceUUID);
+  NimBLERemoteService *service = bleClient->getService(serviceUUID);
   if (!service) {
     bleClient->disconnect();
     connecting = false;
@@ -296,7 +290,15 @@ bool connectPhone() {
     return false;
   }
 
-  if (txChar->canNotify()) txChar->registerForNotify(notifyCallback);
+  if (txChar->canNotify()) {
+    if (!txChar->subscribe(true, notifyCallback)) {
+      bleClient->disconnect();
+      connecting = false;
+      connectionState = "FALHA NOTIFY";
+      drawClockStatus();
+      return false;
+    }
+  }
 
   connected = true;
   connecting = false;
@@ -312,7 +314,21 @@ bool sendJson(const String &json) {
     drawMessagePanel();
     return false;
   }
-  rxChar->writeValue((uint8_t *)json.c_str(), json.length(), true);
+
+  bool ok = rxChar->writeValue(
+    (const uint8_t *)json.c_str(),
+    json.length(),
+    true
+  );
+
+  if (!ok) {
+    connected = false;
+    connectionState = "FALHA ENVIO";
+    lastMessage = "Falha ao enviar para o celular";
+    drawUi();
+    return false;
+  }
+
   return true;
 }
 
@@ -370,12 +386,10 @@ void setup() {
   watch->openBL();
   tft = watch->tft;
 
-  // RTC interno: preserva horário mesmo quando o celular estiver desconectado.
   if (watch->rtc) {
     watch->rtc->check();
   }
 
-  // Habilita leitura da bateria pela AXP202.
   if (watch->power) {
     watch->power->adc1Enable(
       AXP202_VBUS_VOL_ADC1 |
@@ -386,7 +400,7 @@ void setup() {
     );
   }
 
-  BLEDevice::init(JARVIS_WATCH_NAME);
+  NimBLEDevice::init(JARVIS_WATCH_NAME);
   drawUi();
   connectPhone();
 }
@@ -397,7 +411,6 @@ void loop() {
     connectPhone();
   }
 
-  // Atualiza hora, data, bateria e BLE uma vez por segundo sem repintar o restante.
   if (millis() - lastClockRefresh >= 1000) {
     lastClockRefresh = millis();
     drawClockStatus();
