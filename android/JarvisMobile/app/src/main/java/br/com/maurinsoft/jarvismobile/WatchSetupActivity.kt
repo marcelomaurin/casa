@@ -1,6 +1,7 @@
 package br.com.maurinsoft.jarvismobile
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.wifi.WifiManager
 import android.os.Build
@@ -91,6 +92,11 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
         ) {
             Text("JARVIS Watch", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text(statusState)
+            Button(
+                onClick = { startActivity(Intent(this@WatchSetupActivity, NewDevicesActivity::class.java)) },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("NOVOS DEVICES / CONFIGURAR EQUIPAMENTOS") }
+
             ElevatedCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Bluetooth", fontWeight = FontWeight.Bold)
