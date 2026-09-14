@@ -23,7 +23,9 @@ function family_input(): array {
 
 $action = $_GET['acao'] ?? 'status';
 $readActions = ['status','poll','presence','call_poll','call_current'];
-$client = api_v1_auth_client($pdo, [in_array($action,$readActions,true) ? 'mobile.read' : 'mobile.write']);
+$client = api_v1_auth_client_any($pdo, in_array($action,$readActions,true)
+    ? ['family.read','mobile.read','watch.read']
+    : ['family.write','mobile.write','watch.write']);
 $input = family_input();
 $channel = family_channel($pdo, $input['channel'] ?? ($_GET['channel'] ?? 'familia'));
 $clientName = $client['nome'] ?? 'cliente';
