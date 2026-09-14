@@ -1,5 +1,5 @@
 <?php
-// JARVIS RESIDENCIAL - API EXTERNA v1 PARA APP ANDROID
+// CASA/JARVIS - API EXTERNA v1 PARA APP ANDROID - MySQL
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: DENY');
@@ -57,12 +57,12 @@ if ($acao === 'network_event') {
 
     try {
         $stmt = $pdo->prepare("INSERT INTO mobile_eventos (id_dispositivo, tipo, descricao, dados)
-            VALUES (:d, :t, :x, CAST(:j AS jsonb))");
+            VALUES (:d, :t, :x, :j)");
         $stmt->execute([
             ':d' => $deviceId ?: null,
             ':t' => $tipo,
             ':x' => $descricao,
-            ':j' => json_encode($dados, JSON_UNESCAPED_UNICODE)
+            ':j' => json_encode($dados, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
         ]);
         api_v1_log($pdo, 'MOBILE_NETWORK_EVENT', 'INFO', $client['nome'], ['tipo'=>$tipo]);
         echo json_encode(['status' => 'ok']);
@@ -78,14 +78,14 @@ if ($acao === 'notificacoes') {
             $stmt = $pdo->prepare("SELECT id, titulo, mensagem, audio_url, prioridade, data_hora
                 FROM mobile_notificacoes
                 WHERE (id_dispositivo IS NULL OR id_dispositivo = :id)
-                  AND entregue = FALSE
+                  AND entregue = 0
                 ORDER BY CASE prioridade WHEN 'critica' THEN 1 WHEN 'alta' THEN 2 ELSE 3 END, data_hora ASC
                 LIMIT 10");
             $stmt->execute([':id' => intval($deviceId)]);
         } else {
             $stmt = $pdo->query("SELECT id, titulo, mensagem, audio_url, prioridade, data_hora
                 FROM mobile_notificacoes
-                WHERE id_dispositivo IS NULL AND entregue = FALSE
+                WHERE id_dispositivo IS NULL AND entregue = 0
                 ORDER BY CASE prioridade WHEN 'critica' THEN 1 WHEN 'alta' THEN 2 ELSE 3 END, data_hora ASC
                 LIMIT 10");
         }
@@ -104,12 +104,12 @@ if ($acao === 'ack') {
     try {
         if ($deviceId) {
             $stmt = $pdo->prepare("UPDATE mobile_notificacoes
-                SET entregue=TRUE, lida=TRUE, data_entrega=CURRENT_TIMESTAMP, data_leitura=CURRENT_TIMESTAMP
+                SET entregue=1, lida=1, data_entrega=CURRENT_TIMESTAMP, data_leitura=CURRENT_TIMESTAMP
                 WHERE id=:nid AND (id_dispositivo IS NULL OR id_dispositivo=:did)");
             $stmt->execute([':nid'=>$id, ':did'=>intval($deviceId)]);
         } else {
             $stmt = $pdo->prepare("UPDATE mobile_notificacoes
-                SET entregue=TRUE, lida=TRUE, data_entrega=CURRENT_TIMESTAMP, data_leitura=CURRENT_TIMESTAMP
+                SET entregue=1, lida=1, data_entrega=CURRENT_TIMESTAMP, data_leitura=CURRENT_TIMESTAMP
                 WHERE id=:nid AND id_dispositivo IS NULL");
             $stmt->execute([':nid'=>$id]);
         }
