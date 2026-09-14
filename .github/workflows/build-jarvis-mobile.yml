@@ -60,8 +60,23 @@ jobs:
       - name: Build debug APK
         run: gradle --no-daemon :app:assembleDebug
 
+      - name: Detect version
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(python3 - <<'PY'
+          import re
+          from pathlib import Path
+          txt = Path('app/build.gradle.kts').read_text()
+          m = re.search(r'versionName\s*=\s*"([^"]+)"', txt)
+          print(m.group(1) if m else 'unknown')
+          PY
+          )
+          echo "name=$VERSION" >> "$GITHUB_OUTPUT"
+
       - name: Rename APK
         run: |
+          cp app/build/outputs/apk/debug/app-debug.apk ../../JarvisMobile-v${{ steps.version.outputs.name }}-debug.apk
           cp app/build/outputs/apk/debug/app-debug.apk ../../JarvisMobile-debug.apk
 
       - name: Version APK in repository
@@ -69,23 +84,25 @@ jobs:
         shell: bash
         run: |
           cp JarvisMobile-debug.apk /tmp/JarvisMobile-debug.apk
+          cp JarvisMobile-v${{ steps.version.outputs.name }}-debug.apk /tmp/JarvisMobile-versioned.apk
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin master
           git reset --hard origin/master
           mkdir -p bin/android
           cp /tmp/JarvisMobile-debug.apk bin/android/JarvisMobile-debug.apk
-          git add bin/android/JarvisMobile-debug.apk
+          cp /tmp/JarvisMobile-versioned.apk bin/android/JarvisMobile-v${{ steps.version.outputs.name }}-debug.apk
+          git add bin/android/
           if git diff --cached --quiet; then
             echo "APK sem alteracoes; nada para commitar."
           else
-            git commit -m "Atualiza APK Jarvis Mobile [skip ci]"
+            git commit -m "Atualiza APK Jarvis Mobile v${{ steps.version.outputs.name }} [skip ci]"
             git push origin HEAD:master
           fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: JarvisMobile-debug-apk
-          path: JarvisMobile-debug.apk
+          name: JarvisMobile-v${{ steps.version.outputs.name }}-debug-apk
+          path: JarvisMobile-v${{ steps.version.outputs.name }}-debug.apk
           if-no-files-found: error
