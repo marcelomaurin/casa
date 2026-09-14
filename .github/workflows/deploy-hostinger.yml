@@ -15,7 +15,7 @@ env:
   HOSTINGER_SSH_HOST: 185.211.7.4
   HOSTINGER_SSH_PORT: '65002'
   HOSTINGER_SSH_USER: u820932905
-  CASA_DOMAIN: casa.maurinsoft.com.br
+  CASA_BASE_URL: https://maurinsoft.com.br/casa
 
 jobs:
   deploy:
@@ -41,7 +41,7 @@ jobs:
           # Production credentials stay only on the Hostinger server.
           rm -f deploy-hostinger/api/config.local.php
 
-      - name: Discover Hostinger document root
+      - name: Discover Hostinger CASA directory
         id: remote
         shell: bash
         env:
@@ -49,42 +49,41 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$SSHPASS"
-
           SSH="sshpass -e ssh -o StrictHostKeyChecking=accept-new -p $HOSTINGER_SSH_PORT"
 
           REMOTE_PATH="$($SSH "$HOSTINGER_SSH_USER@$HOSTINGER_SSH_HOST" 'bash -s' <<'EOS'
           set -e
-          DOMAIN="casa.maurinsoft.com.br"
-
           candidates=(
-            "$HOME/domains/$DOMAIN/public_html"
             "$HOME/domains/maurinsoft.com.br/public_html/casa"
-            "$HOME/public_html"
+            "$HOME/public_html/casa"
           )
 
           for p in "${candidates[@]}"; do
-            if [ -d "$p" ]; then
+            parent="$(dirname "$p")"
+            if [ -d "$parent" ]; then
+              mkdir -p "$p"
               printf '%s\n' "$p"
               exit 0
             fi
           done
 
-          found="$(find "$HOME" -maxdepth 5 -type d \( -path "*/$DOMAIN/public_html" -o -path "*/public_html/casa" \) 2>/dev/null | head -n 1)"
-          if [ -n "$found" ]; then
-            printf '%s\n' "$found"
+          root="$(find "$HOME" -maxdepth 5 -type d -path '*/maurinsoft.com.br/public_html' 2>/dev/null | head -n 1)"
+          if [ -n "$root" ]; then
+            mkdir -p "$root/casa"
+            printf '%s\n' "$root/casa"
             exit 0
           fi
 
-          echo "Nao foi possivel localizar o document root de $DOMAIN" >&2
+          echo "Nao foi possivel localizar o public_html de maurinsoft.com.br" >&2
           exit 1
           EOS
           )"
 
           test -n "$REMOTE_PATH"
           echo "path=$REMOTE_PATH" >> "$GITHUB_OUTPUT"
-          echo "Document root localizado."
+          echo "Diretorio CASA localizado: $REMOTE_PATH"
 
-      - name: Deploy web files only
+      - name: Deploy CASA web files
         shell: bash
         env:
           SSHPASS: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
@@ -111,11 +110,12 @@ jobs:
           set -euo pipefail
           sshpass -e ssh -o StrictHostKeyChecking=accept-new -p "$HOSTINGER_SSH_PORT" \
             "$HOSTINGER_SSH_USER@$HOSTINGER_SSH_HOST" \
-            "test -f '$REMOTE_PATH/index.php' && test -d '$REMOTE_PATH/api'"
+            "test -f '$REMOTE_PATH/index.php' && test -f '$REMOTE_PATH/info.php' && test -d '$REMOTE_PATH/api'"
 
       - name: Smoke test
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error --max-time 20 "https://$CASA_DOMAIN/" >/dev/null
-          echo "CASA publicado em https://$CASA_DOMAIN"
+          curl --fail --silent --show-error --max-time 20 "$CASA_BASE_URL/" >/dev/null
+          curl --fail --silent --show-error --max-time 20 "$CASA_BASE_URL/info.php" >/dev/null
+          echo "CASA publicado em $CASA_BASE_URL/"
