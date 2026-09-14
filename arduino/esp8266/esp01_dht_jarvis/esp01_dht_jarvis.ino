@@ -3,7 +3,7 @@
  * Hardware: ESP-01 / ESP8266 + DHT22 (padrao) ou DHT11
  *
  * Runtime distribuido:
- *   Telemetria -> https://casa.maurinsoft.com.br
+ *   Telemetria -> https://maurinsoft.com.br/casa
  *   Cada dispositivo deve possuir token individual.
  *
  * Ligacao sugerida:
@@ -22,7 +22,7 @@
 const char* WIFI_SSID = "SUA_REDE_WIFI";
 const char* WIFI_PASSWORD = "SUA_SENHA_WIFI";
 
-const char* JARVIS_URL = "https://casa.maurinsoft.com.br/api/iot_sensor.php";
+const char* JARVIS_URL = "https://maurinsoft.com.br/casa/api/iot_sensor.php";
 const char* DEVICE_ID = "esp01-dht-01";
 const char* DEVICE_TOKEN = "TOKEN_INDIVIDUAL_DO_ESP01";
 const char* DEVICE_CAPABILITIES = "temperature,humidity,rssi,telemetry";
