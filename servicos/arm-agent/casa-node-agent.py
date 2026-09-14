@@ -2,7 +2,7 @@
 """
 CASA INTELIGENTE - AGENTE DISTRIBUIDO PARA NOS ARM
 
-Cada Raspberry/Orange Pi/Rock Pi se registra em casa.maurinsoft.com.br com
+Cada Raspberry/Orange Pi/Rock Pi se registra em maurinsoft.com.br/casa com
 identidade, token individual e lista de capacidades. Nao existe mestre por IP
 fixo; a API central coordena os nos e a execucao permanece distribuida.
 """
@@ -15,7 +15,7 @@ import threading
 import urllib.request
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-CASA_BASE_URL = os.environ.get("CASA_BASE_URL", "https://casa.maurinsoft.com.br").rstrip("/")
+CASA_BASE_URL = os.environ.get("CASA_BASE_URL", "https://maurinsoft.com.br/casa").rstrip("/")
 MASTER_URL = os.environ.get("JARVIS_MASTER_URL", CASA_BASE_URL + "/api/crud.php")
 DEVICE_ID = os.environ.get("JARVIS_DEVICE_ID", socket.gethostname()).strip()
 DEVICE_TOKEN = os.environ.get("JARVIS_DEVICE_TOKEN", "").strip()
