@@ -11,6 +11,7 @@ import androidx.core.app.ActivityCompat
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
+import java.util.ArrayDeque
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
@@ -60,6 +61,11 @@ class WatchClient(private val context: Context) {
     private val listeners = CopyOnWriteArrayList<Listener>()
     private var scanning = false
 
+    private val writeLock = Any()
+    private val writeQueue = ArrayDeque<ByteArray>()
+    private var writeInProgress = false
+    private var gattReady = false
+
     fun addListener(listener: Listener) { listeners += listener }
     fun removeListener(listener: Listener) { listeners -= listener }
 
@@ -103,6 +109,11 @@ class WatchClient(private val context: Context) {
         if (canConnect()) runCatching { gatt?.disconnect() }
         runCatching { gatt?.close() }
         gatt = null; control = null; events = null
+        synchronized(writeLock) {
+            writeQueue.clear()
+            writeInProgress = false
+            gattReady = false
+        }
         val e = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_CONNECTED, false)
         if (forget) e.remove(KEY_ADDRESS).remove(KEY_NAME)
         e.apply()
@@ -111,17 +122,63 @@ class WatchClient(private val context: Context) {
     fun requestRssi() { if (canConnect()) runCatching { gatt?.readRemoteRssi() } }
 
     fun send(json: JSONObject): Boolean {
-        val g = gatt ?: return false
-        val c = control ?: return false
         if (!canConnect()) return false
+        if (gatt == null || control == null) return false
         val bytes = (json.toString() + "\n").toByteArray(Charsets.UTF_8)
-        if (bytes.size > 180) return false // provisioning grande deve ser enviado perfil a perfil.
-        return if (Build.VERSION.SDK_INT >= 33) {
+        if (bytes.size > 180) {
+            listeners.forEach { it.onError("Mensagem BLE excede 180 bytes") }
+            return false
+        }
+        synchronized(writeLock) { writeQueue.addLast(bytes) }
+        drainWriteQueue()
+        return true
+    }
+
+    private fun drainWriteQueue() {
+        val g: BluetoothGatt
+        val c: BluetoothGattCharacteristic
+        val bytes: ByteArray
+        synchronized(writeLock) {
+            if (!gattReady || writeInProgress || writeQueue.isEmpty()) return
+            g = gatt ?: return
+            c = control ?: return
+            bytes = writeQueue.peekFirst() ?: return
+            writeInProgress = true
+        }
+
+        val started = if (Build.VERSION.SDK_INT >= 33) {
             g.writeCharacteristic(c, bytes, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) == BluetoothStatusCodes.SUCCESS
         } else {
             @Suppress("DEPRECATION")
-            run { c.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT; c.value = bytes; g.writeCharacteristic(c) }
+            run {
+                c.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                c.value = bytes
+                g.writeCharacteristic(c)
+            }
         }
+
+        if (!started) {
+            synchronized(writeLock) {
+                if (writeQueue.isNotEmpty()) writeQueue.removeFirst()
+                writeInProgress = false
+            }
+            listeners.forEach { it.onError("Falha ao iniciar escrita BLE") }
+            drainWriteQueue()
+        }
+    }
+
+    private fun markGattReady(g: BluetoothGatt) {
+        synchronized(writeLock) { gattReady = true }
+        val name = if (canConnect()) runCatching { g.device.name }.getOrNull() ?: WATCH_NAME else WATCH_NAME
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString(KEY_ADDRESS, g.device.address)
+            .putString(KEY_NAME, name)
+            .putBoolean(KEY_CONNECTED, true)
+            .putLong(KEY_LAST_SEEN, System.currentTimeMillis())
+            .apply()
+        listeners.forEach { it.onConnectionChanged(true, name, g.device.address) }
+        send(JSONObject().put("type", "hello").put("protocol", "2.0").put("client", "JARVIS Mobile"))
+        drainWriteQueue()
     }
 
     fun sendPhoneState(wifi: Boolean, ssid: String?, internet: Boolean): Boolean = send(JSONObject()
@@ -167,6 +224,11 @@ class WatchClient(private val context: Context) {
                 }
             } else {
                 control = null; events = null
+                synchronized(writeLock) {
+                    writeQueue.clear()
+                    writeInProgress = false
+                    gattReady = false
+                }
                 context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_CONNECTED, false).apply()
                 listeners.forEach { it.onConnectionChanged(false, savedName(context), savedAddress(context)) }
             }
@@ -180,20 +242,59 @@ class WatchClient(private val context: Context) {
             if (status != BluetoothGatt.GATT_SUCCESS) { listeners.forEach { it.onError("Serviço do Watch não encontrado") }; return }
             val service = g.getService(SERVICE_UUID) ?: run { listeners.forEach { it.onError("JARVIS Watch incompatível") }; return }
             control = service.getCharacteristic(CONTROL_UUID)
+                ?: run { listeners.forEach { it.onError("Canal de controle ausente") }; return }
             events = service.getCharacteristic(EVENT_UUID)
             val ev = events ?: run { listeners.forEach { it.onError("Canal de eventos ausente") }; return }
+
+            var descriptorStarted = false
             if (canConnect()) {
                 g.setCharacteristicNotification(ev, true)
                 ev.getDescriptor(CCCD_UUID)?.let { d ->
-                    if (Build.VERSION.SDK_INT >= 33) g.writeDescriptor(d, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
-                    else { @Suppress("DEPRECATION") d.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE; @Suppress("DEPRECATION") g.writeDescriptor(d) }
+                    descriptorStarted = if (Build.VERSION.SDK_INT >= 33) {
+                        g.writeDescriptor(d, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) == BluetoothStatusCodes.SUCCESS
+                    } else {
+                        @Suppress("DEPRECATION")
+                        run {
+                            d.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                            g.writeDescriptor(d)
+                        }
+                    }
                 }
             }
-            val name = if (canConnect()) runCatching { g.device.name }.getOrNull() ?: WATCH_NAME else WATCH_NAME
-            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-                .putString(KEY_ADDRESS, g.device.address).putString(KEY_NAME, name).putBoolean(KEY_CONNECTED, true).putLong(KEY_LAST_SEEN, System.currentTimeMillis()).apply()
-            listeners.forEach { it.onConnectionChanged(true, name, g.device.address) }
-            send(JSONObject().put("type", "hello").put("protocol", "2.0").put("client", "JARVIS Mobile"))
+
+            if (!descriptorStarted) {
+                listeners.forEach { it.onError("Notificações BLE indisponíveis; controle continua ativo") }
+                markGattReady(g)
+            }
+        }
+
+        override fun onDescriptorWrite(
+            g: BluetoothGatt,
+            descriptor: BluetoothGattDescriptor,
+            status: Int
+        ) {
+            if (descriptor.uuid == CCCD_UUID) {
+                if (status != BluetoothGatt.GATT_SUCCESS) {
+                    listeners.forEach { it.onError("Falha ao ativar notificações do Watch") }
+                }
+                markGattReady(g)
+            }
+        }
+
+        override fun onCharacteristicWrite(
+            g: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            status: Int
+        ) {
+            if (characteristic.uuid != CONTROL_UUID) return
+            synchronized(writeLock) {
+                if (writeQueue.isNotEmpty()) writeQueue.removeFirst()
+                writeInProgress = false
+            }
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                listeners.forEach { it.onError("Falha na escrita BLE: $status") }
+            }
+            drainWriteQueue()
         }
 
         override fun onCharacteristicChanged(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
