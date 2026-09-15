@@ -55,6 +55,7 @@ object WatchApi {
     )
 
     data class EnqueueResult(val id: Long, val correlationId: String)
+    data class EventPage(val events: List<WatchEvent>, val nextAfter: Long)
 
     private fun config(context: Context): JarvisApi.Config {
         val cfg = JarvisApi.loadConfig(context)
@@ -148,21 +149,33 @@ object WatchApi {
         return EnqueueResult(result.optLong("id"), result.optString("correlation_id"))
     }
 
+    fun enqueueToWatches(
+        context: Context,
+        command: String,
+        payload: JSONObject = JSONObject(),
+        priority: String = "normal",
+        ttlSeconds: Int = 300,
+        onlineOnly: Boolean = false
+    ): Int {
+        var sent = 0
+        listWatches(context)
+            .filter { !onlineOnly || it.online }
+            .forEach { watch ->
+                if (runCatching {
+                        enqueue(context, watch.deviceId, command, payload, priority, ttlSeconds)
+                    }.isSuccess
+                ) sent++
+            }
+        return sent
+    }
+
     fun enqueueToOnlineWatches(
         context: Context,
         command: String,
         payload: JSONObject = JSONObject(),
         priority: String = "normal",
         ttlSeconds: Int = 300
-    ): Int {
-        var sent = 0
-        listWatches(context).filter { it.online }.forEach { watch ->
-            if (runCatching {
-                    enqueue(context, watch.deviceId, command, payload, priority, ttlSeconds)
-                }.isSuccess) sent++
-        }
-        return sent
-    }
+    ): Int = enqueueToWatches(context, command, payload, priority, ttlSeconds, onlineOnly = true)
 
     fun forwardNotification(
         context: Context,
@@ -172,7 +185,7 @@ object WatchApi {
         priority: String = "normal"
     ): Int {
         if (text.isBlank() && title.isBlank()) return 0
-        return enqueueToOnlineWatches(
+        return enqueueToWatches(
             context,
             "notification",
             JSONObject()
@@ -208,7 +221,7 @@ object WatchApi {
         60
     )
 
-    fun pollEvents(context: Context, after: Long, limit: Int = 50): List<WatchEvent> {
+    fun pollEventPage(context: Context, after: Long, limit: Int = 50): EventPage {
         val arr = request(
             context,
             "/api/v1/control.php?acao=events&after=${after.coerceAtLeast(0)}&limit=${limit.coerceIn(1, 100)}"
@@ -216,25 +229,37 @@ object WatchApi {
 
         val watchIds = listWatches(context).map { it.deviceId }.toHashSet()
         val out = ArrayList<WatchEvent>()
+        var nextAfter = after.coerceAtLeast(0)
+
         for (i in 0 until arr.length()) {
             val e = arr.optJSONObject(i) ?: continue
+            val id = e.optLong("id")
+            if (id > nextAfter) nextAfter = id
+
             val deviceId = e.optString("device_id")
             if (deviceId !in watchIds) continue
+
             val data = when (val raw = e.opt("dados")) {
                 is JSONObject -> raw
                 is String -> runCatching { JSONObject(raw) }.getOrDefault(JSONObject())
                 else -> JSONObject()
             }
+
             out += WatchEvent(
-                id = e.optLong("id"),
+                id = id,
                 deviceId = deviceId,
                 type = e.optString("tipo"),
                 priority = e.optString("prioridade", "normal"),
-                correlationId = e.optString("correlation_id").takeIf { it.isNotBlank() && it != "null" },
+                correlationId = e.optString("correlation_id")
+                    .takeIf { it.isNotBlank() && it != "null" },
                 data = data,
                 createdAt = e.optString("criado_em")
             )
         }
-        return out
+
+        return EventPage(out, nextAfter)
     }
+
+    fun pollEvents(context: Context, after: Long, limit: Int = 50): List<WatchEvent> =
+        pollEventPage(context, after, limit).events
 }
