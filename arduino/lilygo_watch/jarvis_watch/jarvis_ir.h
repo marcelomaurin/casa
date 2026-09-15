@@ -24,7 +24,7 @@ bool jarvisIrSendNecExtended(uint16_t address, uint8_t command, uint8_t repeats 
 // Envio RAW. durationsUs alterna MARK/SPACE, iniciando em MARK.
 // Exemplo: {9000,4500,560,560,...}. carrierHz normalmente 38000.
 bool jarvisIrSendRaw(
-  const uint16_t *durationsUs,
+  const uint32_t *durationsUs,
   size_t count,
   uint32_t carrierHz = 38000,
   uint8_t dutyPercent = 33
