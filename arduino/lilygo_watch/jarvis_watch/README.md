@@ -27,10 +27,22 @@ APP0     3 MiB
 SPIFFS 960 KiB
 ```
 
-O Arduino-ESP32 2.0.14 detecta automaticamente o `partitions.csv` colocado na
-mesma pasta do `.ino`. Portanto não é necessário selecionar `Huge APP` no menu
-para compilar este sketch. Se o IDE estiver aberto durante um `git pull`, feche e
-abra o sketch novamente e faça uma compilação limpa.
+O repositório contém `partitions.csv` na pasta do sketch, porém alguns ambientes
+do Arduino IDE continuam usando o esquema selecionado no menu da placa. O sintoma é
+a compilação mostrar `Maximum is 1310720 bytes`.
+
+Para este projeto, use explicitamente:
+
+```text
+Tools > Board             : ESP32 Dev Module
+Tools > Flash Size        : 16MB (128Mb), quando disponível
+Tools > Partition Scheme  : Huge APP (3MB No OTA/1MB SPIFFS)
+Tools > PSRAM             : Enabled
+```
+
+Com `Huge APP`, o limite esperado deve ficar próximo de `3145728 bytes`. Se a
+saída ainda mostrar `1310720 bytes`, o IDE continua usando o esquema padrão e a
+seleção de `Partition Scheme` precisa ser refeita.
 
 A placa T-Watch 2020 V3 possui flash maior que essa tabela, mas usamos
 deliberadamente uma tabela compatível com 4 MiB neste momento para evitar erro
