@@ -19,6 +19,7 @@ enum JarvisAlarmTone : uint8_t {
 
 struct JarvisAlarmHooks {
   void (*vibrateOnce)() = nullptr;
+  void (*localSound)(JarvisAlarmTone tone, uint8_t pulse) = nullptr;
   void (*phoneSound)() = nullptr;
 };
 
