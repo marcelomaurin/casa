@@ -81,10 +81,19 @@ void JarvisPowerStateMachine::update(unsigned long now){
     return;
   }
 
-  // IMPORTANTE:
-  // Não colocamos mais o ESP32 em deep sleep automaticamente depois que a
-  // tela apaga. O relógio precisa continuar vivo para BLE, touch, botão,
-  // alarmes e demais máquinas de estado. A economia é feita apagando a tela.
-  // Deep sleep poderá ser reintroduzido futuramente como uma ação explícita,
-  // com fontes de wake devidamente validadas no hardware.
+  // NORMAL mantém o ESP32 acordado com a tela apagada.
+  // ECO/ULTRA entram em deep sleep pouco depois do backlight apagar.
+  // O hook configura timer, touch e botão como fontes de wake.
+  if(state_ == JARVIS_PWR_SCREEN_OFF && powerMode_ >= 1){
+    unsigned long grace = powerMode_ >= 2 ? 500UL : 1500UL;
+    if(screenOffAt_ != 0 && now - screenOffAt_ >= grace){
+      state_ = JARVIS_PWR_PREPARE_SLEEP;
+      if(hooks_.deepSleep) hooks_.deepSleep();
+
+      // Normalmente deepSleep() não retorna. Se retornar por alguma falha,
+      // volta ao estado de tela apagada para não travar a máquina de estados.
+      state_ = JARVIS_PWR_SCREEN_OFF;
+      screenOffAt_ = millis();
+    }
+  }
 }
