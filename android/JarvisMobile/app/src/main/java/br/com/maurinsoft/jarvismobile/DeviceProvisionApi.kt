@@ -67,5 +67,46 @@ object DeviceProvisionApi {
         )
     }
 
+    fun createWatch(
+        context: Context,
+        name: String,
+        location: String,
+        mac: String? = null
+    ): ProvisionedDevice {
+        val body = JSONObject()
+            .put("type", "watch")
+            .put("name", name)
+            .put("location", location)
+            .put(
+                "capabilities",
+                JSONArray(
+                    listOf(
+                        "watch",
+                        "display",
+                        "wifi",
+                        "microphone",
+                        "speaker",
+                        "vibration",
+                        "accelerometer",
+                        "steps",
+                        "infrared",
+                        "notifications",
+                        "telemetry"
+                    )
+                )
+            )
+        if (!mac.isNullOrBlank()) body.put("mac", mac)
+
+        val d = request(context, "create", body).getJSONObject("device")
+        return ProvisionedDevice(
+            id = d.optLong("id"),
+            deviceId = d.optString("device_id"),
+            name = d.optString("name"),
+            type = d.optString("type"),
+            location = d.optString("location"),
+            token = d.optString("token")
+        )
+    }
+
     fun list(context: Context): JSONArray = request(context, "list").optJSONArray("devices") ?: JSONArray()
 }
