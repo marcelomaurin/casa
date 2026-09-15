@@ -2,6 +2,7 @@
 #include "jarvis_ble.h"
 #include "jarvis_wifi.h"
 #include "jarvis_controller.h"
+#include "jarvis_audio.h"
 #include <Preferences.h>
 #include <driver/i2s.h>
 #include <esp_sleep.h>
@@ -111,6 +112,33 @@ void loadSettings(){
 
 void vibrateShort(){if(vibrationEnabled&&watch&&watch->motor)watch->motor->onec();}
 void alarmVibrateHook(){vibrateShort();}
+
+void alarmLocalSoundHook(JarvisAlarmTone tone,uint8_t pulse){
+  uint16_t freq=1000;
+  uint16_t duration=110;
+  uint8_t volume=42;
+
+  switch(tone){
+    case JARVIS_ALARM_SHORT:
+      freq=880;duration=120;volume=38;
+      break;
+    case JARVIS_ALARM_DOUBLE:
+      freq=(pulse%2)?1280:980;duration=115;volume=42;
+      break;
+    case JARVIS_ALARM_URGENT:
+      freq=(pulse%3==2)?1750:1450;duration=125;volume=50;
+      break;
+    case JARVIS_ALARM_PHONE:
+      return;
+  }
+  jarvisAudioPlayTone(freq,duration,volume);
+}
+
+void previewAlarmTone(){
+  if(alarmTone==ALARM_PHONE)return;
+  alarmLocalSoundHook((JarvisAlarmTone)alarmTone,0);
+}
+
 void alarmPhoneHook(){jarvisBleSendCommand("alarm_sound:phone");}
 
 void applyPowerMode(){if(!watch)return;uint8_t b=brightnessLevel;if(powerMode==POWER_ECO)b=min((int)b,140);if(powerMode==POWER_ULTRA)b=min((int)b,85);watch->setBrightness(b);}
@@ -132,6 +160,7 @@ void enterDeepSleep(){
   if(!watch)return;
   if(watch->bma&&wristWakeEnabled){watch->bma->enableFeature(BMA423_WAKEUP,true);watch->bma->enableFeature(BMA423_TILT,true);watch->bma->enableWakeupInterrupt();watch->bma->enableTiltInterrupt();esp_sleep_enable_ext1_wakeup(GPIO_SEL_39,ESP_EXT1_WAKEUP_ANY_HIGH);}
   esp_sleep_enable_ext0_wakeup((gpio_num_t)AXP202_INT,0);
+  jarvisAudioShutdown();
   watch->displaySleep();watch->closeBL();esp_deep_sleep_start();
 }
 
@@ -310,7 +339,7 @@ void handleTap(int x,int y){
   else if(currentScreen==SCREEN_VOICE){if(y>=100&&y<145)beginVoiceCapture();else if(y>=145&&y<=184){voiceOutput=(VoiceOutput)(((int)voiceOutput+1)%3);saveSettings();drawScreen();}}
   else if(currentScreen==SCREEN_ALARM){
     if(y>=101&&y<=135){if(x<61)adjustAlarm(-1,0);else if(x<120)adjustAlarm(1,0);else if(x<177)adjustAlarm(0,-5);else adjustAlarm(0,5);}
-    else if(y>=139&&y<=170){alarmTone=(AlarmTone)(((int)alarmTone+1)%4);saveSettings();drawScreen();}
+    else if(y>=139&&y<=170){alarmTone=(AlarmTone)(((int)alarmTone+1)%4);saveSettings();previewAlarmTone();drawScreen();}
     else if(y>=171&&y<=205){if(controller.alarm().ringing()){controller.emit(jarvisEvent(EVT_ALARM_STOP,JARVIS_PRI_HIGH));lastMessage="Alarme confirmado";drawScreen();}else{alarmEnabled=!alarmEnabled;saveSettings();drawScreen();}}
   }
   else if(currentScreen==SCREEN_CAMERA){if(y>=98&&y<=143)triggerCamera();else if(y>=144&&y<=190)startVideoCall();}
@@ -445,12 +474,12 @@ void emitRtcTick(){
 }
 
 void setup(){
-  Serial.begin(115200);bootMillis=millis();watch=TTGOClass::getWatch();if(!watch)return;watch->begin();watch->openBL();tft=watch->tft;if(watch->rtc)watch->rtc->check();
+  Serial.begin(115200);bootMillis=millis();watch=TTGOClass::getWatch();if(!watch)return;watch->begin();watch->motor_begin();watch->openBL();tft=watch->tft;if(watch->rtc)watch->rtc->check();
   if(watch->power){watch->power->adc1Enable(AXP202_VBUS_VOL_ADC1|AXP202_VBUS_CUR_ADC1|AXP202_BATT_CUR_ADC1|AXP202_BATT_VOL_ADC1,true);pinMode(AXP202_INT,INPUT_PULLUP);attachInterrupt(AXP202_INT,onPowerButtonIrq,FALLING);watch->power->enableIRQ(AXP202_PEK_SHORTPRESS_IRQ,true);watch->power->clearIRQ();}
-  loadSettings();applyPowerMode();initMotion();jarvisWifiBegin();jarvisBleSetEventHandler(bleEventHandler);jarvisBleBegin();
+  loadSettings();applyPowerMode();initMotion();jarvisAudioBegin(watch);jarvisWifiBegin();jarvisBleSetEventHandler(bleEventHandler);jarvisBleBegin();
 
   JarvisPowerHooks powerHooks;powerHooks.screenOn=powerScreenOnHook;powerHooks.screenOff=powerScreenOffHook;powerHooks.deepSleep=powerDeepSleepHook;
-  JarvisAlarmHooks alarmHooks;alarmHooks.vibrateOnce=alarmVibrateHook;alarmHooks.phoneSound=alarmPhoneHook;
+  JarvisAlarmHooks alarmHooks;alarmHooks.vibrateOnce=alarmVibrateHook;alarmHooks.localSound=alarmLocalSoundHook;alarmHooks.phoneSound=alarmPhoneHook;
   JarvisControllerHooks controllerHooks;controllerHooks.onEvent=controllerEvent;
   controller.begin(powerHooks,alarmHooks,controllerHooks,true);syncControllerConfig();drawScreen();
 }
@@ -459,6 +488,7 @@ void loop(){
   if(!watch){delay(50);return;}
 
   processPowerButton();
+  jarvisAudioLoop();
   jarvisBleLoop();
   jarvisWifiLoop();
   processVoiceCapture();
