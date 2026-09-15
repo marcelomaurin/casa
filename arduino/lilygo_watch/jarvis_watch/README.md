@@ -18,6 +18,7 @@ O firmware trata o T-Watch como smartwatch JARVIS com mostradores, launcher, voz
 - motor de vibração (GPIO4)
 - microfone PDM SPM1423 (DATA GPIO2 / CLK GPIO0)
 - MAX98357A / saída I2S (BCK GPIO26 / WS GPIO25 / DOUT GPIO33)
+- transmissor infravermelho (GPIO13 / RMT)
 - sem dependência externa de NimBLE/ESP32_BLE_Arduino nesta build
 
 O transporte BLE permanece isolado em `jarvis_ble.*`, mas está desativado nesta
@@ -336,6 +337,7 @@ A camada de assistência continua separada em `jarvis_assistance.*`. Alertas de 
 | MAX98357A / I2S1 | Implementado |
 | Som local de alarme | Implementado |
 | Vibração GPIO4 | Implementada e inicializada |
+| Infravermelho GPIO13 | Implementado com RMT / NEC / RAW |
 | Busca Wi-Fi | Gerenciada pela NetworkSM |
 | Teclado de senha Wi-Fi | Implementado |
 | Videochamada Família | Pedido via BLE ou Wi-Fi/site implementado |
@@ -392,3 +394,47 @@ já lê amostras PCM reais e calcula atividade de voz. O envio dessas amostras p
 STT externo continua separado da captura local: com o BLE desativado nesta build,
 o transporte de áudio até o celular/servidor ainda precisa ser conectado a uma
 camada de rede existente.
+
+
+## Infravermelho
+
+O transmissor IR nativo do T-Watch 2020 V3 está implementado no GPIO13 usando
+diretamente o periférico RMT do ESP32, sem biblioteca externa.
+
+Arquivos:
+
+```text
+jarvis_ir.h
+jarvis_ir.cpp
+```
+
+Recursos:
+
+- portadora padrão de 38 kHz;
+- envio NEC padrão;
+- envio NEC com endereço estendido;
+- envio RAW com sequência MARK/SPACE;
+- repetição NEC não bloqueante;
+- processamento por `jarvisIrLoop()`;
+- desligamento do RMT antes do deep sleep.
+
+Exemplos de uso:
+
+```cpp
+// NEC padrão: endereço 0x10, comando 0x20
+jarvisIrSendNec(0x10, 0x20);
+
+// Um frame + 2 repeats
+jarvisIrSendNec(0x10, 0x20, 2);
+
+// NEC estendido
+jarvisIrSendNecExtended(0x1234, 0x20);
+
+// RAW, começando por MARK
+const uint32_t raw[] = {9000, 4500, 560, 560, 560, 1690, 560};
+jarvisIrSendRaw(raw, sizeof(raw) / sizeof(raw[0]), 38000, 33);
+```
+
+O firmware não transmite nenhum código IR automaticamente na inicialização. Os códigos
+de cada TV, ar-condicionado ou outro equipamento devem ser cadastrados conforme o
+aparelho a ser controlado.
