@@ -25,6 +25,9 @@ int jarvisWifiScanPoll(JarvisWifiNetwork *out, int maxItems);
 bool jarvisWifiScanRunning();
 
 void jarvisWifiSetCasa(const String &baseUrl, const String &deviceToken);
+void jarvisWifiSetDeviceId(const String &deviceId);
+String jarvisWifiDeviceId();
+bool jarvisWifiHasCasaCredentials();
 
 // Estado da conexao HTTP/HTTPS com o servidor CASA configurado.
 // Por padrao: https://maurinsoft.com.br/casa
@@ -38,4 +41,13 @@ bool jarvisWifiStartProfile(uint8_t slot);
 bool jarvisWifiConnectProfile(uint8_t slot, uint32_t timeoutMs = 8000);
 bool jarvisWifiConnectBestKnown(uint32_t timeoutMs = 8000);
 
+// Caminho rapido para wake periodico: tenta primeiro o ultimo perfil que
+// conectou com sucesso, sem fazer scan completo.
+bool jarvisWifiStartPreferred();
+bool jarvisWifiConnectPreferred(uint32_t timeoutMs = 3500);
+
+// Desliga o radio antes de deep sleep.
+void jarvisWifiPrepareSleep();
+
+bool jarvisWifiGetJson(const String &path, String *response = nullptr);
 bool jarvisWifiPostJson(const String &path, const String &jsonPayload, String *response = nullptr);
