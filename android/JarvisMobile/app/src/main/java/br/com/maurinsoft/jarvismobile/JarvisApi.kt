@@ -34,14 +34,15 @@ object JarvisApi {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val stored = p.getString("base_url", DEFAULT_BASE_URL)?.trim()?.trimEnd('/').orEmpty()
         val baseUrl = stored.ifBlank { DEFAULT_BASE_URL }
-        return Config(baseUrl, p.getString("device_token", "")?.trim() ?: "")
+        return Config(baseUrl, AppTokenStore.load(context))
     }
 
     fun saveConfig(context: Context, baseUrl: String, token: String) {
         val normalized = baseUrl.trim().trimEnd('/').ifBlank { DEFAULT_BASE_URL }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString("base_url", normalized)
-            .putString("device_token", token.trim()).apply()
+            .apply()
+        AppTokenStore.save(context, token)
     }
 
     fun isConfigured(context: Context): Boolean {
