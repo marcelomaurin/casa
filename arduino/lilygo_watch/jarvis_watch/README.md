@@ -14,6 +14,19 @@ O firmware trata o T-Watch como smartwatch JARVIS com mostradores, launcher, voz
 - motor de vibração
 - microfone PDM SPM1423
 - Wi-Fi ESP32
+- NimBLE-Arduino **1.4.3** (usar esta versão com o core ESP32 2.0.14)
+
+O transporte BLE do Watch usa NimBLE em vez da pilha Bluedroid padrão do ESP32.
+A troca reduz significativamente o tamanho do firmware e o consumo de RAM, mantendo
+o Watch como Peripheral/GATT Server e o Android como Central/GATT Client.
+
+No Arduino IDE:
+
+```text
+Sketch > Include Library > Manage Libraries...
+procurar: NimBLE-Arduino
+versão:   1.4.3
+```
 
 ## Partição de firmware
 
