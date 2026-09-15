@@ -15,6 +15,29 @@ O firmware trata o T-Watch como smartwatch JARVIS com mostradores, launcher, voz
 - microfone PDM SPM1423
 - Wi-Fi ESP32
 
+## Partição de firmware
+
+O firmware atual ultrapassa o limite padrão de aplicação do perfil `ESP32 Dev Module`
+(~1,3 MiB). O sketch contém um `partitions.csv` próprio com uma partição de
+aplicação de 3 MiB:
+
+```text
+NVS     20 KiB
+APP0     3 MiB
+SPIFFS 960 KiB
+```
+
+O Arduino-ESP32 2.0.14 detecta automaticamente o `partitions.csv` colocado na
+mesma pasta do `.ino`. Portanto não é necessário selecionar `Huge APP` no menu
+para compilar este sketch. Se o IDE estiver aberto durante um `git pull`, feche e
+abra o sketch novamente e faça uma compilação limpa.
+
+A placa T-Watch 2020 V3 possui flash maior que essa tabela, mas usamos
+deliberadamente uma tabela compatível com 4 MiB neste momento para evitar erro
+de gravação causado por uma seleção incorreta de `Flash Size`. Quando o OTA do
+relógio for implementado, a tabela será migrada para duas partições OTA usando a
+capacidade total do hardware.
+
 O T-Watch 2020 V3 usado neste projeto não fornece câmera, GPS nem alto-falante de reprodução ao firmware. Câmera, GPS, vídeo e áudio de resposta usam o celular/site; o relógio oferece microfone, texto e vibração.
 
 ## Arquitetura por eventos e máquinas de estado
