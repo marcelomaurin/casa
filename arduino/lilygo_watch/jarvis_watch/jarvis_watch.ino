@@ -66,6 +66,7 @@ JarvisWifiNetwork wifiNetworks[12];
 int wifiNetworkCount=0, wifiPage=0;
 bool wifiScanning=false;
 String selectedWifi="", wifiPassword="";
+bool lastWifiUiState=false,lastCasaUiState=false,lastCasaCheckedUiState=false;
 
 static const uint16_t C_BG=0xFFDF,C_TEXT=0x18C3,C_ORANGE=0xFBE0,C_SALMON=0xFB2C;
 static const uint16_t C_LAV=0xB57F,C_BLUE=0x5D7F,C_GREEN=0x6E6B,C_RED=0xF9E7,C_GOLD=0xFE60,C_WHITE=0xFFFF;
@@ -192,6 +193,28 @@ void processVoiceCapture(){
 
 void lcarsButton(int x,int y,int w,int h,uint16_t c,const char*label,const char*sub=nullptr){if(!tft)return;tft->fillRoundRect(x,y,w,h,10,c);tft->fillRect(x+10,y+h-6,w-10,6,c);tft->setTextColor(C_TEXT,c);tft->drawCentreString(label,x+w/2,y+6,2);if(sub)tft->drawCentreString(sub,x+w/2,y+24,1);}
 void drawBatteryIcon(int x,int y,int p){uint16_t c=p>=20?C_TEXT:C_RED;tft->drawRoundRect(x,y,24,10,3,c);tft->fillRect(x+24,y+3,3,4,c);if(p>=0)tft->fillRect(x+2,y+2,(20*p)/100,6,c);}
+
+void drawHouseMini(int x,int y,uint16_t color){
+  tft->drawLine(x,y+6,x+7,y,color);
+  tft->drawLine(x+7,y,x+14,y+6,color);
+  tft->drawRect(x+2,y+6,11,8,color);
+  tft->drawRect(x+7,y+9,3,5,color);
+}
+
+void drawWifiMini(int x,int y,uint16_t color){
+  // Icone vetorial pequeno, sem bitmap/PROGMEM.
+  tft->drawLine(x,y+4,x+7,y,color);
+  tft->drawLine(x+7,y,x+14,y+4,color);
+  tft->drawLine(x+3,y+8,x+7,y+5,color);
+  tft->drawLine(x+7,y+5,x+11,y+8,color);
+  tft->fillCircle(x+7,y+12,2,color);
+}
+
+void drawConnectionIcons(int y,uint16_t houseColor,uint16_t wifiColor){
+  if(jarvisWifiCasaOnline())drawHouseMini(8,y,houseColor);
+  if(jarvisWifiIsConnected())drawWifiMini(218,y,wifiColor);
+}
+
 void handFromAngle(int cx,int cy,int r,float deg,uint16_t color,int width=1){float a=(deg-90.0f)*0.0174532925f;int x=cx+(int)(cos(a)*r),y=cy+(int)(sin(a)*r);for(int i=0;i<width;i++)tft->drawLine(cx+i,cy,x+i,y,color);}
 
 void drawSkinJarvisAviation(){
@@ -228,11 +251,12 @@ void drawSkinJarvisAviation(){
   tft->setTextColor(C_WHITE,C_BLACK);
   tft->drawCentreString((twoDigits(n.day)+"/"+twoDigits(n.month)).c_str(),120,190,1);
   tft->drawCentreString("apps ^",120,222,1);
+  drawConnectionIcons(7,C_GREEN,C_BLUE);
 }
 
 void drawWatchFace(){drawSkinJarvisAviation();}
 
-void drawHeader(const char*title){RTC_Date n=watch->rtc->getDateTime();int batt=batteryPercent();tft->fillRect(0,0,240,57,C_BG);tft->fillRoundRect(5,5,230,43,14,C_ORANGE);tft->setTextColor(C_TEXT,C_ORANGE);tft->drawString((twoDigits(n.hour)+":"+twoDigits(n.minute)).c_str(),49,7,4);tft->drawRightString(title,228,9,2);drawBatteryIcon(177,34,batt);tft->drawRightString(batt>=0?(String(batt)+"%").c_str():"--",228,34,1);}
+void drawHeader(const char*title){RTC_Date n=watch->rtc->getDateTime();int batt=batteryPercent();tft->fillRect(0,0,240,57,C_BG);tft->fillRoundRect(5,5,230,43,14,C_ORANGE);tft->setTextColor(C_TEXT,C_ORANGE);tft->drawString((twoDigits(n.hour)+":"+twoDigits(n.minute)).c_str(),49,7,4);tft->drawRightString(title,210,9,2);drawBatteryIcon(177,34,batt);tft->drawRightString(batt>=0?(String(batt)+"%").c_str():"--",228,34,1);drawConnectionIcons(8,C_TEXT,C_TEXT);}
 void drawFooter(){tft->fillRect(0,207,240,33,C_BG);if(currentScreen!=SCREEN_HOME){lcarsButton(5,211,70,25,C_LAV,"VOLTAR");lcarsButton(80,211,70,25,C_ORANGE,"HOME");}uint16_t c=jarvisBleIsConnected()?C_GREEN:(jarvisWifiIsConnected()?C_BLUE:C_GOLD);tft->fillRoundRect(155,211,80,25,8,c);tft->setTextColor(C_TEXT,c);tft->drawCentreString(jarvisBleIsConnected()?"PHONE":jarvisWifiIsConnected()?"WIFI":"OFFLINE",195,218,1);}
 void drawMessage(){tft->fillRoundRect(5,181,230,22,8,C_WHITE);tft->drawRoundRect(5,181,230,22,8,C_LAV);tft->setTextColor(C_TEXT,C_WHITE);String m=lastMessage;if(m.length()>34)m=m.substring(0,31)+"...";tft->drawCentreString(m,120,187,1);}
 
@@ -249,14 +273,55 @@ void drawSettings(){drawHeader("CONFIG");tft->setTextColor(C_TEXT,C_BG);tft->dra
 void drawClock(){drawHeader("RELOGIO");RTC_Date n=watch->rtc->getDateTime();tft->setTextColor(C_TEXT,C_BG);tft->drawCentreString((twoDigits(n.hour)+":"+twoDigits(n.minute)).c_str(),120,65,4);tft->drawCentreString((twoDigits(n.day)+"/"+twoDigits(n.month)+"/"+String(n.year)).c_str(),120,95,2);lcarsButton(5,121,52,38,C_LAV,"H-");lcarsButton(62,121,52,38,C_ORANGE,"H+");lcarsButton(124,121,52,38,C_BLUE,"M-");lcarsButton(181,121,54,38,C_SALMON,"M+");drawFooter();}
 
 void drawWifi(){
-  drawHeader("WIFI");tft->setTextColor(C_TEXT,C_BG);
+  drawHeader("WIFI");
+  tft->setTextColor(C_TEXT,C_BG);
   JarvisNetworkState ns=controller.network().state();
-  if(ns==JARVIS_NET_SCANNING){tft->drawCentreString("BUSCANDO REDES...",120,77,2);tft->drawCentreString("interface continua ativa",120,101,1);}
-  else if(ns==JARVIS_NET_CONNECTING){tft->drawCentreString("CONECTANDO...",120,77,2);tft->drawCentreString(selectedWifi.substring(0,22).c_str(),120,103,1);}
-  else if(wifiNetworkCount<=0){tft->drawCentreString(jarvisWifiIsConnected()?"Wi-Fi conectado":"Nenhuma busca",120,75,2);if(jarvisWifiIsConnected())tft->drawCentreString(jarvisWifiSsid().substring(0,22).c_str(),120,99,1);lcarsButton(45,112,150,36,C_BLUE,"BUSCAR");}
-  else{
-    int start=wifiPage*4;for(int row=0;row<4;row++){int i=start+row;if(i>=wifiNetworkCount)break;int y=60+row*34;uint16_t c=wifiNetworks[i].known?C_GREEN:C_LAV;tft->fillRoundRect(7,y,226,29,7,c);tft->setTextColor(C_TEXT,c);String label=wifiNetworks[i].ssid;if(label.length()>18)label=label.substring(0,18);tft->drawString(label.c_str(),14,y+6,1);tft->drawRightString((String(wifiNetworks[i].rssi)+" dBm").c_str(),225,y+6,1);}
+
+  if(ns==JARVIS_NET_SCANNING){
+    tft->drawCentreString("BUSCANDO REDES...",120,77,2);
+    tft->drawCentreString("aguarde",120,101,1);
   }
+  else if(ns==JARVIS_NET_CONNECTING){
+    tft->drawCentreString("CONECTANDO...",120,77,2);
+    tft->drawCentreString(selectedWifi.substring(0,22).c_str(),120,103,1);
+    tft->drawCentreString("testando senha e rede",120,126,1);
+  }
+  else if(ns==JARVIS_NET_SELECTING && wifiNetworkCount>0){
+    int start=wifiPage*4;
+    for(int row=0;row<4;row++){
+      int i=start+row;if(i>=wifiNetworkCount)break;
+      int y=60+row*34;
+      uint16_t c=wifiNetworks[i].known?C_GREEN:C_LAV;
+      tft->fillRoundRect(7,y,226,29,7,c);
+      tft->setTextColor(C_TEXT,c);
+      String label=wifiNetworks[i].ssid;
+      if(label.length()>18)label=label.substring(0,18);
+      tft->drawString(label.c_str(),14,y+6,1);
+      tft->drawRightString((String(wifiNetworks[i].rssi)+" dBm").c_str(),225,y+6,1);
+    }
+  }
+  else if(jarvisWifiIsConnected()){
+    tft->fillRoundRect(14,66,212,54,12,C_GREEN);
+    tft->setTextColor(C_TEXT,C_GREEN);
+    tft->drawCentreString("WIFI CONECTADO",120,75,2);
+    tft->drawCentreString(jarvisWifiSsid().substring(0,22).c_str(),120,99,1);
+
+    tft->setTextColor(C_TEXT,C_BG);
+    if(!jarvisWifiCasaChecked())
+      tft->drawCentreString("CASA: VERIFICANDO...",120,132,1);
+    else if(jarvisWifiCasaOnline())
+      tft->drawCentreString("CASA: CONECTADO",120,132,2);
+    else
+      tft->drawCentreString("CASA: SEM RESPOSTA",120,132,1);
+
+    lcarsButton(45,158,150,36,C_BLUE,"BUSCAR");
+  }
+  else{
+    tft->drawCentreString("WIFI DESCONECTADO",120,75,2);
+    if(lastMessage.length())tft->drawCentreString(lastMessage.substring(0,30).c_str(),120,101,1);
+    lcarsButton(45,122,150,36,C_BLUE,"BUSCAR");
+  }
+
   drawFooter();
 }
 
@@ -264,14 +329,13 @@ void drawKeyboard(){
   drawHeader("SENHA WIFI");
   tft->setTextColor(C_TEXT,C_BG);
 
-  String mask="";
-  for(unsigned int i=0;i<wifiPassword.length();i++)mask+="*";
-  if(mask.length()>18)mask=mask.substring(mask.length()-18);
+  String shownPassword=wifiPassword;
+  if(shownPassword.length()>18)shownPassword=shownPassword.substring(shownPassword.length()-18);
 
   String ssid=selectedWifi;
   if(ssid.length()>18)ssid=ssid.substring(0,18);
   tft->drawString(ssid.c_str(),7,59,1);
-  tft->drawRightString(mask.c_str(),233,59,1);
+  tft->drawRightString(shownPassword.c_str(),233,59,1);
 
   // Teclado Wi-Fi simplificado: botoes grandes e somente numeros.
   // Linha inferior: apagar, 0 e confirmar, usando apenas simbolos.
@@ -380,7 +444,19 @@ void handleTap(int x,int y){
   else if(currentScreen==SCREEN_CONTROLS){if(y>=62&&y<=113)sendCommand(x<120?"Alterne a luz da sala":"Alterne a luz do quarto");else if(y>=119&&y<=170)sendCommand(x<120?"Acione o portao":"Ative a cena noite");}
   else if(currentScreen==SCREEN_SETTINGS){if(y>=60&&y<=91){if(x>=110&&x<171)brightnessLevel=max(40,(int)brightnessLevel-20);else if(x>=171)brightnessLevel=min(255,(int)brightnessLevel+20);applyPowerMode();saveSettings();drawScreen();}else if(y>=94&&y<=125&&x>=120){powerMode=(PowerMode)(((int)powerMode+1)%3);screenTimeoutSec=powerMode==POWER_NORMAL?30:powerMode==POWER_ECO?20:10;applyPowerMode();saveSettings();drawScreen();}else if(y>=128&&y<=159&&x>=120){screenTimeoutSec=screenTimeoutSec==10?20:screenTimeoutSec==20?30:screenTimeoutSec==30?60:screenTimeoutSec==60?0:10;saveSettings();drawScreen();}else if(y>=164&&y<=201){if(x<80){navigate(SCREEN_WIFI);startWifiScan();}else if(x<157){vibrationEnabled=!vibrationEnabled;saveSettings();drawScreen();}else navigate(SCREEN_CLOCK);}}
   else if(currentScreen==SCREEN_CLOCK){if(y>=121&&y<=160){if(x<58)adjustClock(-1,0);else if(x<120)adjustClock(1,0);else if(x<180)adjustClock(0,-1);else adjustClock(0,1);}}
-  else if(currentScreen==SCREEN_WIFI){JarvisNetworkState ns=controller.network().state();if(ns!=JARVIS_NET_SCANNING&&wifiNetworkCount<=0){if(y>=105&&y<=155)startWifiScan();}else if(ns!=JARVIS_NET_SCANNING&&ns!=JARVIS_NET_CONNECTING&&y>=60&&y<196){int row=(y-60)/34;selectWifi(wifiPage*4+row);}}
+  else if(currentScreen==SCREEN_WIFI){
+    JarvisNetworkState ns=controller.network().state();
+    if(ns==JARVIS_NET_SCANNING||ns==JARVIS_NET_CONNECTING){
+      return;
+    }else if(ns==JARVIS_NET_SELECTING&&wifiNetworkCount>0&&y>=60&&y<196){
+      int row=(y-60)/34;
+      selectWifi(wifiPage*4+row);
+    }else if(jarvisWifiIsConnected()){
+      if(y>=154&&y<=202)startWifiScan();
+    }else if(y>=112&&y<=165){
+      startWifiScan();
+    }
+  }
   else if(currentScreen==SCREEN_KEYBOARD){
     const int xs[3]={6,85,164};
     const int ys[4]={78,113,148,183};
@@ -506,7 +582,12 @@ void controllerEvent(const JarvisEvent &event){
       wifiScanning=false;syncWifiResults();lastMessage=wifiNetworkCount?"Redes encontradas":"Nenhuma rede encontrada";if(currentScreen==SCREEN_WIFI)drawScreen();
       break;
     case EVT_WIFI_CONNECTED:
-      wifiScanning=false;lastMessage="Wi-Fi conectado: "+event.text;if(currentScreen==SCREEN_WIFI||currentScreen==SCREEN_STATUS)drawScreen();
+      wifiScanning=false;
+      selectedWifi=event.text;
+      wifiPassword="";
+      lastMessage="Wi-Fi conectado: "+event.text;
+      jarvisWifiRequestCasaCheck();
+      if(currentScreen==SCREEN_WIFI||currentScreen==SCREEN_STATUS||currentScreen==SCREEN_HOME)drawScreen();
       break;
     case EVT_WIFI_FAILED:
       wifiScanning=false;lastMessage=event.text.length()?event.text:"Falha de Wi-Fi";if(currentScreen==SCREEN_WIFI||currentScreen==SCREEN_STATUS)drawScreen();
@@ -545,6 +626,19 @@ void loop(){
   jarvisIrLoop();
   jarvisBleLoop();
   jarvisWifiLoop();
+
+  {
+    bool wifiNow=jarvisWifiIsConnected();
+    bool casaNow=jarvisWifiCasaOnline();
+    bool casaCheckedNow=jarvisWifiCasaChecked();
+    if(wifiNow!=lastWifiUiState||casaNow!=lastCasaUiState||casaCheckedNow!=lastCasaCheckedUiState){
+      lastWifiUiState=wifiNow;
+      lastCasaUiState=casaNow;
+      lastCasaCheckedUiState=casaCheckedNow;
+      if(screenAwake)drawScreen();
+    }
+  }
+
   processVoiceCapture();
 
   if(watch->bma&&millis()-lastStepRefresh>2000){lastStepRefresh=millis();steps=watch->bma->getCounter();if(screenAwake&&currentScreen==SCREEN_HEALTH)drawScreen();}
