@@ -73,6 +73,7 @@ bool lastWifiUiState=false,lastCasaUiState=false,lastCasaCheckedUiState=false;
 // EXT0 = AXP202/botao. EXT1 = touch FT6336.
 esp_sleep_wakeup_cause_t wakeCause=ESP_SLEEP_WAKEUP_UNDEFINED;
 bool backgroundTimerWake=false;
+unsigned long lastCasaCommandPoll=0;
 
 static const uint16_t C_BG=0xFFDF,C_TEXT=0x18C3,C_ORANGE=0xFBE0,C_SALMON=0xFB2C;
 static const uint16_t C_LAV=0xB57F,C_BLUE=0x5D7F,C_GREEN=0x6E6B,C_RED=0xF9E7,C_GOLD=0xFE60,C_WHITE=0xFFFF;
@@ -224,6 +225,18 @@ bool fetchBackgroundCasaUpdate(){
   if(!jarvisWifiHasCasaCredentials())return false;
   if(!jarvisWifiConnectPreferred(3500))return false;
 
+  // Primeiro verifica o Command Bus usado pelo JARVIS Mobile.
+  String deviceId=jarvisWifiDeviceId();
+  if(!deviceId.isEmpty()){
+    String status;
+    String path="/api/v1/device.php?acao=status&device_id="+deviceId;
+    if(jarvisWifiGetJson(path,&status)){
+      int pending=jsonIntField(status,"commands_pending",0);
+      if(pending>0)return true;
+    }
+  }
+
+  // Compatibilidade com notificacoes diretas da API Watch.
   String response;
   if(!jarvisWifiGetJson("/api/v1/watch.php?acao=notificacoes",&response))return false;
 
@@ -241,8 +254,6 @@ bool fetchBackgroundCasaUpdate(){
   if(notificationTitle.isEmpty())notificationTitle="CASA";
   if(notificationText.isEmpty())notificationText="Nova atualizacao recebida.";
 
-  // A mensagem ja foi efetivamente entregue ao relogio. Confirma no servidor
-  // para impedir que o mesmo aviso acorde o Watch a cada minuto.
   if(id>0){
     String ack="{\"id\":"+String(id)+"}";
     jarvisWifiPostJson("/api/v1/watch.php?acao=ack",ack,nullptr);
@@ -715,6 +726,88 @@ void bleEventHandler(const String &type,const String &title,const String &text){
   }
 }
 
+bool processCasaDeviceCommandOnce(){
+  if(!jarvisWifiIsConnected()||!jarvisWifiHasCasaCredentials())return false;
+  String deviceId=jarvisWifiDeviceId();
+  if(deviceId.isEmpty())return false;
+
+  String response;
+  String path="/api/v1/device.php?acao=commands&device_id="+deviceId+"&limit=1";
+  if(!jarvisWifiGetJson(path,&response))return false;
+
+  int arrayPos=response.indexOf("\"commands\"");
+  if(arrayPos<0)return false;
+  int open=response.indexOf('[',arrayPos);
+  int close=response.indexOf(']',open);
+  int first=response.indexOf('{',open);
+  if(open<0||close<0||first<0||first>close)return false;
+
+  int id=jsonIntField(response,"id",-1);
+  String command=jsonStringField(response,"comando");
+  String payload=jsonStringField(response,"payload");
+  if(id<=0||command.isEmpty())return false;
+
+  bool ok=true;
+  String eventType=jsonStringField(payload,"type");
+
+  if(command=="find_watch"){
+    bleEventHandler("find_watch","","");
+  }else if(command=="notification"||eventType=="phone_notification"){
+    bleEventHandler(
+      "phone_notification",
+      jsonStringField(payload,"title"),
+      jsonStringField(payload,"text")
+    );
+  }else if(command=="family_message"||eventType=="family_message"){
+    bleEventHandler(
+      "family_message",
+      jsonStringField(payload,"sender"),
+      jsonStringField(payload,"message")
+    );
+  }else if(command=="jarvis_result"||eventType=="jarvis_result"){
+    bleEventHandler("jarvis_result","JARVIS",jsonStringField(payload,"text"));
+  }else if(command=="gps_result"||eventType=="gps_result"){
+    bleEventHandler("gps_result","","GPS RECEBIDO");
+  }else if(command=="camera_result"||eventType=="camera_result"){
+    bleEventHandler("camera_result","",jsonStringField(payload,"path"));
+  }else if(command=="phone_state"||eventType=="phone_state"){
+    notificationTitle="CELULAR";
+    notificationText="Estado do celular atualizado.";
+    lastMessage="Celular atualizado";
+  }else if(command=="ir_send"){
+    String protocol=jsonStringField(payload,"protocol");
+    long address=jsonIntField(payload,"address",0);
+    int irCommand=jsonIntField(payload,"command",-1);
+    int repeats=jsonIntField(payload,"repeats",0);
+    if(irCommand<0){
+      ok=false;
+    }else if(protocol=="nec_extended"){
+      ok=jarvisIrSendNecExtended((uint16_t)address,(uint8_t)irCommand,(uint8_t)constrain(repeats,0,10));
+    }else{
+      ok=jarvisIrSendNec((uint8_t)address,(uint8_t)irCommand,(uint8_t)constrain(repeats,0,10));
+    }
+    lastMessage=ok?"IR enviado":"Falha IR";
+  }else{
+    // Comando ainda nao possui tela dedicada; registra como recebido para nao
+    // manter o Watch acordando indefinidamente pelo mesmo item.
+    notificationTitle="CASA";
+    notificationText="Comando recebido: "+command;
+  }
+
+  String result="{\"device_id\":\""+deviceId+
+    "\",\"id\":"+String(id)+
+    ",\"status\":\""+String(ok?"success":"error")+
+    "\",\"result\":{\"watch\":\"processed\"}}";
+
+  jarvisWifiPostJson(
+    "/api/v1/device.php?acao=command_result&device_id="+deviceId,
+    result,
+    nullptr
+  );
+
+  return true;
+}
+
 void controllerEvent(const JarvisEvent &event){
   switch(event.type){
     case EVT_ALARM_TRIGGER:
@@ -840,9 +933,12 @@ void setup(){
   }
 
   if(wakeForCasa){
-    previousScreen=SCREEN_HOME;
-    currentScreen=SCREEN_NOTIFICATION;
-    lastMessage="Atualizacao CASA";
+    bool processed=processCasaDeviceCommandOnce();
+    if(!processed){
+      previousScreen=SCREEN_HOME;
+      currentScreen=SCREEN_NOTIFICATION;
+      lastMessage="Atualizacao CASA";
+    }
     vibrateShort();
   }
 
@@ -862,6 +958,11 @@ void loop(){
   jarvisIrLoop();
   jarvisBleLoop();
   jarvisWifiLoop();
+
+  if(jarvisWifiIsConnected()&&millis()-lastCasaCommandPoll>=5000UL){
+    lastCasaCommandPoll=millis();
+    processCasaDeviceCommandOnce();
+  }
 
   {
     bool wifiNow=jarvisWifiIsConnected();
