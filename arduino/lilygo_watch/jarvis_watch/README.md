@@ -438,3 +438,31 @@ jarvisIrSendRaw(raw, sizeof(raw) / sizeof(raw[0]), 38000, 33);
 O firmware não transmite nenhum código IR automaticamente na inicialização. Os códigos
 de cada TV, ar-condicionado ou outro equipamento devem ser cadastrados conforme o
 aparelho a ser controlado.
+
+
+## Indicadores de conectividade
+
+O Watch mostra dois indicadores pequenos nos cantos superiores:
+
+```text
+canto superior esquerdo -> casa: servidor CASA acessível por HTTPS
+canto superior direito  -> Wi-Fi: associação Wi-Fi ativa
+```
+
+O servidor verificado é a URL CASA configurada, cujo padrão é:
+
+```text
+https://maurinsoft.com.br/casa
+```
+
+A verificação ocorre após conectar ao Wi-Fi e periodicamente, com timeouts curtos.
+A casinha só aparece quando há uma resposta HTTP/HTTPS válida do servidor.
+
+Na tela de configuração de Wi-Fi:
+
+- a senha numérica digitada é exibida diretamente na tela;
+- durante a associação aparece `CONECTANDO...`;
+- quando a rede é aceita aparece `WIFI CONECTADO` em destaque;
+- o estado do servidor é mostrado como `CASA: VERIFICANDO...`,
+  `CASA: CONECTADO` ou `CASA: SEM RESPOSTA`;
+- após a conexão a senha digitada é limpa da RAM da interface.
