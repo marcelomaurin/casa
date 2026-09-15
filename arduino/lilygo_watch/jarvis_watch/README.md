@@ -466,3 +466,38 @@ Na tela de configuração de Wi-Fi:
 - o estado do servidor é mostrado como `CASA: VERIFICANDO...`,
   `CASA: CONECTADO` ou `CASA: SEM RESPOSTA`;
 - após a conexão a senha digitada é limpa da RAM da interface.
+
+
+## Economia de bateria / deep sleep
+
+Nos modos `ECO` e `ULTRA`, depois que o timeout da tela termina o Watch entra
+em deep sleep em vez de manter ESP32 e Wi-Fi ativos continuamente.
+
+Fontes de wake no T-Watch 2020 V3:
+
+```text
+GPIO35 / AXP202 INT  -> botão físico
+GPIO38 / FT6336 INT  -> toque na tela
+timer ESP32          -> sincronização CASA a cada minuto
+```
+
+No wake pelo timer a tela permanece apagada. O firmware tenta o último perfil
+Wi-Fi que funcionou, consulta o Control Plane/Watch API do CASA e:
+
+- se não houver comando/notificação pendente, desliga novamente o rádio e volta
+  imediatamente ao deep sleep;
+- se houver atualização, inicializa a interface, vibra e processa a atualização.
+
+O wake é alinhado aproximadamente ao início de cada minuto usando o RTC para que
+os alarmes locais continuem sendo verificados.
+
+O modo `NORMAL` mantém o comportamento sem deep sleep para diagnóstico e uso
+contínuo.
+
+### Observação sobre levantar o pulso
+
+O FT6336 (touch) usa wake em nível LOW e o BMA423 usa interrupção em nível HIGH.
+No ESP32 clássico essas duas polaridades não podem compartilhar a mesma
+configuração EXT1 de deep sleep. Por isso, durante deep sleep, são priorizados
+touch, botão e timer. O sensor BMA423 continua disponível enquanto o relógio está
+acordado, mas levantar o pulso não é fonte de wake em deep sleep.
