@@ -85,7 +85,32 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
         var password by remember { mutableStateOf("") }
         var slot by remember { mutableIntStateOf(0) }
         var watchToken by remember { mutableStateOf("") }
+        var pendingWatch by remember { mutableStateOf<WatchClient.FoundWatch?>(null) }
         val casa = remember { JarvisApi.loadConfig(this).baseUrl }
+
+        pendingWatch?.let { candidate ->
+            AlertDialog(
+                onDismissRequest = { pendingWatch = null },
+                title = { Text("Adicionar ao JARVIS?") },
+                text = {
+                    Text(
+                        "Autorizar ${candidate.name} (${candidate.address}) a fazer parte do JARVIS? " +
+                            "O relógio poderá trocar comandos, notificações e configurações com este celular."
+                    )
+                },
+                confirmButton = {
+                    Button(onClick = {
+                        pendingWatch = null
+                        statusState = "Conectando ${candidate.name}..."
+                        watchClient.connect(candidate.address)
+                    }) { Text("AUTORIZAR") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pendingWatch = null }) { Text("CANCELAR") }
+                }
+            )
+        }
+
         Column(
             Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -113,7 +138,7 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
                 ElevatedCard(Modifier.fillMaxWidth()) {
                     Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                         Column { Text(w.name, fontWeight = FontWeight.Bold); Text("${w.address} • ${w.rssi} dBm") }
-                        Button(onClick = { watchClient.connect(w.address) }) { Text("CONECTAR") }
+                        Button(onClick = { pendingWatch = w }) { Text("ADICIONAR") }
                     }
                 }
             }
