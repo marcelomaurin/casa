@@ -83,7 +83,12 @@ static bool startNecFrame(uint8_t b0, uint8_t b1, uint8_t b2, uint8_t b3, uint8_
   irRepeatsRemaining = repeats;
   irLastFrameWasRepeat = false;
   irRepeatDue = 0;
-  return startItems(n);
+  if(!startItems(n)){
+    irNecSequence = false;
+    irRepeatsRemaining = 0;
+    return false;
+  }
+  return true;
 }
 
 static bool startNecRepeat(){
@@ -205,7 +210,7 @@ static bool appendRawSegment(size_t &itemIndex, bool mark, uint32_t durationUs, 
 }
 
 bool jarvisIrSendRaw(
-  const uint16_t *durationsUs,
+  const uint32_t *durationsUs,
   size_t count,
   uint32_t carrierHz,
   uint8_t dutyPercent
