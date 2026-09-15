@@ -275,6 +275,18 @@ class MainActivity : ComponentActivity() {
             OutlinedTextField(token, { token = it }, Modifier.fillMaxWidth(), label = { Text(tr("phone_token")) }, singleLine = true)
             Button(onClick = { JarvisApi.saveConfig(this@MainActivity, server, token); runCatching { startJarvisService() }; status = tr("saved") }, Modifier.fillMaxWidth()) { Text(tr("save")) }
             OutlinedButton(onClick = { JarvisApi.saveConfig(this@MainActivity, server, token); busy = true; scope.launch { status = try { withContext(Dispatchers.IO) { JarvisApi.testConnection(this@MainActivity) } } catch (e: Exception) { "${tr("offline_reconnecting")}. ${e.message ?: ""}" }; busy = false } }, Modifier.fillMaxWidth(), enabled = !busy) { Text(if (busy) tr("testing") else tr("test_now")) }
+
+            HorizontalDivider()
+            Text("Dispositivos", fontWeight = FontWeight.Bold)
+            Text("Cadastre e autorize novos hardwares pelo aplicativo. O JARVIS Mobile cria a identidade no CASA e entrega a credencial individual ao dispositivo.")
+            Button(
+                onClick = {
+                    JarvisApi.saveConfig(this@MainActivity, server, token)
+                    startActivity(Intent(this@MainActivity, NewDevicesActivity::class.java))
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("NOVOS DEVICES") }
+
             ElevatedCard(Modifier.fillMaxWidth()) { Text(status, modifier = Modifier.padding(16.dp)) }
         }
     }
