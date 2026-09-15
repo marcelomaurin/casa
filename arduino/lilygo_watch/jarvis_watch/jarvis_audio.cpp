@@ -30,8 +30,6 @@ static bool ensureAudioDriver(){
   cfg.dma_buf_count = 4;
   cfg.dma_buf_len = 128;
   cfg.use_apll = false;
-  cfg.tx_desc_auto_clear = true;
-  cfg.fixed_mclk = 0;
 
   esp_err_t e = i2s_driver_install(AUDIO_PORT, &cfg, 0, nullptr);
   if(e != ESP_OK) return false;
