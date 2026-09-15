@@ -3,6 +3,7 @@
 #include "jarvis_wifi.h"
 #include "jarvis_controller.h"
 #include "jarvis_audio.h"
+#include "jarvis_ir.h"
 #include <Preferences.h>
 #include <driver/i2s.h>
 #include <esp_sleep.h>
@@ -160,6 +161,7 @@ void enterDeepSleep(){
   if(!watch)return;
   if(watch->bma&&wristWakeEnabled){watch->bma->enableFeature(BMA423_WAKEUP,true);watch->bma->enableFeature(BMA423_TILT,true);watch->bma->enableWakeupInterrupt();watch->bma->enableTiltInterrupt();esp_sleep_enable_ext1_wakeup(GPIO_SEL_39,ESP_EXT1_WAKEUP_ANY_HIGH);}
   esp_sleep_enable_ext0_wakeup((gpio_num_t)AXP202_INT,0);
+  jarvisIrShutdown();
   jarvisAudioShutdown();
   watch->displaySleep();watch->closeBL();esp_deep_sleep_start();
 }
@@ -247,7 +249,7 @@ void drawCamera(){drawHeader("CAMERA / VIDEO");tft->setTextColor(C_TEXT,C_BG);tf
 void drawGps(){drawHeader("GPS");tft->setTextColor(C_TEXT,C_BG);tft->drawCentreString(gpsText.c_str(),120,82,2);lcarsButton(55,128,130,30,C_BLUE,"ATUALIZAR");drawFooter();}
 void drawControls(){drawHeader("CASA");lcarsButton(5,62,111,51,C_SALMON,"LUZ SALA");lcarsButton(124,62,111,51,C_ORANGE,"LUZ QUARTO");lcarsButton(5,119,111,51,C_BLUE,"PORTAO");lcarsButton(124,119,111,51,C_LAV,"CENA NOITE");drawMessage();drawFooter();}
 void drawHealth(){drawHeader("ATIVIDADE");tft->setTextColor(C_TEXT,C_BG);tft->drawCentreString("PASSOS",120,75,2);tft->drawCentreString(String(steps).c_str(),120,103,4);int pct=min(100,(int)(steps*100UL/6000UL));tft->drawRoundRect(27,151,184,14,6,C_TEXT);tft->fillRoundRect(29,153,(180*pct)/100,10,5,C_GREEN);drawFooter();}
-void drawStatus(){drawHeader("STATUS");int b=batteryPercent();tft->setTextColor(C_TEXT,C_BG);tft->drawString("BATERIA",20,70,2);tft->drawRightString(b>=0?(String(b)+"%").c_str():"--",220,70,2);tft->drawString("BLE",20,96,2);tft->drawRightString(jarvisBleIsConnected()?"OK":"OFF",220,96,2);tft->drawString("WIFI",20,122,2);tft->drawRightString(jarvisWifiIsConnected()?jarvisWifiSsid().c_str():"OFF",220,122,2);tft->drawString("ENERGIA",20,148,2);tft->drawRightString(powerLabel().c_str(),220,148,2);tft->drawString("EVENTOS",20,174,1);tft->drawRightString(String(controller.droppedEvents()).c_str(),220,174,1);drawFooter();}
+void drawStatus(){drawHeader("STATUS");int b=batteryPercent();tft->setTextColor(C_TEXT,C_BG);tft->drawString("BATERIA",20,70,2);tft->drawRightString(b>=0?(String(b)+"%").c_str():"--",220,70,2);tft->drawString("BLE",20,96,2);tft->drawRightString(jarvisBleIsConnected()?"OK":"OFF",220,96,2);tft->drawString("WIFI",20,122,2);tft->drawRightString(jarvisWifiIsConnected()?jarvisWifiSsid().c_str():"OFF",220,122,2);tft->drawString("ENERGIA",20,148,2);tft->drawRightString(powerLabel().c_str(),220,148,2);tft->drawString("IR",20,174,1);tft->drawRightString(jarvisIrIsReady()?(jarvisIrIsBusy()?"TX":"OK"):"OFF",92,174,1);tft->drawString("EVT",118,174,1);tft->drawRightString(String(controller.droppedEvents()).c_str(),220,174,1);drawFooter();}
 String timeoutLabel(){return screenTimeoutSec==0?"NUNCA":String(screenTimeoutSec)+"s";}
 void drawSettings(){drawHeader("CONFIG");tft->setTextColor(C_TEXT,C_BG);tft->drawString("BRILHO",8,64,2);lcarsButton(110,60,58,30,C_LAV,"-");lcarsButton(174,60,61,30,C_ORANGE,"+");tft->drawString("ENERGIA",8,98,2);lcarsButton(124,94,111,30,C_GREEN,powerLabel().c_str());tft->drawString("TELA",8,132,2);lcarsButton(124,128,111,30,C_BLUE,timeoutLabel().c_str());lcarsButton(5,164,72,36,C_LAV,"WIFI");lcarsButton(82,164,72,36,C_GOLD,vibrationEnabled?"VIB ON":"VIB OFF");lcarsButton(159,164,76,36,C_SALMON,"RELOGIO");drawFooter();}
 void drawClock(){drawHeader("RELOGIO");RTC_Date n=watch->rtc->getDateTime();tft->setTextColor(C_TEXT,C_BG);tft->drawCentreString((twoDigits(n.hour)+":"+twoDigits(n.minute)).c_str(),120,65,4);tft->drawCentreString((twoDigits(n.day)+"/"+twoDigits(n.month)+"/"+String(n.year)).c_str(),120,95,2);lcarsButton(5,121,52,38,C_LAV,"H-");lcarsButton(62,121,52,38,C_ORANGE,"H+");lcarsButton(124,121,52,38,C_BLUE,"M-");lcarsButton(181,121,54,38,C_SALMON,"M+");drawFooter();}
@@ -476,7 +478,7 @@ void emitRtcTick(){
 void setup(){
   Serial.begin(115200);bootMillis=millis();watch=TTGOClass::getWatch();if(!watch)return;watch->begin();watch->motor_begin();watch->openBL();tft=watch->tft;if(watch->rtc)watch->rtc->check();
   if(watch->power){watch->power->adc1Enable(AXP202_VBUS_VOL_ADC1|AXP202_VBUS_CUR_ADC1|AXP202_BATT_CUR_ADC1|AXP202_BATT_VOL_ADC1,true);pinMode(AXP202_INT,INPUT_PULLUP);attachInterrupt(AXP202_INT,onPowerButtonIrq,FALLING);watch->power->enableIRQ(AXP202_PEK_SHORTPRESS_IRQ,true);watch->power->clearIRQ();}
-  loadSettings();applyPowerMode();initMotion();jarvisAudioBegin(watch);jarvisWifiBegin();jarvisBleSetEventHandler(bleEventHandler);jarvisBleBegin();
+  loadSettings();applyPowerMode();initMotion();jarvisAudioBegin(watch);jarvisIrBegin();jarvisWifiBegin();jarvisBleSetEventHandler(bleEventHandler);jarvisBleBegin();
 
   JarvisPowerHooks powerHooks;powerHooks.screenOn=powerScreenOnHook;powerHooks.screenOff=powerScreenOffHook;powerHooks.deepSleep=powerDeepSleepHook;
   JarvisAlarmHooks alarmHooks;alarmHooks.vibrateOnce=alarmVibrateHook;alarmHooks.localSound=alarmLocalSoundHook;alarmHooks.phoneSound=alarmPhoneHook;
@@ -489,6 +491,7 @@ void loop(){
 
   processPowerButton();
   jarvisAudioLoop();
+  jarvisIrLoop();
   jarvisBleLoop();
   jarvisWifiLoop();
   processVoiceCapture();
