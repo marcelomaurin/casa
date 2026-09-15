@@ -78,6 +78,7 @@ void JarvisAlarmStateMachine::update(unsigned long now){
   }
 
   if(hooks_.vibrateOnce) hooks_.vibrateOnce();
+  if(tone_ != JARVIS_ALARM_PHONE && hooks_.localSound) hooks_.localSound(tone_, pulse_);
   nextPulseAt_ = now + pulseGap(pulse_);
   pulse_++;
 }
