@@ -389,13 +389,16 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
                                 }
                             }
 
+                            val identityQueued = watchClient.provisionDeviceIdentity(
+                                entry.deviceId
+                            )
                             val casaQueued = watchClient.provisionCasa(
                                 entry.baseUrl,
                                 entry.token
                             )
-                            if (!casaQueued) {
+                            if (!identityQueued || !casaQueued) {
                                 statusState =
-                                    "Token criado e guardado, mas o Watch não aceitou o envio. Reconecte e use REENVIAR."
+                                    "Credencial criada e guardada, mas o Watch não aceitou todo o envio. Reconecte e use REENVIAR."
                                 provisioning = false
                                 return@launch
                             }
