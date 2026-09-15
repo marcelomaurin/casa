@@ -14,6 +14,10 @@ O firmware trata o T-Watch como smartwatch JARVIS com mostradores, launcher, voz
 - motor de vibração
 - microfone PDM SPM1423
 - Wi-Fi ESP32
+- BMA423 (INT GPIO39)
+- motor de vibração (GPIO4)
+- microfone PDM SPM1423 (DATA GPIO2 / CLK GPIO0)
+- MAX98357A / saída I2S (BCK GPIO26 / WS GPIO25 / DOUT GPIO33)
 - sem dependência externa de NimBLE/ESP32_BLE_Arduino nesta build
 
 O transporte BLE permanece isolado em `jarvis_ble.*`, mas está desativado nesta
@@ -54,7 +58,7 @@ de gravação causado por uma seleção incorreta de `Flash Size`. Quando o OTA 
 relógio for implementado, a tabela será migrada para duas partições OTA usando a
 capacidade total do hardware.
 
-O T-Watch 2020 V3 usado neste projeto não fornece câmera, GPS nem alto-falante de reprodução ao firmware. Câmera, GPS, vídeo e áudio de resposta usam o celular/site; o relógio oferece microfone, texto e vibração.
+O T-Watch 2020 V3 usado neste projeto não fornece câmera nem GPS próprios. O firmware usa o microfone PDM local e agora também implementa a saída de áudio pelo MAX98357A. Câmera e GPS continuam sendo fornecidos pelo celular.
 
 ## Arquitetura por eventos e máquinas de estado
 
@@ -328,7 +332,10 @@ A camada de assistência continua separada em `jarvis_assistance.*`. Alertas de 
 | Mostrador JARVIS AVIATION / swipe / launcher | Implementado |
 | Botão físico tela ON/OFF | Agora passa pela PowerSM; validar hardware |
 | Seleção de padrão do alarme | Implementada |
-| Microfone PDM não bloqueante | Implementado; validar hardware |
+| Microfone PDM não bloqueante | Implementado; PCM real em I2S0 |
+| MAX98357A / I2S1 | Implementado |
+| Som local de alarme | Implementado |
+| Vibração GPIO4 | Implementada e inicializada |
 | Busca Wi-Fi | Gerenciada pela NetworkSM |
 | Teclado de senha Wi-Fi | Implementado |
 | Videochamada Família | Pedido via BLE ou Wi-Fi/site implementado |
@@ -345,3 +352,43 @@ A camada de assistência continua separada em `jarvis_assistance.*`. Alertas de 
 O mostrador `ANA-DIGI`, que exibia dois submostradores circulares, foi removido.
 O firmware mantém somente o mostrador unificado `JARVIS AVIATION`, reduzindo código
 gráfico e memória de programa.
+
+
+## Áudio local / MAX98357A
+
+A saída de áudio local foi implementada diretamente com `driver/i2s.h`, sem biblioteca
+de áudio adicional. O objetivo é manter o firmware pequeno.
+
+Arquitetura:
+
+```text
+I2S_NUM_0 -> RX/PDM -> SPM1423
+  CLK  GPIO0
+  DATA GPIO2
+
+I2S_NUM_1 -> TX -> MAX98357A
+  BCK  GPIO26
+  WS   GPIO25
+  DOUT GPIO33
+```
+
+O módulo `jarvis_audio.*` fornece:
+
+- tom não bloqueante;
+- padrões de alarme no próprio relógio;
+- reprodução de PCM mono 16-bit/16 kHz para futura resposta TTS;
+- ativação do domínio de áudio AXP202 LDO4;
+- desligamento do áudio antes de deep sleep.
+
+A tela de alarme toca uma prévia ao trocar entre CURTO, DUPLO e URGENTE. O modo
+CELULAR continua encaminhando o som ao telefone quando o transporte estiver disponível.
+
+O motor de vibração é inicializado explicitamente com `motor_begin()` e usa o GPIO4.
+
+## Microfone
+
+O microfone PDM SPM1423 usa `I2S_NUM_0` em RX/PDM, 16 kHz e 16 bits. O firmware
+já lê amostras PCM reais e calcula atividade de voz. O envio dessas amostras para
+STT externo continua separado da captura local: com o BLE desativado nesta build,
+o transporte de áudio até o celular/servidor ainda precisa ser conectado a uma
+camada de rede existente.
