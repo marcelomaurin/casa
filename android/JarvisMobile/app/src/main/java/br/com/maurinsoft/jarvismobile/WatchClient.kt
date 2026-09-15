@@ -94,6 +94,13 @@ class WatchClient(private val context: Context) {
             listeners.forEach { it.onError("Relógio inválido") }; return
         }
         gatt?.close()
+        control = null
+        events = null
+        synchronized(writeLock) {
+            writeQueue.clear()
+            writeInProgress = false
+            gattReady = false
+        }
         gatt = if (Build.VERSION.SDK_INT >= 23) device.connectGatt(context, false, callback, BluetoothDevice.TRANSPORT_LE)
         else @Suppress("DEPRECATION") device.connectGatt(context, false, callback)
     }
