@@ -37,9 +37,9 @@ static bool ensureAudioDriver(){
   if(e != ESP_OK) return false;
 
   i2s_pin_config_t pins = {};
-  pins.bck_io_num = TWATCH_DAC_IIS_BCK;    // GPIO26
-  pins.ws_io_num = TWATCH_DAC_IIS_WS;      // GPIO25
-  pins.data_out_num = TWATCH_DAC_IIS_DOUT; // GPIO33
+  pins.bck_io_num = JARVIS_AUDIO_BCK_PIN;
+  pins.ws_io_num = JARVIS_AUDIO_WS_PIN;
+  pins.data_out_num = JARVIS_AUDIO_DOUT_PIN
   pins.data_in_num = I2S_PIN_NO_CHANGE;
 
   e = i2s_set_pin(AUDIO_PORT, &pins);
