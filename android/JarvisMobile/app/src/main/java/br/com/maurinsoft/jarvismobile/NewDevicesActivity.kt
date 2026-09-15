@@ -69,12 +69,17 @@ class NewDevicesActivity : ComponentActivity(), EspCamProvisioner.Listener {
             setPadding(0, dp(4), 0, dp(14))
         })
 
+        root.addView(section("TIPO DE DEVICE"))
+
         val watchButton = Button(this).apply {
-            text = "CONFIGURAR JARVIS WATCH"
-            setOnClickListener { startActivity(Intent(this@NewDevicesActivity, WatchSetupActivity::class.java)) }
+            text = "WATCH"
+            setOnClickListener {
+                startActivity(Intent(this@NewDevicesActivity, WatchSetupActivity::class.java))
+            }
         }
         root.addView(watchButton, fullWidth())
 
+        root.addView(section("ESP32-CAM"))
         val scan = Button(this).apply {
             text = "PROCURAR ESP32-CAM POR BLUETOOTH"
             setOnClickListener { ensureBluetoothAndScan() }
