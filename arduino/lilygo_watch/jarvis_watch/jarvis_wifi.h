@@ -26,6 +26,12 @@ bool jarvisWifiScanRunning();
 
 void jarvisWifiSetCasa(const String &baseUrl, const String &deviceToken);
 
+// Estado da conexao HTTP/HTTPS com o servidor CASA configurado.
+// Por padrao: https://maurinsoft.com.br/casa
+bool jarvisWifiCasaOnline();
+void jarvisWifiRequestCasaCheck();
+String jarvisWifiCasaBase();
+
 // Inicia associação e retorna imediatamente. A UI pode acompanhar jarvisWifiIsConnected().
 bool jarvisWifiStartProfile(uint8_t slot);
 bool jarvisWifiConnectProfile(uint8_t slot, uint32_t timeoutMs = 8000);
