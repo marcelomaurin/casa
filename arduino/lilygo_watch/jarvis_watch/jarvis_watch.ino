@@ -66,12 +66,6 @@ JarvisWifiNetwork wifiNetworks[12];
 int wifiNetworkCount=0, wifiPage=0;
 bool wifiScanning=false;
 String selectedWifi="", wifiPassword="";
-int keyboardPage=0;
-const char *keyboardPages[] = {
-  "abcdefghijklmnopqrstuvwxyz._-@+*",
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZ._-@+*",
-  "1234567890!#$%&()[]{}:;?/\\=+-_"
-};
 
 static const uint16_t C_BG=0xFFDF,C_TEXT=0x18C3,C_ORANGE=0xFBE0,C_SALMON=0xFB2C;
 static const uint16_t C_LAV=0xB57F,C_BLUE=0x5D7F,C_GREEN=0x6E6B,C_RED=0xF9E7,C_GOLD=0xFE60,C_WHITE=0xFFFF;
@@ -267,9 +261,46 @@ void drawWifi(){
 }
 
 void drawKeyboard(){
-  drawHeader("SENHA WIFI");tft->setTextColor(C_TEXT,C_BG);String mask="";for(unsigned int i=0;i<wifiPassword.length();i++)mask+="*";if(mask.length()>25)mask=mask.substring(mask.length()-25);tft->drawString(selectedWifi.substring(0,22).c_str(),7,59,1);tft->drawString(mask.c_str(),7,73,1);
-  String chars=keyboardPages[keyboardPage];int cols=8;for(int i=0;i<(int)chars.length()&&i<32;i++){int row=i/cols,col=i%cols,x=4+col*29,y=88+row*25;tft->fillRoundRect(x,y,26,22,4,C_WHITE);tft->setTextColor(C_TEXT,C_WHITE);char s[2]={chars[i],0};tft->drawCentreString(s,x+13,y+5,1);}
-  lcarsButton(4,190,69,30,C_LAV,"PAG");lcarsButton(78,190,69,30,C_SALMON,"APAGA");lcarsButton(152,190,84,30,C_GREEN,"SALVAR");
+  drawHeader("SENHA WIFI");
+  tft->setTextColor(C_TEXT,C_BG);
+
+  String mask="";
+  for(unsigned int i=0;i<wifiPassword.length();i++)mask+="*";
+  if(mask.length()>18)mask=mask.substring(mask.length()-18);
+
+  String ssid=selectedWifi;
+  if(ssid.length()>18)ssid=ssid.substring(0,18);
+  tft->drawString(ssid.c_str(),7,59,1);
+  tft->drawRightString(mask.c_str(),233,59,1);
+
+  // Teclado Wi-Fi simplificado: botoes grandes e somente numeros.
+  // Linha inferior: apagar, 0 e confirmar, usando apenas simbolos.
+  const int xs[3]={6,85,164};
+  const int ys[4]={78,113,148,183};
+  const char *digits[3][3]={{"1","2","3"},{"4","5","6"},{"7","8","9"}};
+
+  for(int row=0;row<3;row++){
+    for(int col=0;col<3;col++){
+      tft->fillRoundRect(xs[col],ys[row],70,31,7,C_WHITE);
+      tft->setTextColor(C_TEXT,C_WHITE);
+      tft->drawCentreString(digits[row][col],xs[col]+35,ys[row]+5,4);
+    }
+  }
+
+  // Backspace
+  tft->fillRoundRect(xs[0],ys[3],70,31,7,C_SALMON);
+  tft->setTextColor(C_TEXT,C_SALMON);
+  tft->drawCentreString("<",xs[0]+35,ys[3]+5,4);
+
+  // Zero
+  tft->fillRoundRect(xs[1],ys[3],70,31,7,C_WHITE);
+  tft->setTextColor(C_TEXT,C_WHITE);
+  tft->drawCentreString("0",xs[1]+35,ys[3]+5,4);
+
+  // Confirmar
+  tft->fillRoundRect(xs[2],ys[3],70,31,7,C_GREEN);
+  tft->setTextColor(C_TEXT,C_GREEN);
+  tft->drawCentreString(">",xs[2]+35,ys[3]+5,4);
 }
 
 void drawWrappedText(const String &value,int x,int y,int maxChars,int maxLines){
@@ -325,7 +356,7 @@ void syncWifiResults(){
   for(int i=0;i<wifiNetworkCount&&i<12;i++){const JarvisWifiNetwork *n=controller.network().networkAt(i);if(n)wifiNetworks[i]=*n;}
 }
 void startWifiScan(){wifiNetworkCount=0;wifiPage=0;wifiScanning=true;lastMessage="Buscando redes";controller.emit(jarvisEvent(EVT_WIFI_SCAN_REQUEST));drawScreen();}
-void selectWifi(int index){if(index<0||index>=wifiNetworkCount)return;selectedWifi=wifiNetworks[index].ssid;wifiPassword="";keyboardPage=0;navigate(SCREEN_KEYBOARD);}
+void selectWifi(int index){if(index<0||index>=wifiNetworkCount)return;selectedWifi=wifiNetworks[index].ssid;wifiPassword="";navigate(SCREEN_KEYBOARD);}
 void saveWifiFromKeyboard(){
   if(selectedWifi.isEmpty())return;
   if(!controller.network().saveAndConnect(selectedWifi,wifiPassword)){lastMessage=controller.network().lastError();drawScreen();return;}
@@ -351,8 +382,28 @@ void handleTap(int x,int y){
   else if(currentScreen==SCREEN_CLOCK){if(y>=121&&y<=160){if(x<58)adjustClock(-1,0);else if(x<120)adjustClock(1,0);else if(x<180)adjustClock(0,-1);else adjustClock(0,1);}}
   else if(currentScreen==SCREEN_WIFI){JarvisNetworkState ns=controller.network().state();if(ns!=JARVIS_NET_SCANNING&&wifiNetworkCount<=0){if(y>=105&&y<=155)startWifiScan();}else if(ns!=JARVIS_NET_SCANNING&&ns!=JARVIS_NET_CONNECTING&&y>=60&&y<196){int row=(y-60)/34;selectWifi(wifiPage*4+row);}}
   else if(currentScreen==SCREEN_KEYBOARD){
-    if(y>=88&&y<188){int col=(x-4)/29,row=(y-88)/25,index=row*8+col;String chars=keyboardPages[keyboardPage];if(col>=0&&col<8&&index>=0&&index<(int)chars.length()&&wifiPassword.length()<63)wifiPassword+=chars[index];drawScreen();}
-    else if(y>=188){if(x<75){keyboardPage=(keyboardPage+1)%3;drawScreen();}else if(x<150){if(wifiPassword.length())wifiPassword.remove(wifiPassword.length()-1);drawScreen();}else saveWifiFromKeyboard();}
+    const int xs[3]={6,85,164};
+    const int ys[4]={78,113,148,183};
+
+    int col=-1,row=-1;
+    for(int i=0;i<3;i++)if(x>=xs[i]&&x<xs[i]+70){col=i;break;}
+    for(int i=0;i<4;i++)if(y>=ys[i]&&y<ys[i]+31){row=i;break;}
+
+    if(col>=0&&row>=0){
+      if(row<3){
+        static const char keypad[3][3]={{'1','2','3'},{'4','5','6'},{'7','8','9'}};
+        if(wifiPassword.length()<63)wifiPassword+=keypad[row][col];
+        drawScreen();
+      }else if(col==0){
+        if(wifiPassword.length())wifiPassword.remove(wifiPassword.length()-1);
+        drawScreen();
+      }else if(col==1){
+        if(wifiPassword.length()<63)wifiPassword+='0';
+        drawScreen();
+      }else{
+        saveWifiFromKeyboard();
+      }
+    }
   }
 }
 
