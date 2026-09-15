@@ -161,12 +161,19 @@ class WatchClient(private val context: Context) {
     private val callback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
             if (newState == BluetoothProfile.STATE_CONNECTED && status == BluetoothGatt.GATT_SUCCESS) {
-                if (canConnect()) g.discoverServices()
+                if (canConnect()) {
+                    g.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
+                    if (!g.requestMtu(185)) g.discoverServices()
+                }
             } else {
                 control = null; events = null
                 context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_CONNECTED, false).apply()
                 listeners.forEach { it.onConnectionChanged(false, savedName(context), savedAddress(context)) }
             }
+        }
+
+        override fun onMtuChanged(g: BluetoothGatt, mtu: Int, status: Int) {
+            if (canConnect()) g.discoverServices()
         }
 
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
