@@ -1,7 +1,6 @@
 package br.com.maurinsoft.jarvismobile
 
 import android.Manifest
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.wifi.WifiManager
 import android.os.Build
@@ -19,25 +18,45 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
+/**
+ * Fluxo oficial de cadastro do relógio:
+ *
+ * Configuração -> Novos Devices -> Watch -> procurar -> conectar ->
+ * app cria identidade/token no CASA -> app envia URL/token e perfis Wi-Fi ao Watch.
+ *
+ * O usuário nunca precisa copiar/colar token de hardware manualmente.
+ */
 class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
     private lateinit var watchClient: WatchClient
-    private var foundState by mutableStateOf<List<WatchClient.FoundWatch>>(emptyList())
-    private var statusState by mutableStateOf("Pronto para procurar o relógio")
-    private var connectedState by mutableStateOf(false)
 
-    private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
+    private var foundState by mutableStateOf<List<WatchClient.FoundWatch>>(emptyList())
+    private var statusState by mutableStateOf("Pronto para procurar relógios")
+    private var connectedState by mutableStateOf(false)
+    private var connectedAddressState by mutableStateOf("")
+    private var connectedNameState by mutableStateOf(WatchClient.WATCH_NAME)
+
+    private val permissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         watchClient = WatchClient(this)
         watchClient.addListener(this)
         requestPermissions()
+
         connectedState = WatchClient.isConnected(this)
+        connectedAddressState = WatchClient.savedAddress(this)
+        connectedNameState = WatchClient.savedName(this)
+
         setContent { MaterialTheme { Screen() } }
     }
 
     override fun onDestroy() {
+        watchClient.stopScan()
         watchClient.removeListener(this)
         super.onDestroy()
     }
@@ -63,49 +82,79 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
     override fun onConnectionChanged(connected: Boolean, name: String, address: String) {
         runOnUiThread {
             connectedState = connected
-            statusState = if (connected) "$name conectado" else "Relógio desconectado"
+            if (connected) {
+                connectedAddressState = address
+                connectedNameState = name
+                statusState = "$name conectado. Pronto para cadastrar no CASA."
+            } else {
+                statusState = "Relógio desconectado"
+            }
         }
     }
 
     override fun onWatchMessage(json: org.json.JSONObject) {
-        runOnUiThread { statusState = "Watch: ${json.optString("type", "mensagem")}" }
+        runOnUiThread {
+            when (json.optString("type")) {
+                "hello" -> statusState = "Canal de configuração do Watch pronto"
+                "status" -> statusState = "Status recebido do Watch"
+                else -> statusState = "Watch: ${json.optString("type", "mensagem")}"
+            }
+        }
     }
 
-    override fun onError(message: String) { runOnUiThread { statusState = message } }
+    override fun onError(message: String) {
+        runOnUiThread { statusState = message }
+    }
 
     private fun currentSsid(): String {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && Build.VERSION.SDK_INT < 31) return ""
+        if (
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) !=
+            PackageManager.PERMISSION_GRANTED && Build.VERSION.SDK_INT < 31
+        ) return ""
         val wm = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
         @Suppress("DEPRECATION")
-        return wm.connectionInfo?.ssid?.trim('"')?.takeUnless { it == "<unknown ssid>" }.orEmpty()
+        return wm.connectionInfo?.ssid?.trim('"')
+            ?.takeUnless { it == "<unknown ssid>" }.orEmpty()
     }
 
     @Composable
     private fun Screen() {
+        val scope = rememberCoroutineScope()
+        val appConfigured = JarvisApi.isConfigured(this)
+
         var ssid by remember { mutableStateOf(currentSsid()) }
         var password by remember { mutableStateOf("") }
         var slot by remember { mutableIntStateOf(0) }
-        var watchToken by remember { mutableStateOf("") }
         var savedProfiles by remember { mutableStateOf(WifiProfileStore.load(this)) }
         var pendingWatch by remember { mutableStateOf<WatchClient.FoundWatch?>(null) }
-        val casa = remember { JarvisApi.loadConfig(this).baseUrl }
+
+        var watchName by remember { mutableStateOf("JARVIS Watch") }
+        var location by remember { mutableStateOf("Residencia") }
+        var provisioning by remember { mutableStateOf(false) }
+        var refreshProvision by remember { mutableIntStateOf(0) }
+
+        val existingProvision = remember(connectedAddressState, refreshProvision) {
+            if (connectedAddressState.isBlank()) null
+            else WatchProvisionStore.findByAddress(this, connectedAddressState)
+        }
 
         pendingWatch?.let { candidate ->
             AlertDialog(
                 onDismissRequest = { pendingWatch = null },
-                title = { Text("Adicionar ao JARVIS?") },
+                title = { Text("Adicionar Watch?") },
                 text = {
                     Text(
-                        "Autorizar ${candidate.name} (${candidate.address}) a fazer parte do JARVIS? " +
-                            "O relógio poderá trocar comandos, notificações e configurações com este celular."
+                        "Conectar a ${candidate.name} (${candidate.address}) para criar " +
+                            "uma identidade individual no CASA e enviar a credencial ao relógio?"
                     )
                 },
                 confirmButton = {
                     Button(onClick = {
                         pendingWatch = null
+                        watchName = candidate.name.ifBlank { "JARVIS Watch" }
                         statusState = "Conectando ${candidate.name}..."
                         watchClient.connect(candidate.address)
-                    }) { Text("AUTORIZAR") }
+                    }) { Text("CONECTAR") }
                 },
                 dismissButton = {
                     TextButton(onClick = { pendingWatch = null }) { Text("CANCELAR") }
@@ -114,88 +163,307 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
         }
 
         Column(
-            Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
+            Modifier
+                .fillMaxSize()
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("JARVIS Watch", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Text(
+                "Configuração > Novos Devices > Watch",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
+            )
             Text(statusState)
-            Button(
-                onClick = { startActivity(Intent(this@WatchSetupActivity, NewDevicesActivity::class.java)) },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("NOVOS DEVICES / CONFIGURAR EQUIPAMENTOS") }
 
             ElevatedCard(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Bluetooth", fontWeight = FontWeight.Bold)
-                    Text(if (connectedState) "CONECTADO" else "DESCONECTADO")
-                    Text("Salvo: ${WatchClient.savedName(this@WatchSetupActivity)}")
-                    Text("RSSI: ${WatchClient.lastRssi(this@WatchSetupActivity)} dBm")
+                Column(
+                    Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Text("Acesso CASA", fontWeight = FontWeight.Bold)
+                    Text(
+                        if (appConfigured)
+                            "App autenticado. O token do Watch será criado automaticamente no servidor."
+                        else
+                            "Configure primeiro a URL e o token deste celular na tela Configuração."
+                    )
                 }
             }
+
+            HorizontalDivider()
+            Text("1. Procurar relógio", fontWeight = FontWeight.Bold)
+
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { foundState = emptyList(); statusState = "Procurando JARVIS Watch..."; watchClient.scan() }, Modifier.weight(1f)) { Text("PROCURAR") }
-                OutlinedButton(onClick = { watchClient.connectSaved() }, Modifier.weight(1f)) { Text("RECONECTAR") }
+                Button(
+                    onClick = {
+                        foundState = emptyList()
+                        statusState = "Procurando JARVIS Watch..."
+                        watchClient.scan()
+                    },
+                    modifier = Modifier.weight(1f)
+                ) { Text("PROCURAR") }
+
+                OutlinedButton(
+                    onClick = { watchClient.connectSaved() },
+                    modifier = Modifier.weight(1f)
+                ) { Text("RECONECTAR") }
             }
+
             foundState.forEach { w ->
                 ElevatedCard(Modifier.fillMaxWidth()) {
-                    Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Column { Text(w.name, fontWeight = FontWeight.Bold); Text("${w.address} • ${w.rssi} dBm") }
-                        Button(onClick = { pendingWatch = w }) { Text("ADICIONAR") }
+                    Row(
+                        Modifier.fillMaxWidth().padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(w.name, fontWeight = FontWeight.Bold)
+                            Text("${w.address} • ${w.rssi} dBm")
+                        }
+                        Button(onClick = { pendingWatch = w }) {
+                            Text("USAR")
+                        }
+                    }
+                }
+            }
+
+            if (connectedState) {
+                ElevatedCard(Modifier.fillMaxWidth()) {
+                    Column(
+                        Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text("Watch conectado", fontWeight = FontWeight.Bold)
+                        Text(connectedNameState)
+                        Text(connectedAddressState)
+                        existingProvision?.let {
+                            Text("CASA: ${it.deviceId}")
+                        }
                     }
                 }
             }
 
             HorizontalDivider()
-            Text("Wi‑Fi de contingência do relógio", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Text("Cadastre aqui as redes de casa, trabalho e outros locais. O Android permite identificar o SSID atual, mas não entrega a senha salva a aplicativos; informe a senha uma vez e o JARVIS Mobile a guarda criptografada.")
-            OutlinedTextField(ssid, { ssid = it }, Modifier.fillMaxWidth(), label = { Text("SSID") }, singleLine = true)
-            OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(), label = { Text("Senha Wi‑Fi") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
+            Text("2. Identificação", fontWeight = FontWeight.Bold)
+
+            OutlinedTextField(
+                watchName,
+                { watchName = it },
+                Modifier.fillMaxWidth(),
+                label = { Text("Nome do Watch") },
+                singleLine = true
+            )
+            OutlinedTextField(
+                location,
+                { location = it },
+                Modifier.fillMaxWidth(),
+                label = { Text("Local") },
+                singleLine = true
+            )
+
+            HorizontalDivider()
+            Text("3. Redes Wi-Fi do Watch", fontWeight = FontWeight.Bold)
+            Text(
+                "As redes ficam criptografadas no celular e são enviadas ao relógio durante o cadastro."
+            )
+
+            OutlinedTextField(
+                ssid,
+                { ssid = it },
+                Modifier.fillMaxWidth(),
+                label = { Text("SSID") },
+                singleLine = true
+            )
+            OutlinedTextField(
+                password,
+                { password = it },
+                Modifier.fillMaxWidth(),
+                label = { Text("Senha Wi-Fi") },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation()
+            )
+
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = { slot = (slot + 4) % 5 }) { Text("-") }
                 Text("Perfil ${slot + 1}", modifier = Modifier.padding(top = 12.dp))
                 OutlinedButton(onClick = { slot = (slot + 1) % 5 }) { Text("+") }
             }
+
             Button(
                 onClick = {
                     val profile = WifiProfileStore.Profile(slot, ssid.trim(), password)
-                    WifiProfileStore.save(this@WatchSetupActivity, profile)
-                    savedProfiles = WifiProfileStore.load(this@WatchSetupActivity)
-                    statusState = if (watchClient.provisionWifi(slot, profile.ssid, profile.password)) {
-                        "Rede salva no celular e enviada ao relógio"
-                    } else {
-                        "Rede salva no celular; conecte o relógio para reenviar"
-                    }
-                    password = ""
+                    runCatching { WifiProfileStore.save(this@WatchSetupActivity, profile) }
+                        .onSuccess {
+                            savedProfiles = WifiProfileStore.load(this@WatchSetupActivity)
+                            statusState = "Rede salva no celular"
+                            password = ""
+                        }
+                        .onFailure {
+                            statusState = "Falha ao salvar rede: ${it.message}"
+                        }
                 },
-                enabled = connectedState && ssid.isNotBlank(), modifier = Modifier.fillMaxWidth()
-            ) { Text("SALVAR E ENVIAR REDE") }
+                enabled = ssid.isNotBlank(),
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("SALVAR REDE") }
 
             savedProfiles.forEach { profile ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Perfil ${profile.slot + 1}: ${profile.ssid}", modifier = Modifier.padding(top = 12.dp))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        "Perfil ${profile.slot + 1}: ${profile.ssid}",
+                        modifier = Modifier.padding(top = 12.dp)
+                    )
                     OutlinedButton(
                         onClick = {
                             slot = profile.slot
                             ssid = profile.ssid
                             password = profile.password
                         }
-                    ) { Text("USAR") }
+                    ) { Text("EDITAR") }
                 }
             }
 
             HorizontalDivider()
-            Text("Acesso CASA direto", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Text("Use um token exclusivo do relógio com permissões mínimas; nunca use token mestre.")
-            OutlinedTextField(watchToken, { watchToken = it }, Modifier.fillMaxWidth(), label = { Text("Token individual do Watch") }, singleLine = true)
+            Text("4. Cadastrar e liberar acesso", fontWeight = FontWeight.Bold)
+
+            if (existingProvision == null) {
+                Text(
+                    "O aplicativo criará no site CASA uma identidade exclusiva para este relógio. " +
+                        "O token retornado pelo servidor será guardado criptografado no celular e enviado ao Watch."
+                )
+            } else {
+                Text(
+                    "Este relógio já possui identidade CASA (${existingProvision.deviceId}). " +
+                        "Você pode reenviar a URL, o token e os perfis Wi-Fi sem gerar outra credencial."
+                )
+            }
+
             Button(
                 onClick = {
-                    statusState = if (watchClient.provisionCasa(casa, watchToken.trim())) "CASA configurada no Watch" else "Falha ao configurar CASA"
-                    watchToken = ""
-                }, enabled = connectedState && watchToken.isNotBlank(), modifier = Modifier.fillMaxWidth()
-            ) { Text("PROVISIONAR FALLBACK CASA") }
+                    if (!appConfigured) {
+                        statusState = "Configure primeiro o acesso do celular ao CASA"
+                        return@Button
+                    }
+                    if (!connectedState || connectedAddressState.isBlank()) {
+                        statusState = "Conecte um Watch antes de cadastrar"
+                        return@Button
+                    }
+                    if (watchName.isBlank()) {
+                        statusState = "Informe o nome do Watch"
+                        return@Button
+                    }
 
-            OutlinedButton(onClick = { watchClient.findWatch() }, enabled = connectedState, modifier = Modifier.fillMaxWidth()) { Text("LOCALIZAR / VIBRAR RELÓGIO") }
-            TextButton(onClick = { watchClient.disconnect(true); connectedState = false; statusState = "Pareamento lógico removido" }, modifier = Modifier.fillMaxWidth()) { Text("ESQUECER RELÓGIO") }
+                    provisioning = true
+                    statusState = if (existingProvision == null)
+                        "Criando identidade e token do Watch no CASA..."
+                    else
+                        "Reenviando credenciais do Watch..."
+
+                    scope.launch {
+                        try {
+                            val entry = if (existingProvision != null) {
+                                existingProvision
+                            } else {
+                                val created = withContext(Dispatchers.IO) {
+                                    DeviceProvisionApi.createWatch(
+                                        this@WatchSetupActivity,
+                                        watchName.trim(),
+                                        location.trim().ifBlank { "Residencia" },
+                                        connectedAddressState
+                                    )
+                                }
+                                val cfg = JarvisApi.loadConfig(this@WatchSetupActivity)
+                                WatchProvisionStore.Entry(
+                                    address = connectedAddressState,
+                                    deviceId = created.deviceId,
+                                    name = created.name,
+                                    location = created.location,
+                                    baseUrl = cfg.baseUrl,
+                                    token = created.token,
+                                    createdAt = System.currentTimeMillis()
+                                ).also {
+                                    WatchProvisionStore.save(this@WatchSetupActivity, it)
+                                    refreshProvision++
+                                }
+                            }
+
+                            val casaQueued = watchClient.provisionCasa(
+                                entry.baseUrl,
+                                entry.token
+                            )
+                            if (!casaQueued) {
+                                statusState =
+                                    "Token criado e guardado, mas o Watch não aceitou o envio. Reconecte e use REENVIAR."
+                                provisioning = false
+                                return@launch
+                            }
+
+                            var wifiQueued = 0
+                            WifiProfileStore.load(this@WatchSetupActivity)
+                                .sortedBy { it.slot }
+                                .forEach { profile ->
+                                    if (watchClient.provisionWifi(
+                                            profile.slot,
+                                            profile.ssid,
+                                            profile.password
+                                        )
+                                    ) wifiQueued++
+                                }
+
+                            statusState =
+                                "Watch cadastrado no CASA: ${entry.deviceId}. " +
+                                "Credencial enviada e $wifiQueued perfil(is) Wi-Fi enfileirado(s)."
+                        } catch (t: Throwable) {
+                            statusState =
+                                "Falha no cadastro do Watch: ${t.message ?: t.javaClass.simpleName}"
+                        } finally {
+                            provisioning = false
+                        }
+                    }
+                },
+                enabled = connectedState && appConfigured && !provisioning,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    if (provisioning) "CONFIGURANDO..."
+                    else if (existingProvision == null) "CADASTRAR WATCH NO CASA"
+                    else "REENVIAR ACESSO AO WATCH"
+                )
+            }
+
+            if (existingProvision != null) {
+                OutlinedButton(
+                    onClick = {
+                        scope.launch {
+                            statusState = try {
+                                withContext(Dispatchers.IO) {
+                                    WatchApi.findWatch(
+                                        this@WatchSetupActivity,
+                                        existingProvision.deviceId
+                                    )
+                                }
+                                "Comando de localização enviado pelo CASA"
+                            } catch (t: Throwable) {
+                                "Falha ao localizar: ${t.message}"
+                            }
+                        }
+                    },
+                    enabled = appConfigured,
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("LOCALIZAR PELO CASA") }
+            }
+
+            TextButton(
+                onClick = {
+                    watchClient.disconnect(true)
+                    connectedState = false
+                    connectedAddressState = ""
+                    statusState = "Conexão local com o Watch removida"
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("DESCONECTAR WATCH") }
         }
     }
 }
