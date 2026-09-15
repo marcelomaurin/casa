@@ -29,6 +29,7 @@ void jarvisWifiSetCasa(const String &baseUrl, const String &deviceToken);
 // Estado da conexao HTTP/HTTPS com o servidor CASA configurado.
 // Por padrao: https://maurinsoft.com.br/casa
 bool jarvisWifiCasaOnline();
+bool jarvisWifiCasaChecked();
 void jarvisWifiRequestCasaCheck();
 String jarvisWifiCasaBase();
 
