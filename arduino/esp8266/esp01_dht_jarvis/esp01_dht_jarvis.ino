@@ -2,40 +2,35 @@
  * JARVIS RESIDENCIAL - ESP-01 SENSOR DE TEMPERATURA E UMIDADE
  * Hardware: ESP-01 / ESP8266 + DHT22 (padrao) ou DHT11
  *
- * Runtime distribuido:
+ * Runtime distribuido e Seguranca:
  *   Telemetria -> https://maurinsoft.com.br/casa
- *   Cada dispositivo deve possuir token individual.
- *
- * Ligacao sugerida:
- *   DHT VCC  -> 3.3V
- *   DHT GND  -> GND
- *   DHT DATA -> GPIO2 do ESP-01
- *   resistor 4.7k a 10k entre DATA e 3.3V
+ *   Nenhum token gravado no fonte. O dispositivo gera um codigo de 6 digitos
+ *   e solicita entrada na rede. O celular (JARVIS Mobile) autoriza e passa
+ *   a chave criptografica individual, salva na EEPROM do ESP.
  */
 
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
 #include <WiFiClientSecureBearSSL.h>
 #include <DHT.h>
+#include "../../common/CasaDeviceProvisioning.h"
 
-// ========================= CONFIGURACAO =========================
+// ========================= CONFIGURACAO WIFI =========================
 const char* WIFI_SSID = "SUA_REDE_WIFI";
 const char* WIFI_PASSWORD = "SUA_SENHA_WIFI";
-
-const char* JARVIS_URL = "https://maurinsoft.com.br/casa/api/iot_sensor.php";
-const char* DEVICE_ID = "esp01-dht-01";
-const char* DEVICE_TOKEN = "TOKEN_INDIVIDUAL_DO_ESP01";
-const char* DEVICE_CAPABILITIES = "temperature,humidity,rssi,telemetry";
+const char* CASA_BASE_URL = "https://maurinsoft.com.br/casa";
 
 #define DHT_PIN 2
 #define DHT_TYPE DHT22
 
 const unsigned long INTERVALO_ENVIO_MS = 60000UL;
-const unsigned long INTERVALO_RECONEXAO_MS = 10000UL;
+const unsigned long INTERVALO_POLL_PAREAMENTO_MS = 3000UL;
 
 DHT dht(DHT_PIN, DHT_TYPE);
+CasaDeviceProvisioning prov;
+
 unsigned long ultimoEnvio = 0;
-unsigned long ultimaTentativaWiFi = 0;
+unsigned long ultimoPollPareamento = 0;
 
 String tipoSensor() {
 #if DHT_TYPE == DHT11
@@ -69,29 +64,28 @@ void conectarWiFi() {
 }
 
 bool enviarLeitura(float temperatura, float umidade) {
-  if (WiFi.status() != WL_CONNECTED) return false;
+  if (WiFi.status() != WL_CONNECTED || !prov.isProvisioned()) return false;
 
   std::unique_ptr<BearSSL::WiFiClientSecure> client(new BearSSL::WiFiClientSecure);
-  // Em producao, preferir CA/fingerprint gerenciado. Mantido permissivo para
-  // compatibilidade inicial com renovacao automatica de certificado da hospedagem.
   client->setInsecure();
 
   HTTPClient http;
-  if (!http.begin(*client, JARVIS_URL)) {
+  String url = prov.getBaseUrl() + "/api/iot_sensor.php";
+  if (!http.begin(*client, url)) {
     Serial.println("[HTTPS] Falha ao iniciar cliente.");
     return false;
   }
 
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("Authorization", String("Bearer ") + DEVICE_TOKEN);
-  http.addHeader("X-Device-Token", DEVICE_TOKEN);
-  http.addHeader("X-Device-Id", DEVICE_ID);
-  http.addHeader("X-Device-Capabilities", DEVICE_CAPABILITIES);
+  http.addHeader("Authorization", String("Bearer ") + prov.getDeviceToken());
+  http.addHeader("X-Device-Token", prov.getDeviceToken());
+  http.addHeader("X-Device-Id", prov.getDeviceId());
+  http.addHeader("X-Device-Capabilities", "temperature,humidity,rssi,telemetry");
   http.setTimeout(8000);
 
   String payload = "{";
-  payload += "\"device_id\":\"" + String(DEVICE_ID) + "\",";
-  payload += "\"capabilities\":\"" + String(DEVICE_CAPABILITIES) + "\",";
+  payload += "\"device_id\":\"" + prov.getDeviceId() + "\",";
+  payload += "\"capabilities\":\"temperature,humidity,rssi,telemetry\",";
   payload += "\"tipo_sensor\":\"" + tipoSensor() + "\",";
   payload += "\"temperatura_c\":" + String(temperatura, 2) + ",";
   payload += "\"umidade_pct\":" + String(umidade, 2) + ",";
@@ -118,50 +112,71 @@ void lerEEnviar() {
   float umidade = dht.readHumidity();
   float temperatura = dht.readTemperature();
 
-  if (isnan(umidade) || isnan(temperatura)) {
-    Serial.println("[DHT] Falha ao ler o sensor.");
+  if (isnan(temperatura) || isnan(umidade)) {
+    Serial.println("[DHT] Falha na leitura do sensor.");
     return;
   }
 
-  Serial.printf("[DHT] Temperatura: %.2f C | Umidade: %.2f %%\n",
-                temperatura, umidade);
+  Serial.printf("[DHT] Temp=%.2f C Umid=%.2f %%\n", temperatura, umidade);
+  enviarLeitura(temperatura, umidade);
+}
 
-  if (enviarLeitura(temperatura, umidade)) {
-    Serial.println("[JARVIS] Telemetria enviada com sucesso.");
-  } else {
-    Serial.println("[JARVIS] Falha no envio da telemetria.");
+void verificarPareamento() {
+  if (prov.isProvisioned()) return;
+
+  if (prov.getState() == CASA_STATE_UNPROVISIONED) {
+    Serial.println("[PAREAMENTO] Solicitando registro na API central CASA...");
+    if (prov.requestPairing("sensor", "ESP01-DHT", "["temperature","humidity","telemetry"]")) {
+      Serial.println("==========================================================");
+      Serial.printf(" [PAREAMENTO PENDENTE] CODIGO: %s\n", prov.getPairingCode().c_str());
+      Serial.println(" Abra o aplicativo JARVIS Mobile no celular e autorize.");
+      Serial.println("==========================================================");
+    } else {
+      Serial.println("[PAREAMENTO] Falha ao enviar solicitacao. Tentando em 10s...");
+    }
+  } else if (prov.getState() == CASA_STATE_PAIRING_REQUESTED) {
+    if (millis() - ultimoPollPareamento > INTERVALO_POLL_PAREAMENTO_MS) {
+      ultimoPollPareamento = millis();
+      Serial.print(".");
+      if (prov.pollPairingStatus()) {
+        Serial.println("\n==========================================================");
+        Serial.println(" [PAREAMENTO APROVADO!]");
+        Serial.printf(" Device ID: %s\n", prov.getDeviceId().c_str());
+        Serial.println(" Chave individual gravada na EEPROM com sucesso.");
+        Serial.println("==========================================================");
+      }
+    }
   }
 }
 
 void setup() {
   Serial.begin(115200);
-  delay(200);
-  Serial.println();
-  Serial.println("JARVIS ESP-01 TEMP/UMIDADE - CASA DISTRIBUIDA");
+  delay(100);
+  Serial.println("\n=== ESP-01 DHT JARVIS RESIDENCIAL INICIADO ===");
 
   dht.begin();
-  WiFi.persistent(false);
-  WiFi.setAutoReconnect(true);
-  conectarWiFi();
+  prov.begin(CASA_BASE_URL);
 
-  delay(2000);
-  lerEEnviar();
-  ultimoEnvio = millis();
+  if (prov.isProvisioned()) {
+    Serial.printf("[AUTH] Dispositivo provisionado. ID=%s\n", prov.getDeviceId().c_str());
+  } else {
+    Serial.println("[AUTH] Dispositivo NAO provisionado. Aguardando pareamento pelo celular.");
+  }
 }
 
 void loop() {
-  if (WiFi.status() != WL_CONNECTED) {
-    if (millis() - ultimaTentativaWiFi >= INTERVALO_RECONEXAO_MS) {
-      ultimaTentativaWiFi = millis();
-      conectarWiFi();
+  conectarWiFi();
+
+  if (WiFi.status() == WL_CONNECTED) {
+    if (!prov.isProvisioned()) {
+      verificarPareamento();
+    } else {
+      if (millis() - ultimoEnvio >= INTERVALO_ENVIO_MS || ultimoEnvio == 0) {
+        ultimoEnvio = millis();
+        lerEEnviar();
+      }
     }
   }
 
-  if (millis() - ultimoEnvio >= INTERVALO_ENVIO_MS) {
-    ultimoEnvio = millis();
-    lerEEnviar();
-  }
-
-  delay(50);
-  yield();
+  delay(100);
 }

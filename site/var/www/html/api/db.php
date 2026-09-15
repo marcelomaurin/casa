@@ -51,7 +51,7 @@ function casa_required_tables(): array {
         'agentes_externos', 'api_client_tokens', 'api_v1_rate_limit',
         'api_v1_security_log', 'mobile_eventos', 'mobile_notificacoes',
         'watch_notificacoes', 'internet_pesquisas', 'jarvis_planos',
-        'jarvis_tarefas', 'tarefas_agendadas'
+        'jarvis_tarefas', 'tarefas_agendadas', 'device_pairing_requests'
     ];
 }
 

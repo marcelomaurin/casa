@@ -85,6 +85,14 @@ Os nós podem manter automações essenciais localmente quando a Internet estive
 6. O servidor deve validar tamanho de payload, origem lógica, escopo e rate limit.
 7. Certificados TLS devem ser validados pelos clientes sempre que o firmware/plataforma permitir. `setInsecure()` nos protótipos ESP é compatibilidade transitória e deve ser substituído por CA confiável/provisionada antes de considerar o firmware endurecido para produção.
 
+
+## Provisionamento e Passagem de Chaves pelo Celular
+
+O celular (JARVIS Mobile) e o instrumento mandatorio de autorizacao e passagem de credenciais para qualquer novo hardware ou no do ecossistema. Dispositivos novos nao utilizam chaves pre-gravadas no firmware; eles solicitam pareamento a API e aguardam autorizacao humana explicita no aplicativo móvel.
+
+O detalhamento completo do protocolo, endpoints, diagramas e regras de seguranca esta documentado em:
+`docs/PROTOCOLO_PASSAGEM_CHAVES_CELULAR.md`
+
 ## Estado atual da migração
 
 - Android Mobile: domínio CASA como padrão.
