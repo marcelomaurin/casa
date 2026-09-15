@@ -202,10 +202,11 @@ bool jarvisBlePhoneInternet(){
 
 bool jarvisBleSendJson(const String &json){
   if(!bleConnected || !eventCharacteristic || json.isEmpty()) return false;
-  // Android solicita MTU 185. Mantemos margem para ATT e evitamos payloads
-  // gigantes; mensagens maiores devem ser divididas em nivel de protocolo.
-  if(json.length() > 180) return false;
-  eventCharacteristic->setValue((uint8_t*)json.c_str(),json.length());
+  // Android monta mensagens delimitadas por LF. O frame completo deve caber
+  // no MTU negociado (185 -> 182 bytes de ATT; usamos 180 por margem).
+  if(json.length() > 179) return false;
+  String framed=json+"\n";
+  eventCharacteristic->setValue((uint8_t*)framed.c_str(),framed.length());
   eventCharacteristic->notify();
   return true;
 }
