@@ -18,14 +18,12 @@ enum ScreenId {
   SCREEN_SETTINGS, SCREEN_CLOCK, SCREEN_WIFI, SCREEN_KEYBOARD, SCREEN_NOTIFICATION
 };
 enum PowerMode { POWER_NORMAL, POWER_ECO, POWER_ULTRA };
-enum WatchSkin { SKIN_JARVIS_AVIATION, SKIN_ANADIGI, SKIN_COUNT };
 enum VoiceOutput { VOICE_PHONE, VOICE_TEXT, VOICE_BOTH };
 enum AlarmTone { ALARM_SHORT, ALARM_DOUBLE, ALARM_URGENT, ALARM_PHONE };
 
 ScreenId currentScreen = SCREEN_HOME;
 ScreenId previousScreen = SCREEN_HOME;
 PowerMode powerMode = POWER_ECO;
-WatchSkin watchSkin = SKIN_JARVIS_AVIATION;
 VoiceOutput voiceOutput = VOICE_BOTH;
 AlarmTone alarmTone = ALARM_DOUBLE;
 
@@ -75,7 +73,7 @@ const char *keyboardPages[] = {
 
 static const uint16_t C_BG=0xFFDF,C_TEXT=0x18C3,C_ORANGE=0xFBE0,C_SALMON=0xFB2C;
 static const uint16_t C_LAV=0xB57F,C_BLUE=0x5D7F,C_GREEN=0x6E6B,C_RED=0xF9E7,C_GOLD=0xFE60,C_WHITE=0xFFFF;
-static const uint16_t C_BLACK=0x0000,C_DARK=0x2104,C_STEEL=0x8410,C_LCD=0xB5A0;
+static const uint16_t C_BLACK=0x0000,C_DARK=0x2104,C_STEEL=0x8410;
 
 void drawScreen();
 void enterDeepSleep();
@@ -96,7 +94,7 @@ void syncControllerConfig(){
 
 void saveSettings(){
   prefs.putUChar("bright",brightnessLevel);prefs.putBool("vibrate",vibrationEnabled);prefs.putBool("wrist",wristWakeEnabled);
-  prefs.putUShort("timeout",screenTimeoutSec);prefs.putUChar("power",(uint8_t)powerMode);prefs.putUChar("skin",(uint8_t)watchSkin);
+  prefs.putUShort("timeout",screenTimeoutSec);prefs.putUChar("power",(uint8_t)powerMode);
   prefs.putBool("alarmOn",alarmEnabled);prefs.putUChar("alarmH",alarmHour);prefs.putUChar("alarmM",alarmMinute);
   prefs.putUChar("voiceOut",(uint8_t)voiceOutput);prefs.putUChar("alarmTone",(uint8_t)alarmTone);
   syncControllerConfig();
@@ -104,10 +102,7 @@ void saveSettings(){
 void loadSettings(){
   prefs.begin("jarvis",false);brightnessLevel=prefs.getUChar("bright",150);vibrationEnabled=prefs.getBool("vibrate",true);
   wristWakeEnabled=prefs.getBool("wrist",true);screenTimeoutSec=prefs.getUShort("timeout",20);powerMode=(PowerMode)prefs.getUChar("power",POWER_ECO);
-  uint8_t storedSkin=prefs.getUChar("skin",0);
-  // Compatibilidade com as três skins antigas:
-  // 0=CLASSIC e 2=AVIATION passam para a skin unificada JARVIS AVIATION.
-  watchSkin=(storedSkin==1)?SKIN_ANADIGI:SKIN_JARVIS_AVIATION;
+  // A skin antiga ANA-DIGI foi removida. O mostrador único é JARVIS AVIATION.
   alarmEnabled=prefs.getBool("alarmOn",false);alarmHour=prefs.getUChar("alarmH",7);alarmMinute=prefs.getUChar("alarmM",0);
   voiceOutput=(VoiceOutput)prefs.getUChar("voiceOut",VOICE_BOTH);alarmTone=(AlarmTone)prefs.getUChar("alarmTone",ALARM_DOUBLE);
   brightnessLevel=constrain(brightnessLevel,40,255);if(powerMode>POWER_ULTRA)powerMode=POWER_ECO;
@@ -207,11 +202,10 @@ void drawSkinJarvisAviation(){
   // Data curta sem criar um terceiro módulo gráfico.
   tft->setTextColor(C_WHITE,C_BLACK);
   tft->drawCentreString((twoDigits(n.day)+"/"+twoDigits(n.month)).c_str(),120,190,1);
-  tft->drawCentreString("< skin | apps ^",120,222,1);
+  tft->drawCentreString("apps ^",120,222,1);
 }
 
-void drawSkinAnaDigi(){RTC_Date n=watch->rtc->getDateTime();tft->fillScreen(C_DARK);tft->drawRoundRect(8,8,224,224,18,C_WHITE);tft->drawCircle(70,68,42,C_STEEL);tft->drawCircle(170,68,42,C_STEEL);handFromAngle(70,68,24,(n.hour%12)*30+n.minute*.5f,C_WHITE,2);handFromAngle(70,68,32,n.minute*6,C_WHITE);handFromAngle(170,68,25,n.second*6,C_ORANGE);tft->fillRoundRect(125,122,92,72,6,C_LCD);tft->setTextColor(C_BLACK,C_LCD);tft->drawCentreString((twoDigits(n.hour)+":"+twoDigits(n.minute)).c_str(),171,137,4);tft->drawCentreString((twoDigits(n.day)+"/"+twoDigits(n.month)).c_str(),171,174,2);tft->setTextColor(C_WHITE,C_DARK);tft->drawCentreString("< skin | apps ^",120,216,1);}
-void drawWatchFace(){if(watchSkin==SKIN_ANADIGI)drawSkinAnaDigi();else drawSkinJarvisAviation();}
+void drawWatchFace(){drawSkinJarvisAviation();}
 
 void drawHeader(const char*title){RTC_Date n=watch->rtc->getDateTime();int batt=batteryPercent();tft->fillRect(0,0,240,57,C_BG);tft->fillRoundRect(5,5,230,43,14,C_ORANGE);tft->setTextColor(C_TEXT,C_ORANGE);tft->drawString((twoDigits(n.hour)+":"+twoDigits(n.minute)).c_str(),49,7,4);tft->drawRightString(title,228,9,2);drawBatteryIcon(177,34,batt);tft->drawRightString(batt>=0?(String(batt)+"%").c_str():"--",228,34,1);}
 void drawFooter(){tft->fillRect(0,207,240,33,C_BG);if(currentScreen!=SCREEN_HOME){lcarsButton(5,211,70,25,C_LAV,"VOLTAR");lcarsButton(80,211,70,25,C_ORANGE,"HOME");}uint16_t c=jarvisBleIsConnected()?C_GREEN:(jarvisWifiIsConnected()?C_BLUE:C_GOLD);tft->fillRoundRect(155,211,80,25,8,c);tft->setTextColor(C_TEXT,c);tft->drawCentreString(jarvisBleIsConnected()?"PHONE":jarvisWifiIsConnected()?"WIFI":"OFFLINE",195,218,1);}
@@ -294,7 +288,6 @@ void startVideoCall(){
 void requestGps(){if(jarvisBleIsConnected()&&jarvisBleSendCommand("gps_request"))gpsText="SOLICITANDO GPS...";else gpsText="CELULAR NECESSARIO";drawScreen();}
 void adjustAlarm(int dh,int dm){int h=(int)alarmHour+dh,m=(int)alarmMinute+dm;while(h<0)h+=24;while(h>23)h-=24;while(m<0)m+=60;while(m>59)m-=60;alarmHour=h;alarmMinute=m;saveSettings();drawScreen();}
 void adjustClock(int dh,int dm){RTC_Date n=watch->rtc->getDateTime();int h=(n.hour+dh+24)%24,m=(n.minute+dm+60)%60;watch->rtc->setDateTime(n.year,n.month,n.day,h,m,0);drawScreen();}
-void cycleSkin(int dir){int s=(int)watchSkin+dir;if(s<0)s=SKIN_COUNT-1;if(s>=SKIN_COUNT)s=0;watchSkin=(WatchSkin)s;prefs.putUChar("skin",(uint8_t)watchSkin);vibrateShort();drawScreen();}
 
 void syncWifiResults(){
   wifiNetworkCount=controller.network().networkCount();
@@ -336,7 +329,10 @@ void handleGestureRelease(){
   int dx=touchLastX-touchStartX,dy=touchLastY-touchStartY;unsigned long dt=millis()-touchStartMs;int adx=abs(dx),ady=abs(dy);
   if(adx>=SWIPE_MIN||ady>=SWIPE_MIN){
     JarvisEventType evt=adx>ady?(dx>0?EVT_SWIPE_RIGHT:EVT_SWIPE_LEFT):(dy>0?EVT_SWIPE_DOWN:EVT_SWIPE_UP);controller.emit(jarvisEvent(evt));
-    if(adx>ady){if(currentScreen==SCREEN_HOME)cycleSkin(dx>0?-1:1);}
+    if(adx>ady){
+      // Nao ha mais troca de skin: o mostrador unico e JARVIS AVIATION.
+      if(currentScreen==SCREEN_HOME)drawScreen();
+    }
     else if(currentScreen==SCREEN_WIFI&&controller.network().state()!=JARVIS_NET_SCANNING&&wifiNetworkCount>4){int pages=(wifiNetworkCount+3)/4;if(dy<0&&wifiPage<pages-1)wifiPage++;if(dy>0&&wifiPage>0)wifiPage--;drawScreen();}
     else if(dy<0){if(currentScreen==SCREEN_HOME)navigate(SCREEN_APPS);else if(currentScreen==SCREEN_APPS)navigate(SCREEN_SETTINGS);}
     else{if(currentScreen==SCREEN_APPS||currentScreen==SCREEN_SETTINGS)goHome();else if(currentScreen!=SCREEN_HOME){ScreenId s=previousScreen;previousScreen=SCREEN_HOME;currentScreen=s;drawScreen();}}
