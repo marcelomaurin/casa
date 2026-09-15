@@ -10,11 +10,13 @@ import java.io.File
 import java.io.FileOutputStream
 
 class WatchCameraActivity : ComponentActivity() {
+    private var watchDeviceId: String = ""
 
     companion object {
         const val ACTION_CAMERA_RESULT = "br.com.maurinsoft.jarvismobile.CAMERA_RESULT"
         const val EXTRA_CAMERA_OK = "camera_ok"
         const val EXTRA_CAMERA_PATH = "camera_path"
+        const val EXTRA_WATCH_DEVICE_ID = "watch_device_id"
     }
 
     private val cameraLauncher = registerForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap ->
@@ -34,6 +36,7 @@ class WatchCameraActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        watchDeviceId = intent.getStringExtra(EXTRA_WATCH_DEVICE_ID).orEmpty()
         cameraLauncher.launch(null)
     }
 
@@ -42,6 +45,7 @@ class WatchCameraActivity : ComponentActivity() {
             action = ACTION_CAMERA_RESULT
             putExtra(EXTRA_CAMERA_OK, ok)
             putExtra(EXTRA_CAMERA_PATH, path)
+            putExtra(EXTRA_WATCH_DEVICE_ID, watchDeviceId)
         }
         ContextCompat.startForegroundService(this, service)
     }
