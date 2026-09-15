@@ -9,6 +9,10 @@ static String casaBase;
 static String casaToken;
 static unsigned long lastRetry = 0;
 static bool scanRunning = false;
+static bool casaOnline = false;
+static bool casaCheckRequested = true;
+static unsigned long lastCasaCheck = 0;
+static const unsigned long CASA_CHECK_INTERVAL_MS = 30000UL;
 
 static String keySsid(uint8_t slot){ return "ssid" + String(slot); }
 static String keyPass(uint8_t slot){ return "pass" + String(slot); }
@@ -27,15 +31,52 @@ void jarvisWifiBegin(){
   WiFi.persistent(false);
 }
 
+static bool checkCasaReachability(){
+  if(WiFi.status()!=WL_CONNECTED || casaBase.isEmpty()) return false;
+
+  WiFiClientSecure tls;
+  tls.setInsecure();
+  tls.setTimeout(2);
+
+  HTTPClient http;
+  http.setConnectTimeout(1200);
+  http.setTimeout(1500);
+
+  if(!http.begin(tls, casaBase)) return false;
+  http.addHeader("Accept", "text/html,application/json;q=0.9,*/*;q=0.8");
+  int code=http.GET();
+  http.end();
+
+  // Qualquer resposta HTTP normal 2xx/3xx confirma que o servidor CASA
+  // foi alcancado por HTTPS.
+  return code>=200 && code<400;
+}
+
 void jarvisWifiLoop(){
-  if(WiFi.status()==WL_CONNECTED) return;
-  if(millis()-lastRetry < 120000UL || scanRunning) return;
-  lastRetry = millis();
+  if(WiFi.status()!=WL_CONNECTED){
+    casaOnline=false;
+    casaCheckRequested=true;
+    if(millis()-lastRetry < 120000UL || scanRunning) return;
+    lastRetry = millis();
+    return;
+  }
+
+  if(scanRunning) return;
+
+  unsigned long now=millis();
+  if(!casaCheckRequested && now-lastCasaCheck < CASA_CHECK_INTERVAL_MS) return;
+
+  casaCheckRequested=false;
+  lastCasaCheck=now;
+  casaOnline=checkCasaReachability();
 }
 
 bool jarvisWifiIsConnected(){ return WiFi.status()==WL_CONNECTED; }
 String jarvisWifiSsid(){ return jarvisWifiIsConnected() ? WiFi.SSID() : String(); }
 int jarvisWifiRssi(){ return jarvisWifiIsConnected() ? WiFi.RSSI() : -127; }
+bool jarvisWifiCasaOnline(){ return jarvisWifiIsConnected() && casaOnline; }
+void jarvisWifiRequestCasaCheck(){ casaCheckRequested=true; }
+String jarvisWifiCasaBase(){ return casaBase; }
 
 bool jarvisWifiSetProfile(uint8_t slot, const String &ssid, const String &password){
   if(slot>4 || ssid.length()==0 || ssid.length()>32 || password.length()>63) return false;
@@ -43,6 +84,8 @@ bool jarvisWifiSetProfile(uint8_t slot, const String &ssid, const String &passwo
   wifiPrefs.putString(keySsid(slot).c_str(), ssid);
   wifiPrefs.putString(keyPass(slot).c_str(), password);
   // Tenta associar sem bloquear a interface. O estado é acompanhado no loop/UI.
+  casaOnline=false;
+  casaCheckRequested=true;
   WiFi.disconnect(false, false);
   WiFi.begin(ssid.c_str(), password.c_str());
   return true;
@@ -109,12 +152,16 @@ void jarvisWifiSetCasa(const String &baseUrl, const String &deviceToken){
   casaToken = deviceToken;
   wifiPrefs.putString("base", casaBase);
   wifiPrefs.putString("token", casaToken);
+  casaOnline=false;
+  casaCheckRequested=true;
 }
 
 bool jarvisWifiStartProfile(uint8_t slot){
   String ssid, pass;
   if(!jarvisWifiGetProfile(slot, ssid, pass)) return false;
   if(WiFi.status()==WL_CONNECTED && WiFi.SSID()==ssid) return true;
+  casaOnline=false;
+  casaCheckRequested=true;
   WiFi.disconnect(false, false);
   WiFi.begin(ssid.c_str(), pass.c_str());
   return true;
