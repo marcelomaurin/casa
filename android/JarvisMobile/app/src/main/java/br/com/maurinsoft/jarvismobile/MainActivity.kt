@@ -7,6 +7,7 @@ import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -286,6 +287,40 @@ class MainActivity : ComponentActivity() {
                 },
                 modifier = Modifier.fillMaxWidth()
             ) { Text("NOVOS DEVICES") }
+
+            HorizontalDivider()
+            Text("Integração com o Watch", fontWeight = FontWeight.Bold)
+            var forwardNotifications by remember {
+                mutableStateOf(WatchNotificationListener.isEnabled(this@MainActivity))
+            }
+            val notificationAccess = WatchNotificationListener.hasSystemAccess(this@MainActivity)
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(
+                    checked = forwardNotifications,
+                    onCheckedChange = {
+                        forwardNotifications = it
+                        WatchNotificationListener.setEnabled(this@MainActivity, it)
+                    },
+                    enabled = notificationAccess
+                )
+                Spacer(Modifier.width(8.dp))
+                Text("Encaminhar notificações do celular ao Watch")
+            }
+
+            Text(
+                if (notificationAccess)
+                    "Acesso às notificações concedido."
+                else
+                    "Conceda acesso às notificações para enviar WhatsApp, SMS e chamadas ao relógio."
+            )
+
+            OutlinedButton(
+                onClick = {
+                    startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("PERMISSÃO DE NOTIFICAÇÕES") }
 
             ElevatedCard(Modifier.fillMaxWidth()) { Text(status, modifier = Modifier.padding(16.dp)) }
         }
