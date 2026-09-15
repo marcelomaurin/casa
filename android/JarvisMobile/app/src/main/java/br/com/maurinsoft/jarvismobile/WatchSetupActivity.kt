@@ -16,6 +16,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 
@@ -42,12 +43,12 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
     }
 
     private fun requestPermissions() {
-        val p = mutableListOf<String>()
+        val p = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION)
         if (Build.VERSION.SDK_INT >= 31) {
             p += Manifest.permission.BLUETOOTH_SCAN
             p += Manifest.permission.BLUETOOTH_CONNECT
-        } else p += Manifest.permission.ACCESS_FINE_LOCATION
-        if (p.isNotEmpty()) permissionLauncher.launch(p.toTypedArray())
+        }
+        permissionLauncher.launch(p.distinct().toTypedArray())
     }
 
     override fun onScanResult(watch: WatchClient.FoundWatch) {
@@ -146,9 +147,9 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
 
             HorizontalDivider()
             Text("Wi‑Fi de contingência do relógio", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Text("O Watch só usará redes domésticas cadastradas aqui quando o celular não estiver disponível. A senha não é enviada ao site.")
+            Text("Cadastre aqui as redes de casa, trabalho e outros locais. O Android permite identificar o SSID atual, mas não entrega a senha salva a aplicativos; informe a senha uma vez e o JARVIS Mobile a guarda criptografada.")
             OutlinedTextField(ssid, { ssid = it }, Modifier.fillMaxWidth(), label = { Text("SSID") }, singleLine = true)
-            OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(), label = { Text("Senha Wi‑Fi") }, singleLine = true)
+            OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(), label = { Text("Senha Wi‑Fi") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = { slot = (slot + 4) % 5 }) { Text("-") }
                 Text("Perfil ${slot + 1}", modifier = Modifier.padding(top = 12.dp))
