@@ -61,7 +61,10 @@ void JarvisAlarmStateMachine::process(const JarvisEvent &event){
   uint8_t minute = (packed >> 8) & 0xFF;
   uint8_t second = packed & 0xFF;
 
-  if(hour == hour_ && minute == minute_ && second < 2 && lastDay_ != day){
+  // Em deep sleep o ESP32 pode acordar alguns segundos dentro do minuto.
+  // O lastDay_ impede repetição; não dependemos mais de acordar exatamente
+  // entre os segundos 0 e 1.
+  if(hour == hour_ && minute == minute_ && lastDay_ != day){
     lastDay_ = day;
     trigger();
   }
