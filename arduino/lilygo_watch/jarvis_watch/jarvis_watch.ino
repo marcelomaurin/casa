@@ -15,7 +15,7 @@ JarvisController controller;
 enum ScreenId {
   SCREEN_HOME, SCREEN_APPS, SCREEN_VOICE, SCREEN_ALARM, SCREEN_CAMERA,
   SCREEN_GPS, SCREEN_CONTROLS, SCREEN_HEALTH, SCREEN_STATUS,
-  SCREEN_SETTINGS, SCREEN_CLOCK, SCREEN_WIFI, SCREEN_KEYBOARD
+  SCREEN_SETTINGS, SCREEN_CLOCK, SCREEN_WIFI, SCREEN_KEYBOARD, SCREEN_NOTIFICATION
 };
 enum PowerMode { POWER_NORMAL, POWER_ECO, POWER_ULTRA };
 enum WatchSkin { SKIN_CLASSIC, SKIN_ANADIGI, SKIN_AVIATION, SKIN_COUNT };
@@ -35,6 +35,7 @@ uint8_t brightnessLevel=150;
 uint16_t screenTimeoutSec=20;
 uint32_t steps=0;
 String lastMessage="JARVIS pronto", voiceText="TOQUE PARA FALAR", gpsText="GPS PELO CELULAR", cameraText="CAMERA DO CELULAR";
+String notificationTitle="", notificationText="";
 
 bool alarmEnabled=false;
 uint8_t alarmHour=7, alarmMinute=0;
@@ -79,6 +80,7 @@ static const uint16_t C_BLACK=0x0000,C_DARK=0x2104,C_STEEL=0x8410,C_LCD=0xB5A0;
 void drawScreen();
 void enterDeepSleep();
 void controllerEvent(const JarvisEvent &event);
+void bleEventHandler(const String &type,const String &title,const String &text);
 
 String twoDigits(uint8_t v){return v<10?"0"+String(v):String(v);}
 int batteryPercent(){if(!watch||!watch->power||!watch->power->isBatteryConnect())return -1;return constrain(watch->power->getBattPercentage(),0,100);}
@@ -207,7 +209,38 @@ void drawKeyboard(){
   lcarsButton(4,190,69,30,C_LAV,"PAG");lcarsButton(78,190,69,30,C_SALMON,"APAGA");lcarsButton(152,190,84,30,C_GREEN,"SALVAR");
 }
 
-void drawScreen(){if(!screenAwake||!tft)return;if(currentScreen!=SCREEN_HOME)tft->fillScreen(C_BG);switch(currentScreen){case SCREEN_HOME:drawWatchFace();break;case SCREEN_APPS:drawApps();break;case SCREEN_VOICE:drawVoice();break;case SCREEN_ALARM:drawAlarm();break;case SCREEN_CAMERA:drawCamera();break;case SCREEN_GPS:drawGps();break;case SCREEN_CONTROLS:drawControls();break;case SCREEN_HEALTH:drawHealth();break;case SCREEN_STATUS:drawStatus();break;case SCREEN_SETTINGS:drawSettings();break;case SCREEN_CLOCK:drawClock();break;case SCREEN_WIFI:drawWifi();break;case SCREEN_KEYBOARD:drawKeyboard();break;}}
+void drawWrappedText(const String &value,int x,int y,int maxChars,int maxLines){
+  String text=value;
+  text.replace("\n"," ");
+  int line=0;
+  while(!text.isEmpty() && line<maxLines){
+    int cut=min(maxChars,(int)text.length());
+    if(cut<(int)text.length()){
+      int space=text.lastIndexOf(' ',cut);
+      if(space>3)cut=space;
+    }
+    String part=text.substring(0,cut);
+    part.trim();
+    tft->drawString(part.c_str(),x,y+line*21,2);
+    text=text.substring(cut);
+    text.trim();
+    line++;
+  }
+  if(!text.isEmpty() && line>0)tft->drawString("...",x,y+(line-1)*21,2);
+}
+
+void drawNotificationScreen(){
+  drawHeader(notificationTitle.startsWith("CHAMADA")?"CHAMADA":"MENSAGEM");
+  tft->setTextColor(C_TEXT,C_BG);
+  String title=notificationTitle;
+  if(title.length()>28)title=title.substring(0,28);
+  tft->drawString(title.c_str(),8,66,2);
+  drawWrappedText(notificationText,8,94,27,4);
+  tft->drawCentreString("toque para fechar",120,190,1);
+  drawFooter();
+}
+
+void drawScreen(){if(!screenAwake||!tft)return;if(currentScreen!=SCREEN_HOME)tft->fillScreen(C_BG);switch(currentScreen){case SCREEN_HOME:drawWatchFace();break;case SCREEN_APPS:drawApps();break;case SCREEN_VOICE:drawVoice();break;case SCREEN_ALARM:drawAlarm();break;case SCREEN_CAMERA:drawCamera();break;case SCREEN_GPS:drawGps();break;case SCREEN_CONTROLS:drawControls();break;case SCREEN_HEALTH:drawHealth();break;case SCREEN_STATUS:drawStatus();break;case SCREEN_SETTINGS:drawSettings();break;case SCREEN_CLOCK:drawClock();break;case SCREEN_WIFI:drawWifi();break;case SCREEN_KEYBOARD:drawKeyboard();break;case SCREEN_NOTIFICATION:drawNotificationScreen();break;}}
 void navigate(ScreenId s){previousScreen=currentScreen;currentScreen=s;lastMessage="";drawScreen();}
 void goHome(){previousScreen=currentScreen;currentScreen=SCREEN_HOME;drawScreen();}
 void sendCommand(const String&cmd){if(jarvisBleIsConnected()&&jarvisBleSendCommand(cmd))lastMessage="Enviado ao celular";else lastMessage="Celular indisponivel";drawScreen();}
@@ -239,6 +272,7 @@ void saveWifiFromKeyboard(){
 
 void handleTap(int x,int y){
   controller.emit(jarvisEvent(EVT_TOUCH_TAP,JARVIS_PRI_NORMAL,x,y));vibrateShort();
+  if(currentScreen==SCREEN_NOTIFICATION){goHome();return;}
   if(currentScreen==SCREEN_HOME){navigate(SCREEN_APPS);return;}
   if(currentScreen!=SCREEN_HOME&&currentScreen!=SCREEN_KEYBOARD&&y>=207){if(x<78){ScreenId s=previousScreen;previousScreen=SCREEN_HOME;currentScreen=s;drawScreen();return;}if(x<154){goHome();return;}}
   if(currentScreen==SCREEN_APPS){if(y>=62&&y<=111){if(x<59)navigate(SCREEN_VOICE);else if(x<117)navigate(SCREEN_ALARM);else if(x<174)navigate(SCREEN_CAMERA);else navigate(SCREEN_GPS);return;}if(y>=117&&y<=167){if(x<59)navigate(SCREEN_CONTROLS);else if(x<117)navigate(SCREEN_HEALTH);else if(x<174)navigate(SCREEN_STATUS);else navigate(SCREEN_SETTINGS);return;}}
@@ -286,6 +320,64 @@ void processPowerButton(){
   controller.emit(jarvisEvent(EVT_BUTTON_SHORT,JARVIS_PRI_CRITICAL));
 }
 
+void bleEventHandler(const String &type,const String &title,const String &text){
+  if(type=="find_watch"){
+    notificationTitle="LOCALIZAR";
+    notificationText="Seu celular esta procurando este relogio.";
+    previousScreen=currentScreen;currentScreen=SCREEN_NOTIFICATION;
+    vibrateShort();vibrateShort();
+    controller.emit(jarvisEvent(EVT_USER_INTERACTION,JARVIS_PRI_HIGH));
+    if(screenAwake)drawScreen();
+    return;
+  }
+
+  if(type=="incoming_call"){
+    notificationTitle="CHAMADA: "+title;
+    notificationText=text.isEmpty()?"Chamada recebida no celular":text;
+    previousScreen=currentScreen;currentScreen=SCREEN_NOTIFICATION;
+    controller.emit(jarvisEvent(EVT_CALL_INCOMING,JARVIS_PRI_HIGH));
+    vibrateShort();
+    if(screenAwake)drawScreen();
+    return;
+  }
+
+  if(type=="phone_notification" || type=="family_message"){
+    notificationTitle=title.isEmpty()?"MENSAGEM":title;
+    notificationText=text;
+    previousScreen=currentScreen;currentScreen=SCREEN_NOTIFICATION;
+    controller.emit(jarvisEvent(EVT_USER_INTERACTION,JARVIS_PRI_HIGH));
+    vibrateShort();
+    if(screenAwake)drawScreen();
+    return;
+  }
+
+  if(type=="jarvis_result"){
+    notificationTitle="JARVIS";
+    notificationText=text;
+    previousScreen=currentScreen;currentScreen=SCREEN_NOTIFICATION;
+    controller.emit(jarvisEvent(EVT_USER_INTERACTION,JARVIS_PRI_HIGH));
+    if(screenAwake)drawScreen();
+    return;
+  }
+
+  if(type=="gps_result"){
+    gpsText=text.isEmpty()?"GPS RECEBIDO":text;
+    if(screenAwake&&currentScreen==SCREEN_GPS)drawScreen();
+    return;
+  }
+
+  if(type=="camera_result"){
+    lastMessage=text.isEmpty()?"Camera concluida":text;
+    if(screenAwake)drawScreen();
+    return;
+  }
+
+  if(type=="phone_state"){
+    lastMessage=jarvisBlePhoneInternet()?"Celular online":"Celular sem Internet";
+    if(screenAwake&&currentScreen==SCREEN_STATUS)drawScreen();
+  }
+}
+
 void controllerEvent(const JarvisEvent &event){
   switch(event.type){
     case EVT_ALARM_TRIGGER:
@@ -321,7 +413,7 @@ void emitRtcTick(){
 void setup(){
   Serial.begin(115200);bootMillis=millis();watch=TTGOClass::getWatch();if(!watch)return;watch->begin();watch->openBL();tft=watch->tft;if(watch->rtc)watch->rtc->check();
   if(watch->power){watch->power->adc1Enable(AXP202_VBUS_VOL_ADC1|AXP202_VBUS_CUR_ADC1|AXP202_BATT_CUR_ADC1|AXP202_BATT_VOL_ADC1,true);pinMode(AXP202_INT,INPUT_PULLUP);attachInterrupt(AXP202_INT,onPowerButtonIrq,FALLING);watch->power->enableIRQ(AXP202_PEK_SHORTPRESS_IRQ,true);watch->power->clearIRQ();}
-  loadSettings();applyPowerMode();initMotion();jarvisBleBegin();jarvisWifiBegin();
+  loadSettings();applyPowerMode();initMotion();jarvisWifiBegin();jarvisBleSetEventHandler(bleEventHandler);jarvisBleBegin();
 
   JarvisPowerHooks powerHooks;powerHooks.screenOn=powerScreenOnHook;powerHooks.screenOff=powerScreenOffHook;powerHooks.deepSleep=powerDeepSleepHook;
   JarvisAlarmHooks alarmHooks;alarmHooks.vibrateOnce=alarmVibrateHook;alarmHooks.phoneSound=alarmPhoneHook;
