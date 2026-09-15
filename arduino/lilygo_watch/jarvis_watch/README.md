@@ -14,19 +14,10 @@ O firmware trata o T-Watch como smartwatch JARVIS com mostradores, launcher, voz
 - motor de vibração
 - microfone PDM SPM1423
 - Wi-Fi ESP32
-- NimBLE-Arduino **1.4.3** (usar esta versão com o core ESP32 2.0.14)
+- sem dependência externa de NimBLE/ESP32_BLE_Arduino nesta build
 
-O transporte BLE do Watch usa NimBLE em vez da pilha Bluedroid padrão do ESP32.
-A troca reduz significativamente o tamanho do firmware e o consumo de RAM, mantendo
-o Watch como Peripheral/GATT Server e o Android como Central/GATT Client.
-
-No Arduino IDE:
-
-```text
-Sketch > Include Library > Manage Libraries...
-procurar: NimBLE-Arduino
-versão:   1.4.3
-```
+O transporte BLE permanece isolado em `jarvis_ble.*`, mas está desativado nesta
+build compacta para reduzir o firmware e evitar a dependência da biblioteca BLE.
 
 ## Partição de firmware
 
@@ -226,7 +217,7 @@ O firmware usa `AXP202_PEK_SHORTPRESS_IRQ`, conforme o mecanismo oficial da bibl
 ## Navegação
 
 ```text
-esquerda / direita  -> troca skin
+esquerda / direita  -> sem troca de mostrador
 para cima            -> abre aplicativos
 para baixo           -> retorna
 botão físico          -> tela ON/OFF
@@ -334,7 +325,7 @@ A camada de assistência continua separada em `jarvis_assistance.*`. Alertas de 
 | Voice state | Estrutura integrada; migração completa pendente |
 | Call state | Estrutura integrada; migração completa pendente |
 | UiStateMachine separada | Próxima etapa após validação |
-| Skins / swipe / launcher | Implementado |
+| Mostrador JARVIS AVIATION / swipe / launcher | Implementado |
 | Botão físico tela ON/OFF | Agora passa pela PowerSM; validar hardware |
 | Seleção de padrão do alarme | Implementada |
 | Microfone PDM não bloqueante | Implementado; validar hardware |
@@ -347,3 +338,10 @@ A camada de assistência continua separada em `jarvis_assistance.*`. Alertas de 
 | Assistência/SOS | módulo disponível; integração completa ao EventQueue ainda pendente |
 
 > Esta revisão precisa ser compilada no ambiente ESP32 2.0.14 e validada no T-Watch físico antes da próxima migração. Prioridade do teste: botão, timeout, alarme, touch, Wi-Fi e estabilidade por pelo menos 30 minutos.
+
+
+## Mostrador atual
+
+O mostrador `ANA-DIGI`, que exibia dois submostradores circulares, foi removido.
+O firmware mantém somente o mostrador unificado `JARVIS AVIATION`, reduzindo código
+gráfico e memória de programa.
