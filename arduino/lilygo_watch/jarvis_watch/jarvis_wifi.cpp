@@ -10,6 +10,7 @@ static String casaToken;
 static unsigned long lastRetry = 0;
 static bool scanRunning = false;
 static bool casaOnline = false;
+static bool casaChecked = false;
 static bool casaCheckRequested = true;
 static unsigned long lastCasaCheck = 0;
 static const unsigned long CASA_CHECK_INTERVAL_MS = 30000UL;
@@ -55,6 +56,7 @@ static bool checkCasaReachability(){
 void jarvisWifiLoop(){
   if(WiFi.status()!=WL_CONNECTED){
     casaOnline=false;
+    casaChecked=false;
     casaCheckRequested=true;
     if(millis()-lastRetry < 120000UL || scanRunning) return;
     lastRetry = millis();
@@ -69,13 +71,15 @@ void jarvisWifiLoop(){
   casaCheckRequested=false;
   lastCasaCheck=now;
   casaOnline=checkCasaReachability();
+  casaChecked=true;
 }
 
 bool jarvisWifiIsConnected(){ return WiFi.status()==WL_CONNECTED; }
 String jarvisWifiSsid(){ return jarvisWifiIsConnected() ? WiFi.SSID() : String(); }
 int jarvisWifiRssi(){ return jarvisWifiIsConnected() ? WiFi.RSSI() : -127; }
 bool jarvisWifiCasaOnline(){ return jarvisWifiIsConnected() && casaOnline; }
-void jarvisWifiRequestCasaCheck(){ casaCheckRequested=true; }
+bool jarvisWifiCasaChecked(){ return jarvisWifiIsConnected() && casaChecked; }
+void jarvisWifiRequestCasaCheck(){ casaChecked=false; casaCheckRequested=true; }
 String jarvisWifiCasaBase(){ return casaBase; }
 
 bool jarvisWifiSetProfile(uint8_t slot, const String &ssid, const String &password){
@@ -85,6 +89,7 @@ bool jarvisWifiSetProfile(uint8_t slot, const String &ssid, const String &passwo
   wifiPrefs.putString(keyPass(slot).c_str(), password);
   // Tenta associar sem bloquear a interface. O estado é acompanhado no loop/UI.
   casaOnline=false;
+  casaChecked=false;
   casaCheckRequested=true;
   WiFi.disconnect(false, false);
   WiFi.begin(ssid.c_str(), password.c_str());
@@ -153,6 +158,7 @@ void jarvisWifiSetCasa(const String &baseUrl, const String &deviceToken){
   wifiPrefs.putString("base", casaBase);
   wifiPrefs.putString("token", casaToken);
   casaOnline=false;
+  casaChecked=false;
   casaCheckRequested=true;
 }
 
@@ -161,6 +167,7 @@ bool jarvisWifiStartProfile(uint8_t slot){
   if(!jarvisWifiGetProfile(slot, ssid, pass)) return false;
   if(WiFi.status()==WL_CONNECTED && WiFi.SSID()==ssid) return true;
   casaOnline=false;
+  casaChecked=false;
   casaCheckRequested=true;
   WiFi.disconnect(false, false);
   WiFi.begin(ssid.c_str(), pass.c_str());
