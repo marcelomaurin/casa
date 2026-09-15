@@ -51,7 +51,10 @@ unsigned long lastPowerButtonMs=0;
 void IRAM_ATTR onPowerButtonIrq(){ powerButtonIrq=true; }
 
 // Touch / swipe.
+// touchWakeConsumed permanece true desde o primeiro toque com a tela apagada
+// ate o dedo ser retirado. Assim o toque que acorda a tela nao aciona a UI.
 bool touchActive=false;
+bool touchWakeConsumed=false;
 int16_t touchStartX=0,touchStartY=0,touchLastX=0,touchLastY=0;
 unsigned long touchStartMs=0;
 const int SWIPE_MIN=42;
@@ -112,11 +115,15 @@ void alarmPhoneHook(){jarvisBleSendCommand("alarm_sound:phone");}
 void applyPowerMode(){if(!watch)return;uint8_t b=brightnessLevel;if(powerMode==POWER_ECO)b=min((int)b,140);if(powerMode==POWER_ULTRA)b=min((int)b,85);watch->setBrightness(b);}
 void powerScreenOnHook(){
   if(!watch)return;
-  watch->displayWakeup();watch->openBL();screenAwake=true;touchActive=false;applyPowerMode();drawScreen();
+  // No desligamento automatico apenas o backlight e apagado. O controlador
+  // do LCD, o touch, BLE e as demais maquinas de estado continuam ativos.
+  screenAwake=true;touchActive=false;watch->openBL();applyPowerMode();drawScreen();
 }
 void powerScreenOffHook(){
   if(!watch)return;
-  watch->closeBL();watch->displaySleep();screenAwake=false;touchActive=false;
+  // Nao usar displaySleep() aqui. No T-Watch isso torna a retomada por touch
+  // e botao muito menos confiavel. Apagamos somente o backlight.
+  watch->closeBL();screenAwake=false;touchActive=false;touchWakeConsumed=false;
 }
 void powerDeepSleepHook(){enterDeepSleep();}
 
@@ -273,7 +280,10 @@ void processPowerButton(){
   watch->power->clearIRQ();
   if(millis()-lastPowerButtonMs<300)return;
   lastPowerButtonMs=millis();
-  controller.emit(jarvisEvent(EVT_BUTTON_SHORT,JARVIS_PRI_HIGH));
+  // Wake/sleep do botao nao pode ficar atras de telemetria ou eventos de UI.
+  // CRITICAL permite que o evento de energia substitua um evento menos importante
+  // caso a fila esteja momentaneamente cheia.
+  controller.emit(jarvisEvent(EVT_BUTTON_SHORT,JARVIS_PRI_CRITICAL));
 }
 
 void controllerEvent(const JarvisEvent &event){
@@ -334,14 +344,39 @@ void loop(){
     if(screenAwake&&(currentScreen==SCREEN_HOME||currentScreen==SCREEN_STATUS||currentScreen==SCREEN_ALARM||currentScreen==SCREEN_VOICE))drawScreen();
   }
 
-  // Touch só gera eventos com a tela acesa. O botão físico acorda/apaga a tela.
-  if(screenAwake){
-    int16_t x=0,y=0;bool touching=watch->getTouch(x,y);
-    if(touching){
+  // O touch precisa ser consultado mesmo com a tela apagada. Como o desligamento
+  // automatico agora apaga somente o backlight, o controlador touch continua vivo.
+  // O primeiro toque apenas acorda a tela e e consumido ate o dedo ser retirado.
+  {
+    int16_t x=0,y=0;
+    bool touching=watch->getTouch(x,y);
+
+    if(!screenAwake){
+      touchActive=false;
+      if(touching){
+        if(!touchWakeConsumed){
+          touchWakeConsumed=true;
+          controller.emit(jarvisEvent(EVT_USER_INTERACTION,JARVIS_PRI_CRITICAL));
+        }
+      }else{
+        touchWakeConsumed=false;
+      }
+    }else if(touchWakeConsumed){
+      // A tela acabou de acordar por toque. Ignora esse mesmo contato para nao
+      // abrir app/botao que estava sob o dedo. Libera a UI somente no release.
+      touchActive=false;
+      if(!touching)touchWakeConsumed=false;
+    }else if(touching){
       controller.emit(jarvisEvent(EVT_USER_INTERACTION,JARVIS_PRI_LOW));
-      if(!touchActive){touchActive=true;touchStartX=x;touchStartY=y;touchLastX=x;touchLastY=y;touchStartMs=millis();}
-      else{touchLastX=x;touchLastY=y;}
-    }else if(touchActive){touchActive=false;handleGestureRelease();}
+      if(!touchActive){
+        touchActive=true;touchStartX=x;touchStartY=y;touchLastX=x;touchLastY=y;touchStartMs=millis();
+      }else{
+        touchLastX=x;touchLastY=y;
+      }
+    }else if(touchActive){
+      touchActive=false;
+      handleGestureRelease();
+    }
   }
 
   syncControllerConfig();
