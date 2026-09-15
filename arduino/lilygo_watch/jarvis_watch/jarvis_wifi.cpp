@@ -7,6 +7,8 @@
 static Preferences wifiPrefs;
 static String casaBase;
 static String casaToken;
+static String casaDeviceId;
+static int preferredSlot = -1;
 static unsigned long lastRetry = 0;
 static bool scanRunning = false;
 static bool casaOnline = false;
@@ -27,6 +29,9 @@ void jarvisWifiBegin(){
   wifiPrefs.begin("jarviswifi", false);
   casaBase = wifiPrefs.getString("base", "https://maurinsoft.com.br/casa");
   casaToken = wifiPrefs.getString("token", "");
+  casaDeviceId = wifiPrefs.getString("deviceid", "");
+  preferredSlot = wifiPrefs.getInt("lastslot", -1);
+  if(preferredSlot < 0 || preferredSlot > 4) preferredSlot = -1;
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
   WiFi.persistent(false);
@@ -64,6 +69,17 @@ void jarvisWifiLoop(){
   }
 
   if(scanRunning) return;
+
+  String connectedSsid = WiFi.SSID();
+  for(uint8_t slot=0; slot<5; slot++){
+    if(wifiPrefs.getString(keySsid(slot).c_str(), "") == connectedSsid){
+      if(preferredSlot != slot){
+        preferredSlot = slot;
+        wifiPrefs.putInt("lastslot", preferredSlot);
+      }
+      break;
+    }
+  }
 
   unsigned long now=millis();
   if(!casaCheckRequested && now-lastCasaCheck < CASA_CHECK_INTERVAL_MS) return;
@@ -162,6 +178,15 @@ void jarvisWifiSetCasa(const String &baseUrl, const String &deviceToken){
   casaCheckRequested=true;
 }
 
+void jarvisWifiSetDeviceId(const String &deviceId){
+  casaDeviceId = deviceId;
+  casaDeviceId.trim();
+  wifiPrefs.putString("deviceid", casaDeviceId);
+}
+
+String jarvisWifiDeviceId(){ return casaDeviceId; }
+bool jarvisWifiHasCasaCredentials(){ return !casaBase.isEmpty() && !casaToken.isEmpty(); }
+
 bool jarvisWifiStartProfile(uint8_t slot){
   String ssid, pass;
   if(!jarvisWifiGetProfile(slot, ssid, pass)) return false;
@@ -182,7 +207,12 @@ static bool waitConnected(uint32_t timeoutMs){
 
 bool jarvisWifiConnectProfile(uint8_t slot, uint32_t timeoutMs){
   if(!jarvisWifiStartProfile(slot)) return false;
-  return waitConnected(timeoutMs);
+  bool ok = waitConnected(timeoutMs);
+  if(ok){
+    preferredSlot = slot;
+    wifiPrefs.putInt("lastslot", preferredSlot);
+  }
+  return ok;
 }
 
 bool jarvisWifiConnectBestKnown(uint32_t timeoutMs){
@@ -200,6 +230,60 @@ bool jarvisWifiConnectBestKnown(uint32_t timeoutMs){
     }
   }
   return false;
+}
+
+bool jarvisWifiStartPreferred(){
+  if(preferredSlot >= 0 && preferredSlot <= 4){
+    if(jarvisWifiStartProfile((uint8_t)preferredSlot)) return true;
+  }
+  // Primeira inicializacao apos cadastrar perfis: usa o primeiro existente.
+  for(uint8_t slot=0;slot<5;slot++){
+    String ssid, pass;
+    if(jarvisWifiGetProfile(slot, ssid, pass)){
+      preferredSlot = slot;
+      wifiPrefs.putInt("lastslot", preferredSlot);
+      return jarvisWifiStartProfile(slot);
+    }
+  }
+  return false;
+}
+
+bool jarvisWifiConnectPreferred(uint32_t timeoutMs){
+  if(jarvisWifiIsConnected()) return true;
+  if(!jarvisWifiStartPreferred()) return false;
+  bool ok = waitConnected(timeoutMs);
+  if(ok && preferredSlot >= 0) wifiPrefs.putInt("lastslot", preferredSlot);
+  return ok;
+}
+
+void jarvisWifiPrepareSleep(){
+  scanRunning=false;
+  WiFi.scanDelete();
+  WiFi.disconnect(false, false);
+  delay(10);
+  WiFi.mode(WIFI_OFF);
+  casaOnline=false;
+  casaChecked=false;
+  casaCheckRequested=true;
+}
+
+bool jarvisWifiGetJson(const String &path, String *response){
+  if(!jarvisWifiIsConnected() || casaToken.isEmpty()) return false;
+  WiFiClientSecure tls;
+  tls.setInsecure();
+  tls.setTimeout(4);
+  HTTPClient http;
+  http.setConnectTimeout(2500);
+  http.setTimeout(4000);
+  String url = casaBase + (path.startsWith("/") ? path : "/" + path);
+  if(!http.begin(tls, url)) return false;
+  http.addHeader("Accept", "application/json");
+  http.addHeader("Authorization", "Bearer " + casaToken);
+  http.addHeader("X-Device-Token", casaToken);
+  int code=http.GET();
+  if(response && code>0) *response=http.getString();
+  http.end();
+  return code>=200 && code<300;
 }
 
 bool jarvisWifiPostJson(const String &path, const String &jsonPayload, String *response){
