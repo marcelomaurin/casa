@@ -196,6 +196,10 @@ class WatchClient(private val context: Context) {
         .put("ssid", ssid)
         .put("password", password))
 
+    fun provisionDeviceIdentity(deviceId: String): Boolean = send(JSONObject()
+        .put("type", "device_identity")
+        .put("device_id", deviceId))
+
     fun provisionCasa(baseUrl: String, watchDeviceToken: String): Boolean = send(JSONObject()
         .put("type", "casa_config")
         .put("base_url", baseUrl)
