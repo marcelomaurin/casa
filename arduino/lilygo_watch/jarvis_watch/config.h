@@ -20,8 +20,13 @@
 #define JARVIS_PDM_DATA_PIN     2
 #define JARVIS_PDM_CLK_PIN      0
 #define JARVIS_MOTION_INT_PIN   39
+#define JARVIS_TOUCH_INT_PIN    38
+#define JARVIS_RTC_INT_PIN      37
+#define JARVIS_POWER_INT_PIN    35
 #define JARVIS_MOTOR_PIN        4
 #define JARVIS_IR_PIN           13
+
+#define JARVIS_BACKGROUND_WAKE_SEC 60
 
 // MAX98357A / I2S de saida do T-Watch 2020 V3.
 #define JARVIS_AUDIO_BCK_PIN    26
