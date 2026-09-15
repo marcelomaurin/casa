@@ -37,7 +37,7 @@ static bool ensureAudioDriver(){
   i2s_pin_config_t pins = {};
   pins.bck_io_num = JARVIS_AUDIO_BCK_PIN;
   pins.ws_io_num = JARVIS_AUDIO_WS_PIN;
-  pins.data_out_num = JARVIS_AUDIO_DOUT_PIN
+  pins.data_out_num = JARVIS_AUDIO_DOUT_PIN;
   pins.data_in_num = I2S_PIN_NO_CHANGE;
 
   e = i2s_set_pin(AUDIO_PORT, &pins);
