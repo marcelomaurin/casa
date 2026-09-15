@@ -18,14 +18,14 @@ enum ScreenId {
   SCREEN_SETTINGS, SCREEN_CLOCK, SCREEN_WIFI, SCREEN_KEYBOARD, SCREEN_NOTIFICATION
 };
 enum PowerMode { POWER_NORMAL, POWER_ECO, POWER_ULTRA };
-enum WatchSkin { SKIN_CLASSIC, SKIN_ANADIGI, SKIN_AVIATION, SKIN_COUNT };
+enum WatchSkin { SKIN_JARVIS_AVIATION, SKIN_ANADIGI, SKIN_COUNT };
 enum VoiceOutput { VOICE_PHONE, VOICE_TEXT, VOICE_BOTH };
 enum AlarmTone { ALARM_SHORT, ALARM_DOUBLE, ALARM_URGENT, ALARM_PHONE };
 
 ScreenId currentScreen = SCREEN_HOME;
 ScreenId previousScreen = SCREEN_HOME;
 PowerMode powerMode = POWER_ECO;
-WatchSkin watchSkin = SKIN_CLASSIC;
+WatchSkin watchSkin = SKIN_JARVIS_AVIATION;
 VoiceOutput voiceOutput = VOICE_BOTH;
 AlarmTone alarmTone = ALARM_DOUBLE;
 
@@ -104,9 +104,13 @@ void saveSettings(){
 void loadSettings(){
   prefs.begin("jarvis",false);brightnessLevel=prefs.getUChar("bright",150);vibrationEnabled=prefs.getBool("vibrate",true);
   wristWakeEnabled=prefs.getBool("wrist",true);screenTimeoutSec=prefs.getUShort("timeout",20);powerMode=(PowerMode)prefs.getUChar("power",POWER_ECO);
-  watchSkin=(WatchSkin)prefs.getUChar("skin",SKIN_CLASSIC);alarmEnabled=prefs.getBool("alarmOn",false);alarmHour=prefs.getUChar("alarmH",7);alarmMinute=prefs.getUChar("alarmM",0);
+  uint8_t storedSkin=prefs.getUChar("skin",0);
+  // Compatibilidade com as três skins antigas:
+  // 0=CLASSIC e 2=AVIATION passam para a skin unificada JARVIS AVIATION.
+  watchSkin=(storedSkin==1)?SKIN_ANADIGI:SKIN_JARVIS_AVIATION;
+  alarmEnabled=prefs.getBool("alarmOn",false);alarmHour=prefs.getUChar("alarmH",7);alarmMinute=prefs.getUChar("alarmM",0);
   voiceOutput=(VoiceOutput)prefs.getUChar("voiceOut",VOICE_BOTH);alarmTone=(AlarmTone)prefs.getUChar("alarmTone",ALARM_DOUBLE);
-  brightnessLevel=constrain(brightnessLevel,40,255);if(powerMode>POWER_ULTRA)powerMode=POWER_ECO;if(watchSkin>=SKIN_COUNT)watchSkin=SKIN_CLASSIC;
+  brightnessLevel=constrain(brightnessLevel,40,255);if(powerMode>POWER_ULTRA)powerMode=POWER_ECO;
   if(voiceOutput>VOICE_BOTH)voiceOutput=VOICE_BOTH;if(alarmTone>ALARM_PHONE)alarmTone=ALARM_DOUBLE;if(alarmHour>23)alarmHour=7;if(alarmMinute>59)alarmMinute=0;
 }
 
@@ -170,10 +174,44 @@ void lcarsButton(int x,int y,int w,int h,uint16_t c,const char*label,const char*
 void drawBatteryIcon(int x,int y,int p){uint16_t c=p>=20?C_TEXT:C_RED;tft->drawRoundRect(x,y,24,10,3,c);tft->fillRect(x+24,y+3,3,4,c);if(p>=0)tft->fillRect(x+2,y+2,(20*p)/100,6,c);}
 void handFromAngle(int cx,int cy,int r,float deg,uint16_t color,int width=1){float a=(deg-90.0f)*0.0174532925f;int x=cx+(int)(cos(a)*r),y=cy+(int)(sin(a)*r);for(int i=0;i<width;i++)tft->drawLine(cx+i,cy,x+i,y,color);}
 
-void drawSkinClassic(){RTC_Date n=watch->rtc->getDateTime();tft->fillScreen(C_BLACK);tft->drawCircle(120,113,105,C_STEEL);tft->drawCircle(120,113,100,C_WHITE);for(int i=0;i<60;i++){float a=i*6.0f*0.0174532925f;int r1=(i%5==0)?82:87;tft->drawLine(120+cos(a)*r1,113+sin(a)*r1,120+cos(a)*92,113+sin(a)*92,(i%5==0)?C_WHITE:C_STEEL);}tft->setTextColor(C_WHITE,C_BLACK);tft->drawCentreString("JARVIS",120,33,2);handFromAngle(120,113,48,(n.hour%12)*30+n.minute*.5f,C_WHITE,3);handFromAngle(120,113,72,n.minute*6,C_WHITE,2);handFromAngle(120,113,78,n.second*6,C_RED);tft->fillCircle(120,113,5,C_WHITE);tft->drawCentreString("< skins | apps ^",120,222,1);}
-void drawSkinAnaDigi(){RTC_Date n=watch->rtc->getDateTime();tft->fillScreen(C_DARK);tft->drawRoundRect(8,8,224,224,18,C_WHITE);tft->drawCircle(70,68,42,C_STEEL);tft->drawCircle(170,68,42,C_STEEL);handFromAngle(70,68,24,(n.hour%12)*30+n.minute*.5f,C_WHITE,2);handFromAngle(70,68,32,n.minute*6,C_WHITE);handFromAngle(170,68,25,n.second*6,C_ORANGE);tft->fillRoundRect(125,122,92,72,6,C_LCD);tft->setTextColor(C_BLACK,C_LCD);tft->drawCentreString((twoDigits(n.hour)+":"+twoDigits(n.minute)).c_str(),171,137,4);tft->drawCentreString((twoDigits(n.day)+"/"+twoDigits(n.month)).c_str(),171,174,2);tft->setTextColor(C_WHITE,C_DARK);tft->drawCentreString("< skins | apps ^",120,216,1);}
-void drawSkinAviation(){RTC_Date n=watch->rtc->getDateTime();tft->fillScreen(C_BLACK);tft->drawCircle(120,113,108,C_STEEL);tft->drawCircle(120,113,101,C_WHITE);tft->setTextColor(C_WHITE,C_BLACK);tft->drawCentreString("JARVIS AVIATION",120,27,1);tft->fillRoundRect(69,61,102,30,3,C_DARK);tft->setTextColor(C_GOLD,C_DARK);tft->drawCentreString((twoDigits(n.hour)+":"+twoDigits(n.minute)).c_str(),120,66,4);handFromAngle(120,113,48,(n.hour%12)*30+n.minute*.5f,C_WHITE,3);handFromAngle(120,113,72,n.minute*6,C_WHITE,2);handFromAngle(120,113,78,n.second*6,C_RED);tft->fillCircle(120,113,4,C_WHITE);tft->setTextColor(C_WHITE,C_BLACK);tft->drawCentreString("< skins | apps ^",120,222,1);}
-void drawWatchFace(){if(watchSkin==SKIN_CLASSIC)drawSkinClassic();else if(watchSkin==SKIN_ANADIGI)drawSkinAnaDigi();else drawSkinAviation();}
+void drawSkinJarvisAviation(){
+  RTC_Date n=watch->rtc->getDateTime();
+  tft->fillScreen(C_BLACK);
+
+  // Mostrador único: reúne a leitura clássica do relógio JARVIS com os
+  // elementos técnicos do antigo JARVIS AVIATION.
+  tft->drawCircle(120,113,106,C_STEEL);
+  tft->drawCircle(120,113,100,C_WHITE);
+  for(int i=0;i<60;i++){
+    float a=i*6.0f*0.0174532925f;
+    int r1=(i%5==0)?82:88;
+    tft->drawLine(120+cos(a)*r1,113+sin(a)*r1,
+                  120+cos(a)*94,113+sin(a)*94,
+                  (i%5==0)?C_WHITE:C_STEEL);
+  }
+
+  tft->setTextColor(C_WHITE,C_BLACK);
+  tft->drawCentreString("JARVIS AVIATION",120,24,1);
+
+  // Hora digital discreta, requisito herdado do Aviation.
+  tft->fillRoundRect(77,49,86,23,3,C_DARK);
+  tft->setTextColor(C_GOLD,C_DARK);
+  tft->drawCentreString((twoDigits(n.hour)+":"+twoDigits(n.minute)).c_str(),120,53,2);
+
+  // Ponteiros analógicos, requisito principal do relógio JARVIS.
+  handFromAngle(120,113,48,(n.hour%12)*30+n.minute*.5f,C_WHITE,3);
+  handFromAngle(120,113,72,n.minute*6,C_WHITE,2);
+  handFromAngle(120,113,78,n.second*6,C_RED);
+  tft->fillCircle(120,113,4,C_WHITE);
+
+  // Data curta sem criar um terceiro módulo gráfico.
+  tft->setTextColor(C_WHITE,C_BLACK);
+  tft->drawCentreString((twoDigits(n.day)+"/"+twoDigits(n.month)).c_str(),120,190,1);
+  tft->drawCentreString("< skin | apps ^",120,222,1);
+}
+
+void drawSkinAnaDigi(){RTC_Date n=watch->rtc->getDateTime();tft->fillScreen(C_DARK);tft->drawRoundRect(8,8,224,224,18,C_WHITE);tft->drawCircle(70,68,42,C_STEEL);tft->drawCircle(170,68,42,C_STEEL);handFromAngle(70,68,24,(n.hour%12)*30+n.minute*.5f,C_WHITE,2);handFromAngle(70,68,32,n.minute*6,C_WHITE);handFromAngle(170,68,25,n.second*6,C_ORANGE);tft->fillRoundRect(125,122,92,72,6,C_LCD);tft->setTextColor(C_BLACK,C_LCD);tft->drawCentreString((twoDigits(n.hour)+":"+twoDigits(n.minute)).c_str(),171,137,4);tft->drawCentreString((twoDigits(n.day)+"/"+twoDigits(n.month)).c_str(),171,174,2);tft->setTextColor(C_WHITE,C_DARK);tft->drawCentreString("< skin | apps ^",120,216,1);}
+void drawWatchFace(){if(watchSkin==SKIN_ANADIGI)drawSkinAnaDigi();else drawSkinJarvisAviation();}
 
 void drawHeader(const char*title){RTC_Date n=watch->rtc->getDateTime();int batt=batteryPercent();tft->fillRect(0,0,240,57,C_BG);tft->fillRoundRect(5,5,230,43,14,C_ORANGE);tft->setTextColor(C_TEXT,C_ORANGE);tft->drawString((twoDigits(n.hour)+":"+twoDigits(n.minute)).c_str(),49,7,4);tft->drawRightString(title,228,9,2);drawBatteryIcon(177,34,batt);tft->drawRightString(batt>=0?(String(batt)+"%").c_str():"--",228,34,1);}
 void drawFooter(){tft->fillRect(0,207,240,33,C_BG);if(currentScreen!=SCREEN_HOME){lcarsButton(5,211,70,25,C_LAV,"VOLTAR");lcarsButton(80,211,70,25,C_ORANGE,"HOME");}uint16_t c=jarvisBleIsConnected()?C_GREEN:(jarvisWifiIsConnected()?C_BLUE:C_GOLD);tft->fillRoundRect(155,211,80,25,8,c);tft->setTextColor(C_TEXT,c);tft->drawCentreString(jarvisBleIsConnected()?"PHONE":jarvisWifiIsConnected()?"WIFI":"OFFLINE",195,218,1);}
