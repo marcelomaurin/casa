@@ -85,6 +85,7 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
         var password by remember { mutableStateOf("") }
         var slot by remember { mutableIntStateOf(0) }
         var watchToken by remember { mutableStateOf("") }
+        var savedProfiles by remember { mutableStateOf(WifiProfileStore.load(this)) }
         var pendingWatch by remember { mutableStateOf<WatchClient.FoundWatch?>(null) }
         val casa = remember { JarvisApi.loadConfig(this).baseUrl }
 
@@ -155,11 +156,31 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
             }
             Button(
                 onClick = {
-                    statusState = if (watchClient.provisionWifi(slot, ssid.trim(), password)) "Rede enviada ao relógio" else "Não foi possível enviar a rede"
+                    val profile = WifiProfileStore.Profile(slot, ssid.trim(), password)
+                    WifiProfileStore.save(this@WatchSetupActivity, profile)
+                    savedProfiles = WifiProfileStore.load(this@WatchSetupActivity)
+                    statusState = if (watchClient.provisionWifi(slot, profile.ssid, profile.password)) {
+                        "Rede salva no celular e enviada ao relógio"
+                    } else {
+                        "Rede salva no celular; conecte o relógio para reenviar"
+                    }
                     password = ""
                 },
                 enabled = connectedState && ssid.isNotBlank(), modifier = Modifier.fillMaxWidth()
-            ) { Text("ENVIAR REDE AO WATCH") }
+            ) { Text("SALVAR E ENVIAR REDE") }
+
+            savedProfiles.forEach { profile ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Perfil ${profile.slot + 1}: ${profile.ssid}", modifier = Modifier.padding(top = 12.dp))
+                    OutlinedButton(
+                        onClick = {
+                            slot = profile.slot
+                            ssid = profile.ssid
+                            password = profile.password
+                        }
+                    ) { Text("USAR") }
+                }
+            }
 
             HorizontalDivider()
             Text("Acesso CASA direto", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
