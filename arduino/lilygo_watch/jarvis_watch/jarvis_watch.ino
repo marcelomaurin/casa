@@ -68,6 +68,12 @@ bool wifiScanning=false;
 String selectedWifi="", wifiPassword="";
 bool lastWifiUiState=false,lastCasaUiState=false,lastCasaCheckedUiState=false;
 
+// Deep sleep / wake periodico.
+// TIMER acorda em segundo plano para consultar o CASA sem acender a tela.
+// EXT0 = AXP202/botao. EXT1 = touch FT6336.
+esp_sleep_wakeup_cause_t wakeCause=ESP_SLEEP_WAKEUP_UNDEFINED;
+bool backgroundTimerWake=false;
+
 static const uint16_t C_BG=0xFFDF,C_TEXT=0x18C3,C_ORANGE=0xFBE0,C_SALMON=0xFB2C;
 static const uint16_t C_LAV=0xB57F,C_BLUE=0x5D7F,C_GREEN=0x6E6B,C_RED=0xF9E7,C_GOLD=0xFE60,C_WHITE=0xFFFF;
 static const uint16_t C_BLACK=0x0000,C_DARK=0x2104,C_STEEL=0x8410;
@@ -140,25 +146,155 @@ void alarmPhoneHook(){jarvisBleSendCommand("alarm_sound:phone");}
 void applyPowerMode(){if(!watch)return;uint8_t b=brightnessLevel;if(powerMode==POWER_ECO)b=min((int)b,140);if(powerMode==POWER_ULTRA)b=min((int)b,85);watch->setBrightness(b);}
 void powerScreenOnHook(){
   if(!watch)return;
-  // No desligamento automatico apenas o backlight e apagado. O controlador
-  // do LCD, o touch, BLE e as demais maquinas de estado continuam ativos.
-  screenAwake=true;touchActive=false;watch->openBL();applyPowerMode();drawScreen();
+  screenAwake=true;
+  touchActive=false;
+  watch->displayWakeup();
+  watch->openBL();
+  applyPowerMode();
+  drawScreen();
 }
 void powerScreenOffHook(){
   if(!watch)return;
-  // Nao usar displaySleep() aqui. No T-Watch isso torna a retomada por touch
-  // e botao muito menos confiavel. Apagamos somente o backlight.
-  watch->closeBL();screenAwake=false;touchActive=false;touchWakeConsumed=false;
+  // Primeiro apaga apenas o backlight. Em ECO/ULTRA a maquina de energia
+  // chama enterDeepSleep() logo depois, permitindo cancelar o sono caso
+  // ocorra uma interacao nessa pequena janela.
+  watch->closeBL();
+  screenAwake=false;
+  touchActive=false;
+  touchWakeConsumed=false;
 }
 void powerDeepSleepHook(){enterDeepSleep();}
 
+uint32_t secondsToNextBackgroundWake(){
+  if(watch&&watch->rtc){
+    RTC_Date n=watch->rtc->getDateTime();
+    // Alinha os wakes ao inicio de cada minuto. Depois do sync HTTP, se o
+    // relogio dormir no segundo 3, por exemplo, acorda cerca de 57 s depois.
+    uint32_t sec=60U-(uint32_t)(n.second%60);
+    if(sec==0)sec=JARVIS_BACKGROUND_WAKE_SEC;
+    return sec;
+  }
+  return JARVIS_BACKGROUND_WAKE_SEC;
+}
+
+int jsonIntField(const String &json,const char *key,int fallback=-1){
+  String needle="\""+String(key)+"\"";
+  int p=json.indexOf(needle);
+  if(p<0)return fallback;
+  p=json.indexOf(':',p+needle.length());
+  if(p<0)return fallback;
+  p++;
+  while(p<(int)json.length()&&(json[p]==' '||json[p]=='\t'))p++;
+  bool neg=false;if(p<(int)json.length()&&json[p]=='-'){neg=true;p++;}
+  long v=0;bool any=false;
+  while(p<(int)json.length()&&json[p]>='0'&&json[p]<='9'){any=true;v=v*10+(json[p]-'0');p++;}
+  if(!any)return fallback;
+  return neg?-(int)v:(int)v;
+}
+
+String jsonStringField(const String &json,const char *key){
+  String needle="\""+String(key)+"\"";
+  int p=json.indexOf(needle);
+  if(p<0)return String();
+  p=json.indexOf(':',p+needle.length());
+  if(p<0)return String();
+  p++;
+  while(p<(int)json.length()&&(json[p]==' '||json[p]=='\t'))p++;
+  if(p>=(int)json.length()||json[p]!='\"')return String();
+  p++;
+  String out;
+  bool esc=false;
+  for(;p<(int)json.length();p++){
+    char ch=json[p];
+    if(esc){
+      if(ch=='n'||ch=='r')out+=' ';
+      else if(ch=='t')out+=' ';
+      else out+=ch;
+      esc=false;
+      continue;
+    }
+    if(ch=='\\'){esc=true;continue;}
+    if(ch=='\"')break;
+    out+=ch;
+  }
+  return out;
+}
+
+bool fetchBackgroundCasaUpdate(){
+  if(!jarvisWifiHasCasaCredentials())return false;
+  if(!jarvisWifiConnectPreferred(3500))return false;
+
+  String response;
+  if(!jarvisWifiGetJson("/api/v1/watch.php?acao=notificacoes",&response))return false;
+
+  int arrayPos=response.indexOf("\"notificacoes\"");
+  if(arrayPos<0)return false;
+  int open=response.indexOf('[',arrayPos);
+  if(open<0)return false;
+  int first=response.indexOf('{',open);
+  int close=response.indexOf(']',open);
+  if(first<0||close<0||first>close)return false;
+
+  int id=jsonIntField(response,"id",-1);
+  notificationTitle=jsonStringField(response,"titulo");
+  notificationText=jsonStringField(response,"mensagem");
+  if(notificationTitle.isEmpty())notificationTitle="CASA";
+  if(notificationText.isEmpty())notificationText="Nova atualizacao recebida.";
+
+  // A mensagem ja foi efetivamente entregue ao relogio. Confirma no servidor
+  // para impedir que o mesmo aviso acorde o Watch a cada minuto.
+  if(id>0){
+    String ack="{\"id\":"+String(id)+"}";
+    jarvisWifiPostJson("/api/v1/watch.php?acao=ack",ack,nullptr);
+  }
+  return true;
+}
+
+bool alarmDueNow(){
+  if(!alarmEnabled||!watch||!watch->rtc)return false;
+  RTC_Date n=watch->rtc->getDateTime();
+  return n.hour==alarmHour&&n.minute==alarmMinute;
+}
+
 void enterDeepSleep(){
   if(!watch)return;
-  if(watch->bma&&wristWakeEnabled){watch->bma->enableFeature(BMA423_WAKEUP,true);watch->bma->enableFeature(BMA423_TILT,true);watch->bma->enableWakeupInterrupt();watch->bma->enableTiltInterrupt();esp_sleep_enable_ext1_wakeup(GPIO_SEL_39,ESP_EXT1_WAKEUP_ANY_HIGH);}
-  esp_sleep_enable_ext0_wakeup((gpio_num_t)AXP202_INT,0);
+
+  // Não dorme enquanto o touch ainda estiver assertado. O FT6336 usa IRQ
+  // ativo em nivel baixo e o GPIO38 será fonte de wake.
+  pinMode(JARVIS_TOUCH_INT_PIN,INPUT);
+  if(digitalRead(JARVIS_TOUCH_INT_PIN)==LOW)return;
+
+  if(watch->power){
+    watch->power->clearIRQ();
+    delay(8);
+    if(digitalRead(JARVIS_POWER_INT_PIN)==LOW)return;
+  }
+
   jarvisIrShutdown();
   jarvisAudioShutdown();
-  watch->displaySleep();watch->closeBL();esp_deep_sleep_start();
+  jarvisWifiPrepareSleep();
+
+  watch->displaySleep();   // FT6336 fica em monitor mode, nao em deep sleep.
+  watch->closeBL();
+
+  // Wake 1: botao/AXP202, ativo em LOW.
+  esp_sleep_enable_ext0_wakeup((gpio_num_t)JARVIS_POWER_INT_PIN,0);
+
+  // Wake 2: touch FT6336 GPIO38. Em ESP32 classico EXT1 permite ALL_LOW;
+  // como a mascara contem somente o touch, LOW no GPIO38 acorda o chip.
+  esp_sleep_enable_ext1_wakeup(
+    (1ULL<<JARVIS_TOUCH_INT_PIN),
+    ESP_EXT1_WAKEUP_ALL_LOW
+  );
+
+  // Wake 3: sincronizacao CASA aproximadamente a cada minuto.
+  uint64_t wakeUs=(uint64_t)secondsToNextBackgroundWake()*1000000ULL;
+  esp_sleep_enable_timer_wakeup(wakeUs);
+
+  // O wake por movimento BMA423 usa nivel HIGH e conflita com o modo LOW
+  // necessario ao touch no EXT1. Durante deep sleep priorizamos exatamente
+  // as fontes solicitadas: touch, botao e timer.
+  esp_deep_sleep_start();
 }
 
 void initMotion(){
@@ -513,6 +649,15 @@ void processPowerButton(){
 }
 
 void bleEventHandler(const String &type,const String &title,const String &text){
+  if(type=="device_identity"){
+    String id=text.length()?text:title;
+    id.trim();
+    if(!id.isEmpty())jarvisWifiSetDeviceId(id);
+    lastMessage=id.isEmpty()?"Device ID invalido":"Device ID salvo";
+    if(screenAwake)drawScreen();
+    return;
+  }
+
   if(type=="find_watch"){
     notificationTitle="LOCALIZAR";
     notificationText="Seu celular esta procurando este relogio.";
@@ -608,14 +753,105 @@ void emitRtcTick(){
 }
 
 void setup(){
-  Serial.begin(115200);bootMillis=millis();watch=TTGOClass::getWatch();if(!watch)return;watch->begin();watch->motor_begin();watch->openBL();tft=watch->tft;if(watch->rtc)watch->rtc->check();
-  if(watch->power){watch->power->adc1Enable(AXP202_VBUS_VOL_ADC1|AXP202_VBUS_CUR_ADC1|AXP202_BATT_CUR_ADC1|AXP202_BATT_VOL_ADC1,true);pinMode(AXP202_INT,INPUT_PULLUP);attachInterrupt(AXP202_INT,onPowerButtonIrq,FALLING);watch->power->enableIRQ(AXP202_PEK_SHORTPRESS_IRQ,true);watch->power->clearIRQ();}
-  loadSettings();applyPowerMode();initMotion();jarvisAudioBegin(watch);jarvisIrBegin();jarvisWifiBegin();jarvisBleSetEventHandler(bleEventHandler);jarvisBleBegin();
+  Serial.begin(115200);
+  bootMillis=millis();
+  wakeCause=esp_sleep_get_wakeup_cause();
+  backgroundTimerWake=(wakeCause==ESP_SLEEP_WAKEUP_TIMER);
 
-  JarvisPowerHooks powerHooks;powerHooks.screenOn=powerScreenOnHook;powerHooks.screenOff=powerScreenOffHook;powerHooks.deepSleep=powerDeepSleepHook;
-  JarvisAlarmHooks alarmHooks;alarmHooks.vibrateOnce=alarmVibrateHook;alarmHooks.localSound=alarmLocalSoundHook;alarmHooks.phoneSound=alarmPhoneHook;
-  JarvisControllerHooks controllerHooks;controllerHooks.onEvent=controllerEvent;
-  controller.begin(powerHooks,alarmHooks,controllerHooks,true);syncControllerConfig();drawScreen();
+  watch=TTGOClass::getWatch();
+  if(!watch)return;
+  watch->begin();
+  watch->motor_begin();
+  tft=watch->tft;
+  if(watch->rtc)watch->rtc->check();
+
+  // Em wake do timer, nunca acende a tela antes de saber se existe algo para
+  // mostrar. Isso evita um flash de backlight a cada minuto.
+  if(backgroundTimerWake){
+    watch->closeBL();
+    screenAwake=false;
+  }else{
+    watch->displayWakeup();
+    watch->openBL();
+    screenAwake=true;
+  }
+
+  if(watch->power){
+    watch->power->adc1Enable(
+      AXP202_VBUS_VOL_ADC1|AXP202_VBUS_CUR_ADC1|
+      AXP202_BATT_CUR_ADC1|AXP202_BATT_VOL_ADC1,true
+    );
+    pinMode(JARVIS_POWER_INT_PIN,INPUT);
+    attachInterrupt(JARVIS_POWER_INT_PIN,onPowerButtonIrq,FALLING);
+    watch->power->enableIRQ(AXP202_PEK_SHORTPRESS_IRQ,true);
+    watch->power->clearIRQ();
+  }
+
+  loadSettings();
+  jarvisWifiBegin();
+
+  bool wakeForAlarm=backgroundTimerWake&&alarmDueNow();
+  bool wakeForCasa=false;
+
+  if(backgroundTimerWake&&!wakeForAlarm){
+    wakeForCasa=fetchBackgroundCasaUpdate();
+    if(!wakeForCasa){
+      // Nenhuma atualizacao: radio desliga e volta imediatamente ao deep sleep.
+      enterDeepSleep();
+      return;
+    }
+  }
+
+  // A partir daqui e um wake interativo: boot normal, botao, touch, alarme
+  // ou uma atualizacao encontrada no CASA.
+  screenAwake=true;
+  watch->displayWakeup();
+  watch->openBL();
+  applyPowerMode();
+
+  initMotion();
+  jarvisAudioBegin(watch);
+  jarvisIrBegin();
+  jarvisBleSetEventHandler(bleEventHandler);
+  jarvisBleBegin();
+
+  // Em wake normal tenta o ultimo Wi-Fi conhecido sem scan.
+  if(!jarvisWifiIsConnected())jarvisWifiStartPreferred();
+
+  JarvisPowerHooks powerHooks;
+  powerHooks.screenOn=powerScreenOnHook;
+  powerHooks.screenOff=powerScreenOffHook;
+  powerHooks.deepSleep=powerDeepSleepHook;
+
+  JarvisAlarmHooks alarmHooks;
+  alarmHooks.vibrateOnce=alarmVibrateHook;
+  alarmHooks.localSound=alarmLocalSoundHook;
+  alarmHooks.phoneSound=alarmPhoneHook;
+
+  JarvisControllerHooks controllerHooks;
+  controllerHooks.onEvent=controllerEvent;
+
+  controller.begin(powerHooks,alarmHooks,controllerHooks,true);
+  syncControllerConfig();
+
+  if(wakeCause==ESP_SLEEP_WAKEUP_EXT1){
+    // O mesmo dedo que acordou o Watch nao deve abrir um app.
+    touchWakeConsumed=true;
+  }
+
+  if(wakeForCasa){
+    previousScreen=SCREEN_HOME;
+    currentScreen=SCREEN_NOTIFICATION;
+    lastMessage="Atualizacao CASA";
+    vibrateShort();
+  }
+
+  if(wakeForAlarm){
+    emitRtcTick();
+    controller.update(millis());
+  }
+
+  drawScreen();
 }
 
 void loop(){
@@ -648,9 +884,9 @@ void loop(){
     if(screenAwake&&(currentScreen==SCREEN_HOME||currentScreen==SCREEN_STATUS||currentScreen==SCREEN_ALARM||currentScreen==SCREEN_VOICE))drawScreen();
   }
 
-  // O touch precisa ser consultado mesmo com a tela apagada. Como o desligamento
-  // automatico agora apaga somente o backlight, o controlador touch continua vivo.
-  // O primeiro toque apenas acorda a tela e e consumido ate o dedo ser retirado.
+  // Enquanto o ESP32 esta acordado, o touch continua sendo consultado normalmente.
+  // Em ECO/ULTRA a tela apagada evolui para deep sleep; nesse estado o GPIO38
+  // (FT6336 INT) acorda o ESP32 por hardware.
   {
     int16_t x=0,y=0;
     bool touching=watch->getTouch(x,y);
