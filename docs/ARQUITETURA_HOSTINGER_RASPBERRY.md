@@ -166,11 +166,34 @@ Cada instalação recebe token próprio. Os aplicativos não devem depender de I
 
 ## RELÓGIO
 
-O relógio pode operar por BLE através do celular. Nesse caso, o celular é o gateway físico, mas o destino lógico permanece o domínio CASA.
+O BLE é usado principalmente no provisionamento e recuperação. Depois de provisionado, o relógio possui identidade própria e comunica-se diretamente com a CASA por Wi-Fi/HTTPS quando disponível.
 
 ```text
-Watch -> BLE -> JARVIS Mobile -> https://casa.maurinsoft.com.br
+Provisionamento:
+Watch -> BLE -> JARVIS Mobile -> CASA
+
+Operação normal:
+Watch -> Wi-Fi/HTTPS -> https://casa.maurinsoft.com.br
 ```
+
+O celular continua podendo fornecer capacidades próprias, como GPS, câmera e notificações, através do Command Bus.
+
+## COMMAND / EVENT BUS
+
+A integração entre os nós utiliza um barramento único:
+
+```text
+Controladores -> /api/v1/control.php -> device_commands
+Devices       -> /api/v1/device.php  -> ACK/resultados/eventos
+```
+
+Comandos representam ações solicitadas. Eventos representam fatos observados. O roteamento deve usar `device_id`, `capabilities`, `gateway_device_id`, prioridade, TTL e `correlation_id`.
+
+Protocolos específicos ficam em adapters executados pelos gateways; o núcleo JARVIS não deve controlar hardware diretamente.
+
+## CONTROL PLANE E DATA PLANE
+
+A API central transporta comandos, estado e metadados. Vídeo, áudio e outros fluxos pesados devem permanecer preferencialmente na LAN entre origem e destino, com a CASA apenas coordenando a sessão.
 
 ## FLUXO DISTRIBUÍDO
 
