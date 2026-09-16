@@ -129,7 +129,7 @@ public class MainActivity extends Activity {
 
         LinearLayout config = panel();
         config.addView(sectionTitle("CONEXÃO CASA"));
-        urlEdit = field("URL CASA", prefs.getString(KEY_URL, "https://maurinsoft.com.br/casa"), false);
+        urlEdit = field("URL CASA", prefs.getString(KEY_URL, "https://casa.maurinsoft.com.br"), false);
         tokenEdit = field("Token individual da TV", prefs.getString(KEY_TOKEN, ""), true);
         config.addView(urlEdit, fullWidth(dp(6)));
         config.addView(tokenEdit, fullWidth(dp(8)));
@@ -187,13 +187,13 @@ public class MainActivity extends Activity {
     private void saveConfig() {
         String base = urlEdit.getText().toString().trim().replaceAll("/+$", "");
         String token = tokenEdit.getText().toString().trim();
-        if (base.isEmpty()) base = "https://maurinsoft.com.br/casa";
+        if (base.isEmpty()) base = "https://casa.maurinsoft.com.br";
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_URL, base).putString(KEY_TOKEN, token).apply();
         status.setText(token.isEmpty() ? "Informe o token individual da TV." : "Configuração salva.");
     }
 
     private void refreshDashboard() {
-        final String base = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_URL, "https://maurinsoft.com.br/casa");
+        final String base = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_URL, "https://casa.maurinsoft.com.br");
         final String token = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_TOKEN, "");
         if (token == null || token.trim().isEmpty()) { status.setText("Configure o token individual da TV."); return; }
         status.setText("Atualizando CASA...");
