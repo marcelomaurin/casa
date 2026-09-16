@@ -265,6 +265,21 @@ CREATE TABLE IF NOT EXISTS api_v1_security_log (
   KEY idx_api_security_data (data_hora)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS mobile_user_sessions (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  id_usuario BIGINT UNSIGNED NOT NULL,
+  token_hash CHAR(64) NOT NULL,
+  criado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  expira_em DATETIME NOT NULL,
+  ultimo_uso DATETIME NULL,
+  ultimo_ip VARCHAR(45) NULL,
+  revogado_em DATETIME NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_mobile_session_token (token_hash),
+  KEY idx_mobile_session_user (id_usuario, expira_em),
+  CONSTRAINT fk_mobile_session_user FOREIGN KEY (id_usuario) REFERENCES usuarios(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS mobile_eventos (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   id_dispositivo BIGINT UNSIGNED NULL,
