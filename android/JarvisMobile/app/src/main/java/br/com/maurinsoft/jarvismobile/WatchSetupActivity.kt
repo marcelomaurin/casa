@@ -65,12 +65,19 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
     }
 
     private fun requestPermissions() {
-        val p = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION)
-        if (Build.VERSION.SDK_INT >= 31) {
-            p += Manifest.permission.BLUETOOTH_SCAN
-            p += Manifest.permission.BLUETOOTH_CONNECT
+        val p = mutableListOf<String>()
+
+        // Android 12 e anteriores usam localizacao para expor SSID atual.
+        if (Build.VERSION.SDK_INT <= 32) {
+            p += Manifest.permission.ACCESS_FINE_LOCATION
         }
-        permissionLauncher.launch(p.distinct().toTypedArray())
+
+        // Android 13+ separa acesso a dispositivos Wi-Fi proximos.
+        if (Build.VERSION.SDK_INT >= 33) {
+            p += Manifest.permission.NEARBY_WIFI_DEVICES
+        }
+
+        if (p.isNotEmpty()) permissionLauncher.launch(p.distinct().toTypedArray())
     }
 
     override fun onScanResult(watch: WatchClient.FoundWatch) {
@@ -138,8 +145,9 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
 
     private fun currentSsid(): String {
         if (
+            Build.VERSION.SDK_INT <= 32 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) !=
-            PackageManager.PERMISSION_GRANTED && Build.VERSION.SDK_INT < 31
+            PackageManager.PERMISSION_GRANTED
         ) return ""
         val wm = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
         @Suppress("DEPRECATION")
