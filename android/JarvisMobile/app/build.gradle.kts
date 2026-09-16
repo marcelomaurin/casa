@@ -12,8 +12,8 @@ android {
         applicationId = "br.com.maurinsoft.jarvismobile"
         minSdk = 26
         targetSdk = 35
-        versionCode = 262
-        versionName = "2.6.2"
+        versionCode = 263
+        versionName = "2.6.3"
     }
 
     buildTypes {
