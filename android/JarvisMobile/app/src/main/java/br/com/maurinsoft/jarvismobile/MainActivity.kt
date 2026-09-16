@@ -37,7 +37,7 @@ class MainActivity : ComponentActivity() {
     private var onSpeechResult: ((String) -> Unit)? = null
     private val http = OkHttpClient()
 
-    private enum class Screen { OPERATIONS, VOICE, CONFIG }
+    private enum class Screen { OPERATIONS, VOICE, WATCH, DEVICES, CONFIG }
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -59,7 +59,7 @@ class MainActivity : ComponentActivity() {
     private fun tr(key: String): String {
         val lang = LanguageManager.currentLanguage(this)
         val pt = mapOf(
-            "operations" to "Operações", "voice" to "Voz", "config" to "Configuração",
+            "operations" to "Operações", "voice" to "Voz", "watch" to "Watch", "devices" to "Devices", "config" to "Configuração",
             "assistant" to "Assistente residencial inteligente", "initializing" to "Inicializando modo local e conexão...",
             "not_configured" to "Não configurado", "online" to "Online", "offline_reconnecting" to "Offline — reconectando",
             "queue" to "Fila", "connection" to "Conexão", "connected_house" to "Online — conectado à casa",
@@ -77,7 +77,7 @@ class MainActivity : ComponentActivity() {
             "automatic" to "Automático (idioma do aparelho)", "language_help" to "A interface, o reconhecimento de voz e as respostas do JARVIS seguem este idioma."
         )
         val en = mapOf(
-            "operations" to "Operations", "voice" to "Voice", "config" to "Settings",
+            "operations" to "Operations", "voice" to "Voice", "watch" to "Watch", "devices" to "Devices", "config" to "Settings",
             "assistant" to "Smart home assistant", "initializing" to "Starting local mode and connection...",
             "not_configured" to "Not configured", "online" to "Online", "offline_reconnecting" to "Offline — reconnecting",
             "queue" to "Queue", "connection" to "Connection", "connected_house" to "Online — connected to home",
@@ -95,7 +95,7 @@ class MainActivity : ComponentActivity() {
             "automatic" to "Automatic (device language)", "language_help" to "The interface, speech recognition and JARVIS responses follow this language."
         )
         val es = mapOf(
-            "operations" to "Operaciones", "voice" to "Voz", "config" to "Configuración",
+            "operations" to "Operaciones", "voice" to "Voz", "watch" to "Watch", "devices" to "Devices", "config" to "Configuración",
             "assistant" to "Asistente residencial inteligente", "initializing" to "Iniciando modo local y conexión...",
             "not_configured" to "No configurado", "online" to "En línea", "offline_reconnecting" to "Sin conexión — reconectando",
             "queue" to "Cola", "connection" to "Conexión", "connected_house" to "En línea — conectado a la casa",
@@ -223,12 +223,35 @@ class MainActivity : ComponentActivity() {
                 actions = { if (pending > 0) { AssistChip(onClick = {}, label = { Text("${tr("queue")}: $pending") }); Spacer(Modifier.width(8.dp)) } })
         }, bottomBar = {
             NavigationBar {
-                listOf(Screen.OPERATIONS, Screen.VOICE, Screen.CONFIG).forEach { item ->
-                    val label = when(item) { Screen.OPERATIONS -> tr("operations"); Screen.VOICE -> tr("voice"); Screen.CONFIG -> tr("config") }
-                    NavigationBarItem(selected = screen == item, onClick = { screen = item }, icon = { Text(if (item == Screen.OPERATIONS) "⌂" else if (item == Screen.VOICE) "●" else "⚙") }, label = { Text(label) })
+                listOf(Screen.OPERATIONS, Screen.VOICE, Screen.WATCH, Screen.DEVICES, Screen.CONFIG).forEach { item ->
+                    val label = when(item) {
+                        Screen.OPERATIONS -> tr("operations")
+                        Screen.VOICE -> tr("voice")
+                        Screen.WATCH -> tr("watch")
+                        Screen.DEVICES -> tr("devices")
+                        Screen.CONFIG -> tr("config")
+                    }
+                    val icon = when(item) {
+                        Screen.OPERATIONS -> "⌂"
+                        Screen.VOICE -> "●"
+                        Screen.WATCH -> "⌚"
+                        Screen.DEVICES -> "▦"
+                        Screen.CONFIG -> "⚙"
+                    }
+                    NavigationBarItem(selected = screen == item, onClick = { screen = item }, icon = { Text(icon) }, label = { Text(label) })
                 }
             }
-        }) { pad -> Box(Modifier.padding(pad).fillMaxSize()) { when(screen) { Screen.OPERATIONS -> OperationsScreen(online, pending); Screen.VOICE -> VoiceScreen(online); Screen.CONFIG -> ConfigScreen() } } }
+        }) { pad ->
+            Box(Modifier.padding(pad).fillMaxSize()) {
+                when(screen) {
+                    Screen.OPERATIONS -> OperationsScreen(online, pending)
+                    Screen.VOICE -> VoiceScreen(online)
+                    Screen.WATCH -> WatchScreen()
+                    Screen.DEVICES -> DevicesScreen()
+                    Screen.CONFIG -> ConfigScreen()
+                }
+            }
+        }
     }
 
     @Composable
