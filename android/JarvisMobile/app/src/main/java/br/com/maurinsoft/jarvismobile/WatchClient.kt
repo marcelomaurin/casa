@@ -18,7 +18,7 @@ import java.util.concurrent.CopyOnWriteArrayList
  * Android = BLE central/client.
  * T-Watch = BLE peripheral/GATT server.
  *
- * Protocol v2:
+ * Protocol v2.1:
  *  service 1000
  *  control 1001: Phone -> Watch (WRITE)
  *  events  1002: Watch -> Phone (NOTIFY/READ)
@@ -184,7 +184,8 @@ class WatchClient(private val context: Context) {
             .putLong(KEY_LAST_SEEN, System.currentTimeMillis())
             .apply()
         listeners.forEach { it.onConnectionChanged(true, name, g.device.address) }
-        send(JSONObject().put("type", "hello").put("protocol", "2.0").put("client", "JARVIS Mobile"))
+        send(JSONObject().put("type", "hello").put("protocol", "2.1").put("client", "JARVIS Mobile"))
+        requestStatus()
         drainWriteQueue()
     }
 
@@ -211,6 +212,10 @@ class WatchClient(private val context: Context) {
         .put("type", "casa_config")
         .put("base_url", baseUrl)
         .put("device_token", watchDeviceToken))
+
+    fun connectWifiProfile(slot: Int): Boolean = send(JSONObject()
+        .put("type", "wifi_connect")
+        .put("slot", slot))
 
     fun requestStatus(): Boolean = send(JSONObject().put("type", "status"))
     fun findWatch(): Boolean = send(JSONObject().put("type", "find_watch"))
