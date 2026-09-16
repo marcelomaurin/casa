@@ -287,6 +287,185 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
+    private fun WatchScreen() {
+        val scope = rememberCoroutineScope()
+        var status by remember { mutableStateOf("Carregando status do Watch...") }
+        var devices by remember { mutableStateOf<List<WatchApi.WatchDevice>>(emptyList()) }
+        var localConnected by remember { mutableStateOf(WatchClient.isConnected(this@MainActivity)) }
+        var lanHost by remember { mutableStateOf(WatchClient.savedLanHost(this@MainActivity)) }
+        var deviceId by remember { mutableStateOf(WatchClient.savedDeviceId(this@MainActivity)) }
+        var busy by remember { mutableStateOf(false) }
+
+        suspend fun refreshWatch() {
+            localConnected = WatchClient.isConnected(this@MainActivity)
+            lanHost = WatchClient.savedLanHost(this@MainActivity)
+            deviceId = WatchClient.savedDeviceId(this@MainActivity)
+            devices = withContext(Dispatchers.IO) {
+                runCatching { WatchApi.listWatches(this@MainActivity) }.getOrDefault(emptyList())
+            }
+            status = when {
+                localConnected && lanHost.isNotBlank() -> "Conectado localmente em $lanHost:${WatchClient.WATCH_PORT}"
+                devices.any { it.online } -> "Watch online pelo CASA"
+                else -> "Watch offline"
+            }
+        }
+
+        LaunchedEffect(Unit) {
+            refreshWatch()
+            while (true) {
+                delay(5_000)
+                refreshWatch()
+            }
+        }
+
+        Column(
+            Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text("WATCH", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+
+            ElevatedCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(if (localConnected || devices.any { it.online }) "● JARVIS Watch" else "○ JARVIS Watch", fontWeight = FontWeight.Bold)
+                    Text(status)
+                    if (deviceId.isNotBlank()) Text("Device ID: $deviceId")
+                    if (lanHost.isNotBlank()) Text("IP local: $lanHost")
+                    devices.firstOrNull()?.let { w ->
+                        if (w.location.isNotBlank()) Text("Local: ${w.location}")
+                        if (w.transport.isNotBlank()) Text("Transporte: ${w.transport}")
+                        if (w.lastHeartbeat.isNotBlank()) Text("Último heartbeat: ${w.lastHeartbeat}")
+                    }
+                }
+            }
+
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        busy = true
+                        scope.launch {
+                            status = withContext(Dispatchers.IO) {
+                                val id = deviceId.ifBlank { devices.firstOrNull()?.deviceId.orEmpty() }
+                                if (id.isBlank()) "Watch ainda não cadastrado"
+                                else runCatching {
+                                    WatchApi.findWatch(this@MainActivity, id)
+                                    "Comando LOCALIZAR enviado"
+                                }.getOrElse { "Falha ao localizar: ${it.message}" }
+                            }
+                            busy = false
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    enabled = !busy
+                ) { Text("LOCALIZAR") }
+
+                OutlinedButton(
+                    onClick = { scope.launch { refreshWatch() } },
+                    modifier = Modifier.weight(1f),
+                    enabled = !busy
+                ) { Text("ATUALIZAR") }
+            }
+
+            HorizontalDivider()
+            Text("Recursos do celular", fontWeight = FontWeight.Bold)
+
+            ElevatedCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("GPS", fontWeight = FontWeight.Bold)
+                    Text("O Watch pode solicitar a localização do celular.")
+                    Text("Câmera", fontWeight = FontWeight.Bold)
+                    Text("O Watch pode solicitar uma foto pelo celular.")
+                    Text("Notificações", fontWeight = FontWeight.Bold)
+                    Text(if (WatchNotificationListener.isEnabled(this@MainActivity)) "Encaminhamento ativado." else "Encaminhamento desativado.")
+                    Text("Voz / JARVIS", fontWeight = FontWeight.Bold)
+                    Text("Comandos do Watch podem ser processados pelo celular e devolvidos por TCP/CASA.")
+                }
+            }
+
+            Button(
+                onClick = { startActivity(Intent(this@MainActivity, WatchSetupActivity::class.java)) },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("CONFIGURAR WATCH") }
+
+            OutlinedButton(
+                onClick = { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("PERMISSÕES DE NOTIFICAÇÃO") }
+        }
+    }
+
+    @Composable
+    private fun DevicesScreen() {
+        val scope = rememberCoroutineScope()
+        var devices by remember { mutableStateOf<List<WatchApi.WatchDevice>>(emptyList()) }
+        var loading by remember { mutableStateOf(false) }
+
+        fun refreshDevices() {
+            if (loading) return
+            loading = true
+            scope.launch {
+                devices = withContext(Dispatchers.IO) {
+                    runCatching { WatchApi.listWatches(this@MainActivity) }.getOrDefault(emptyList())
+                }
+                loading = false
+            }
+        }
+
+        LaunchedEffect(Unit) { refreshDevices() }
+
+        Column(
+            Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text("DEVICES", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text("Equipamentos cadastrados no ecossistema CASA.")
+
+            if (devices.isEmpty()) {
+                ElevatedCard(Modifier.fillMaxWidth()) {
+                    Text(if (loading) "Carregando dispositivos..." else "Nenhum Watch encontrado no CASA.", modifier = Modifier.padding(16.dp))
+                }
+            } else {
+                devices.forEach { d ->
+                    ElevatedCard(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text((if (d.online) "● " else "○ ") + d.name, fontWeight = FontWeight.Bold)
+                            Text(d.deviceId)
+                            if (d.location.isNotBlank()) Text("Local: ${d.location}")
+                            Text("Status: ${d.status}")
+                            if (d.transport.isNotBlank()) Text("Transporte: ${d.transport}")
+                        }
+                    }
+                }
+            }
+
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { startActivity(Intent(this@MainActivity, NewDevicesActivity::class.java)) },
+                    modifier = Modifier.weight(1f)
+                ) { Text("+ ADICIONAR") }
+
+                OutlinedButton(
+                    onClick = { refreshDevices() },
+                    modifier = Modifier.weight(1f),
+                    enabled = !loading
+                ) { Text("ATUALIZAR") }
+            }
+
+            HorizontalDivider()
+            Text("Atalhos", fontWeight = FontWeight.Bold)
+
+            Button(
+                onClick = { startActivity(Intent(this@MainActivity, WatchSetupActivity::class.java)) },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("WATCH") }
+
+            OutlinedButton(
+                onClick = { startActivity(Intent(this@MainActivity, NewDevicesActivity::class.java)) },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("ESP32-CAM / OUTROS DEVICES") }
+        }
+    }
+
+    @Composable
     private fun ConfigScreen() {
         val scope = rememberCoroutineScope(); val current = remember { JarvisApi.loadConfig(this) }; var server by remember { mutableStateOf(current.baseUrl) }; var token by remember { mutableStateOf(current.token) }; var status by remember { mutableStateOf(tr("config_loaded")) }; var busy by remember { mutableStateOf(false) }; var automatic by remember { mutableStateOf(LanguageManager.isAutomatic(this)) }; var selectedLanguage by remember { mutableStateOf(LanguageManager.currentLanguage(this)) }
         Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
