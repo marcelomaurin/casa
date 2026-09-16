@@ -94,10 +94,37 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
 
     override fun onWatchMessage(json: org.json.JSONObject) {
         runOnUiThread {
-            when (json.optString("type")) {
-                "hello" -> statusState = "Canal de configuração do Watch pronto"
-                "status" -> statusState = "Status recebido do Watch"
-                else -> statusState = "Watch: ${json.optString("type", "mensagem")}"
+            val type = json.optString("type")
+            val ok = json.optBoolean("ok", true)
+            val message = json.optString("message")
+            when (type) {
+                "hello" -> {
+                    val protocol = json.optString("protocol", "?")
+                    val wifi = if (json.optBoolean("wifi", false)) "Wi-Fi conectado" else "Wi-Fi offline"
+                    statusState = "BLE confirmado • protocolo $protocol • $wifi"
+                }
+                "device_identity_result" ->
+                    statusState = if (ok) "Watch confirmou o Device ID" else "Falha ao gravar Device ID: $message"
+                "casa_config_result" ->
+                    statusState = if (ok) "Watch confirmou a configuração CASA" else "Falha na configuração CASA: $message"
+                "wifi_profile_result" ->
+                    statusState = if (ok) "Watch confirmou perfil Wi-Fi: $message" else "Falha no perfil Wi-Fi: $message"
+                "wifi_connect_result" ->
+                    statusState = if (ok) "Watch iniciou conexão Wi-Fi: $message" else "Falha ao iniciar Wi-Fi: $message"
+                "status" -> {
+                    val wifi = json.optBoolean("wifi", false)
+                    val casa = json.optBoolean("casa_configured", false)
+                    val ssid = json.optString("ssid")
+                    val deviceId = json.optString("device_id")
+                    statusState = buildString {
+                        append("Watch confirmado")
+                        append(if (wifi) " • Wi-Fi OK" else " • Wi-Fi offline")
+                        if (ssid.isNotBlank()) append(" ($ssid)")
+                        append(if (casa) " • CASA configurada" else " • CASA não configurada")
+                        if (deviceId.isNotBlank()) append(" • $deviceId")
+                    }
+                }
+                else -> statusState = "Watch: ${type.ifBlank { "mensagem" }}"
             }
         }
     }
@@ -403,21 +430,35 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
                                 return@launch
                             }
 
-                            var wifiQueued = 0
-                            WifiProfileStore.load(this@WatchSetupActivity)
+                            val profiles = WifiProfileStore.load(this@WatchSetupActivity)
                                 .sortedBy { it.slot }
-                                .forEach { profile ->
-                                    if (watchClient.provisionWifi(
-                                            profile.slot,
-                                            profile.ssid,
-                                            profile.password
-                                        )
-                                    ) wifiQueued++
-                                }
+
+                            var wifiQueued = 0
+                            profiles.forEach { profile ->
+                                if (watchClient.provisionWifi(
+                                        profile.slot,
+                                        profile.ssid,
+                                        profile.password
+                                    )
+                                ) wifiQueued++
+                            }
+
+                            val phoneSsid = currentSsid()
+                            val preferred = profiles.firstOrNull {
+                                it.ssid.equals(phoneSsid, ignoreCase = true)
+                            } ?: profiles.firstOrNull()
+
+                            val connectQueued = preferred?.let {
+                                watchClient.connectWifiProfile(it.slot)
+                            } ?: false
+
+                            watchClient.requestStatus()
 
                             statusState =
-                                "Watch cadastrado no CASA: ${entry.deviceId}. " +
-                                "Credencial enviada e $wifiQueued perfil(is) Wi-Fi enfileirado(s)."
+                                "Provisionamento enviado para ${entry.deviceId}: " +
+                                "$wifiQueued perfil(is) Wi-Fi" +
+                                (preferred?.let { " • conexão solicitada em ${it.ssid}" } ?: "") +
+                                ". Aguardando confirmação do Watch."
                         } catch (t: Throwable) {
                             statusState =
                                 "Falha no cadastro do Watch: ${t.message ?: t.javaClass.simpleName}"
