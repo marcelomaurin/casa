@@ -19,10 +19,19 @@ O firmware trata o T-Watch como smartwatch JARVIS com mostradores, launcher, voz
 - microfone PDM SPM1423 (DATA GPIO2 / CLK GPIO0)
 - MAX98357A / saída I2S (BCK GPIO26 / WS GPIO25 / DOUT GPIO33)
 - transmissor infravermelho (GPIO13 / RMT)
-- sem dependência externa de NimBLE/ESP32_BLE_Arduino nesta build
+- BLE via NimBLE-Arduino 1.4.3 (mais leve que Bluedroid e compatível com o app Android)
 
-O transporte BLE permanece isolado em `jarvis_ble.*`, mas está desativado nesta
-build compacta para reduzir o firmware e evitar a dependência da biblioteca BLE.
+O transporte BLE permanece isolado em `jarvis_ble.*` e usa **NimBLE-Arduino 1.4.3**. Essa escolha evita o peso e a pressão de heap do Bluedroid (`BLEDevice.h`) que foi reintroduzido temporariamente e coincidiu com os resets observados no hardware.
+
+## Dependência BLE
+
+Instale no Arduino IDE:
+
+```text
+Library Manager -> NimBLE-Arduino -> versão 1.4.3
+```
+
+O firmware e o aplicativo continuam usando o mesmo serviço GATT e o protocolo 2.1; a troca é apenas da implementação da pilha BLE no ESP32.
 
 ## Partição de firmware
 
