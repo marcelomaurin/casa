@@ -50,7 +50,6 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
         super.onCreate(savedInstanceState)
         watchClient = WatchClient(this)
         watchClient.addListener(this)
-        requestPermissions()
 
         connectedState = WatchClient.isConnected(this)
         connectedAddressState = WatchClient.savedAddress(this)
@@ -65,20 +64,34 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
         super.onDestroy()
     }
 
-    private fun requestPermissions() {
-        val p = mutableListOf<String>()
+    private fun ensureWifiPermissionAndConnect() {
+        val needed = mutableListOf<String>()
 
-        // Android 12 e anteriores usam localizacao para expor SSID atual.
+        // Android 12 e anteriores exigem acesso de localizacao para operacoes
+        // de redes Wi-Fi proximas. So pedimos quando o usuario toca CONECTAR.
         if (Build.VERSION.SDK_INT <= 32) {
-            p += Manifest.permission.ACCESS_FINE_LOCATION
+            needed += Manifest.permission.ACCESS_COARSE_LOCATION
+            needed += Manifest.permission.ACCESS_FINE_LOCATION
         }
 
-        // Android 13+ separa acesso a dispositivos Wi-Fi proximos.
+        // Android 13+ usa permissao especifica de dispositivos Wi-Fi proximos.
         if (Build.VERSION.SDK_INT >= 33) {
-            p += Manifest.permission.NEARBY_WIFI_DEVICES
+            needed += Manifest.permission.NEARBY_WIFI_DEVICES
         }
 
-        if (p.isNotEmpty()) permissionLauncher.launch(p.distinct().toTypedArray())
+        val missing = needed.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+
+        if (missing.isNotEmpty()) {
+            statusState = "Autorize apenas o acesso Wi-Fi necessário para conectar ao Watch."
+            permissionLauncher.launch(missing.toTypedArray())
+            return
+        }
+
+        foundState = emptyList()
+        statusState = "Solicitando rede JARVIS-WATCH..."
+        watchClient.scan()
     }
 
     override fun onScanResult(watch: WatchClient.FoundWatch) {
@@ -247,11 +260,7 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
-                    onClick = {
-                        foundState = emptyList()
-                        statusState = "Solicitando rede JARVIS-WATCH..."
-                        watchClient.scan()
-                    },
+                    onClick = { ensureWifiPermissionAndConnect() },
                     modifier = Modifier.weight(1f)
                 ) { Text("CONECTAR") }
 
