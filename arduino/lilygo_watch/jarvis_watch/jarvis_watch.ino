@@ -7,6 +7,7 @@
 #include <Preferences.h>
 #include <driver/i2s.h>
 #include <esp_sleep.h>
+#include <esp_system.h>
 #include <math.h>
 
 TTGOClass *watch = nullptr;
@@ -847,8 +848,17 @@ void emitRtcTick(){
 
 void setup(){
   Serial.begin(115200);
+  delay(80);
   bootMillis=millis();
   wakeCause=esp_sleep_get_wakeup_cause();
+
+  Serial.println();
+  Serial.println("========================================");
+  Serial.println("JARVIS Watch boot");
+  Serial.printf("Reset reason : %d\n", (int)esp_reset_reason());
+  Serial.printf("Wake cause   : %d\n", (int)wakeCause);
+  Serial.printf("Free heap    : %u bytes\n", (unsigned)ESP.getFreeHeap());
+  Serial.println("========================================");
   backgroundTimerWake=(wakeCause==ESP_SLEEP_WAKEUP_TIMER);
 
   watch=TTGOClass::getWatch();
