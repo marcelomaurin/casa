@@ -267,6 +267,7 @@ class MainActivity : ComponentActivity() {
     private fun LoginScreen(onLoggedIn: (MobileAuth.Session) -> Unit) {
         val scope = rememberCoroutineScope()
         val cfg = remember { JarvisApi.loadConfig(this) }
+        var server by remember { mutableStateOf(cfg.baseUrl) }
         var user by remember { mutableStateOf("") }
         var password by remember { mutableStateOf("") }
         var status by remember {
@@ -287,6 +288,15 @@ class MainActivity : ComponentActivity() {
             onLogout = {}
         ) {
             LcarsSectionLabel("LOGIN", LcarsColors.Salmon)
+
+            OutlinedTextField(
+                value = server,
+                onValueChange = { server = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Servidor CASA") },
+                singleLine = true,
+                enabled = !busy
+            )
 
             OutlinedTextField(
                 value = user,
@@ -313,6 +323,7 @@ class MainActivity : ComponentActivity() {
                         status = "Informe operador e senha."
                         return@Button
                     }
+                    JarvisApi.saveConfig(this@MainActivity, server, cfg.token)
                     busy = true
                     status = "Autenticando..."
                     scope.launch {
@@ -332,13 +343,6 @@ class MainActivity : ComponentActivity() {
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !busy
             ) { Text(if (busy) "AUTENTICANDO..." else "AUTORIZAR ACESSO") }
-
-            if (!cfg.baseUrl.startsWith("https://")) {
-                OutlinedButton(
-                    onClick = { startActivity(Intent(this@MainActivity, MainActivity::class.java)) },
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("CONFIGURAR CASA") }
-            }
 
             ElevatedCard(Modifier.fillMaxWidth()) {
                 Text(status, modifier = Modifier.padding(16.dp))
