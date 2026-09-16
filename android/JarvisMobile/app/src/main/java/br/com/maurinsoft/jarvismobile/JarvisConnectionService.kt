@@ -103,8 +103,10 @@ class JarvisConnectionService : Service(), WatchClient.Listener {
     }
 
     override fun onDestroy() {
-        runCatching { localWatchClient.removeListener(this) }
-        runCatching { localWatchClient.disconnect(false) }
+        if (::localWatchClient.isInitialized) {
+            runCatching { localWatchClient.removeListener(this) }
+            runCatching { localWatchClient.disconnect(false) }
+        }
         if (networkCallbackRegistered) {
             runCatching { connectivity?.unregisterNetworkCallback(networkCallback) }
         }
