@@ -97,7 +97,7 @@ object WatchProvisionStore {
                             deviceId = deviceId,
                             name = o.optString("name", "JARVIS Watch"),
                             location = o.optString("location", "Residencia"),
-                            baseUrl = o.optString("base_url", "https://maurinsoft.com.br/casa"),
+                            baseUrl = o.optString("base_url", "https://casa.maurinsoft.com.br").let { if (it == "https://maurinsoft.com.br/casa") "https://casa.maurinsoft.com.br" else it },
                             token = token,
                             createdAt = o.optLong("created_at", 0L)
                         )
