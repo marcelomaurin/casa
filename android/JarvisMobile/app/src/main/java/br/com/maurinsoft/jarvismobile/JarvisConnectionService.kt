@@ -19,12 +19,10 @@ import org.json.JSONObject
 /**
  * Serviço central do JARVIS Mobile.
  *
- * O BLE fica reservado ao cadastro/provisionamento em WatchSetupActivity.
- * Depois de provisionado, o relógio conversa com a CASA por Wi-Fi/HTTPS.
- * Este serviço acompanha o Control Plane da CASA para atender recursos que
- * pertencem ao celular: notificações, GPS, câmera, voz e canal da família.
+ * O Watch usa socket TCP local quando celular e relógio estão na mesma LAN.
+ * A CASA continua como fallback remoto para comandos e eventos.
  */
-class JarvisConnectionService : Service() {
+class JarvisConnectionService : Service(), WatchClient.Listener {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var connectivity: ConnectivityManager? = null
     private var lastWifiState = false
@@ -33,6 +31,8 @@ class JarvisConnectionService : Service() {
     private var watchEventAfter = 0L
     private var watchOnlineCount = 0
     private var networkCallbackRegistered = false
+    private lateinit var localWatchClient: WatchClient
+    private var localWatchConnected = false
 
     companion object {
         const val CHANNEL_SERVICE = "jarvis_service"
@@ -61,6 +61,10 @@ class JarvisConnectionService : Service() {
             stopSelf()
             return
         }
+
+        localWatchClient = WatchClient(this)
+        localWatchClient.addListener(this)
+        localWatchClient.connectLanSaved()
 
         runCatching {
             connectivity = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -102,6 +106,8 @@ class JarvisConnectionService : Service() {
     }
 
     override fun onDestroy() {
+        runCatching { localWatchClient.removeListener(this) }
+        runCatching { localWatchClient.disconnect(false) }
         if (networkCallbackRegistered) {
             runCatching { connectivity?.unregisterNetworkCallback(networkCallback) }
         }
@@ -111,6 +117,41 @@ class JarvisConnectionService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onConnectionChanged(connected: Boolean, name: String, address: String) {
+        localWatchConnected = connected
+        updateServiceNotification(
+            if (connected) "JARVIS online • Watch local conectado"
+            else withWatch(if (jarvisOnline) "Online — conectado ao JARVIS" else "Watch local desconectado")
+        )
+    }
+
+    override fun onWatchMessage(json: JSONObject) {
+        val type = json.optString("type").trim()
+        if (type.isBlank() || type == "hello" || type == "status" ||
+            type.endsWith("_result") || type == "pong") return
+
+        val deviceId = WatchClient.savedDeviceId(this)
+        if (deviceId.isBlank()) return
+
+        scope.launch {
+            handleWatchEvent(
+                WatchApi.WatchEvent(
+                    id = 0L,
+                    deviceId = deviceId,
+                    type = type,
+                    priority = "normal",
+                    correlationId = null,
+                    data = json,
+                    createdAt = ""
+                )
+            )
+        }
+    }
+
+    override fun onError(message: String) {
+        localWatchConnected = false
+    }
 
     private fun createChannels() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -170,7 +211,8 @@ class JarvisConnectionService : Service() {
     }
 
     private fun withWatch(text: String): String =
-        if (watchOnlineCount > 0) "$text • $watchOnlineCount Watch online"
+        if (localWatchConnected) "$text • Watch local"
+        else if (watchOnlineCount > 0) "$text • $watchOnlineCount Watch online"
         else "$text • Watch offline"
 
     private fun currentSsid(): String? = runCatching {
@@ -237,6 +279,13 @@ class JarvisConnectionService : Service() {
         priority: String = "normal",
         ttlSeconds: Int = 300
     ) {
+        val localDeviceId = WatchClient.savedDeviceId(this)
+        if (localWatchConnected && localDeviceId.isNotBlank() && localDeviceId == deviceId) {
+            val directPayload = JSONObject(payload.toString())
+            if (directPayload.optString("type").isBlank()) directPayload.put("type", command)
+            if (localWatchClient.send(directPayload)) return
+        }
+
         runCatching {
             WatchApi.enqueue(
                 this@JarvisConnectionService,
@@ -533,6 +582,9 @@ class JarvisConnectionService : Service() {
 
             while (isActive) {
                 try {
+                    if (!localWatchClient.isSocketConnected() && lastWifiState) {
+                        localWatchClient.connectLanSaved()
+                    }
                     if (!JarvisApi.isConfigured(this@JarvisConnectionService)) {
                         jarvisOnline = false
                         watchOnlineCount = 0
