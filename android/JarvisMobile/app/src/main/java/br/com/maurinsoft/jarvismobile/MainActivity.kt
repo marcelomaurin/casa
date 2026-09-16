@@ -122,7 +122,6 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= 31) {
             permissions += Manifest.permission.BLUETOOTH_CONNECT
             permissions += Manifest.permission.BLUETOOTH_SCAN
-            permissions += Manifest.permission.BLUETOOTH_ADVERTISE
         }
         permissionLauncher.launch(permissions.toTypedArray())
     }
@@ -375,7 +374,22 @@ class MainActivity : ComponentActivity() {
                     Text("Câmera", fontWeight = FontWeight.Bold)
                     Text("O Watch pode solicitar uma foto pelo celular.")
                     Text("Notificações", fontWeight = FontWeight.Bold)
-                    Text(if (WatchNotificationListener.isEnabled(this@MainActivity)) "Encaminhamento ativado." else "Encaminhamento desativado.")
+                    var forwardNotifications by remember {
+                        mutableStateOf(WatchNotificationListener.isEnabled(this@MainActivity))
+                    }
+                    val notificationAccess = WatchNotificationListener.hasSystemAccess(this@MainActivity)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Switch(
+                            checked = forwardNotifications,
+                            onCheckedChange = {
+                                forwardNotifications = it
+                                WatchNotificationListener.setEnabled(this@MainActivity, it)
+                            },
+                            enabled = notificationAccess
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (forwardNotifications) "Encaminhamento ativado" else "Encaminhamento desativado")
+                    }
                     Text("Voz / JARVIS", fontWeight = FontWeight.Bold)
                     Text("Comandos do Watch podem ser processados pelo celular e devolvidos por TCP/CASA.")
                 }
@@ -480,49 +494,8 @@ class MainActivity : ComponentActivity() {
             OutlinedButton(onClick = { JarvisApi.saveConfig(this@MainActivity, server, token); busy = true; scope.launch { status = try { withContext(Dispatchers.IO) { JarvisApi.testConnection(this@MainActivity) } } catch (e: Exception) { "${tr("offline_reconnecting")}. ${e.message ?: ""}" }; busy = false } }, Modifier.fillMaxWidth(), enabled = !busy) { Text(if (busy) tr("testing") else tr("test_now")) }
 
             HorizontalDivider()
-            Text("Dispositivos", fontWeight = FontWeight.Bold)
-            Text("Cadastre e autorize novos hardwares pelo aplicativo. O JARVIS Mobile cria a identidade no CASA e entrega a credencial individual ao dispositivo.")
-            Button(
-                onClick = {
-                    JarvisApi.saveConfig(this@MainActivity, server, token)
-                    startActivity(Intent(this@MainActivity, NewDevicesActivity::class.java))
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("NOVOS DEVICES") }
-
-            HorizontalDivider()
-            Text("Integração com o Watch", fontWeight = FontWeight.Bold)
-            var forwardNotifications by remember {
-                mutableStateOf(WatchNotificationListener.isEnabled(this@MainActivity))
-            }
-            val notificationAccess = WatchNotificationListener.hasSystemAccess(this@MainActivity)
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Switch(
-                    checked = forwardNotifications,
-                    onCheckedChange = {
-                        forwardNotifications = it
-                        WatchNotificationListener.setEnabled(this@MainActivity, it)
-                    },
-                    enabled = notificationAccess
-                )
-                Spacer(Modifier.width(8.dp))
-                Text("Encaminhar notificações do celular ao Watch")
-            }
-
-            Text(
-                if (notificationAccess)
-                    "Acesso às notificações concedido."
-                else
-                    "Conceda acesso às notificações para enviar WhatsApp, SMS e chamadas ao relógio."
-            )
-
-            OutlinedButton(
-                onClick = {
-                    startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("PERMISSÃO DE NOTIFICAÇÕES") }
+            Text("Sistema", fontWeight = FontWeight.Bold)
+            Text("Use as abas WATCH e DEVICES para gerenciar equipamentos e integrações.")
 
             ElevatedCard(Modifier.fillMaxWidth()) { Text(status, modifier = Modifier.padding(16.dp)) }
         }
