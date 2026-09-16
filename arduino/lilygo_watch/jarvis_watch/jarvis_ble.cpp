@@ -155,7 +155,7 @@ static void processIncoming(const String &json){
   if(type.isEmpty()) return;
 
   if(type=="hello"){
-    String out="{\"type\":\"hello\",\"ok\":true,\"device\":\"JARVIS Watch\",\"protocol\":\"TCP-1.0\",\"transport\":\"tcp\",\"wifi\":";
+    String out="{\"type\":\"hello\",\"ok\":true,\"device\":\"JARVIS Watch\",\"protocol\":\"TCP-1.0\",\"transport\":\"tcp\",\"hardware_id\":\""+jsonEscape(WiFi.macAddress())+"\",\"wifi\":";
     out+=jarvisWifiIsConnected()?"true":"false";
     String deviceId=jarvisWifiDeviceId();
     if(!deviceId.isEmpty()) out+=",\"device_id\":\""+jsonEscape(deviceId)+"\"";
@@ -213,7 +213,7 @@ static void processIncoming(const String &json){
   }
 
   if(type=="status"){
-    String out="{\"type\":\"status\",\"ok\":true,\"transport\":\"tcp\",\"protocol\":\"TCP-1.0\",\"wifi\":";
+    String out="{\"type\":\"status\",\"ok\":true,\"transport\":\"tcp\",\"protocol\":\"TCP-1.0\",\"hardware_id\":\""+jsonEscape(WiFi.macAddress())+"\",\"wifi\":";
     out+=jarvisWifiIsConnected()?"true":"false";
     if(jarvisWifiIsConnected()) out+=",\"ssid\":\""+jsonEscape(jarvisWifiSsid())+"\"";
     out+=",\"ap\":true,\"ap_ssid\":\""+String(AP_SSID)+"\"";
