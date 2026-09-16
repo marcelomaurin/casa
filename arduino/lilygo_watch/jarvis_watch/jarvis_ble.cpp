@@ -1,28 +1,19 @@
 #include "jarvis_ble.h"
 #include "jarvis_wifi.h"
 
-#include <NimBLEDevice.h>
+#include <WiFi.h>
 
-static const char *SERVICE_UUID = "7a9f1000-3a8c-4b62-9e5f-1b0c0e91a001";
-static const char *CONTROL_UUID = "7a9f1001-3a8c-4b62-9e5f-1b0c0e91a001";
-static const char *EVENT_UUID   = "7a9f1002-3a8c-4b62-9e5f-1b0c0e91a001";
-static const char *DEVICE_NAME  = "JARVIS Watch";
+static const char *AP_SSID = "JARVIS-WATCH";
+static const char *AP_PASS = "JarvisSetup2026";
+static const uint16_t SOCKET_PORT = 4040;
 
-static NimBLEServer *bleServer = nullptr;
-static NimBLECharacteristic *eventCharacteristic = nullptr;
-static volatile bool bleConnected = false;
-static volatile bool phoneInternet = false;
-static volatile bool restartAdvertisingRequested = false;
+static WiFiServer socketServer(SOCKET_PORT);
+static WiFiClient socketClient;
 static JarvisBleEventHandler eventHandler = nullptr;
-
-static const uint8_t RX_QUEUE_SIZE = 8;
-static const size_t RX_MAX = 181;
-static char rxQueue[RX_QUEUE_SIZE][RX_MAX];
-static uint16_t rxLen[RX_QUEUE_SIZE];
-static volatile uint8_t rxHead = 0;
-static volatile uint8_t rxTail = 0;
-static volatile uint8_t rxCount = 0;
-static portMUX_TYPE rxMux = portMUX_INITIALIZER_UNLOCKED;
+static bool serverStarted = false;
+static bool provisioningAp = false;
+static bool phoneInternet = false;
+static String rxBuffer;
 
 static String jsonEscape(const String &s){
   String out;
@@ -78,7 +69,7 @@ static int jsonInt(const String &json,const char *key,int fallback=0){
   if(p<(int)json.length()&&json[p]=='-'){neg=true;p++;}
   long v=0; bool any=false;
   while(p<(int)json.length()&&json[p]>='0'&&json[p]<='9'){
-    any=true; v=v*10+(json[p]-'0'); p++;
+    any=true;v=v*10+(json[p]-'0');p++;
   }
   return any?(neg?-v:v):fallback;
 }
@@ -91,116 +82,56 @@ static bool jsonBool(const String &json,const char *key,bool fallback=false){
   return fallback;
 }
 
-static bool queueIncoming(const uint8_t *data,size_t len){
-  if(!data||len==0) return false;
-  if(len>=RX_MAX) len=RX_MAX-1;
-  portENTER_CRITICAL(&rxMux);
-  if(rxCount>=RX_QUEUE_SIZE){
-    portEXIT_CRITICAL(&rxMux);
-    return false;
-  }
-  uint8_t slot=rxTail;
-  memcpy(rxQueue[slot],data,len);
-  rxQueue[slot][len]=0;
-  rxLen[slot]=(uint16_t)len;
-  rxTail=(rxTail+1)%RX_QUEUE_SIZE;
-  rxCount++;
-  portEXIT_CRITICAL(&rxMux);
-  return true;
-}
-
-static bool popIncoming(String &out){
-  char local[RX_MAX];
-  uint16_t len=0;
-  portENTER_CRITICAL(&rxMux);
-  if(rxCount==0){
-    portEXIT_CRITICAL(&rxMux);
-    return false;
-  }
-  uint8_t slot=rxHead;
-  len=rxLen[slot];
-  memcpy(local,rxQueue[slot],len);
-  local[len]=0;
-  rxHead=(rxHead+1)%RX_QUEUE_SIZE;
-  rxCount--;
-  portEXIT_CRITICAL(&rxMux);
-  out=String(local);
-  out.trim();
-  return true;
-}
-
-class JarvisServerCallbacks: public NimBLEServerCallbacks{
-  void onConnect(NimBLEServer *server) override{
-    (void)server;
-    bleConnected=true;
-  }
-  void onDisconnect(NimBLEServer *server) override{
-    (void)server;
-    bleConnected=false;
-    phoneInternet=false;
-    // Nao reinicia advertising dentro do callback da pilha BT.
-    // Apenas sinaliza para o loop principal, evitando reentrancia.
-    restartAdvertisingRequested=true;
-  }
-};
-
-class JarvisControlCallbacks: public NimBLECharacteristicCallbacks{
-  void onWrite(NimBLECharacteristic *characteristic) override{
-    std::string value=characteristic->getValue();
-    if(value.empty()) return;
-    queueIncoming((const uint8_t*)value.data(),value.size());
-  }
-};
-
 void jarvisBleSetEventHandler(JarvisBleEventHandler handler){
   eventHandler=handler;
 }
 
-void jarvisBleBegin(){
-  NimBLEDevice::init(DEVICE_NAME);
-  NimBLEDevice::setMTU(185);
-
-  bleServer=NimBLEDevice::createServer();
-  bleServer->setCallbacks(new JarvisServerCallbacks());
-
-  NimBLEService *service=bleServer->createService(SERVICE_UUID);
-
-  NimBLECharacteristic *control=service->createCharacteristic(
-    CONTROL_UUID,
-    NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR
-  );
-  control->setCallbacks(new JarvisControlCallbacks());
-
-  eventCharacteristic=service->createCharacteristic(
-    EVENT_UUID,
-    NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
-  );
-  eventCharacteristic->setValue("{\"type\":\"boot\",\"protocol\":\"2.1\"}\n");
-
-  service->start();
-
-  NimBLEAdvertising *advertising=NimBLEDevice::getAdvertising();
-  advertising->addServiceUUID(SERVICE_UUID);
-  advertising->setScanResponse(true);
-  advertising->start();
+static void ensureServer(){
+  if(serverStarted) return;
+  socketServer.begin();
+  socketServer.setNoDelay(true);
+  serverStarted=true;
 }
 
-bool jarvisBleIsConnected(){ return bleConnected; }
-bool jarvisBlePhoneInternet(){ return bleConnected&&phoneInternet; }
+static void startProvisioningAp(){
+  if(provisioningAp) return;
+
+  // AP+STA permite receber configuração do celular e manter/tentar a rede normal.
+  WiFi.mode(WIFI_AP_STA);
+  delay(20);
+
+  IPAddress apIp(192,168,4,1);
+  IPAddress gateway(192,168,4,1);
+  IPAddress subnet(255,255,255,0);
+  WiFi.softAPConfig(apIp,gateway,subnet);
+  WiFi.softAP(AP_SSID,AP_PASS,1,false,1);
+  provisioningAp=true;
+  ensureServer();
+}
+
+void jarvisBleBegin(){
+  startProvisioningAp();
+}
+
+bool jarvisBleIsConnected(){
+  return socketClient && socketClient.connected();
+}
+
+bool jarvisBlePhoneInternet(){
+  return jarvisBleIsConnected() && phoneInternet;
+}
 
 bool jarvisBleSendJson(const String &json){
-  if(!bleConnected||!eventCharacteristic||json.isEmpty()) return false;
-  if(json.length()>179) return false;
-  String framed=json+"\n";
-  eventCharacteristic->setValue((uint8_t*)framed.c_str(),framed.length());
-  eventCharacteristic->notify();
-  return true;
+  if(!jarvisBleIsConnected() || json.isEmpty()) return false;
+  socketClient.print(json);
+  socketClient.print("\n");
+  return socketClient.connected();
 }
 
 static void sendResult(const char *type,bool ok,const String &message=String()){
   String json="{\"type\":\""+String(type)+"\",\"ok\":"+(ok?"true":"false");
   if(!message.isEmpty()) json+=",\"message\":\""+jsonEscape(message)+"\"";
-  json+=",\"protocol\":\"2.1\"}";
+  json+=",\"protocol\":\"TCP-1.0\"}";
   jarvisBleSendJson(json);
 }
 
@@ -224,7 +155,7 @@ static void processIncoming(const String &json){
   if(type.isEmpty()) return;
 
   if(type=="hello"){
-    String out="{\"type\":\"hello\",\"ok\":true,\"device\":\"JARVIS Watch\",\"protocol\":\"2.1\",\"wifi\":";
+    String out="{\"type\":\"hello\",\"ok\":true,\"device\":\"JARVIS Watch\",\"protocol\":\"TCP-1.0\",\"transport\":\"tcp\",\"wifi\":";
     out+=jarvisWifiIsConnected()?"true":"false";
     String deviceId=jarvisWifiDeviceId();
     if(!deviceId.isEmpty()) out+=",\"device_id\":\""+jsonEscape(deviceId)+"\"";
@@ -234,7 +165,7 @@ static void processIncoming(const String &json){
   }
 
   if(type=="ping"){
-    jarvisBleSendJson("{\"type\":\"pong\",\"ok\":true,\"protocol\":\"2.1\"}");
+    jarvisBleSendJson("{\"type\":\"pong\",\"ok\":true,\"protocol\":\"TCP-1.0\"}");
     return;
   }
 
@@ -282,15 +213,14 @@ static void processIncoming(const String &json){
   }
 
   if(type=="status"){
-    String out="{\"type\":\"status\",\"ok\":true,\"ble\":true,\"protocol\":\"2.1\",\"wifi\":";
+    String out="{\"type\":\"status\",\"ok\":true,\"transport\":\"tcp\",\"protocol\":\"TCP-1.0\",\"wifi\":";
     out+=jarvisWifiIsConnected()?"true":"false";
     if(jarvisWifiIsConnected()) out+=",\"ssid\":\""+jsonEscape(jarvisWifiSsid())+"\"";
+    out+=",\"ap\":true,\"ap_ssid\":\""+String(AP_SSID)+"\"";
     out+=",\"casa_configured\":";
     out+=jarvisWifiHasCasaCredentials()?"true":"false";
     String deviceId=jarvisWifiDeviceId();
     if(!deviceId.isEmpty()) out+=",\"device_id\":\""+jsonEscape(deviceId)+"\"";
-    out+=",\"phone_internet\":";
-    out+=phoneInternet?"true":"false";
     out+="}";
     jarvisBleSendJson(out);
     return;
@@ -300,13 +230,32 @@ static void processIncoming(const String &json){
 }
 
 void jarvisBleLoop(){
-  if(restartAdvertisingRequested){
-    restartAdvertisingRequested=false;
-    NimBLEDevice::startAdvertising();
+  ensureServer();
+
+  if(!jarvisBleIsConnected()){
+    WiFiClient incoming=socketServer.available();
+    if(incoming){
+      socketClient.stop();
+      socketClient=incoming;
+      socketClient.setNoDelay(true);
+      rxBuffer="";
+    }
   }
 
-  String json;
-  for(uint8_t i=0;i<2&&popIncoming(json);i++) processIncoming(json);
+  if(!jarvisBleIsConnected()) return;
+
+  while(socketClient.available()){
+    char c=(char)socketClient.read();
+    if(c=='\n'){
+      String line=rxBuffer;
+      rxBuffer="";
+      line.trim();
+      if(!line.isEmpty()) processIncoming(line);
+    }else if(c!='\r'){
+      if(rxBuffer.length()<1024) rxBuffer+=c;
+      else rxBuffer="";
+    }
+  }
 }
 
 bool jarvisBleSendCommand(const String &command){
