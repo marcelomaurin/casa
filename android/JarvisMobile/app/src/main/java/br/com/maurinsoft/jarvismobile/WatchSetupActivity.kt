@@ -40,6 +40,7 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
     private var statusState by mutableStateOf("Pronto para procurar relógios")
     private var connectedState by mutableStateOf(false)
     private var connectedAddressState by mutableStateOf("")
+    private var hardwareIdState by mutableStateOf("")
     private var connectedNameState by mutableStateOf(WatchClient.WATCH_NAME)
 
     private val permissionLauncher =
@@ -110,8 +111,14 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
             when (type) {
                 "hello" -> {
                     val protocol = json.optString("protocol", "?")
+                    val hardwareId = json.optString("hardware_id").trim()
+                    if (hardwareId.isNotBlank()) {
+                        hardwareIdState = hardwareId
+                        connectedAddressState = hardwareId
+                    }
                     val wifi = if (json.optBoolean("wifi", false)) "Wi-Fi conectado" else "Wi-Fi offline"
-                    statusState = "Socket confirmado • protocolo $protocol • $wifi"
+                    statusState = "Socket confirmado • protocolo $protocol • $wifi" +
+                        if (hardwareId.isNotBlank()) " • $hardwareId" else ""
                 }
                 "device_identity_result" ->
                     statusState = if (ok) "Watch confirmou o Device ID" else "Falha ao gravar Device ID: $message"
@@ -126,6 +133,11 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
                     val casa = json.optBoolean("casa_configured", false)
                     val ssid = json.optString("ssid")
                     val deviceId = json.optString("device_id")
+                    val hardwareId = json.optString("hardware_id").trim()
+                    if (hardwareId.isNotBlank()) {
+                        hardwareIdState = hardwareId
+                        connectedAddressState = hardwareId
+                    }
                     statusState = buildString {
                         append("Watch confirmado")
                         append(if (wifi) " • Wi-Fi OK" else " • Wi-Fi offline")
@@ -171,9 +183,10 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
         var provisioning by remember { mutableStateOf(false) }
         var refreshProvision by remember { mutableIntStateOf(0) }
 
-        val existingProvision = remember(connectedAddressState, refreshProvision) {
-            if (connectedAddressState.isBlank()) null
-            else WatchProvisionStore.findByAddress(this, connectedAddressState)
+        val watchKey = hardwareIdState.ifBlank { connectedAddressState }
+        val existingProvision = remember(watchKey, refreshProvision) {
+            if (watchKey.isBlank() || watchKey == WatchClient.WATCH_HOST) null
+            else WatchProvisionStore.findByAddress(this, watchKey)
         }
 
         pendingWatch?.let { candidate ->
@@ -273,7 +286,8 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
                     ) {
                         Text("Watch conectado", fontWeight = FontWeight.Bold)
                         Text(connectedNameState)
-                        Text(connectedAddressState)
+                        Text("Socket: ${WatchClient.WATCH_HOST}:${WatchClient.WATCH_PORT}")
+                        if (hardwareIdState.isNotBlank()) Text("Hardware: $hardwareIdState")
                         existingProvision?.let {
                             Text("CASA: ${it.deviceId}")
                         }
@@ -384,8 +398,13 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
                         statusState = "Configure primeiro o acesso do celular ao CASA"
                         return@Button
                     }
-                    if (!connectedState || connectedAddressState.isBlank()) {
+                    if (!connectedState) {
                         statusState = "Conecte um Watch antes de cadastrar"
+                        return@Button
+                    }
+                    if (hardwareIdState.isBlank()) {
+                        statusState = "Aguardando identificação do Watch pelo socket"
+                        watchClient.requestStatus()
                         return@Button
                     }
                     if (watchName.isBlank()) {
@@ -409,12 +428,12 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
                                         this@WatchSetupActivity,
                                         watchName.trim(),
                                         location.trim().ifBlank { "Residencia" },
-                                        connectedAddressState
+                                        hardwareIdState
                                     )
                                 }
                                 val cfg = JarvisApi.loadConfig(this@WatchSetupActivity)
                                 WatchProvisionStore.Entry(
-                                    address = connectedAddressState,
+                                    address = hardwareIdState,
                                     deviceId = created.deviceId,
                                     name = created.name,
                                     location = created.location,
@@ -522,6 +541,7 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
                     watchClient.disconnect(true)
                     connectedState = false
                     connectedAddressState = ""
+                    hardwareIdState = ""
                     statusState = "Conexão Wi-Fi/TCP local com o Watch removida"
                 },
                 modifier = Modifier.fillMaxWidth()
