@@ -81,11 +81,13 @@ void JarvisPowerStateMachine::update(unsigned long now){
     return;
   }
 
-  // NORMAL mantém o ESP32 acordado com a tela apagada.
-  // ECO/ULTRA entram em deep sleep pouco depois do backlight apagar.
-  // O hook configura timer, touch e botão como fontes de wake.
-  if(state_ == JARVIS_PWR_SCREEN_OFF && powerMode_ >= 1){
-    unsigned long grace = powerMode_ >= 2 ? 500UL : 1500UL;
+  // NORMAL e ECO mantêm o ESP32 acordado com a tela apagada.
+  // Isso é obrigatório para manter BLE/GATT disponível ao celular.
+  //
+  // Somente ULTRA entra em deep sleep. No ESP32, acordar de deep sleep
+  // executa setup() novamente e se parece com um reset completo do Watch.
+  if(state_ == JARVIS_PWR_SCREEN_OFF && powerMode_ >= 2){
+    const unsigned long grace = 1500UL;
     if(screenOffAt_ != 0 && now - screenOffAt_ >= grace){
       state_ = JARVIS_PWR_PREPARE_SLEEP;
       if(hooks_.deepSleep) hooks_.deepSleep();
