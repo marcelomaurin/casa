@@ -1,18 +1,15 @@
 #include "jarvis_ble.h"
 #include "jarvis_wifi.h"
 
-#include <BLEDevice.h>
-#include <BLEServer.h>
-#include <BLEUtils.h>
-#include <BLE2902.h>
+#include <NimBLEDevice.h>
 
 static const char *SERVICE_UUID = "7a9f1000-3a8c-4b62-9e5f-1b0c0e91a001";
 static const char *CONTROL_UUID = "7a9f1001-3a8c-4b62-9e5f-1b0c0e91a001";
 static const char *EVENT_UUID   = "7a9f1002-3a8c-4b62-9e5f-1b0c0e91a001";
 static const char *DEVICE_NAME  = "JARVIS Watch";
 
-static BLEServer *bleServer = nullptr;
-static BLECharacteristic *eventCharacteristic = nullptr;
+static NimBLEServer *bleServer = nullptr;
+static NimBLECharacteristic *eventCharacteristic = nullptr;
 static volatile bool bleConnected = false;
 static volatile bool phoneInternet = false;
 static volatile bool restartAdvertisingRequested = false;
@@ -132,12 +129,12 @@ static bool popIncoming(String &out){
   return true;
 }
 
-class JarvisServerCallbacks: public BLEServerCallbacks{
-  void onConnect(BLEServer *server) override{
+class JarvisServerCallbacks: public NimBLEServerCallbacks{
+  void onConnect(NimBLEServer *server) override{
     (void)server;
     bleConnected=true;
   }
-  void onDisconnect(BLEServer *server) override{
+  void onDisconnect(NimBLEServer *server) override{
     (void)server;
     bleConnected=false;
     phoneInternet=false;
@@ -147,8 +144,8 @@ class JarvisServerCallbacks: public BLEServerCallbacks{
   }
 };
 
-class JarvisControlCallbacks: public BLECharacteristicCallbacks{
-  void onWrite(BLECharacteristic *characteristic) override{
+class JarvisControlCallbacks: public NimBLECharacteristicCallbacks{
+  void onWrite(NimBLECharacteristic *characteristic) override{
     std::string value=characteristic->getValue();
     if(value.empty()) return;
     queueIncoming((const uint8_t*)value.data(),value.size());
@@ -160,35 +157,32 @@ void jarvisBleSetEventHandler(JarvisBleEventHandler handler){
 }
 
 void jarvisBleBegin(){
-  BLEDevice::init(DEVICE_NAME);
-  BLEDevice::setMTU(185);
+  NimBLEDevice::init(DEVICE_NAME);
+  NimBLEDevice::setMTU(185);
 
-  bleServer=BLEDevice::createServer();
+  bleServer=NimBLEDevice::createServer();
   bleServer->setCallbacks(new JarvisServerCallbacks());
 
-  BLEService *service=bleServer->createService(SERVICE_UUID);
+  NimBLEService *service=bleServer->createService(SERVICE_UUID);
 
-  BLECharacteristic *control=service->createCharacteristic(
+  NimBLECharacteristic *control=service->createCharacteristic(
     CONTROL_UUID,
-    BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR
+    NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR
   );
   control->setCallbacks(new JarvisControlCallbacks());
 
   eventCharacteristic=service->createCharacteristic(
     EVENT_UUID,
-    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+    NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
   );
-  eventCharacteristic->addDescriptor(new BLE2902());
   eventCharacteristic->setValue("{\"type\":\"boot\",\"protocol\":\"2.1\"}\n");
 
   service->start();
 
-  BLEAdvertising *advertising=BLEDevice::getAdvertising();
+  NimBLEAdvertising *advertising=NimBLEDevice::getAdvertising();
   advertising->addServiceUUID(SERVICE_UUID);
   advertising->setScanResponse(true);
-  advertising->setMinPreferred(0x06);
-  advertising->setMinPreferred(0x12);
-  BLEDevice::startAdvertising();
+  advertising->start();
 }
 
 bool jarvisBleIsConnected(){ return bleConnected; }
@@ -308,7 +302,7 @@ static void processIncoming(const String &json){
 void jarvisBleLoop(){
   if(restartAdvertisingRequested){
     restartAdvertisingRequested=false;
-    BLEDevice::startAdvertising();
+    NimBLEDevice::startAdvertising();
   }
 
   String json;
