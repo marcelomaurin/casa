@@ -10,6 +10,8 @@ static String casaToken;
 static String casaDeviceId;
 static int preferredSlot = -1;
 static unsigned long lastRetry = 0;
+static bool reconnectInProgress = false;
+static const unsigned long WIFI_RETRY_INTERVAL_MS = 10000UL;
 static bool scanRunning = false;
 static bool casaOnline = false;
 static bool casaChecked = false;
@@ -27,14 +29,21 @@ static bool isKnownSsid(const String &ssid){
 
 void jarvisWifiBegin(){
   wifiPrefs.begin("jarviswifi", false);
-  casaBase = wifiPrefs.getString("base", "https://maurinsoft.com.br/casa");
+  casaBase = wifiPrefs.getString("base", "https://casa.maurinsoft.com.br");
+  if(casaBase == "https://maurinsoft.com.br/casa"){
+    casaBase = "https://casa.maurinsoft.com.br";
+    wifiPrefs.putString("base", casaBase);
+  }
   casaToken = wifiPrefs.getString("token", "");
   casaDeviceId = wifiPrefs.getString("deviceid", "");
   preferredSlot = wifiPrefs.getInt("lastslot", -1);
   if(preferredSlot < 0 || preferredSlot > 4) preferredSlot = -1;
   WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);
   WiFi.setAutoReconnect(true);
   WiFi.persistent(false);
+  lastRetry = 0;
+  reconnectInProgress = false;
 }
 
 static bool checkCasaReachability(){
@@ -63,10 +72,21 @@ void jarvisWifiLoop(){
     casaOnline=false;
     casaChecked=false;
     casaCheckRequested=true;
-    if(millis()-lastRetry < 120000UL || scanRunning) return;
-    lastRetry = millis();
+
+    if(scanRunning) return;
+
+    // WiFi.setAutoReconnect() nao e suficiente apos deep sleep/WIFI_OFF.
+    // Se a associacao cair, reinicia explicitamente o ultimo perfil conhecido.
+    unsigned long now = millis();
+    if(lastRetry == 0 || now-lastRetry >= WIFI_RETRY_INTERVAL_MS){
+      lastRetry = now;
+      reconnectInProgress = jarvisWifiStartPreferred();
+    }
     return;
   }
+
+  reconnectInProgress=false;
+  lastRetry=millis();
 
   if(scanRunning) return;
 
@@ -133,8 +153,30 @@ void jarvisWifiClearProfiles(){
 
 bool jarvisWifiScanStart(){
   if(scanRunning) return true;
+
+  // Depois de deep sleep o radio pode estar em WIFI_OFF. Reativa e estabiliza
+  // a interface antes de iniciar o scan assincrono.
+  if(WiFi.getMode() == WIFI_OFF){
+    WiFi.mode(WIFI_STA);
+    delay(30);
+  }else if(WiFi.getMode() != WIFI_STA){
+    WiFi.mode(WIFI_STA);
+    delay(20);
+  }
+
   WiFi.scanDelete();
+
   int rc = WiFi.scanNetworks(true, true);
+  if(rc == WIFI_SCAN_FAILED){
+    // Uma segunda inicializacao curta recupera estados residuais do driver
+    // observados apos wake/deep sleep.
+    WiFi.mode(WIFI_OFF);
+    delay(20);
+    WiFi.mode(WIFI_STA);
+    delay(50);
+    rc = WiFi.scanNetworks(true, true);
+  }
+
   if(rc == WIFI_SCAN_FAILED) return false;
   scanRunning = true;
   return true;
@@ -191,11 +233,23 @@ bool jarvisWifiStartProfile(uint8_t slot){
   String ssid, pass;
   if(!jarvisWifiGetProfile(slot, ssid, pass)) return false;
   if(WiFi.status()==WL_CONNECTED && WiFi.SSID()==ssid) return true;
+
   casaOnline=false;
   casaChecked=false;
   casaCheckRequested=true;
+
+  if(WiFi.getMode() == WIFI_OFF){
+    WiFi.mode(WIFI_STA);
+    delay(30);
+  }else if(WiFi.getMode() != WIFI_STA){
+    WiFi.mode(WIFI_STA);
+    delay(20);
+  }
+
   WiFi.disconnect(false, false);
+  delay(10);
   WiFi.begin(ssid.c_str(), pass.c_str());
+  reconnectInProgress=true;
   return true;
 }
 
@@ -258,6 +312,7 @@ bool jarvisWifiConnectPreferred(uint32_t timeoutMs){
 
 void jarvisWifiPrepareSleep(){
   scanRunning=false;
+  reconnectInProgress=false;
   WiFi.scanDelete();
   WiFi.disconnect(false, false);
   delay(10);
@@ -265,6 +320,7 @@ void jarvisWifiPrepareSleep(){
   casaOnline=false;
   casaChecked=false;
   casaCheckRequested=true;
+  lastRetry=0;
 }
 
 bool jarvisWifiGetJson(const String &path, String *response){
