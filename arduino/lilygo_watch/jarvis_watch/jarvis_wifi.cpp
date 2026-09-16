@@ -123,12 +123,13 @@ bool jarvisWifiSetProfile(uint8_t slot, const String &ssid, const String &passwo
   if(password.length()>0 && password.length()<8) return false;
   wifiPrefs.putString(keySsid(slot).c_str(), ssid);
   wifiPrefs.putString(keyPass(slot).c_str(), password);
-  // Tenta associar sem bloquear a interface. O estado é acompanhado no loop/UI.
+
+  // Provisionamento BLE pode enviar varios perfis em sequencia. Aqui apenas
+  // persistimos as credenciais; a associacao e iniciada explicitamente por
+  // jarvisWifiStartProfile()/wifi_connect depois que o lote terminar.
   casaOnline=false;
   casaChecked=false;
   casaCheckRequested=true;
-  WiFi.disconnect(false, false);
-  WiFi.begin(ssid.c_str(), password.c_str());
   return true;
 }
 
