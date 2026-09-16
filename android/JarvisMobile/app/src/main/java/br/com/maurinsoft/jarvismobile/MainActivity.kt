@@ -58,7 +58,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        requestPermissionsIfNeeded()
         setupSpeechRecognizer()
         setContent { JarvisApp() }
     }
@@ -126,16 +125,6 @@ class MainActivity : ComponentActivity() {
         )
         val table = when (lang) { "en-US" -> en; "es-ES" -> es; else -> pt }
         return table[key] ?: pt[key] ?: key
-    }
-
-    private fun requestPermissionsIfNeeded() {
-        val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
-        if (Build.VERSION.SDK_INT >= 33) permissions += Manifest.permission.POST_NOTIFICATIONS
-        if (Build.VERSION.SDK_INT >= 31) {
-            permissions += Manifest.permission.BLUETOOTH_CONNECT
-            permissions += Manifest.permission.BLUETOOTH_SCAN
-        }
-        permissionLauncher.launch(permissions.toTypedArray())
     }
 
     private fun startJarvisService() {
@@ -486,7 +475,33 @@ class MainActivity : ComponentActivity() {
         Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(tr("voice"), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text(if (online) tr("connected_jarvis") else tr("offline_voice"))
             ElevatedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Text(tr("you"), fontWeight = FontWeight.Bold); Text(if (heard.isBlank()) tr("none") else heard); HorizontalDivider(); Text("JARVIS", fontWeight = FontWeight.Bold); Text(answer) } }
-            Button(onClick = { listening = true; answer = tr("listening"); listen { text -> listening = false; if (text.isBlank()) answer = tr("not_recognized") else { heard = text; submit(text) } } }, enabled = !busy && !listening, modifier = Modifier.fillMaxWidth().height(64.dp)) { Text(if (listening) tr("listening") else if (busy) tr("processing") else tr("speak")) }
+            Button(
+                onClick = {
+                    if (ContextCompat.checkSelfPermission(
+                            this@MainActivity,
+                            Manifest.permission.RECORD_AUDIO
+                        ) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        answer = "O microfone é necessário somente para usar o comando por voz. Autorize e toque novamente em FALAR."
+                        permissionLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
+                    } else {
+                        listening = true
+                        answer = tr("listening")
+                        listen { text ->
+                            listening = false
+                            if (text.isBlank()) answer = tr("not_recognized")
+                            else {
+                                heard = text
+                                submit(text)
+                            }
+                        }
+                    }
+                },
+                enabled = !busy && !listening,
+                modifier = Modifier.fillMaxWidth().height(64.dp)
+            ) {
+                Text(if (listening) tr("listening") else if (busy) tr("processing") else tr("speak"))
+            }
         }
     }
 
