@@ -5,14 +5,11 @@
 
 #define JARVIS_WATCH_NAME       "JARVIS Watch"
 #define JARVIS_PHONE_NAME       "JARVIS-PHONE"
-#define JARVIS_PROTOCOL_VERSION "2.0"
+#define JARVIS_PROTOCOL_VERSION "TCP-1.0"
 
-// UUIDs reservados para a ponte Android.
-// Watch = periférico/GATT server; Android = central/GATT client.
-// A implementação BLE permanece isolada para não acoplar a UI a uma biblioteca externa.
-#define JARVIS_BLE_SERVICE_UUID "7a9f1000-3a8c-4b62-9e5f-1b0c0e91a001"
-#define JARVIS_BLE_RX_UUID      "7a9f1001-3a8c-4b62-9e5f-1b0c0e91a001"
-#define JARVIS_BLE_TX_UUID      "7a9f1002-3a8c-4b62-9e5f-1b0c0e91a001"
+// Transporte local de provisionamento: Wi-Fi SoftAP + TCP simples.
+#define JARVIS_WATCH_AP_SSID    "JARVIS-WATCH"
+#define JARVIS_WATCH_TCP_PORT   4040
 #define JARVIS_RECONNECT_MS     5000
 #define JARVIS_REQUEST_TIMEOUT  15000
 
