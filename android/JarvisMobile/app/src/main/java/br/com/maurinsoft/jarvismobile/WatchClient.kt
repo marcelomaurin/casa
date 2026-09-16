@@ -86,6 +86,7 @@ class WatchClient(private val context: Context) {
     @Volatile private var readerThread: Thread? = null
     @Volatile private var watchNetwork: Network? = null
     @Volatile private var requestingNetwork = false
+    @Volatile private var connectingHost: String? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private val ioLock = Any()
 
@@ -200,6 +201,13 @@ class WatchClient(private val context: Context) {
     }
 
     private fun connectHost(host: String, network: Network?) {
+        val existing = socket
+        if (existing != null && existing.isConnected && !existing.isClosed) return
+        synchronized(ioLock) {
+            if (connectingHost != null) return
+            connectingHost = host
+        }
+
         Thread {
             try {
                 closeSocketInternal()
@@ -216,6 +224,7 @@ class WatchClient(private val context: Context) {
                 synchronized(ioLock) {
                     socket = s
                     writer = w
+                    connectingHost = null
                 }
 
                 markConnected()
@@ -226,6 +235,7 @@ class WatchClient(private val context: Context) {
                     .put("client", "JARVIS Mobile"))
                 requestStatus()
             } catch (t: Throwable) {
+                connectingHost = null
                 closeSocket(false)
                 listeners.forEach {
                     it.onError("Falha ao conectar ao Watch em $host:$WATCH_PORT: ${t.message}")
@@ -305,6 +315,7 @@ class WatchClient(private val context: Context) {
             runCatching { socket?.close() }
             writer = null
             socket = null
+            connectingHost = null
         }
     }
 
