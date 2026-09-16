@@ -15,6 +15,7 @@ static BLEServer *bleServer = nullptr;
 static BLECharacteristic *eventCharacteristic = nullptr;
 static volatile bool bleConnected = false;
 static volatile bool phoneInternet = false;
+static volatile bool restartAdvertisingRequested = false;
 static JarvisBleEventHandler eventHandler = nullptr;
 
 static const uint8_t RX_QUEUE_SIZE = 8;
@@ -140,8 +141,9 @@ class JarvisServerCallbacks: public BLEServerCallbacks{
     (void)server;
     bleConnected=false;
     phoneInternet=false;
-    delay(20);
-    BLEDevice::startAdvertising();
+    // Nao reinicia advertising dentro do callback da pilha BT.
+    // Apenas sinaliza para o loop principal, evitando reentrancia.
+    restartAdvertisingRequested=true;
   }
 };
 
@@ -304,6 +306,11 @@ static void processIncoming(const String &json){
 }
 
 void jarvisBleLoop(){
+  if(restartAdvertisingRequested){
+    restartAdvertisingRequested=false;
+    BLEDevice::startAdvertising();
+  }
+
   String json;
   for(uint8_t i=0;i<2&&popIncoming(json);i++) processIncoming(json);
 }
