@@ -124,7 +124,7 @@ class WatchClient(private val context: Context) {
             override fun onLost(network: Network) {
                 if (watchNetwork == network) {
                     watchNetwork = null
-                    closeSocket(false)
+                    closeSocket(true)
                 }
             }
 
@@ -212,13 +212,16 @@ class WatchClient(private val context: Context) {
                     if (line.isBlank()) continue
                     val json = runCatching { JSONObject(line) }
                         .getOrElse { JSONObject().put("type", "text").put("text", line) }
-                    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                        .edit().putLong(KEY_LAST_SEEN, System.currentTimeMillis()).apply()
+                    val hardwareId = json.optString("hardware_id").trim()
+                    val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                        .putLong(KEY_LAST_SEEN, System.currentTimeMillis())
+                    if (hardwareId.isNotBlank()) prefs.putString(KEY_ADDRESS, hardwareId)
+                    prefs.apply()
                     listeners.forEach { it.onWatchMessage(json) }
                 }
             } catch (_: Throwable) {
             } finally {
-                if (socket === s) closeSocket(false)
+                if (socket === s) closeSocket(true)
             }
         }.apply {
             name = "JarvisWatchTcpReader"
