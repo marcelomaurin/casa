@@ -39,6 +39,8 @@ class WatchClient(private val context: Context) {
         private const val KEY_NAME = "watch_name"
         private const val KEY_CONNECTED = "connected"
         private const val KEY_LAST_SEEN = "last_seen"
+        private const val KEY_LAN_HOST = "lan_host"
+        private const val KEY_DEVICE_ID = "device_id"
 
         fun savedAddress(context: Context): String =
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -57,6 +59,14 @@ class WatchClient(private val context: Context) {
         fun lastSeen(context: Context): Long =
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .getLong(KEY_LAST_SEEN, 0L)
+
+        fun savedLanHost(context: Context): String =
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString(KEY_LAN_HOST, "") ?: ""
+
+        fun savedDeviceId(context: Context): String =
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString(KEY_DEVICE_ID, "") ?: ""
     }
 
     data class FoundWatch(val name: String, val address: String, val rssi: Int)
@@ -168,7 +178,28 @@ class WatchClient(private val context: Context) {
         return true
     }
 
+    fun connectLanSaved(): Boolean {
+        val host = savedLanHost(context)
+        if (host.isBlank()) return false
+        connectLan(host)
+        return true
+    }
+
+    fun connectLan(host: String) {
+        if (host.isBlank()) return
+        connectHost(host, null)
+    }
+
+    fun isSocketConnected(): Boolean {
+        val s = socket
+        return s != null && s.isConnected && !s.isClosed
+    }
+
     private fun connectSocket(network: Network?) {
+        connectHost(WATCH_HOST, network)
+    }
+
+    private fun connectHost(host: String, network: Network?) {
         Thread {
             try {
                 closeSocketInternal()
@@ -177,7 +208,7 @@ class WatchClient(private val context: Context) {
                 } else {
                     Socket()
                 }
-                s.connect(InetSocketAddress(WATCH_HOST, WATCH_PORT), 5000)
+                s.connect(InetSocketAddress(host, WATCH_PORT), 5000)
                 s.tcpNoDelay = true
                 s.keepAlive = true
 
@@ -197,7 +228,7 @@ class WatchClient(private val context: Context) {
             } catch (t: Throwable) {
                 closeSocket(false)
                 listeners.forEach {
-                    it.onError("Falha ao conectar ao Watch em $WATCH_HOST:$WATCH_PORT: ${t.message}")
+                    it.onError("Falha ao conectar ao Watch em $host:$WATCH_PORT: ${t.message}")
                 }
             }
         }.start()
@@ -213,9 +244,13 @@ class WatchClient(private val context: Context) {
                     val json = runCatching { JSONObject(line) }
                         .getOrElse { JSONObject().put("type", "text").put("text", line) }
                     val hardwareId = json.optString("hardware_id").trim()
+                    val staIp = json.optString("sta_ip").trim()
+                    val deviceId = json.optString("device_id").trim()
                     val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
                         .putLong(KEY_LAST_SEEN, System.currentTimeMillis())
                     if (hardwareId.isNotBlank()) prefs.putString(KEY_ADDRESS, hardwareId)
+                    if (staIp.isNotBlank() && staIp != "0.0.0.0") prefs.putString(KEY_LAN_HOST, staIp)
+                    if (deviceId.isNotBlank()) prefs.putString(KEY_DEVICE_ID, deviceId)
                     prefs.apply()
                     listeners.forEach { it.onWatchMessage(json) }
                 }
