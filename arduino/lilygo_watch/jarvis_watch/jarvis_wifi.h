@@ -30,7 +30,7 @@ String jarvisWifiDeviceId();
 bool jarvisWifiHasCasaCredentials();
 
 // Estado da conexao HTTP/HTTPS com o servidor CASA configurado.
-// Por padrao: https://maurinsoft.com.br/casa
+// Por padrao: https://casa.maurinsoft.com.br
 bool jarvisWifiCasaOnline();
 bool jarvisWifiCasaChecked();
 void jarvisWifiRequestCasaCheck();
