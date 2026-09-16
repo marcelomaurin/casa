@@ -60,7 +60,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         requestPermissionsIfNeeded()
         setupSpeechRecognizer()
-        runCatching { startJarvisService() }
         setContent { JarvisApp() }
     }
 
@@ -213,6 +212,12 @@ class MainActivity : ComponentActivity() {
             splash = false
         }
 
+        LaunchedEffect(session) {
+            if (session != null) {
+                runCatching { startJarvisService() }
+            }
+        }
+
         LaunchedEffect(splash, session) {
             if (!splash && session != null) while (true) {
                 configured = JarvisApi.isConfigured(this@MainActivity)
@@ -234,8 +239,10 @@ class MainActivity : ComponentActivity() {
                     pending = pending,
                     session = session!!,
                     onLogout = {
-                        val current = session
                         session = null
+                        runCatching {
+                            stopService(Intent(this@MainActivity, JarvisConnectionService::class.java))
+                        }
                         Thread {
                             runCatching { MobileAuth.logout(this@MainActivity) }
                         }.start()
