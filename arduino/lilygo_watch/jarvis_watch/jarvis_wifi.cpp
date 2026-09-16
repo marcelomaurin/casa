@@ -157,13 +157,16 @@ bool jarvisWifiScanStart(){
 
   // Depois de deep sleep o radio pode estar em WIFI_OFF. Reativa e estabiliza
   // a interface antes de iniciar o scan assincrono.
-  if(WiFi.getMode() == WIFI_OFF){
+  wifi_mode_t mode = WiFi.getMode();
+  if(mode == WIFI_OFF){
     WiFi.mode(WIFI_STA);
     delay(30);
-  }else if(WiFi.getMode() != WIFI_STA){
-    WiFi.mode(WIFI_STA);
+  }else if(mode == WIFI_AP){
+    // Preserva o AP de provisionamento e adiciona a interface STA.
+    WiFi.mode(WIFI_AP_STA);
     delay(20);
   }
+  // WIFI_AP_STA permanece ativo para nao derrubar o socket do celular.
 
   WiFi.scanDelete();
 
@@ -239,13 +242,15 @@ bool jarvisWifiStartProfile(uint8_t slot){
   casaChecked=false;
   casaCheckRequested=true;
 
-  if(WiFi.getMode() == WIFI_OFF){
+  wifi_mode_t mode = WiFi.getMode();
+  if(mode == WIFI_OFF){
     WiFi.mode(WIFI_STA);
     delay(30);
-  }else if(WiFi.getMode() != WIFI_STA){
-    WiFi.mode(WIFI_STA);
+  }else if(mode == WIFI_AP){
+    WiFi.mode(WIFI_AP_STA);
     delay(20);
   }
+  // Se ja estiver em WIFI_AP_STA, mantem o SoftAP durante a associacao.
 
   WiFi.disconnect(false, false);
   delay(10);
