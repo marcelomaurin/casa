@@ -159,6 +159,7 @@ static void processIncoming(const String &json){
     out+=jarvisWifiIsConnected()?"true":"false";
     String deviceId=jarvisWifiDeviceId();
     if(!deviceId.isEmpty()) out+=",\"device_id\":\""+jsonEscape(deviceId)+"\"";
+    if(jarvisWifiIsConnected()) out+=",\"sta_ip\":\""+WiFi.localIP().toString()+"\"";
     out+="}";
     jarvisBleSendJson(out);
     return;
@@ -221,6 +222,7 @@ static void processIncoming(const String &json){
     out+=jarvisWifiHasCasaCredentials()?"true":"false";
     String deviceId=jarvisWifiDeviceId();
     if(!deviceId.isEmpty()) out+=",\"device_id\":\""+jsonEscape(deviceId)+"\"";
+    if(jarvisWifiIsConnected()) out+=",\"sta_ip\":\""+WiFi.localIP().toString()+"\"";
     out+="}";
     jarvisBleSendJson(out);
     return;
