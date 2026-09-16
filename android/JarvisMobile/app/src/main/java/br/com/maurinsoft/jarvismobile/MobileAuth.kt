@@ -38,12 +38,9 @@ object MobileAuth {
         val token = p.getString(KEY_TOKEN, "").orEmpty()
         if (token.isBlank()) return null
         val expires = p.getString(KEY_EXPIRES, "").orEmpty()
-        if (expires.isNotBlank()) {
-            val valid = runCatching {
-                OffsetDateTime.parse(expires).toInstant().toEpochMilli() > System.currentTimeMillis()
-            }.getOrDefault(false)
-            if (!valid) { clear(context); return null }
-        }
+        // A expiracao do token do servidor nao bloqueia a interface local.
+        // O usuario continua autenticado no aparelho e a sessao online
+        // sera renovada no proximo login quando necessario.
         return Session(
             token = token,
             name = p.getString(KEY_NAME, "").orEmpty(),
@@ -96,9 +93,9 @@ object MobileAuth {
             .build()
         return runCatching {
             client.newCall(req).execute().use { response ->
-                if (!response.isSuccessful) { clear(context); return@use null }
+                if (!response.isSuccessful) return@use null
                 val json = JSONObject(response.body?.string().orEmpty())
-                if (json.optString("status") != "ok") { clear(context); return@use null }
+                if (json.optString("status") != "ok") return@use null
                 val user = json.optJSONObject("user") ?: JSONObject()
                 val refreshed = current.copy(
                     name = user.optString("nome", current.name),
