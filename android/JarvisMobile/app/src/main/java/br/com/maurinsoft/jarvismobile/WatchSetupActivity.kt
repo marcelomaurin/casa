@@ -19,6 +19,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -459,6 +460,13 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
                                 "$wifiQueued perfil(is) Wi-Fi" +
                                 (preferred?.let { " • conexão solicitada em ${it.ssid}" } ?: "") +
                                 ". Aguardando confirmação do Watch."
+
+                            // A associacao Wi-Fi do ESP32 e assincrona. Uma segunda
+                            // leitura alguns segundos depois confirma o resultado real.
+                            if (connectQueued) {
+                                delay(5_000)
+                                watchClient.requestStatus()
+                            }
                         } catch (t: Throwable) {
                             statusState =
                                 "Falha no cadastro do Watch: ${t.message ?: t.javaClass.simpleName}"
