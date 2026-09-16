@@ -63,7 +63,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 login_log('USUARIO_NAO_ENCONTRADO', 'usuario=' . strtolower($usuario));
             } else {
                 login_log('USUARIO_ENCONTRADO', 'id=' . ($user['id'] ?? '?') . '; login=' . ($user['login'] ?? '?') . '; ativo=' . ($user['ativo'] ?? '?') . '; perfil=' . ($user['perfil'] ?? '?'));
-                if (hash_equals((string)$user['senha'], $senha)) {
+                $hashBanco = (string)$user['senha'];
+                $infoSenha = password_get_info($hashBanco);
+                $senhaValida = (($infoSenha['algo'] ?? 0) !== 0)
+                    ? password_verify($senha, $hashBanco)
+                    : hash_equals($hashBanco, $senha);
+
+                if ($senhaValida) {
                     $autenticado = true;
                     login_log('SENHA_OK', 'usuario=' . ($user['login'] ?? strtolower($usuario)));
                 } else {
