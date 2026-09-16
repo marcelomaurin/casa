@@ -1,5 +1,5 @@
 name: Build Jarvis Mobile APK
-# build-trigger: 2.6.2
+# build-trigger: 2.6.3
 
 on:
   push:
