@@ -7,7 +7,6 @@ import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -430,9 +429,6 @@ class MainActivity : ComponentActivity() {
                     LcarsMenuButton("CONFIGURAR WATCH", "Wi-Fi, identidade e provisionamento", LcarsColors.Salmon) {
                         startActivity(Intent(this@MainActivity, WatchSetupActivity::class.java))
                     }
-                    LcarsMenuButton("NOTIFICAÇÕES", "Permitir e encaminhar notificações", LcarsColors.Lavender) {
-                        startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-                    }
                 }
 
                 Route.DEVICES_MENU -> {
@@ -605,22 +601,7 @@ class MainActivity : ComponentActivity() {
                     Text("Câmera", fontWeight = FontWeight.Bold)
                     Text("O Watch pode solicitar uma foto pelo celular.")
                     Text("Notificações", fontWeight = FontWeight.Bold)
-                    var forwardNotifications by remember {
-                        mutableStateOf(WatchNotificationListener.isEnabled(this@MainActivity))
-                    }
-                    val notificationAccess = WatchNotificationListener.hasSystemAccess(this@MainActivity)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Switch(
-                            checked = forwardNotifications,
-                            onCheckedChange = {
-                                forwardNotifications = it
-                                WatchNotificationListener.setEnabled(this@MainActivity, it)
-                            },
-                            enabled = notificationAccess
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(if (forwardNotifications) "Encaminhamento ativado" else "Encaminhamento desativado")
-                    }
+                    Text("Somente alertas gerados pelo próprio JARVIS/CASA. O app não lê notificações de outros aplicativos.")
                     Text("Voz / JARVIS", fontWeight = FontWeight.Bold)
                     Text("Comandos do Watch podem ser processados pelo celular e devolvidos por TCP/CASA.")
                 }
@@ -631,10 +612,6 @@ class MainActivity : ComponentActivity() {
                 modifier = Modifier.fillMaxWidth()
             ) { Text("CONFIGURAR WATCH") }
 
-            OutlinedButton(
-                onClick = { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("PERMISSÕES DE NOTIFICAÇÃO") }
         }
     }
 
