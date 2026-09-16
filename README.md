@@ -2,13 +2,13 @@
 
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Android%20%7C%20ESP32%20%7C%20ESP8266-blue.svg)]()
 [![Backend](https://img.shields.io/badge/backend-PHP%20%7C%20Python-orange.svg)]()
-[![Database](https://img.shields.io/badge/database-PostgreSQL-blue.svg)]()
+[![Database](https://img.shields.io/badge/database-MySQL%2FMariaDB%20%7C%20PostgreSQL-blue.svg)]()
 [![Mobile](https://img.shields.io/badge/mobile-Android%20Kotlin-green.svg)]()
 [![Status](https://img.shields.io/badge/status-Experimental-yellow.svg)]()
 
 ## Visão geral
 
-**CASA / JARVIS** é uma plataforma residencial experimental de automação, inteligência artificial e IoT. O projeto integra servidor Linux, APIs PHP, serviços Python, PostgreSQL, aplicativo Android, ESP32/ESP8266, câmeras, voz, sensores e agentes de IA em uma arquitetura única.
+**CASA / JARVIS** é uma plataforma residencial experimental de automação, inteligência artificial e IoT. O projeto integra servidor Linux, APIs PHP, serviços Python, MySQL/MariaDB no Control Plane, PostgreSQL em serviços especializados, aplicativo Android, ESP32/ESP8266, câmeras, voz, sensores e agentes de IA em uma arquitetura única.
 
 O objetivo é permitir que o JARVIS receba comandos em linguagem natural, consulte informações da residência, converse por voz, controle dispositivos, receba eventos de sensores e câmeras e execute tarefas imediatas ou planejadas.
 
@@ -21,7 +21,7 @@ O objetivo é permitir que o JARVIS receba comandos em linguagem natural, consul
 |---|---|---|
 | API JARVIS | PHP + API REST | Em desenvolvimento |
 | API externa | `/api/v1` com autenticação e escopos | Em desenvolvimento |
-| Banco | PostgreSQL | Ativo |
+| Banco central | MySQL/MariaDB | Ativo |
 | IA | Modelos locais e serviços configuráveis | Em desenvolvimento |
 | Planejador | Divisão de demandas em múltiplas tarefas | Experimental |
 | Web Agent | Pesquisa e coleta de conteúdo web | Experimental |
@@ -29,8 +29,8 @@ O objetivo é permitir que o JARVIS receba comandos em linguagem natural, consul
 | Android | Kotlin / Jetpack Compose | Experimental |
 | ESP32-CAM | Captura e envio de imagens | Experimental |
 | ESP8266/ESP-01 | Sensores ambientais | Experimental |
-| LILYGO Watch | Backend/API preparado | Firmware pendente |
-| BLE | Ponte Android ↔ relógio | Experimental |
+| LILYGO Watch | Firmware + API + Wi-Fi/HTTPS | Experimental |
+| BLE | Provisionamento e integrações locais | Experimental |
 
 ## Arquitetura
 
@@ -79,7 +79,7 @@ O objetivo é permitir que o JARVIS receba comandos em linguagem natural, consul
 | `apis/` | Integrações e recursos relacionados a APIs |
 | `arduino/` | Firmwares ESP32, ESP8266 e outros microcontroladores |
 | `bin/` | Binários gerados e artefatos distribuíveis |
-| `database/` | Estrutura e migrations PostgreSQL |
+| `database/` | Migrations e estruturas de dados (inclui componentes PostgreSQL e API v1) |
 | `docs/` | Documentação técnica e instalação |
 | `mysql/` | Estruturas legadas/auxiliares MySQL |
 | `nextion/` | Interfaces e recursos Nextion |
@@ -91,19 +91,21 @@ O objetivo é permitir que o JARVIS receba comandos em linguagem natural, consul
 
 ### JARVIS
 
-O JARVIS é o núcleo lógico do projeto. Recebe solicitações, utiliza IA local ou configurada, integra serviços internos e pode encaminhar demandas para planejamento, pesquisa ou automação.
+O JARVIS é o núcleo lógico do projeto. Recebe solicitações, interpreta linguagem natural e encaminha demandas para planejamento, pesquisa ou automação. A execução física deve passar pelo Device Registry e pelo Command Bus, evitando que a IA acesse drivers de hardware diretamente.
 
 ### Planejador
 
 O planejador permite decompor uma demanda em múltiplas tarefas. Uma tarefa pode ser imediata, agendada ou condicional, podendo possuir dependências e estado de execução.
 
-### API externa
+### API externa e Command Bus
 
-O acesso externo deve ocorrer por HTTPS através da API versionada:
+O ponto lógico oficial é:
 
 ```text
-https://<HOST_PUBLICO>/api/v1
+https://casa.maurinsoft.com.br/api/v1
 ```
+
+O Control Plane usa `device_commands` e `device_events` como barramento comum. Mobile, TV, Watch, ESP32, Raspberry e nós de IA devem convergir para essa API em vez de criar canais paralelos.
 
 A API utiliza autenticação e foi estruturada para suportar tokens individuais, escopos, rate limiting, limites de payload e registros de segurança.
 
@@ -127,7 +129,8 @@ Principais objetivos:
 - fila local de comandos durante indisponibilidade;
 - reconexão automática;
 - notificações do JARVIS;
-- ponte BLE com dispositivos vestíveis.
+- provisionamento BLE de dispositivos vestíveis;
+- uso da API v1 e do Command Bus como canal principal de integração.
 
 APK de desenvolvimento versionado:
 
@@ -200,13 +203,17 @@ Use placeholders nos exemplos e forneça os valores reais apenas no ambiente de 
 
 ## Banco de dados
 
-O projeto utiliza PostgreSQL como banco principal das funcionalidades atuais. As migrations ficam em:
+O **Control Plane público atual usa MySQL/MariaDB**, incluindo identidade de devices, `device_commands`, `device_events`, telemetria, segurança e filas da API v1. PostgreSQL continua podendo ser usado por serviços especializados, IA, RAG e instalações locais que já dependem dele.
+
+As estruturas e migrations ficam principalmente em:
 
 ```text
 database/
+mysql/
+site/var/www/html/api/schema_mysql.sql
 ```
 
-Entre as estruturas adicionadas ao projeto estão dados de sensores, eventos de câmera, notificações de dispositivos móveis, planejamento de tarefas, pesquisas de agentes e segurança da API.
+Antes de aplicar migrations, confirme qual banco pertence ao componente que está sendo instalado.
 
 Antes de aplicar migrations em uma instalação existente, faça backup e verifique quais alterações já foram aplicadas.
 
@@ -241,7 +248,7 @@ O `versionCode` deve sempre crescer a cada versão distribuída.
 ## Limitações atuais
 
 - diversas integrações ainda dependem de validação no hardware real;
-- o firmware completo do relógio ainda não está concluído;
+- firmware e fluxos do relógio continuam experimentais e exigem validação de consumo, wake e conectividade;
 - agentes e planejamento continuam experimentais;
 - builds Android debug não substituem uma distribuição oficial assinada com keystore permanente;
 - disponibilidade do JARVIS depende dos serviços configurados no servidor;
