@@ -23,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
@@ -37,7 +38,19 @@ class MainActivity : ComponentActivity() {
     private var onSpeechResult: ((String) -> Unit)? = null
     private val http = OkHttpClient()
 
-    private enum class Screen { OPERATIONS, VOICE, WATCH, DEVICES, CONFIG }
+    private enum class Route {
+        HOME,
+        CASA_MENU,
+        JARVIS_MENU,
+        WATCH_MENU,
+        DEVICES_MENU,
+        SYSTEM_MENU,
+        OPERATIONS,
+        VOICE,
+        WATCH_STATUS,
+        DEVICES_LIST,
+        CONFIG
+    }
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -187,19 +200,49 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun JarvisApp() {
         var splash by remember { mutableStateOf(true) }
+        var session by remember { mutableStateOf(MobileAuth.savedSession(this)) }
         var online by remember { mutableStateOf(false) }
         var configured by remember { mutableStateOf(JarvisApi.isConfigured(this)) }
         var pending by remember { mutableIntStateOf(JarvisApi.pendingCount(this)) }
-        LaunchedEffect(Unit) { delay(1000); splash = false }
-        LaunchedEffect(splash) {
-            if (!splash) while (true) {
+
+        LaunchedEffect(Unit) {
+            delay(700)
+            session = withContext(Dispatchers.IO) {
+                MobileAuth.validate(this@MainActivity) ?: MobileAuth.savedSession(this@MainActivity)
+            }
+            splash = false
+        }
+
+        LaunchedEffect(splash, session) {
+            if (!splash && session != null) while (true) {
                 configured = JarvisApi.isConfigured(this@MainActivity)
-                online = if (configured) withContext(Dispatchers.IO) { JarvisApi.isOnline(this@MainActivity) } else false
+                online = if (configured) withContext(Dispatchers.IO) {
+                    JarvisApi.isOnline(this@MainActivity)
+                } else false
                 pending = JarvisApi.pendingCount(this@MainActivity)
                 delay(if (online) 10_000 else 5_000)
             }
         }
-        MaterialTheme { if (splash) SplashScreen() else MainShell(online, configured, pending) }
+
+        MaterialTheme {
+            when {
+                splash -> SplashScreen()
+                session == null -> LoginScreen { session = it }
+                else -> MainShell(
+                    online = online,
+                    configured = configured,
+                    pending = pending,
+                    session = session!!,
+                    onLogout = {
+                        val current = session
+                        session = null
+                        Thread {
+                            runCatching { MobileAuth.logout(this@MainActivity) }
+                        }.start()
+                    }
+                )
+            }
+        }
     }
 
     @Composable
@@ -213,42 +256,193 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    @OptIn(ExperimentalMaterial3Api::class)
     @Composable
-    private fun MainShell(online: Boolean, configured: Boolean, pending: Int) {
-        var screen by remember { mutableStateOf(Screen.OPERATIONS) }
-        Scaffold(topBar = {
-            TopAppBar(title = { Column { Text("JARVIS Mobile", fontWeight = FontWeight.Bold); Text(if (!configured) tr("not_configured") else if (online) tr("online") else tr("offline_reconnecting"), style = MaterialTheme.typography.bodySmall) } },
-                actions = { if (pending > 0) { AssistChip(onClick = {}, label = { Text("${tr("queue")}: $pending") }); Spacer(Modifier.width(8.dp)) } })
-        }, bottomBar = {
-            NavigationBar {
-                listOf(Screen.OPERATIONS, Screen.VOICE, Screen.WATCH, Screen.DEVICES, Screen.CONFIG).forEach { item ->
-                    val label = when(item) {
-                        Screen.OPERATIONS -> tr("operations")
-                        Screen.VOICE -> tr("voice")
-                        Screen.WATCH -> tr("watch")
-                        Screen.DEVICES -> tr("devices")
-                        Screen.CONFIG -> tr("config")
+    private fun LoginScreen(onLoggedIn: (MobileAuth.Session) -> Unit) {
+        val scope = rememberCoroutineScope()
+        val cfg = remember { JarvisApi.loadConfig(this) }
+        var user by remember { mutableStateOf("") }
+        var password by remember { mutableStateOf("") }
+        var status by remember {
+            mutableStateOf(
+                if (cfg.baseUrl.startsWith("https://")) "Informe suas credenciais."
+                else "Configure a URL HTTPS da CASA antes do primeiro login."
+            )
+        }
+        var busy by remember { mutableStateOf(false) }
+
+        LcarsFrame(
+            title = "Acesso ao sistema",
+            subtitle = "CASA / JARVIS • autenticação do operador",
+            user = "",
+            canBack = false,
+            onBack = {},
+            onHome = {},
+            onLogout = {}
+        ) {
+            LcarsSectionLabel("LOGIN", LcarsColors.Salmon)
+
+            OutlinedTextField(
+                value = user,
+                onValueChange = { user = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Operador / e-mail") },
+                singleLine = true,
+                enabled = !busy
+            )
+
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Senha") },
+                singleLine = true,
+                enabled = !busy,
+                visualTransformation = PasswordVisualTransformation()
+            )
+
+            Button(
+                onClick = {
+                    if (user.isBlank() || password.isBlank()) {
+                        status = "Informe operador e senha."
+                        return@Button
                     }
-                    val icon = when(item) {
-                        Screen.OPERATIONS -> "⌂"
-                        Screen.VOICE -> "●"
-                        Screen.WATCH -> "⌚"
-                        Screen.DEVICES -> "▦"
-                        Screen.CONFIG -> "⚙"
+                    busy = true
+                    status = "Autenticando..."
+                    scope.launch {
+                        val result = withContext(Dispatchers.IO) {
+                            runCatching { MobileAuth.login(this@MainActivity, user, password) }
+                        }
+                        busy = false
+                        result.onSuccess {
+                            password = ""
+                            status = "Acesso autorizado."
+                            onLoggedIn(it)
+                        }.onFailure {
+                            status = it.message ?: "Falha no login."
+                        }
                     }
-                    NavigationBarItem(selected = screen == item, onClick = { screen = item }, icon = { Text(icon) }, label = { Text(label) })
-                }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !busy
+            ) { Text(if (busy) "AUTENTICANDO..." else "AUTORIZAR ACESSO") }
+
+            if (!cfg.baseUrl.startsWith("https://")) {
+                OutlinedButton(
+                    onClick = { startActivity(Intent(this@MainActivity, MainActivity::class.java)) },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("CONFIGURAR CASA") }
             }
-        }) { pad ->
-            Box(Modifier.padding(pad).fillMaxSize()) {
-                when(screen) {
-                    Screen.OPERATIONS -> OperationsScreen(online, pending)
-                    Screen.VOICE -> VoiceScreen(online)
-                    Screen.WATCH -> WatchScreen()
-                    Screen.DEVICES -> DevicesScreen()
-                    Screen.CONFIG -> ConfigScreen()
+
+            ElevatedCard(Modifier.fillMaxWidth()) {
+                Text(status, modifier = Modifier.padding(16.dp))
+            }
+        }
+    }
+
+    @Composable
+    private fun MainShell(
+        online: Boolean,
+        configured: Boolean,
+        pending: Int,
+        session: MobileAuth.Session,
+        onLogout: () -> Unit
+    ) {
+        var stack by remember { mutableStateOf(listOf(Route.HOME)) }
+        val route = stack.last()
+
+        fun open(next: Route) {
+            stack = stack + next
+        }
+
+        fun back() {
+            if (stack.size > 1) stack = stack.dropLast(1)
+        }
+
+        fun home() {
+            stack = listOf(Route.HOME)
+        }
+
+        val title = when (route) {
+            Route.HOME -> "JARVIS Mobile"
+            Route.CASA_MENU -> "CASA"
+            Route.JARVIS_MENU -> "JARVIS"
+            Route.WATCH_MENU -> "Watch"
+            Route.DEVICES_MENU -> "Devices"
+            Route.SYSTEM_MENU -> "Sistema"
+            Route.OPERATIONS -> "Operações"
+            Route.VOICE -> "Voz"
+            Route.WATCH_STATUS -> "Watch / Estado"
+            Route.DEVICES_LIST -> "Devices / Lista"
+            Route.CONFIG -> "Sistema / Configuração"
+        }
+
+        val subtitle = when {
+            !configured -> "CASA não configurada"
+            online -> "CASA online" + if (pending > 0) " • fila: $pending" else ""
+            else -> "CASA offline • reconexão automática"
+        }
+
+        LcarsFrame(
+            title = title,
+            subtitle = subtitle,
+            user = session.name.ifBlank { session.login },
+            canBack = stack.size > 1,
+            onBack = { back() },
+            onHome = { home() },
+            onLogout = onLogout
+        ) {
+            when (route) {
+                Route.HOME -> {
+                    LcarsSectionLabel("MENU PRINCIPAL", LcarsColors.Orange)
+                    LcarsMenuButton("CASA", "Operações, sensores e estado da residência", LcarsColors.Salmon) { open(Route.CASA_MENU) }
+                    LcarsMenuButton("JARVIS", "Voz, comando manual e respostas", LcarsColors.Lavender) { open(Route.JARVIS_MENU) }
+                    LcarsMenuButton("WATCH", "Relógio, recursos e configuração", LcarsColors.Blue) { open(Route.WATCH_MENU) }
+                    LcarsMenuButton("DEVICES", "Equipamentos e novos dispositivos", LcarsColors.Gold) { open(Route.DEVICES_MENU) }
+                    LcarsMenuButton("SISTEMA", "Conexão, idioma e credenciais", LcarsColors.Green) { open(Route.SYSTEM_MENU) }
                 }
+
+                Route.CASA_MENU -> {
+                    LcarsSectionLabel("CASA", LcarsColors.Salmon)
+                    LcarsMenuButton("OPERAÇÕES", "Controles rápidos e comando manual", LcarsColors.Salmon) { open(Route.OPERATIONS) }
+                    LcarsMenuButton("STATUS E SENSORES", "Consulta de estado, temperatura e sensores", LcarsColors.Orange) { open(Route.OPERATIONS) }
+                }
+
+                Route.JARVIS_MENU -> {
+                    LcarsSectionLabel("JARVIS", LcarsColors.Lavender)
+                    LcarsMenuButton("VOZ", "Falar com o JARVIS", LcarsColors.Lavender) { open(Route.VOICE) }
+                    LcarsMenuButton("COMANDO MANUAL", "Digitar uma solicitação", LcarsColors.Blue) { open(Route.OPERATIONS) }
+                }
+
+                Route.WATCH_MENU -> {
+                    LcarsSectionLabel("WATCH", LcarsColors.Blue)
+                    LcarsMenuButton("ESTADO DO WATCH", "Conexão local, CASA e heartbeat", LcarsColors.Blue) { open(Route.WATCH_STATUS) }
+                    LcarsMenuButton("CONFIGURAR WATCH", "Wi-Fi, identidade e provisionamento", LcarsColors.Salmon) {
+                        startActivity(Intent(this@MainActivity, WatchSetupActivity::class.java))
+                    }
+                    LcarsMenuButton("NOTIFICAÇÕES", "Permitir e encaminhar notificações", LcarsColors.Lavender) {
+                        startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                    }
+                }
+
+                Route.DEVICES_MENU -> {
+                    LcarsSectionLabel("DEVICES", LcarsColors.Gold)
+                    LcarsMenuButton("LISTAR DEVICES", "Equipamentos cadastrados", LcarsColors.Gold) { open(Route.DEVICES_LIST) }
+                    LcarsMenuButton("ADICIONAR DEVICE", "Watch, ESP32-CAM e novos equipamentos", LcarsColors.Orange) {
+                        startActivity(Intent(this@MainActivity, NewDevicesActivity::class.java))
+                    }
+                }
+
+                Route.SYSTEM_MENU -> {
+                    LcarsSectionLabel("SISTEMA", LcarsColors.Green)
+                    LcarsMenuButton("CONFIGURAÇÃO", "URL CASA, token e idioma", LcarsColors.Green) { open(Route.CONFIG) }
+                    LcarsMenuButton("SAIR", "Encerrar sessão do operador", LcarsColors.Salmon) { onLogout() }
+                }
+
+                Route.OPERATIONS -> OperationsScreen(online, pending)
+                Route.VOICE -> VoiceScreen(online)
+                Route.WATCH_STATUS -> WatchScreen()
+                Route.DEVICES_LIST -> DevicesScreen()
+                Route.CONFIG -> ConfigScreen()
             }
         }
     }
