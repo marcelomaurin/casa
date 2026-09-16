@@ -107,7 +107,9 @@ class WatchClient(private val context: Context) {
     }
 
     fun stopScan() {
-        // A rede solicitada precisa permanecer ativa enquanto o socket estiver em uso.
+        // Ao sair da tela de setup libera o SoftAP temporario.
+        // A comunicação contínua depois do cadastro usa o IP LAN salvo.
+        disconnect(false)
     }
 
     private fun requestWatchNetwork() {
