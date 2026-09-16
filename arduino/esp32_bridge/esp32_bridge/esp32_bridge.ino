@@ -1,14 +1,18 @@
 /*
  * CASA Bridge ESP32
- * Gateway local entre o servidor CASA e dispositivos Wi-Fi/BLE.
+ * Gateway local entre a CASA API v1 e dispositivos Wi-Fi/BLE.
+ *
+ * O Bridge e um device comum do Control Plane:
+ *   heartbeat -> /api/v1/device.php?acao=heartbeat
+ *   comandos  -> /api/v1/device.php?acao=commands
+ *   ack       -> /api/v1/device.php?acao=command_ack
+ *   resultado -> /api/v1/device.php?acao=command_result
+ *   descoberta-> /api/v1/device.php?acao=event
  *
  * Dependencias:
  *   - ESP32 Arduino Core
  *   - ArduinoJson 7.x
- *
- * O ESP32 NAO faz espelhamento/streaming de video. Ele recebe comandos,
- * descobre dispositivos e executa drivers leves. Streaming/Cast deve ser
- * delegado a um bridge Linux quando necessario.
+ *   - NimBLE-Arduino
  */
 
 #include <WiFi.h>
@@ -18,9 +22,10 @@
 #include <Preferences.h>
 #include <WebServer.h>
 
-// ---------- CONFIGURACAO ----------
-static const char *FW_VERSION = "0.1.0";
+static const char *FW_VERSION = "0.2.0";
+static const char *PROTOCOL_VERSION = "CASA/1.0";
 static const char *DEFAULT_DEVICE_NAME = "CASA-BRIDGE-ESP32";
+static const char *DEFAULT_CASA_URL = "https://casa.maurinsoft.com.br";
 static const uint32_t POLL_INTERVAL_MS = 2500;
 static const uint32_t HEARTBEAT_INTERVAL_MS = 30000;
 static const uint32_t BLE_SCAN_INTERVAL_MS = 60000;
@@ -56,11 +61,23 @@ String chipId() {
   return String(out);
 }
 
+String normalizeBaseUrl(String value) {
+  value.trim();
+  while (value.endsWith("/")) value.remove(value.length() - 1);
+  if (value.length() == 0) value = DEFAULT_CASA_URL;
+
+  // Migra automaticamente a URL historica.
+  if (value == "https://maurinsoft.com.br/casa") {
+    value = DEFAULT_CASA_URL;
+  }
+  return value;
+}
+
 void loadConfig() {
   prefs.begin("casa-bridge", true);
   wifiSsid = prefs.getString("ssid", "");
   wifiPassword = prefs.getString("wifi_pass", "");
-  casaBaseUrl = prefs.getString("base_url", "");
+  casaBaseUrl = normalizeBaseUrl(prefs.getString("base_url", DEFAULT_CASA_URL));
   casaToken = prefs.getString("token", "");
   bridgeId = prefs.getString("bridge_id", "");
   prefs.end();
@@ -73,7 +90,7 @@ void saveConfig(const String &ssid, const String &pass,
   prefs.begin("casa-bridge", false);
   prefs.putString("ssid", ssid);
   prefs.putString("wifi_pass", pass);
-  prefs.putString("base_url", baseUrl);
+  prefs.putString("base_url", normalizeBaseUrl(baseUrl));
   prefs.putString("token", token);
   prefs.putString("bridge_id", bridgeId);
   prefs.end();
@@ -93,17 +110,21 @@ bool connectWiFi(uint32_t timeoutMs = 20000) {
   return WiFi.status() == WL_CONNECTED;
 }
 
-void addAuth(HTTPClient &http) {
-  http.addHeader("Content-Type", "application/json");
-  if (casaToken.length()) http.addHeader("Authorization", "Bearer " + casaToken);
-  http.addHeader("X-CASA-Bridge", bridgeId);
+void addAuth(HTTPClient &http, bool json = true) {
+  if (json) http.addHeader("Content-Type", "application/json");
+  http.addHeader("Accept", "application/json");
+  if (casaToken.length()) {
+    http.addHeader("Authorization", "Bearer " + casaToken);
+    http.addHeader("X-Device-Token", casaToken);
+  }
+  http.addHeader("X-Device-Id", bridgeId);
 }
 
 bool postJson(const String &path, const String &body, String *response = nullptr) {
   if (WiFi.status() != WL_CONNECTED || casaBaseUrl.length() == 0) return false;
 
   HTTPClient http;
-  http.setTimeout(5000);
+  http.setTimeout(7000);
   http.begin(casaBaseUrl + path);
   addAuth(http);
   int code = http.POST(body);
@@ -116,9 +137,9 @@ bool getJson(const String &path, String &response) {
   if (WiFi.status() != WL_CONNECTED || casaBaseUrl.length() == 0) return false;
 
   HTTPClient http;
-  http.setTimeout(5000);
+  http.setTimeout(7000);
   http.begin(casaBaseUrl + path);
-  addAuth(http);
+  addAuth(http, false);
   int code = http.GET();
   response = http.getString();
   http.end();
@@ -127,18 +148,55 @@ bool getJson(const String &path, String &response) {
 
 void heartbeat() {
   JsonDocument doc;
-  doc["bridge_id"] = bridgeId;
-  doc["firmware"] = FW_VERSION;
-  doc["platform"] = "esp32";
-  doc["ip"] = WiFi.localIP().toString();
+  doc["device_id"] = bridgeId;
+  doc["transport"] = "wifi";
+  doc["local_ip"] = WiFi.localIP().toString();
   doc["rssi"] = WiFi.RSSI();
-  doc["free_heap"] = ESP.getFreeHeap();
-  doc["bluetooth"] = true;
-  doc["wifi"] = true;
-  doc["video_streaming"] = false;
+  doc["health"] = "ok";
+  doc["firmware_version"] = FW_VERSION;
+  doc["protocol_version"] = PROTOCOL_VERSION;
+  doc["uptime_sec"] = millis() / 1000;
+
+  JsonArray caps = doc["capabilities"].to<JsonArray>();
+  caps.add("gateway");
+  caps.add("ble");
+  caps.add("wifi");
+  caps.add("http");
+  caps.add("discovery");
+
+  JsonObject data = doc["data"].to<JsonObject>();
+  data["platform"] = "esp32";
+  data["free_heap"] = ESP.getFreeHeap();
+  data["ble_devices"] = bleDeviceCount;
+  data["video_streaming"] = false;
+
   String json;
   serializeJson(doc, json);
-  postJson("/api/bridge/heartbeat", json);
+  postJson("/api/v1/device.php?acao=heartbeat", json);
+}
+
+void publishDiscoveryEvent() {
+  JsonDocument doc;
+  doc["device_id"] = bridgeId;
+  doc["type"] = "device.discovery";
+  doc["priority"] = "normal";
+
+  JsonObject data = doc["data"].to<JsonObject>();
+  data["protocol"] = "ble";
+  data["gateway_device_id"] = bridgeId;
+  JsonArray devices = data["devices"].to<JsonArray>();
+
+  for (size_t i = 0; i < bleDeviceCount; ++i) {
+    JsonObject o = devices.add<JsonObject>();
+    o["protocol"] = "ble";
+    o["address"] = bleDevices[i].address;
+    o["name"] = bleDevices[i].name;
+    o["rssi"] = bleDevices[i].rssi;
+  }
+
+  String json;
+  serializeJson(doc, json);
+  postJson("/api/v1/device.php?acao=event", json);
 }
 
 void scanBle() {
@@ -157,97 +215,153 @@ void scanBle() {
     bleDeviceCount++;
   }
   scan->clearResults();
-
-  JsonDocument doc;
-  doc["bridge_id"] = bridgeId;
-  JsonArray devices = doc["devices"].to<JsonArray>();
-  for (size_t i = 0; i < bleDeviceCount; ++i) {
-    JsonObject o = devices.add<JsonObject>();
-    o["protocol"] = "ble";
-    o["address"] = bleDevices[i].address;
-    o["name"] = bleDevices[i].name;
-    o["rssi"] = bleDevices[i].rssi;
-  }
-  String json;
-  serializeJson(doc, json);
-  postJson("/api/bridge/discovery", json);
+  publishDiscoveryEvent();
 }
 
-bool executeBleCommand(JsonObject cmd, String &message) {
-  // Estrutura pronta para drivers GATT especificos.
-  // Nao escrevemos em caracteristicas arbitrarias por seguranca/compatibilidade.
-  const char *action = cmd["action"] | "";
-  if (!strcmp(action, "scan")) {
+bool executeBleCommand(const String &action, JsonObject payload, String &message) {
+  if (action == "scan" || action == "ble.scan") {
     scanBle();
     message = "BLE scan executado";
     return true;
   }
-  message = "Comando BLE requer driver GATT especifico do dispositivo";
+
+  // Drivers GATT especificos entram aqui.
+  message = "Comando BLE requer driver GATT especifico";
   return false;
 }
 
-bool executeWifiCommand(JsonObject cmd, String &message) {
-  const char *action = cmd["action"] | "";
-
-  if (!strcmp(action, "http_request")) {
-    const char *url = cmd["url"] | "";
-    const char *method = cmd["method"] | "GET";
-    if (strlen(url) == 0) {
-      message = "URL ausente";
-      return false;
-    }
-
-    HTTPClient http;
-    http.setTimeout(4000);
-    http.begin(url);
-    int code;
-    if (!strcmp(method, "POST")) {
-      http.addHeader("Content-Type", "application/json");
-      String payload = cmd["payload"] | "{}";
-      code = http.POST(payload);
-    } else {
-      code = http.GET();
-    }
-    http.end();
-    message = "HTTP " + String(code);
-    return code >= 200 && code < 300;
+bool executeWifiCommand(const String &action, JsonObject payload, String &message) {
+  if (action != "http_request" && action != "wifi.http_request") {
+    message = "Driver Wi-Fi nao suportado";
+    return false;
   }
 
-  message = "Driver Wi-Fi nao suportado";
-  return false;
+  String url = payload["url"] | "";
+  String method = payload["method"] | "GET";
+  if (url.length() == 0) {
+    message = "URL ausente";
+    return false;
+  }
+
+  HTTPClient http;
+  http.setTimeout(5000);
+  http.begin(url);
+
+  int code;
+  if (method == "POST") {
+    http.addHeader("Content-Type", "application/json");
+    String body;
+    if (payload["body"].is<String>()) {
+      body = payload["body"].as<String>();
+    } else if (!payload["body"].isNull()) {
+      serializeJson(payload["body"], body);
+    } else {
+      body = "{}";
+    }
+    code = http.POST(body);
+  } else {
+    code = http.GET();
+  }
+
+  http.end();
+  message = "HTTP " + String(code);
+  return code >= 200 && code < 300;
 }
 
-void reportCommandResult(const String &commandId, bool ok, const String &message) {
+bool ackCommand(long commandId) {
   JsonDocument doc;
-  doc["bridge_id"] = bridgeId;
-  doc["command_id"] = commandId;
-  doc["success"] = ok;
-  doc["message"] = message;
+  doc["device_id"] = bridgeId;
+  doc["id"] = commandId;
   String json;
   serializeJson(doc, json);
-  postJson("/api/bridge/command/result", json);
+  return postJson("/api/v1/device.php?acao=command_ack", json);
+}
+
+void reportCommandResult(long commandId, bool ok, const String &message) {
+  JsonDocument doc;
+  doc["device_id"] = bridgeId;
+  doc["id"] = commandId;
+  doc["status"] = ok ? "success" : "error";
+
+  JsonObject result = doc["result"].to<JsonObject>();
+  result["message"] = message;
+
+  if (!ok) doc["error"] = message;
+
+  String json;
+  serializeJson(doc, json);
+  postJson("/api/v1/device.php?acao=command_result", json);
+}
+
+void executeCommand(JsonObject cmd) {
+  long id = cmd["id"] | 0;
+  String command = cmd["comando"] | "";
+  if (id <= 0 || command.length() == 0) return;
+
+  JsonDocument payloadDoc;
+  JsonObject payload;
+
+  if (cmd["payload"].is<const char*>()) {
+    String rawPayload = cmd["payload"].as<String>();
+    if (rawPayload.length() && !deserializeJson(payloadDoc, rawPayload)) {
+      payload = payloadDoc.as<JsonObject>();
+    }
+  } else if (cmd["payload"].is<JsonObject>()) {
+    payload = cmd["payload"].as<JsonObject>();
+  }
+
+  ackCommand(id);
+
+  String protocol = payload["protocol"] | "";
+  String action = payload["action"] | "";
+
+  // CASA/1.0 prefere nomes qualificados no campo comando.
+  if (command.startsWith("ble.")) {
+    protocol = "ble";
+    if (action.length() == 0) action = command;
+  } else if (command.startsWith("wifi.") || command.startsWith("http.")) {
+    protocol = "wifi";
+    if (action.length() == 0) action = command;
+  }
+
+  // Compatibilidade com comandos historicos.
+  if (protocol.length() == 0 && command == "scan") {
+    protocol = "ble";
+    action = "scan";
+  }
+  if (protocol.length() == 0 && command == "http_request") {
+    protocol = "wifi";
+    action = "http_request";
+  }
+
+  String message;
+  bool ok = false;
+
+  if (protocol == "ble") {
+    ok = executeBleCommand(action, payload, message);
+  } else if (protocol == "wifi" || protocol == "http") {
+    ok = executeWifiCommand(action, payload, message);
+  } else {
+    message = "Comando sem adapter: " + command;
+  }
+
+  reportCommandResult(id, ok, message);
 }
 
 void pollCommands() {
   String response;
-  String path = "/api/bridge/command/next?bridge_id=" + bridgeId;
+  String path = "/api/v1/device.php?acao=commands&limit=5&device_id=" + bridgeId;
   if (!getJson(path, response) || response.length() == 0) return;
 
   JsonDocument doc;
   if (deserializeJson(doc, response)) return;
-  if (doc["command"].isNull()) return;
 
-  JsonObject cmd = doc["command"].as<JsonObject>();
-  String id = cmd["id"] | "";
-  String protocol = cmd["protocol"] | "";
-  String message;
-  bool ok = false;
+  JsonArray commands = doc["commands"].as<JsonArray>();
+  if (commands.isNull()) return;
 
-  if (protocol == "ble") ok = executeBleCommand(cmd, message);
-  else if (protocol == "wifi") ok = executeWifiCommand(cmd, message);
-  else message = "Protocolo desconhecido: " + protocol;
-
-  reportCommandResult(id, ok, message);
+  for (JsonObject cmd : commands) {
+    executeCommand(cmd);
+  }
 }
 
 void startLocalApi() {
@@ -258,7 +372,8 @@ void startLocalApi() {
   localServer.on("/health", HTTP_GET, []() {
     JsonDocument doc;
     doc["ok"] = true;
-    doc["bridge_id"] = bridgeId;
+    doc["device_id"] = bridgeId;
+    doc["protocol_version"] = PROTOCOL_VERSION;
     doc["wifi_connected"] = WiFi.status() == WL_CONNECTED;
     doc["ip"] = WiFi.localIP().toString();
     doc["ble_devices"] = bleDeviceCount;
@@ -305,17 +420,21 @@ void loop() {
   }
 
   uint32_t now = millis();
+
   if (now - lastPoll >= POLL_INTERVAL_MS) {
     lastPoll = now;
     pollCommands();
   }
+
   if (now - lastHeartbeat >= HEARTBEAT_INTERVAL_MS) {
     lastHeartbeat = now;
     heartbeat();
   }
+
   if (now - lastBleScan >= BLE_SCAN_INTERVAL_MS) {
     lastBleScan = now;
     scanBle();
   }
+
   delay(5);
 }
