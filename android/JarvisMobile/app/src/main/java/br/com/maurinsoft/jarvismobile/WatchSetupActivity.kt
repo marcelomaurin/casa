@@ -26,10 +26,12 @@ import kotlinx.coroutines.withContext
 /**
  * Fluxo oficial de cadastro do relógio:
  *
- * Configuração -> Novos Devices -> Watch -> procurar -> conectar ->
- * app cria identidade/token no CASA -> app envia URL/token e perfis Wi-Fi ao Watch.
+ * Configuração -> Novos Devices -> Watch -> conectar ao SoftAP JARVIS-WATCH ->
+ * socket TCP 192.168.4.1:4040 -> app cria identidade/token no CASA ->
+ * app envia URL/token e perfis Wi-Fi ao Watch.
  *
- * O usuário nunca precisa copiar/colar token de hardware manualmente.
+ * O usuário nunca precisa copiar/colar token de hardware manualmente e o
+ * transporte local não usa Bluetooth.
  */
 class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
     private lateinit var watchClient: WatchClient
@@ -86,7 +88,7 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
             if (connected) {
                 connectedAddressState = address
                 connectedNameState = name
-                statusState = "$name conectado. Pronto para cadastrar no CASA."
+                statusState = "$name conectado por Wi-Fi/TCP. Pronto para cadastrar no CASA."
             } else {
                 statusState = "Relógio desconectado"
             }
@@ -102,7 +104,7 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
                 "hello" -> {
                     val protocol = json.optString("protocol", "?")
                     val wifi = if (json.optBoolean("wifi", false)) "Wi-Fi conectado" else "Wi-Fi offline"
-                    statusState = "BLE confirmado • protocolo $protocol • $wifi"
+                    statusState = "Socket confirmado • protocolo $protocol • $wifi"
                 }
                 "device_identity_result" ->
                     statusState = if (ok) "Watch confirmou o Device ID" else "Falha ao gravar Device ID: $message"
@@ -172,7 +174,7 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
                 title = { Text("Adicionar Watch?") },
                 text = {
                     Text(
-                        "Conectar a ${candidate.name} (${candidate.address}) para criar " +
+                        "Usar ${candidate.name} em ${candidate.address}:4040 para criar " +
                             "uma identidade individual no CASA e enviar a credencial ao relógio?"
                     )
                 },
@@ -220,17 +222,17 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
             }
 
             HorizontalDivider()
-            Text("1. Procurar relógio", fontWeight = FontWeight.Bold)
+            Text("1. Conectar ao relógio", fontWeight = FontWeight.Bold)
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = {
                         foundState = emptyList()
-                        statusState = "Procurando JARVIS Watch..."
+                        statusState = "Solicitando rede JARVIS-WATCH..."
                         watchClient.scan()
                     },
                     modifier = Modifier.weight(1f)
-                ) { Text("PROCURAR") }
+                ) { Text("CONECTAR") }
 
                 OutlinedButton(
                     onClick = { watchClient.connectSaved() },
@@ -512,7 +514,7 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
                     watchClient.disconnect(true)
                     connectedState = false
                     connectedAddressState = ""
-                    statusState = "Conexão local com o Watch removida"
+                    statusState = "Conexão Wi-Fi/TCP local com o Watch removida"
                 },
                 modifier = Modifier.fillMaxWidth()
             ) { Text("DESCONECTAR WATCH") }
