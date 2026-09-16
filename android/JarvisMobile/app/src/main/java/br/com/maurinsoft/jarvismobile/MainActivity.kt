@@ -194,11 +194,22 @@ class MainActivity : ComponentActivity() {
         var pending by remember { mutableIntStateOf(JarvisApi.pendingCount(this)) }
 
         LaunchedEffect(Unit) {
-            delay(700)
-            session = withContext(Dispatchers.IO) {
-                MobileAuth.validate(this@MainActivity) ?: MobileAuth.savedSession(this@MainActivity)
-            }
+            delay(300)
+            // A sessao local libera imediatamente a interface. A validacao online
+            // nunca bloqueia a abertura do software.
+            session = MobileAuth.savedSession(this@MainActivity)
             splash = false
+
+            if (session != null) {
+                launch(Dispatchers.IO) {
+                    val refreshed = MobileAuth.validate(this@MainActivity)
+                    if (refreshed != null) {
+                        withContext(Dispatchers.Main) {
+                            session = refreshed
+                        }
+                    }
+                }
+            }
         }
 
         LaunchedEffect(session) {
