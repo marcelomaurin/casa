@@ -1,120 +1,188 @@
 # CASA Bridge ESP32
 
-Gateway ESP32 para integrar o servidor/site CASA com dispositivos locais via Wi-Fi e Bluetooth Low Energy (BLE).
+Gateway ESP32 para integrar a CASA API v1 com dispositivos locais via Wi-Fi e Bluetooth Low Energy (BLE).
 
-## Objetivo
+## Papel na arquitetura
 
-O Bridge funciona como um agente da rede local. O servidor CASA envia comandos para o ESP32, e o ESP32 executa o driver correspondente no dispositivo local. Ele tambem publica heartbeat e dispositivos BLE descobertos.
+O Bridge nao possui API paralela propria no servidor. Ele e um **device comum do Control Plane CASA** e usa o mesmo Command/Event Bus dos demais nos.
 
 Fluxo:
 
-`Site CASA -> API CASA -> ESP32 Bridge -> Wi-Fi/BLE -> dispositivo`
+```text
+Site / Mobile / JARVIS
+        |
+        v
+CASA API v1
+        |
+        v
+device_commands
+        |
+        v
+ESP32 Bridge
+   |         |
+  BLE       Wi-Fi
+```
 
-Para video/Chromecast/Google Cast, o ESP32 deve atuar somente como coordenador. Espelhamento e transcodificacao devem ser executados por um Bridge Linux/Raspberry Pi/mini-PC, pois exigem memoria, codecs e pilhas de protocolo muito maiores.
+Para video, Google Cast, DLNA, transcodificacao e protocolos pesados, o ESP32 atua somente como coordenador/discovery. A execucao deve ficar em Raspberry Pi, mini-PC ou outro gateway Linux.
 
-## Recursos da versao 0.1
+## Versao 0.2
 
 - Wi-Fi Station.
 - Credenciais persistentes em NVS (`Preferences`).
-- Identificador unico derivado do chip ESP32.
-- Heartbeat para `/api/bridge/heartbeat`.
-- Polling de comandos em `/api/bridge/command/next`.
-- Resultado em `/api/bridge/command/result`.
+- `device_id` unico derivado do chip ESP32.
+- Heartbeat na API universal de devices.
+- Polling do `device_commands`.
+- ACK e resultado no mesmo Command Bus.
+- Eventos de descoberta via `device_events`.
 - Descoberta BLE com NimBLE.
-- Publicacao de descoberta em `/api/bridge/discovery`.
 - API local `/health`.
-- Comando BLE `scan`.
-- Driver Wi-Fi HTTP GET/POST inicial.
-- Arquitetura preparada para drivers de dispositivos.
+- Comando `ble.scan`.
+- Adapter inicial `wifi.http_request`.
+- Compatibilidade com os comandos antigos `scan` e `http_request`.
 
-## Dependencias
+## Configuracao NVS
 
-Arduino IDE/PlatformIO com ESP32 Arduino Core e:
+Namespace:
 
-- ArduinoJson 7.x
-- NimBLE-Arduino
-
-## Configuracao
-
-As seguintes chaves sao lidas do namespace NVS `casa-bridge`:
+```text
+casa-bridge
+```
 
 | Chave | Descricao |
 |---|---|
 | `ssid` | SSID Wi-Fi |
 | `wifi_pass` | senha Wi-Fi |
-| `base_url` | URL da API CASA, por exemplo `http://192.168.1.10` |
-| `token` | token Bearer do Bridge |
-| `bridge_id` | opcional; se vazio e gerado pelo ESP32 |
+| `base_url` | URL raiz da CASA; padrao `https://casa.maurinsoft.com.br` |
+| `token` | token individual e revogavel do Bridge |
+| `bridge_id` | opcional; se vazio, e gerado pelo ESP32 |
 
-Na proxima etapa a configuracao pode ser feita por captive portal, evitando gravar senha no fonte.
+O provisionamento deve preferencialmente ser feito pelo JARVIS Mobile, evitando credenciais fixas no firmware.
 
-## Contrato sugerido da API CASA
+## Endpoints usados
 
 ### Heartbeat
 
-`POST /api/bridge/heartbeat`
+```text
+POST /api/v1/device.php?acao=heartbeat
+```
+
+Exemplo:
 
 ```json
 {
-  "bridge_id": "esp32-ABCD12345678",
-  "firmware": "0.1.0",
-  "platform": "esp32",
-  "ip": "192.168.1.50",
+  "device_id": "esp32-ABCD12345678",
+  "transport": "wifi",
+  "local_ip": "192.168.1.50",
   "rssi": -48,
-  "free_heap": 180000,
-  "bluetooth": true,
-  "wifi": true,
-  "video_streaming": false
-}
-```
-
-### Proximo comando
-
-`GET /api/bridge/command/next?bridge_id=esp32-ABCD12345678`
-
-```json
-{
-  "command": {
-    "id": "1234",
-    "protocol": "ble",
-    "action": "scan"
+  "health": "ok",
+  "firmware_version": "0.2.0",
+  "protocol_version": "CASA/1.0",
+  "capabilities": [
+    "gateway",
+    "ble",
+    "wifi",
+    "http",
+    "discovery"
+  ],
+  "data": {
+    "platform": "esp32",
+    "free_heap": 180000,
+    "video_streaming": false
   }
 }
 ```
 
-ou:
+### Receber comandos
+
+```text
+GET /api/v1/device.php?acao=commands&device_id=<DEVICE_ID>&limit=5
+```
+
+O servidor retorna itens de `device_commands`.
+
+Exemplo logico:
 
 ```json
 {
-  "command": {
-    "id": "1235",
-    "protocol": "wifi",
-    "action": "http_request",
-    "method": "GET",
-    "url": "http://192.168.1.70/status"
-  }
+  "id": 1234,
+  "comando": "ble.scan",
+  "payload": {},
+  "prioridade": "normal",
+  "correlation_id": "cmd_..."
+}
+```
+
+### ACK
+
+```text
+POST /api/v1/device.php?acao=command_ack
+```
+
+```json
+{
+  "device_id": "esp32-ABCD12345678",
+  "id": 1234
 }
 ```
 
 ### Resultado
 
-`POST /api/bridge/command/result`
+```text
+POST /api/v1/device.php?acao=command_result
+```
 
 ```json
 {
-  "bridge_id": "esp32-ABCD12345678",
-  "command_id": "1234",
-  "success": true,
-  "message": "BLE scan executado"
+  "device_id": "esp32-ABCD12345678",
+  "id": 1234,
+  "status": "success",
+  "result": {
+    "message": "BLE scan executado"
+  }
 }
 ```
 
-## Drivers futuros
+### Descoberta
 
-A ideia e nao tentar criar um driver universal que escreva arbitrariamente em qualquer dispositivo. Cada familia deve implementar um driver: BLE GATT, HTTP/REST, MQTT, Wake-on-LAN, IR (com hardware adicional), Matter e protocolos especificos de televisores.
+Descobertas sao eventos, nao comandos:
 
-Google Home/Google Cast devem ficar em um modulo separado. O ESP32 pode disparar uma solicitacao para um Bridge Linux, enquanto o Linux executa descoberta Cast, sessao de media e streaming.
+```text
+POST /api/v1/device.php?acao=event
+```
+
+```json
+{
+  "device_id": "esp32-ABCD12345678",
+  "type": "device.discovery",
+  "priority": "normal",
+  "data": {
+    "protocol": "ble",
+    "gateway_device_id": "esp32-ABCD12345678",
+    "devices": []
+  }
+}
+```
+
+## Adapters
+
+O Bridge nao deve escrever arbitrariamente em dispositivos desconhecidos. Cada familia deve possuir um adapter/driver explicito.
+
+Nomes de comandos recomendados:
+
+- `ble.scan`
+- `ble.gatt.*`
+- `wifi.http_request`
+- `mqtt.publish`
+- `ir.send`
+
+Google Cast, DLNA, Matter pesado, video e audio devem ser executados por um gateway Linux, mas continuam recebendo comandos pelo mesmo `device_commands`.
 
 ## Seguranca
 
-Nao exponha a API local do ESP32 diretamente na Internet. O Bridge deve permanecer na LAN, usar autenticacao com token para o servidor CASA e, em producao, HTTPS/TLS quando a infraestrutura permitir.
+- nao exponha a API local do ESP32 diretamente na Internet;
+- use token individual por dispositivo;
+- mantenha senhas e tokens fora do Git;
+- use HTTPS para a CASA;
+- valide certificados TLS em producao;
+- limite comandos a adapters conhecidos;
+- nao permita URL/protocolo arbitrario para dispositivos nao autorizados.
