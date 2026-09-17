@@ -18,14 +18,16 @@ api_v1_basic_guard($pdo);
 $action=$_GET['acao'] ?? 'status';
 $input=device_v1_input();
 $deviceId=(string)($input['device_id'] ?? ($_GET['device_id'] ?? ''));
-$writeActions=['heartbeat','event','command_ack','command_result'];
+$writeActions=['heartbeat','event','command_ack','command_result','command_start'];
 $dev=device_v1_load($pdo,$deviceId,in_array($action,$writeActions,true));
 $deviceId=$dev['device_id'];
 
 if ($action==='status') {
     $pending=0;
     try {
-        $stmt=$pdo->prepare("SELECT COUNT(*) FROM device_commands WHERE device_id=:d AND status='pending' AND (expira_em IS NULL OR expira_em>NOW())");
+        $pdo->prepare("UPDATE device_commands SET status='expired',lifecycle_status='EXPIRED',concluido_em=COALESCE(concluido_em,NOW()),erro=COALESCE(erro,'Comando expirado') WHERE device_id=:d AND status IN('pending','ack','executing') AND expira_em IS NOT NULL AND expira_em<=NOW()")
+            ->execute([':d'=>$deviceId]);
+        $stmt=$pdo->prepare("SELECT COUNT(*) FROM device_commands WHERE device_id=:d AND lifecycle_status IN('QUEUED','SENT') AND (expira_em IS NULL OR expira_em>NOW())");
         $stmt->execute([':d'=>$deviceId]); $pending=(int)$stmt->fetchColumn();
     } catch(Throwable $e) {}
     api_v1_json_response(200,[
@@ -49,17 +51,32 @@ if ($action==='heartbeat') {
     $health=substr((string)($input['health'] ?? 'ok'),0,30);
     $firmware=substr((string)($input['firmware_version'] ?? ''),0,60) ?: null;
     $protocol=substr((string)($input['protocol_version'] ?? ''),0,30) ?: null;
+    $manufacturer=substr((string)($input['manufacturer'] ?? ''),0,80) ?: null;
+    $model=substr((string)($input['model'] ?? ''),0,100) ?: null;
     $rssi=isset($input['rssi'])?(int)$input['rssi']:0;
     $battery=isset($input['battery'])?max(0,min(100,(int)$input['battery'])):null;
     $uptime=isset($input['uptime_sec'])?max(0,(int)$input['uptime_sec']):null;
     $caps=is_array($input['capabilities'] ?? null)?$input['capabilities']:null;
     $data=is_array($input['data'] ?? null)?$input['data']:[];
 
-    $sql="UPDATE dispositivos_cluster SET status='online',transport=:t,local_ip=:lip,observed_ip=:oip,gateway_device_id=:g,health=:h,firmware_version=:f,protocol_version=:p,sinal_rssi=:r,ultimo_heartbeat=NOW(),ip_address=COALESCE(:lip2,ip_address)";
-    $params=[':t'=>$transport,':lip'=>$localIp,':oip'=>$observed,':g'=>$gateway,':h'=>$health,':f'=>$firmware,':p'=>$protocol,':r'=>$rssi,':lip2'=>$localIp,':id'=>$dev['id']];
+    $sql="UPDATE dispositivos_cluster SET status='online',transport=:t,local_ip=:lip,observed_ip=:oip,gateway_device_id=:g,health=:h,firmware_version=:f,protocol_version=:p,manufacturer=COALESCE(:mf,manufacturer),model=COALESCE(:m,model),battery_pct=:b,sinal_rssi=:r,ultimo_heartbeat=NOW(),ip_address=COALESCE(:lip2,ip_address)";
+    $params=[':t'=>$transport,':lip'=>$localIp,':oip'=>$observed,':g'=>$gateway,':h'=>$health,':f'=>$firmware,':p'=>$protocol,':mf'=>$manufacturer,':m'=>$model,':b'=>$battery,':r'=>$rssi,':lip2'=>$localIp,':id'=>$dev['id']];
     if ($caps!==null) { $sql.=",capabilities=:c"; $params[':c']=json_encode($caps,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES); }
     $sql.=" WHERE id=:id";
     $pdo->prepare($sql)->execute($params);
+
+    if ($caps!==null) {
+        try {
+            foreach ($caps as $k=>$v) {
+                $name=is_int($k)?(string)$v:(string)$k;
+                $enabled=is_int($k)?1:((bool)$v?1:0);
+                $name=substr(trim($name),0,120);
+                if ($name==='') continue;
+                $stmt=$pdo->prepare("INSERT INTO device_capabilities(device_id,capability,enabled,risk_level) VALUES(:d,:c,:e,1) ON DUPLICATE KEY UPDATE enabled=VALUES(enabled),atualizado_em=NOW()");
+                $stmt->execute([':d'=>$deviceId,':c'=>$name,':e'=>$enabled]);
+            }
+        } catch(Throwable $e) {}
+    }
 
     try {
         $stmt=$pdo->prepare("INSERT INTO device_heartbeats(device_id,transport,local_ip,observed_ip,gateway_device_id,rssi,battery_pct,uptime_sec,health,firmware_version,protocol_version,dados)
@@ -67,7 +84,7 @@ if ($action==='heartbeat') {
         $stmt->execute([':d'=>$deviceId,':t'=>$transport,':l'=>$localIp,':o'=>$observed,':g'=>$gateway,':r'=>$rssi,':b'=>$battery,':u'=>$uptime,':h'=>$health,':f'=>$firmware,':p'=>$protocol,':j'=>json_encode($data,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES)]);
     } catch(Throwable $e) {}
 
-    $stmt=$pdo->prepare("SELECT COUNT(*) FROM device_commands WHERE device_id=:d AND status='pending' AND (expira_em IS NULL OR expira_em>NOW())");
+    $stmt=$pdo->prepare("SELECT COUNT(*) FROM device_commands WHERE device_id=:d AND lifecycle_status IN('QUEUED','SENT') AND (expira_em IS NULL OR expira_em>NOW())");
     $stmt->execute([':d'=>$deviceId]);
     api_v1_json_response(200,['status'=>'ok','device_id'=>$deviceId,'server_time'=>date('c'),'commands_pending'=>(int)$stmt->fetchColumn(),'config_version'=>(int)($dev['config_version'] ?? 1)]);
 }
@@ -87,28 +104,48 @@ if ($action==='event') {
 
 if ($action==='commands') {
     $limit=max(1,min(20,(int)($_GET['limit'] ?? 10)));
-    $stmt=$pdo->prepare("SELECT id,comando,payload,prioridade,correlation_id,criado_em,expira_em FROM device_commands
-        WHERE device_id=:d AND status='pending' AND (expira_em IS NULL OR expira_em>NOW())
+    $pdo->prepare("UPDATE device_commands SET status='expired',lifecycle_status='EXPIRED',concluido_em=COALESCE(concluido_em,NOW()),erro=COALESCE(erro,'Comando expirado') WHERE device_id=:d AND lifecycle_status IN('QUEUED','SENT') AND expira_em IS NOT NULL AND expira_em<=NOW()")
+        ->execute([':d'=>$deviceId]);
+    $pdo->prepare("UPDATE device_commands SET status='error',lifecycle_status='FAILED',concluido_em=COALESCE(concluido_em,NOW()),erro=COALESCE(erro,'Limite de tentativas excedido') WHERE device_id=:d AND lifecycle_status='SENT' AND retry_count>=max_retries")
+        ->execute([':d'=>$deviceId]);
+    $stmt=$pdo->prepare("SELECT id,comando,payload,prioridade,correlation_id,criado_em,expira_em,retry_count,max_retries,risk_level FROM device_commands
+        WHERE device_id=:d AND lifecycle_status IN('QUEUED','SENT') AND (expira_em IS NULL OR expira_em>NOW()) AND retry_count<max_retries
+          AND (last_attempt_at IS NULL OR last_attempt_at<DATE_SUB(NOW(),INTERVAL 5 SECOND))
         ORDER BY FIELD(prioridade,'critical','high','normal','low'),criado_em ASC LIMIT {$limit}");
     $stmt->execute([':d'=>$deviceId]);
-    api_v1_json_response(200,['status'=>'ok','commands'=>$stmt->fetchAll(PDO::FETCH_ASSOC),'server_time'=>date('c')]);
+    $commands=$stmt->fetchAll(PDO::FETCH_ASSOC);
+    if ($commands) {
+        $ids=array_map('intval',array_column($commands,'id'));
+        $placeholders=implode(',',array_fill(0,count($ids),'?'));
+        $up=$pdo->prepare("UPDATE device_commands SET lifecycle_status='SENT',entregue_em=COALESCE(entregue_em,NOW()),last_attempt_at=NOW(),retry_count=retry_count+1 WHERE id IN ({$placeholders}) AND device_id=?");
+        $params=$ids; $params[]=$deviceId; $up->execute($params);
+    }
+    api_v1_json_response(200,['status'=>'ok','commands'=>$commands,'server_time'=>date('c')]);
+}
+
+if ($action==='command_start') {
+    $id=(int)($input['id'] ?? 0);
+    if ($id<=0) api_v1_json_response(400,['status'=>'erro','mensagem'=>'id do comando invalido']);
+    $stmt=$pdo->prepare("UPDATE device_commands SET status='executing',lifecycle_status='EXECUTING',iniciado_em=COALESCE(iniciado_em,NOW()) WHERE id=:id AND device_id=:d AND lifecycle_status IN('SENT','ACKNOWLEDGED')");
+    $stmt->execute([':id'=>$id,':d'=>$deviceId]);
+    api_v1_json_response(200,['status'=>'ok','updated'=>$stmt->rowCount(),'lifecycle_status'=>'EXECUTING']);
 }
 
 if ($action==='command_ack' || $action==='command_result') {
     $id=(int)($input['id'] ?? 0);
     if ($id<=0) api_v1_json_response(400,['status'=>'erro','mensagem'=>'id do comando invalido']);
     if ($action==='command_ack') {
-        $stmt=$pdo->prepare("UPDATE device_commands SET status='ack',entregue_em=COALESCE(entregue_em,NOW()),ack_em=NOW() WHERE id=:id AND device_id=:d AND status='pending'");
+        $stmt=$pdo->prepare("UPDATE device_commands SET status='ack',lifecycle_status='ACKNOWLEDGED',entregue_em=COALESCE(entregue_em,NOW()),ack_em=NOW() WHERE id=:id AND device_id=:d AND lifecycle_status IN('QUEUED','SENT')");
         $stmt->execute([':id'=>$id,':d'=>$deviceId]);
-        api_v1_json_response(200,['status'=>'ok','updated'=>$stmt->rowCount()]);
+        api_v1_json_response(200,['status'=>'ok','updated'=>$stmt->rowCount(),'lifecycle_status'=>'ACKNOWLEDGED']);
     }
     $resultStatus=strtolower((string)($input['status'] ?? 'success'));
-    $ok=in_array($resultStatus,['success','ok'],true);
+    $ok=in_array($resultStatus,['success','ok','done'],true);
     $result=is_array($input['result'] ?? null)?$input['result']:[];
     $error=$ok?null:substr((string)($input['error'] ?? 'Falha informada pelo device'),0,2000);
-    $stmt=$pdo->prepare("UPDATE device_commands SET status=:s,concluido_em=NOW(),resultado=:r,erro=:e WHERE id=:id AND device_id=:d AND status IN('pending','ack','executing')");
-    $stmt->execute([':s'=>$ok?'success':'error',':r'=>json_encode($result,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES),':e'=>$error,':id'=>$id,':d'=>$deviceId]);
-    api_v1_json_response(200,['status'=>'ok','updated'=>$stmt->rowCount()]);
+    $stmt=$pdo->prepare("UPDATE device_commands SET status=:s,lifecycle_status=:ls,concluido_em=NOW(),resultado=:r,erro=:e WHERE id=:id AND device_id=:d AND lifecycle_status IN('QUEUED','SENT','ACKNOWLEDGED','EXECUTING')");
+    $stmt->execute([':s'=>$ok?'success':'error',':ls'=>$ok?'DONE':'FAILED',':r'=>json_encode($result,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES),':e'=>$error,':id'=>$id,':d'=>$deviceId]);
+    api_v1_json_response(200,['status'=>'ok','updated'=>$stmt->rowCount(),'lifecycle_status'=>$ok?'DONE':'FAILED']);
 }
 
-api_v1_json_response(404,['status'=>'erro','mensagem'=>'Acao desconhecida','acoes'=>['status','heartbeat','event','commands','command_ack','command_result']]);
+api_v1_json_response(404,['status'=>'erro','mensagem'=>'Acao desconhecida','acoes'=>['status','heartbeat','event','commands','command_ack','command_start','command_result']]);
