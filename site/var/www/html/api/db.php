@@ -29,8 +29,8 @@ function cfg_value(string $configKey, string $envKey, ?string $default = null): 
 }
 
 function cfg_bool(string $configKey, string $envKey, bool $default = true): bool {
-    $value = cfg_value($configKey, $envKey, $default ? '1' : '0');
-    return !in_array(strtolower((string)$value, ['0', 'false', 'off', 'no'], true));
+    $value = strtolower((string)cfg_value($configKey, $envKey, $default ? '1' : '0'));
+    return !in_array($value, ['0', 'false', 'off', 'no'], true);
 }
 
 function casa_required_tables(): array {
@@ -69,18 +69,12 @@ function casa_execute_schema_file(PDO $pdo, string $file): void {
     if ($lines === false) throw new RuntimeException('Não foi possível ler o schema MySQL.');
 
     $statement = '';
-    $delimiter = ';';
     foreach ($lines as $line) {
         $trim = trim($line);
         if ($trim === '' || strpos($trim, '--') === 0) continue;
-        if (stripos($trim, 'DELIMITER ') === 0) {
-            $delimiter = trim(substr($trim, 10));
-            continue;
-        }
         $statement .= $line . "\n";
-        $rtrim = rtrim($trim);
-        if ($delimiter !== '' && substr($rtrim, -strlen($delimiter)) === $delimiter) {
-            $sql = trim(substr($statement, 0, -strlen($delimiter)-1) . ";");
+        if (substr(rtrim($trim), -1) === ';') {
+            $sql = trim($statement);
             $statement = '';
             if ($sql !== '') $pdo->exec($sql);
         }
@@ -113,15 +107,12 @@ function casa_set_schema_version(PDO $pdo, string $version): void {
 
 function casa_run_version_migrations(PDO $pdo, ?string $currentVersion): void {
     if ($currentVersion === CASA_SCHEMA_VERSION) return;
-
-    // Uma versão pode possuir vários módulos. A versão só é gravada após todos concluírem.
     $migrations = [
         '1.20' => [
             __DIR__ . '/migrations/1.20.sql',
             __DIR__ . '/migrations/1.20_audit.sql',
         ],
     ];
-
     foreach ($migrations as $version => $files) {
         if ($currentVersion !== null && version_compare($currentVersion, $version, '>=')) continue;
         foreach ($files as $file) casa_execute_schema_file($pdo, $file);
@@ -146,7 +137,6 @@ function ensure_database_schema(PDO $pdo): void {
     try {
         casa_ensure_param_table($pdo);
         $version = casa_schema_version($pdo);
-        // Regra solicitada: VERSAO=1.20 significa banco pronto e não executa novamente.
         if ($version === CASA_SCHEMA_VERSION) return;
 
         $baseRequired = ['configuracoes_sistema','usuarios','devices','devpar','dispositivos_cluster','api_client_tokens'];
@@ -158,8 +148,6 @@ function ensure_database_schema(PDO $pdo): void {
         casa_run_version_migrations($pdo, $version);
         $remaining = casa_missing_tables($pdo);
         if (!empty($remaining)) throw new RuntimeException('Instalação automática incompleta. Tabelas ausentes: ' . implode(', ', $remaining));
-
-        // Só marca 1.20 depois de toda a validação concluir sem erro.
         casa_set_schema_version($pdo, CASA_SCHEMA_VERSION);
     } finally {
         try {
