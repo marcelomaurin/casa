@@ -12,6 +12,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') { http_response_code(20
 
 require_once(__DIR__ . '/../db.php');
 require_once(__DIR__ . '/device_common.php');
+require_once(__DIR__ . '/rules_engine.php');
 $pdo=get_db_pdo();
 api_v1_basic_guard($pdo);
 
@@ -99,7 +100,15 @@ if ($action==='event') {
     $stmt->execute([':d'=>$deviceId,':t'=>$type,':p'=>$priority,':c'=>$corr,':j'=>json_encode($data,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES),':ip'=>api_v1_client_ip()]);
     $id=(int)$pdo->lastInsertId();
     api_v1_log($pdo,'DEVICE_EVENT','INFO',$deviceId,['event_id'=>$id,'type'=>$type,'priority'=>$priority]);
-    api_v1_json_response(200,['status'=>'ok','event_id'=>$id]);
+    $automationRuns=[];
+    try {
+        $automationRuns=rules_engine_process_event($pdo,['id'=>$id,'device_id'=>$deviceId,'type'=>$type,'data'=>$data]);
+        if ($automationRuns) api_v1_log($pdo,'AUTOMATION_TRIGGERED','INFO',$deviceId,['event_id'=>$id,'runs'=>$automationRuns]);
+    } catch(Throwable $e) {
+        // O barramento de eventos continua operando mesmo se a migration de automacao ainda nao estiver aplicada.
+        api_v1_log($pdo,'AUTOMATION_ERROR','WARN',$deviceId,['event_id'=>$id,'error'=>substr($e->getMessage(),0,500)]);
+    }
+    api_v1_json_response(200,['status'=>'ok','event_id'=>$id,'automation_runs'=>$automationRuns]);
 }
 
 if ($action==='commands') {
