@@ -83,6 +83,61 @@ jobs:
           echo "path=$REMOTE_PATH" >> "$GITHUB_OUTPUT"
           echo "Diretorio CASA localizado: $REMOTE_PATH"
 
+      - name: Ensure private production config
+        shell: bash
+        env:
+          SSHPASS: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
+          REMOTE_PATH: ${{ steps.remote.outputs.path }}
+          CASA_DB_PASSWORD: ${{ secrets.CASA_DB_PASSWORD }}
+          CASA_SYSTEM_API_TOKEN: ${{ secrets.CASA_SYSTEM_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$SSHPASS"
+          test -n "$REMOTE_PATH"
+          SSH="sshpass -e ssh -o StrictHostKeyChecking=accept-new -p $HOSTINGER_SSH_PORT"
+
+          if $SSH "$HOSTINGER_SSH_USER@$HOSTINGER_SSH_HOST" "test -s '$REMOTE_PATH/api/config.local.php'"; then
+            echo "config.local.php privado encontrado no servidor; sera preservado."
+            exit 0
+          fi
+
+          if [ -z "${CASA_DB_PASSWORD:-}" ]; then
+            echo "ERRO: $REMOTE_PATH/api/config.local.php nao existe e o secret CASA_DB_PASSWORD nao foi configurado." >&2
+            echo "Crie o arquivo privado no servidor ou configure o secret CASA_DB_PASSWORD antes de publicar." >&2
+            exit 1
+          fi
+
+          DB_B64="$(printf '%s' "$CASA_DB_PASSWORD" | base64 -w0)"
+          TOKEN_B64="$(printf '%s' "${CASA_SYSTEM_API_TOKEN:-}" | base64 -w0)"
+
+          $SSH "$HOSTINGER_SSH_USER@$HOSTINGER_SSH_HOST" bash -s -- "$REMOTE_PATH" "$DB_B64" "$TOKEN_B64" <<'EOS'
+          set -euo pipefail
+          REMOTE_PATH="$1"
+          DB_PASS="$(printf '%s' "$2" | base64 -d)"
+          API_TOKEN="$(printf '%s' "$3" | base64 -d)"
+          mkdir -p "$REMOTE_PATH/api"
+          umask 077
+          php -r '
+            $path=$argv[1];
+            $dbPass=$argv[2];
+            $apiToken=$argv[3];
+            $cfg=[
+              "db_host"=>"localhost",
+              "db_port"=>"3306",
+              "db_name"=>"u820932905_casadb",
+              "db_user"=>"u820932905_root",
+              "db_pass"=>$dbPass,
+              "db_charset"=>"utf8mb4",
+              "auto_init_db"=>true,
+              "system_api_token"=>$apiToken
+            ];
+            file_put_contents($path, "<?php\nreturn ".var_export($cfg,true).";\n");
+          ' "$REMOTE_PATH/api/config.local.php" "$DB_PASS" "$API_TOKEN"
+          chmod 600 "$REMOTE_PATH/api/config.local.php" || true
+          EOS
+
+          echo "config.local.php privado criado a partir dos GitHub Secrets."
+
       - name: Deploy CASA web files
         shell: bash
         env:
@@ -101,7 +156,7 @@ jobs:
             deploy-hostinger/ \
             "$HOSTINGER_SSH_USER@$HOSTINGER_SSH_HOST:$REMOTE_PATH/"
 
-      - name: Verify deployed files
+      - name: Verify deployed files and private config
         shell: bash
         env:
           SSHPASS: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
@@ -110,7 +165,7 @@ jobs:
           set -euo pipefail
           sshpass -e ssh -o StrictHostKeyChecking=accept-new -p "$HOSTINGER_SSH_PORT" \
             "$HOSTINGER_SSH_USER@$HOSTINGER_SSH_HOST" \
-            "test -f '$REMOTE_PATH/index.php' && test -f '$REMOTE_PATH/info.php' && test -d '$REMOTE_PATH/api'"
+            "test -f '$REMOTE_PATH/index.php' && test -f '$REMOTE_PATH/info.php' && test -d '$REMOTE_PATH/api' && test -s '$REMOTE_PATH/api/config.local.php'"
 
       - name: Smoke test
         shell: bash
