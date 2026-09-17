@@ -1,5 +1,6 @@
 package br.com.maurinsoft.jarvismobile
 
+import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -9,6 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -37,6 +39,7 @@ fun LcarsFrame(
     onLogout: () -> Unit,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val context = LocalContext.current
     Surface(color = LcarsColors.Background, modifier = Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxSize()) {
             Column(
@@ -52,6 +55,10 @@ fun LcarsFrame(
                 ) { Text("CASA", color = LcarsColors.Ink, fontWeight = FontWeight.Black) }
                 Spacer(Modifier.height(10.dp))
                 LcarsRailButton("HOME", LcarsColors.Lavender, onHome)
+                Spacer(Modifier.height(8.dp))
+                LcarsRailButton("PAINEL", LcarsColors.Gold) {
+                    context.startActivity(Intent(context, DashboardActivity::class.java))
+                }
                 Spacer(Modifier.height(8.dp))
                 LcarsRailButton(if (canBack) "VOLTAR" else "MENU", LcarsColors.Blue, if (canBack) onBack else onHome)
                 Spacer(Modifier.weight(1f))
