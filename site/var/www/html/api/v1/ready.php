@@ -8,9 +8,11 @@ require_once(__DIR__ . '/../db.php');
 
 $checks = [
     'database' => false,
-    'control_plane' => false
+    'control_plane' => false,
+    'schema_version' => false
 ];
 $error = null;
+$schemaVersion = null;
 
 try {
     $pdo = get_db_pdo();
@@ -19,6 +21,9 @@ try {
 
     $stmt = $pdo->query("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name IN ('dispositivos_cluster','device_commands','device_events')");
     $checks['control_plane'] = ((int)$stmt->fetchColumn() >= 3);
+
+    $schemaVersion = casa_schema_version($pdo);
+    $checks['schema_version'] = ($schemaVersion === CASA_SCHEMA_VERSION);
 } catch (Throwable $e) {
     $error = 'Dependencia essencial indisponivel';
 }
@@ -29,6 +34,8 @@ echo json_encode([
     'status' => $ready ? 'ready' : 'not_ready',
     'service' => 'casa-api-v1',
     'check' => 'ready',
+    'schema_version' => $schemaVersion,
+    'expected_schema_version' => CASA_SCHEMA_VERSION,
     'checks' => $checks,
     'message' => $error,
     'timestamp' => date('c')
