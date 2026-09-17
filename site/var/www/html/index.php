@@ -16,6 +16,13 @@ $html = ob_get_clean();
 $lcarsLink = '<link rel="stylesheet" href="/casa/lcars.css?v=20260914b">';
 if (stripos($html, '/casa/lcars.css') === false) $html = str_ireplace('</head>', "  {$lcarsLink}\n</head>", $html);
 
+// Framework adaptativo: usado por telas dirigidas por regras/IA e pelo laboratorio.
+$adaptiveAssets = '<link rel="stylesheet" href="/casa/lcars-framework.css?v=1.0.0">' . "\n" .
+                  '<script defer src="/casa/lcars-framework.js?v=1.0.0"></script>';
+if (stripos($html, '/casa/lcars-framework.css') === false) {
+    $html = str_ireplace('</head>', "  {$adaptiveAssets}\n</head>", $html);
+}
+
 $html = str_replace('/login.php?logout=1', '/casa/login.php?logout=1', $html);
 $html = str_replace('ONLINE • 192.168.2.12', 'CASA DISTRIBUÍDA • ONLINE', $html);
 
@@ -54,12 +61,13 @@ $html = str_replace('Tarefas residenciais rápidas (luz, irrigação, sensores) 
 
 $siteEnhancements = <<<'HTML'
 <style>
-.jarvis-device-bar{position:fixed;right:16px;bottom:16px;z-index:9999;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;max-width:430px}
+.jarvis-device-bar{position:fixed;right:16px;bottom:16px;z-index:9999;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;max-width:620px}
 .jarvis-device-bar a{display:block;text-decoration:none;color:#241c25;font-weight:900;padding:11px 16px;border-radius:18px 18px 4px 18px;box-shadow:0 3px 12px #0002}
-.jarvis-device-bar .devices{background:#8eb9ee}.jarvis-device-bar .family{background:#d8b4ea}.jarvis-device-bar .watch{background:#f59c73}
+.jarvis-device-bar .devices{background:#8eb9ee}.jarvis-device-bar .family{background:#d8b4ea}.jarvis-device-bar .watch{background:#f59c73}.jarvis-device-bar .adaptive{background:#f2a000}
 @media(max-width:720px){.jarvis-device-bar{left:8px;right:8px;bottom:8px}.jarvis-device-bar a{flex:1;text-align:center;padding:10px 6px;font-size:12px}}
 </style>
-<div class="jarvis-device-bar" aria-label="Integração celular e relógio">
+<div class="jarvis-device-bar" aria-label="Integração celular, relógio e interface adaptativa">
+  <a class="adaptive" href="/casa/ui_adaptativa.php">UI ADAPTATIVA</a>
   <a class="devices" href="/casa/dispositivos_pessoais.php">CELULAR + WATCH</a>
   <a class="family" href="/casa/familia.php">FAMÍLIA</a>
   <a class="watch" href="/casa/dispositivos_pessoais.php#watch">WATCH STATUS</a>
