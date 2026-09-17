@@ -25,58 +25,24 @@ DROP TRIGGER IF EXISTS trg_device_commands_before_insert_audit;
 CREATE TRIGGER trg_device_commands_before_insert_audit
 BEFORE INSERT ON device_commands
 FOR EACH ROW
-BEGIN
-    IF NEW.authorized_client IS NULL OR NEW.authorized_client = '' THEN
-        SET NEW.authorized_client = NEW.requested_by;
-    END IF;
-    IF NEW.risk_level >= 3 AND (NEW.confirmed_by IS NULL OR NEW.confirmed_by = '') THEN
-        SET NEW.confirmed_by = NEW.requested_by;
-        SET NEW.confirmed_at = NOW();
-    END IF;
-END;
+SET NEW.authorized_client = COALESCE(NULLIF(NEW.authorized_client,''), NEW.requested_by),
+    NEW.confirmed_by = CASE WHEN NEW.risk_level >= 3 THEN COALESCE(NULLIF(NEW.confirmed_by,''), NEW.requested_by) ELSE NEW.confirmed_by END,
+    NEW.confirmed_at = CASE WHEN NEW.risk_level >= 3 THEN COALESCE(NEW.confirmed_at,NOW()) ELSE NEW.confirmed_at END;
 
 DROP TRIGGER IF EXISTS trg_device_commands_after_insert_audit;
 CREATE TRIGGER trg_device_commands_after_insert_audit
 AFTER INSERT ON device_commands
 FOR EACH ROW
 INSERT INTO device_command_audit(command_id,device_id,event_type,lifecycle_status,actor,details)
-VALUES(
-    NEW.id,
-    NEW.device_id,
-    'CREATED',
-    NEW.lifecycle_status,
-    NEW.requested_by,
-    JSON_OBJECT(
-        'risk_level', NEW.risk_level,
-        'authorized_client', NEW.authorized_client,
-        'confirmed_by', NEW.confirmed_by,
-        'confirmed_at', NEW.confirmed_at,
-        'correlation_id', NEW.correlation_id
-    )
-);
+VALUES(NEW.id,NEW.device_id,'CREATED',NEW.lifecycle_status,NEW.requested_by,
+JSON_OBJECT('risk_level',NEW.risk_level,'authorized_client',NEW.authorized_client,'confirmed_by',NEW.confirmed_by,'confirmed_at',NEW.confirmed_at,'correlation_id',NEW.correlation_id));
 
 DROP TRIGGER IF EXISTS trg_device_commands_after_update_audit;
 CREATE TRIGGER trg_device_commands_after_update_audit
 AFTER UPDATE ON device_commands
 FOR EACH ROW
-BEGIN
-    IF NOT (OLD.lifecycle_status <=> NEW.lifecycle_status) THEN
-        INSERT INTO device_command_audit(command_id,device_id,event_type,lifecycle_status,actor,details)
-        VALUES(
-            NEW.id,
-            NEW.device_id,
-            'LIFECYCLE',
-            NEW.lifecycle_status,
-            CASE
-                WHEN NEW.lifecycle_status IN ('ACKNOWLEDGED','EXECUTING','DONE','FAILED') THEN NEW.device_id
-                ELSE NEW.requested_by
-            END,
-            JSON_OBJECT(
-                'previous_status', OLD.lifecycle_status,
-                'new_status', NEW.lifecycle_status,
-                'retry_count', NEW.retry_count,
-                'error', NEW.erro
-            )
-        );
-    END IF;
-END;
+INSERT INTO device_command_audit(command_id,device_id,event_type,lifecycle_status,actor,details)
+SELECT NEW.id,NEW.device_id,'LIFECYCLE',NEW.lifecycle_status,
+       CASE WHEN NEW.lifecycle_status IN ('ACKNOWLEDGED','EXECUTING','DONE','FAILED') THEN NEW.device_id ELSE NEW.requested_by END,
+       JSON_OBJECT('previous_status',OLD.lifecycle_status,'new_status',NEW.lifecycle_status,'retry_count',NEW.retry_count,'error',NEW.erro)
+WHERE NOT (OLD.lifecycle_status <=> NEW.lifecycle_status);
