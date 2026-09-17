@@ -14,6 +14,7 @@ $authName = !empty($_SESSION['auth_name']) ? $_SESSION['auth_name'] : ($_SESSION
 <body>
   <div class="ja-site-tools" aria-label="Ferramentas do sistema">
     <button class="home" type="button" onclick="CASASite.home()">GRUPOS</button>
+    <a href="/casa/automacao.php">AUTOMAÇÃO</a>
     <a class="legacy" href="/casa/index_legacy.php">PAINEL LEGADO</a>
     <a href="/casa/login.php?logout=1">SAIR · <?= htmlspecialchars($authName, ENT_QUOTES, 'UTF-8') ?></a>
   </div>
