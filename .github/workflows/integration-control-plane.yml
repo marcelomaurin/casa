@@ -46,5 +46,8 @@ jobs:
       - name: Test automatic empty-database install
         run: php .github/tests/test_schema_install.php
 
+      - name: Test Command Bus and automation
+        run: php .github/tests/test_control_plane.php
+
       - name: Validate simulator syntax
         run: python3 -m py_compile servicos/device_simulator.py
