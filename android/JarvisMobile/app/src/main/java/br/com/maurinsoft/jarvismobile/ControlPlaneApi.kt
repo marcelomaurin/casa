@@ -27,10 +27,9 @@ object ControlPlaneApi {
         val lastHeartbeat: String,
         val battery: Int?,
         val rssi: Int?,
-        val capabilities: List<String>
-    ) {
-        val online: Boolean get() = status.equals("online", true) || health.equals("ok", true)
-    }
+        val capabilities: List<String>,
+        val online: Boolean
+    )
 
     data class HealthInfo(
         val ready: Boolean,
@@ -61,21 +60,32 @@ object ControlPlaneApi {
         }
     }
 
+    private fun parseCapabilities(rawCaps: Any?): List<String> {
+        val caps = ArrayList<String>()
+        fun addArray(arr: JSONArray) {
+            for (k in 0 until arr.length()) {
+                when (val item = arr.opt(k)) {
+                    is JSONObject -> if (item.optBoolean("enabled", true)) {
+                        item.optString("name").takeIf { it.isNotBlank() }?.let { caps += it }
+                    }
+                    is String -> if (item.isNotBlank()) caps += item
+                }
+            }
+        }
+        when (rawCaps) {
+            is JSONArray -> addArray(rawCaps)
+            is JSONObject -> rawCaps.keys().forEach { key -> if (rawCaps.optBoolean(key, true)) caps += key }
+            is String -> runCatching { addArray(JSONArray(rawCaps)) }
+        }
+        return caps.distinct()
+    }
+
     fun listDevices(context: Context): List<DeviceInfo> {
         val root = JSONObject(get(context, "/api/v1/control.php?acao=devices"))
         val arr = root.optJSONArray("devices") ?: JSONArray()
         val result = ArrayList<DeviceInfo>()
         for (i in 0 until arr.length()) {
             val j = arr.optJSONObject(i) ?: continue
-            val caps = ArrayList<String>()
-            when (val rawCaps = j.opt("capabilities")) {
-                is JSONArray -> for (k in 0 until rawCaps.length()) caps += rawCaps.optString(k)
-                is JSONObject -> rawCaps.keys().forEach { key -> if (rawCaps.optBoolean(key, true)) caps += key }
-                is String -> runCatching {
-                    val parsed = JSONArray(rawCaps)
-                    for (k in 0 until parsed.length()) caps += parsed.optString(k)
-                }
-            }
             result += DeviceInfo(
                 deviceId = j.optString("device_id"),
                 name = j.optString("nome", j.optString("device_id", "Device")),
@@ -89,7 +99,8 @@ object ControlPlaneApi {
                 lastHeartbeat = j.optString("ultimo_heartbeat"),
                 battery = if (j.has("battery_pct") && !j.isNull("battery_pct")) j.optInt("battery_pct") else null,
                 rssi = if (j.has("sinal_rssi") && !j.isNull("sinal_rssi")) j.optInt("sinal_rssi") else null,
-                capabilities = caps.filter { it.isNotBlank() }.distinct()
+                capabilities = parseCapabilities(j.opt("capabilities")),
+                online = j.optBoolean("online", j.optString("status").equals("online", true))
             )
         }
         return result
