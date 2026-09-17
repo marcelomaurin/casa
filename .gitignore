@@ -13,6 +13,15 @@ lib/
 *.swp
 *.bak
 
+# Android / Gradle / IDE
+.gradle/
+**/.gradle/
+.idea/
+**/.idea/
+**/build/
+local.properties
+*.iml
+
 # Arquivos temporarios e sensiveis
 .env
 __pycache__/
