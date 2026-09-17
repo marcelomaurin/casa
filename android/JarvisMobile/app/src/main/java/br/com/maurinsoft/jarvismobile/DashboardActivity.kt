@@ -32,23 +32,52 @@ class DashboardActivity : ComponentActivity() {
         val scope = rememberCoroutineScope()
         val session = remember { MobileAuth.savedSession(this@DashboardActivity) }
         var devices by remember { mutableStateOf<List<ControlPlaneApi.DeviceInfo>>(emptyList()) }
+        var scenes by remember { mutableStateOf<List<ScenesApi.SceneInfo>>(emptyList()) }
         var health by remember { mutableStateOf(ControlPlaneApi.HealthInfo(false, false, false, "Carregando...")) }
         var loading by remember { mutableStateOf(false) }
+        var sceneBusy by remember { mutableStateOf<Long?>(null) }
         var streamConnected by remember { mutableStateOf(false) }
         var lastEvent by remember { mutableStateOf("Nenhum evento recebido") }
+        var sceneStatus by remember { mutableStateOf("Nenhuma cena executada nesta sessão") }
+        var pendingConfirmation by remember { mutableStateOf<ScenesApi.SceneInfo?>(null) }
 
         fun refresh() {
             if (loading) return
             loading = true
             scope.launch {
-                val pair = withContext(Dispatchers.IO) {
-                    val h = ControlPlaneApi.readiness(this@DashboardActivity)
-                    val d = runCatching { ControlPlaneApi.listDevices(this@DashboardActivity) }.getOrDefault(emptyList())
-                    h to d
+                val result = withContext(Dispatchers.IO) {
+                    Triple(
+                        ControlPlaneApi.readiness(this@DashboardActivity),
+                        runCatching { ControlPlaneApi.listDevices(this@DashboardActivity) }.getOrDefault(emptyList()),
+                        runCatching { ScenesApi.list(this@DashboardActivity) }.getOrDefault(emptyList())
+                    )
                 }
-                health = pair.first
-                devices = pair.second
+                health = result.first
+                devices = result.second
+                scenes = result.third
                 loading = false
+            }
+        }
+
+        fun executeScene(scene: ScenesApi.SceneInfo, confirm: Boolean = false) {
+            if (sceneBusy != null) return
+            sceneBusy = scene.id
+            scope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching { ScenesApi.execute(this@DashboardActivity, scene, confirm) }
+                }
+                sceneBusy = null
+                result.onSuccess { run ->
+                    if (run.requiresConfirmation) {
+                        pendingConfirmation = scene
+                        sceneStatus = "${scene.name}: confirmação necessária (risco ${run.riskLevel})"
+                    } else {
+                        sceneStatus = "${run.message} • execução #${run.runId} • ${run.status}"
+                        refresh()
+                    }
+                }.onFailure {
+                    sceneStatus = "Falha em ${scene.name}: ${it.message ?: "erro desconhecido"}"
+                }
             }
         }
 
@@ -66,6 +95,23 @@ class DashboardActivity : ComponentActivity() {
         }
 
         LaunchedEffect(Unit) { refresh() }
+
+        pendingConfirmation?.let { scene ->
+            AlertDialog(
+                onDismissRequest = { pendingConfirmation = null },
+                title = { Text("Confirmar cena") },
+                text = { Text("A cena ${scene.name} contém ação de risco elevado. Confirma a execução?") },
+                confirmButton = {
+                    Button(onClick = {
+                        pendingConfirmation = null
+                        executeScene(scene, true)
+                    }) { Text("CONFIRMAR") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pendingConfirmation = null }) { Text("CANCELAR") }
+                }
+            )
+        }
 
         val onlineCount = devices.count { it.online }
         val offlineCount = devices.size - onlineCount
@@ -107,6 +153,18 @@ class DashboardActivity : ComponentActivity() {
                     }
                 }
 
+                LcarsSectionLabel("CENAS", LcarsColors.Lavender)
+                if (scenes.isEmpty()) {
+                    ElevatedCard(Modifier.fillMaxWidth()) {
+                        Text(if (loading) "Carregando cenas..." else "Nenhuma cena cadastrada.", Modifier.padding(16.dp))
+                    }
+                } else {
+                    scenes.forEach { scene -> SceneCard(scene, sceneBusy == scene.id) { executeScene(scene) } }
+                }
+                ElevatedCard(Modifier.fillMaxWidth()) {
+                    Text(sceneStatus, Modifier.padding(14.dp))
+                }
+
                 LcarsSectionLabel("DEVICES", LcarsColors.Gold)
                 if (devices.isEmpty()) {
                     ElevatedCard(Modifier.fillMaxWidth()) {
@@ -129,6 +187,22 @@ class DashboardActivity : ComponentActivity() {
             Column(Modifier.padding(14.dp)) {
                 Text(title, style = MaterialTheme.typography.labelMedium)
                 Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
+            }
+        }
+    }
+
+    @Composable
+    private fun SceneCard(scene: ScenesApi.SceneInfo, busy: Boolean, onExecute: () -> Unit) {
+        ElevatedCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(scene.name, fontWeight = FontWeight.Bold)
+                if (scene.description.isNotBlank()) Text(scene.description)
+                Text("${scene.actions} ação(ões) • risco ${scene.riskLevel} • ${if (scene.active) "ativa" else "desabilitada"}")
+                Button(
+                    onClick = onExecute,
+                    enabled = scene.active && !busy,
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text(if (busy) "EXECUTANDO..." else "EXECUTAR CENA") }
             }
         }
     }
