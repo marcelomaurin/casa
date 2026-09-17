@@ -13,6 +13,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') { http_response_code(20
 require_once(__DIR__ . '/../db.php');
 require_once(__DIR__ . '/device_common.php');
 require_once(__DIR__ . '/rules_engine.php');
+require_once(__DIR__ . '/rules_scheduler.php');
 $pdo=get_db_pdo();
 api_v1_basic_guard($pdo);
 
@@ -60,8 +61,8 @@ if ($action==='heartbeat') {
     $caps=is_array($input['capabilities'] ?? null)?$input['capabilities']:null;
     $data=is_array($input['data'] ?? null)?$input['data']:[];
 
-    $sql="UPDATE dispositivos_cluster SET status='online',transport=:t,local_ip=:lip,observed_ip=:oip,gateway_device_id=:g,health=:h,firmware_version=:f,protocol_version=:p,manufacturer=COALESCE(:mf,manufacturer),model=COALESCE(:m,model),battery_pct=:b,sinal_rssi=:r,ultimo_heartbeat=NOW(),ip_address=COALESCE(:lip2,ip_address)";
-    $params=[':t'=>$transport,':lip'=>$localIp,':oip'=>$observed,':g'=>$gateway,':h'=>$health,':f'=>$firmware,':p'=>$protocol,':mf'=>$manufacturer,':m'=>$model,':b'=>$battery,':r'=>$rssi,':lip2'=>$localIp,':id'=>$dev['id']];
+    $sql="UPDATE dispositivos_cluster SET status='online',transport=:t,local_ip=:lip,observed_ip=:oip,gateway_device_id=:g,health=:h,firmware_version=:f,protocol_version=:p,manufacturer=COALESCE(:mf,manufacturer),model=COALESCE(:m,model),battery_pct=:b,sinal_rssi=:r,ultimo_heartbeat=NOW(),ip_address=COALESCE(:lip2,ip_address),metadata=:meta";
+    $params=[':t'=>$transport,':lip'=>$localIp,':oip'=>$observed,':g'=>$gateway,':h'=>$health,':f'=>$firmware,':p'=>$protocol,':mf'=>$manufacturer,':m'=>$model,':b'=>$battery,':r'=>$rssi,':lip2'=>$localIp,':meta'=>json_encode($data,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES),':id'=>$dev['id']];
     if ($caps!==null) { $sql.=",capabilities=:c"; $params[':c']=json_encode($caps,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES); }
     $sql.=" WHERE id=:id";
     $pdo->prepare($sql)->execute($params);
@@ -85,9 +86,17 @@ if ($action==='heartbeat') {
         $stmt->execute([':d'=>$deviceId,':t'=>$transport,':l'=>$localIp,':o'=>$observed,':g'=>$gateway,':r'=>$rssi,':b'=>$battery,':u'=>$uptime,':h'=>$health,':f'=>$firmware,':p'=>$protocol,':j'=>json_encode($data,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES)]);
     } catch(Throwable $e) {}
 
+    $scheduledRuns=[];
+    try {
+        $scheduledRuns=rules_scheduler_tick($pdo,false);
+        if($scheduledRuns) api_v1_log($pdo,'AUTOMATION_SCHEDULED','INFO',$deviceId,['runs'=>$scheduledRuns]);
+    } catch(Throwable $e) {
+        api_v1_log($pdo,'AUTOMATION_SCHEDULER_ERROR','WARN',$deviceId,['error'=>substr($e->getMessage(),0,500)]);
+    }
+
     $stmt=$pdo->prepare("SELECT COUNT(*) FROM device_commands WHERE device_id=:d AND lifecycle_status IN('QUEUED','SENT') AND (expira_em IS NULL OR expira_em>NOW())");
     $stmt->execute([':d'=>$deviceId]);
-    api_v1_json_response(200,['status'=>'ok','device_id'=>$deviceId,'server_time'=>date('c'),'commands_pending'=>(int)$stmt->fetchColumn(),'config_version'=>(int)($dev['config_version'] ?? 1)]);
+    api_v1_json_response(200,['status'=>'ok','device_id'=>$deviceId,'server_time'=>date('c'),'commands_pending'=>(int)$stmt->fetchColumn(),'config_version'=>(int)($dev['config_version'] ?? 1),'scheduled_runs'=>$scheduledRuns]);
 }
 
 if ($action==='event') {
@@ -105,7 +114,6 @@ if ($action==='event') {
         $automationRuns=rules_engine_process_event($pdo,['id'=>$id,'device_id'=>$deviceId,'type'=>$type,'data'=>$data]);
         if ($automationRuns) api_v1_log($pdo,'AUTOMATION_TRIGGERED','INFO',$deviceId,['event_id'=>$id,'runs'=>$automationRuns]);
     } catch(Throwable $e) {
-        // O barramento de eventos continua operando mesmo se a migration de automacao ainda nao estiver aplicada.
         api_v1_log($pdo,'AUTOMATION_ERROR','WARN',$deviceId,['event_id'=>$id,'error'=>substr($e->getMessage(),0,500)]);
     }
     api_v1_json_response(200,['status'=>'ok','event_id'=>$id,'automation_runs'=>$automationRuns]);
