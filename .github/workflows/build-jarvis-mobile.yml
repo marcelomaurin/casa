@@ -1,17 +1,43 @@
 name: Build Jarvis Mobile APK
-# build-trigger: 2.6.3
+# build-trigger: 2.6.3-clean-ci
 
 on:
   push:
     paths:
       - 'android/JarvisMobile/**'
       - '.github/workflows/build-jarvis-mobile.yml'
+      - '.gitignore'
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
+  repository-hygiene:
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Remove Android Studio and Gradle caches from Git index
+        shell: bash
+        run: |
+          git rm -r --cached --ignore-unmatch android/JarvisMobile/.gradle android/JarvisMobile/.idea
+          while IFS= read -r -d '' dir; do
+            git rm -r --cached --ignore-unmatch -- "$dir"
+          done < <(find android/JarvisMobile -type d -name build -print0 2>/dev/null)
+
+          if git diff --cached --quiet; then
+            echo "Repositorio ja esta limpo."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Remove caches Android/Gradle versionados [skip ci]"
+          git push origin HEAD:master
+
   build:
     runs-on: ubuntu-latest
     defaults:
@@ -39,31 +65,6 @@ jobs:
           path: ~/.android/debug.keystore
           key: jarvis-mobile-debug-keystore-v1
 
-      - name: Patch Compose for Kotlin 2
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          root = Path('build.gradle.kts')
-          txt = root.read_text()
-          if 'org.jetbrains.kotlin.plugin.compose' not in txt:
-              txt = txt.replace(
-                  'id("org.jetbrains.kotlin.android") version "2.0.21" apply false',
-                  'id("org.jetbrains.kotlin.android") version "2.0.21" apply false\n    id("org.jetbrains.kotlin.plugin.compose") version "2.0.21" apply false'
-              )
-              root.write_text(txt)
-
-          app = Path('app/build.gradle.kts')
-          txt = app.read_text()
-          if 'id("org.jetbrains.kotlin.plugin.compose")' not in txt:
-              txt = txt.replace(
-                  'id("org.jetbrains.kotlin.android")',
-                  'id("org.jetbrains.kotlin.android")\n    id("org.jetbrains.kotlin.plugin.compose")'
-              )
-          txt = txt.replace('''\n    composeOptions {\n        kotlinCompilerExtensionVersion = "1.5.15"\n    }\n''', '\n')
-          app.write_text(txt)
-          PY
-
       - name: Build debug APK
         run: gradle --no-daemon :app:assembleDebug
 
@@ -82,34 +83,34 @@ jobs:
           echo "name=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Rename APK
-        run: |
-          cp app/build/outputs/apk/debug/app-debug.apk ../../JarvisMobile-v${{ steps.version.outputs.name }}-debug.apk
-          cp app/build/outputs/apk/debug/app-debug.apk ../../JarvisMobile-debug.apk
-
-      - name: Version APK in repository
-        working-directory: ${{ github.workspace }}
         shell: bash
         run: |
-          cp JarvisMobile-debug.apk /tmp/JarvisMobile-debug.apk
-          cp JarvisMobile-v${{ steps.version.outputs.name }}-debug.apk /tmp/JarvisMobile-versioned.apk
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin master
-          git reset --hard origin/master
-          mkdir -p bin/android
-          cp /tmp/JarvisMobile-debug.apk bin/android/JarvisMobile-debug.apk
-          cp /tmp/JarvisMobile-versioned.apk bin/android/JarvisMobile-v${{ steps.version.outputs.name }}-debug.apk
-          git add bin/android/
-          if git diff --cached --quiet; then
-            echo "APK sem alteracoes; nada para commitar."
-          else
-            git commit -m "Atualiza APK Jarvis Mobile v${{ steps.version.outputs.name }} [skip ci]"
-            git push origin HEAD:master
-          fi
+          cp app/build/outputs/apk/debug/app-debug.apk "${{ github.workspace }}/JarvisMobile-v${{ steps.version.outputs.name }}-debug.apk"
 
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: JarvisMobile-v${{ steps.version.outputs.name }}-debug-apk
           path: JarvisMobile-v${{ steps.version.outputs.name }}-debug.apk
           if-no-files-found: error
+
+      - name: Publish or update debug GitHub Release
+        if: github.ref == 'refs/heads/master'
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ steps.version.outputs.name }}"
+          TAG="jarvis-mobile-v${VERSION}-debug"
+          ASSET="JarvisMobile-v${VERSION}-debug.apk"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$ASSET" --clobber
+          else
+            gh release create "$TAG" "$ASSET" \
+              --target "$GITHUB_SHA" \
+              --title "Jarvis Mobile v${VERSION} Debug" \
+              --notes "Build automatizado de desenvolvimento do Jarvis Mobile v${VERSION}." \
+              --prerelease
+          fi
