@@ -41,6 +41,18 @@
             </intent-filter>
         </activity>
 
+        <!-- Painel operacional independente: exige sessao local valida e retorna ao login se necessario. -->
+        <activity
+            android:name=".DashboardActivity"
+            android:exported="true"
+            android:label="CASA Dashboard"
+            android:theme="@style/Theme.JarvisMobile">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <activity
             android:name=".NewDevicesActivity"
             android:exported="false"
