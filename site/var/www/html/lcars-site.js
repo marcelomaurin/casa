@@ -112,12 +112,21 @@ const GROUPS={
 
 let currentGroup=null;
 let currentItem=null;
+let suppressHistory=false;
+
+function setRoute(group,item){
+  if(suppressHistory) return;
+  const u=new URL(location.href);
+  if(group) u.searchParams.set('grupo',group); else u.searchParams.delete('grupo');
+  if(item) u.searchParams.set('item',item); else u.searchParams.delete('item');
+  history.pushState({group:group||null,item:item||null},'',u);
+}
 
 function topGroupCards(){
   return Object.keys(GROUPS).map(name=>({title:name,description:GROUPS[name].subtitle,id:name}));
 }
 
-function home(){
+function home(updateRoute=true){
   currentGroup=null; currentItem=null;
   CASALcars.render('#app',{
     layout:'dashboard',group:'GRUPOS',title:'CASA / JARVIS',subtitle:'Escolha um grupo. A interface adapta o miolo conforme a tarefa.',
@@ -125,6 +134,7 @@ function home(){
     items:topGroupCards().map(g=>({title:g.title,description:g.description,status:'ABRIR',actions:[{label:'ENTRAR',action:'open-group:'+g.id,variant:'primary'}]})),
     footer:{hint:'Os grupos são pequenos; menus grandes são divididos em colunas.'}
   });
+  if(updateRoute) setRoute(null,null);
 }
 
 function groupRail(group){
@@ -133,14 +143,15 @@ function groupRail(group){
   return [{label:'← GRUPOS',action:'back',back:true}].concat(flat.slice(0,8).map(it=>({label:it.label,id:it.id,action:'open-item',active:currentItem===it.id})));
 }
 
-function openGroup(group){
-  if(!GROUPS[group]) return home();
+function openGroup(group,updateRoute=true){
+  if(!GROUPS[group]) return home(updateRoute);
   currentGroup=group; currentItem=null;
   CASALcars.render('#app',{
     layout:'menu-grid',kind:'menu',group, title:group, subtitle:GROUPS[group].subtitle,
     breadcrumb:['CASA','GRUPOS',group],groups:groupRail(group),status:STATUS,sections:GROUPS[group].sections,
     footer:{hint:'Escolha uma opção à esquerda ou no miolo. Use ← GRUPOS para voltar.'}
   });
+  if(updateRoute) setRoute(group,null);
 }
 
 function findItem(group,id){
@@ -149,7 +160,7 @@ function findItem(group,id){
   return null;
 }
 
-function openItem(item){
+function openItem(item,updateRoute=true){
   if(!item || !currentGroup) return;
   currentItem=item.id;
   CASALcars.render('#app',{
@@ -158,7 +169,15 @@ function openItem(item){
     items:[{title:item.label,description:'Módulo funcional do CASA carregado no painel central.'}],
     footer:{hint:'Use ← GRUPOS para trocar de grupo ou escolha outra opção à esquerda.'}
   });
+  if(updateRoute) setRoute(currentGroup,item.id);
   mountModule(item);
+}
+
+function sessionExpiredInFrame(frame){
+  try{
+    const p=frame.contentWindow.location.pathname || '';
+    return p.endsWith('/casa/login.php') || p.endsWith('/login.php');
+  }catch(e){ return false; }
 }
 
 function mountModule(item){
@@ -167,23 +186,27 @@ function mountModule(item){
   const src=item.url || '/casa/index_legacy.php';
   content.innerHTML='<div class="ja-module-wrap"><div class="ja-module-title"><strong>'+escapeHtml(item.label)+'</strong><small>CASA / módulo funcional</small></div><iframe class="ja-module-frame" title="'+escapeHtml(item.label)+'" src="'+escapeAttr(src)+'"></iframe></div>';
   const frame=content.querySelector('iframe');
-  if(item.tab){
-    frame.addEventListener('load',()=>{
-      try{
-        const doc=frame.contentDocument, win=frame.contentWindow;
-        if(doc){
-          const st=doc.createElement('style');
-          st.textContent='.hud-navbar,.nav-tabs-hud{display:none!important} body{padding-top:0!important}.container-fluid{max-width:none!important;padding-left:14px!important;padding-right:14px!important}';
-          doc.head.appendChild(st);
-        }
+  frame.addEventListener('load',()=>{
+    if(sessionExpiredInFrame(frame)){
+      window.top.location.href='/casa/login.php';
+      return;
+    }
+    try{
+      const doc=frame.contentDocument, win=frame.contentWindow;
+      if(doc){
+        const st=doc.createElement('style');
+        st.textContent='.hud-navbar,.nav-tabs-hud{display:none!important} body{padding-top:0!important}.container-fluid{max-width:none!important;padding-left:14px!important;padding-right:14px!important}';
+        doc.head.appendChild(st);
+      }
+      if(item.tab){
         if(win && typeof win.switchTab==='function') win.switchTab(item.tab);
         else if(doc){
           doc.querySelectorAll('.tab-content-item').forEach(x=>x.style.display='none');
           const target=doc.getElementById(item.tab); if(target) target.style.display='block';
         }
-      }catch(e){ console.warn('LCARS módulo:',e); }
-    });
-  }
+      }
+    }catch(e){ console.warn('LCARS módulo:',e); }
+  });
 }
 
 function escapeHtml(v){return String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
@@ -204,13 +227,24 @@ function handleAction(detail){
   }
 }
 
+function restoreRoute(){
+  const params=new URLSearchParams(location.search);
+  const g=params.get('grupo');
+  const itemId=params.get('item');
+  suppressHistory=true;
+  if(g && GROUPS[g]){
+    openGroup(g,false);
+    if(itemId){ const it=findItem(g,itemId); if(it) openItem(it,false); }
+  } else home(false);
+  suppressHistory=false;
+}
+
 document.addEventListener('DOMContentLoaded',()=>{
   const app=document.getElementById('app');
   app.addEventListener('ja:action',e=>handleAction(e.detail||{}));
-  const params=new URLSearchParams(location.search);
-  const g=params.get('grupo');
-  if(g && GROUPS[g]) openGroup(g); else home();
+  restoreRoute();
 });
 
+window.addEventListener('popstate',restoreRoute);
 window.CASASite={home,openGroup,openItem,groups:GROUPS};
 })();
