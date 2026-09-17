@@ -1,0 +1,17 @@
+/* CASA/JARVIS - integração do framework LCARS com os módulos reais do site */
+html,body{margin:0;min-height:100%;background:#090909}
+#app{min-height:100vh}
+.ja-site-tools{position:fixed;z-index:10050;right:18px;top:92px;display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end;max-width:520px}
+.ja-site-tools button,.ja-site-tools a{border:0;border-radius:14px;padding:8px 11px;background:#f3d0e1;color:#161316;font-weight:900;text-decoration:none;cursor:pointer;box-shadow:0 2px 8px #0006}
+.ja-site-tools .legacy{background:#9fcdf5}.ja-site-tools .home{background:#f1a20c}
+.ja-module-wrap{min-height:650px;background:#fff;border-radius:0 0 24px 24px;overflow:hidden;border:2px solid #d96f78}
+.ja-module-title{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;background:#111;color:#fff;border-bottom:8px solid #d96f78}
+.ja-module-title strong{font-size:15px;letter-spacing:.7px;text-transform:uppercase}
+.ja-module-title small{color:#a7d6fb}
+.ja-module-frame{width:100%;height:72vh;min-height:610px;border:0;background:#f2eadc;display:block}
+.ja-native-note{padding:12px 14px;border-left:8px solid #d3a04d;background:#fff4dc;color:#2a2428;margin-bottom:12px;border-radius:0 14px 14px 0}
+.ja-group-hero{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.ja-group-card{border:0;border-radius:20px;padding:20px;min-height:130px;text-align:left;cursor:pointer;background:#8eb9ee;color:#171317;display:flex;flex-direction:column;justify-content:space-between;font-weight:800}
+.ja-group-card:nth-child(3n+2){background:#d8b4ea}.ja-group-card:nth-child(3n){background:#f2a000}.ja-group-card strong{font-size:22px}.ja-group-card span{font-size:12px;font-weight:600;opacity:.8}
+@media(max-width:1000px){.ja-site-tools{position:static;padding:8px 10px;background:#090909}.ja-group-hero{grid-template-columns:repeat(2,minmax(0,1fr))}.ja-module-frame{height:68vh}}
+@media(max-width:680px){.ja-group-hero{grid-template-columns:1fr}.ja-module-wrap{min-height:520px}.ja-module-frame{min-height:500px;height:65vh}}
