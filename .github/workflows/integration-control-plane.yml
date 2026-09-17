@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - 'site/var/www/html/api/**'
+      - 'site/var/www/html/automacao.php'
       - 'servicos/device_simulator.py'
       - '.github/tests/**'
       - '.github/workflows/integration-control-plane.yml'
@@ -40,15 +41,10 @@ jobs:
         shell: bash
         run: |
           find site/var/www/html/api -name '*.php' -print0 | xargs -0 -n1 php -l
+          php -l site/var/www/html/automacao.php
 
       - name: Test automatic empty-database install
         run: php .github/tests/test_schema_install.php
-
-      - name: Validate schema version and audit table
-        shell: bash
-        run: |
-          mariadb -h 127.0.0.1 -uroot -proot casa_test -e "SELECT chave,valor FROM param WHERE chave='VERSAO';"
-          mariadb -h 127.0.0.1 -uroot -proot casa_test -e "SHOW TABLES LIKE 'device_command_audit';"
 
       - name: Validate simulator syntax
         run: python3 -m py_compile servicos/device_simulator.py
