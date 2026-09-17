@@ -1,4 +1,0 @@
-br.com.maurinsoft.jarvismobile.test.app-androidTest-0 D:\projetos\maurinsoft\casa\android\JarvisMobile\app\build\generated\res\resValues\androidTest\debug
-br.com.maurinsoft.jarvismobile.test.app-mergeDebugAndroidTestResources-1 D:\projetos\maurinsoft\casa\android\JarvisMobile\app\build\intermediates\incremental\debugAndroidTest\mergeDebugAndroidTestResources\merged.dir
-br.com.maurinsoft.jarvismobile.test.app-mergeDebugAndroidTestResources-2 D:\projetos\maurinsoft\casa\android\JarvisMobile\app\build\intermediates\incremental\debugAndroidTest\mergeDebugAndroidTestResources\stripped.dir
-br.com.maurinsoft.jarvismobile.test.app-debugAndroidTest-3 D:\projetos\maurinsoft\casa\android\JarvisMobile\app\build\intermediates\merged_res\debugAndroidTest\mergeDebugAndroidTestResources
