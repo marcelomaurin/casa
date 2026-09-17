@@ -1,12 +1,13 @@
 <?php
 // Banco central do JARVIS/CASA.
 // Produção Hostinger: MySQL/MariaDB via config.local.php privado ou variáveis de ambiente.
-// Banco atual: u820932905_casadb | usuário: u820932905_root
 // A senha do MySQL nunca deve ser versionada no Git.
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
+
+const CASA_SCHEMA_VERSION = '1.20';
 
 function local_config(): array {
     static $cfg = null;
@@ -44,6 +45,7 @@ function cfg_bool(string $configKey, string $envKey, bool $default = true): bool
 
 function casa_required_tables(): array {
     return [
+        'param',
         'configuracoes_sistema', 'usuarios', 'devices', 'devpar',
         'sensores_telemetria', 'falas', 'frases', 'llm_conversas',
         'comandos_log', 'arm_nodes', 'dispositivos_cluster', 'iot_leituras',
@@ -51,7 +53,11 @@ function casa_required_tables(): array {
         'agentes_externos', 'api_client_tokens', 'api_v1_rate_limit',
         'api_v1_security_log', 'mobile_eventos', 'mobile_notificacoes',
         'watch_notificacoes', 'internet_pesquisas', 'jarvis_planos',
-        'jarvis_tarefas', 'tarefas_agendadas', 'device_pairing_requests'
+        'jarvis_tarefas', 'tarefas_agendadas', 'device_pairing_requests',
+        'device_capabilities', 'device_commands', 'device_events', 'device_heartbeats',
+        'scenes', 'scene_actions', 'scene_runs', 'scene_run_actions',
+        'automation_rules', 'automation_rule_actions', 'automation_rule_runs',
+        'automation_rule_run_actions'
     ];
 }
 
@@ -108,17 +114,61 @@ function casa_execute_schema_file(PDO $pdo, string $file): void {
     }
 }
 
+function casa_ensure_param_table(PDO $pdo): void {
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS param (
+            chave VARCHAR(120) NOT NULL,
+            valor TEXT NULL,
+            atualizado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (chave)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    );
+}
+
+function casa_schema_version(PDO $pdo): ?string {
+    casa_ensure_param_table($pdo);
+    $stmt = $pdo->prepare("SELECT valor FROM param WHERE chave='VERSAO' LIMIT 1");
+    $stmt->execute();
+    $value = $stmt->fetchColumn();
+    return $value === false ? null : trim((string)$value);
+}
+
+function casa_set_schema_version(PDO $pdo, string $version): void {
+    $stmt = $pdo->prepare(
+        "INSERT INTO param(chave,valor) VALUES('VERSAO',:v)
+         ON DUPLICATE KEY UPDATE valor=VALUES(valor), atualizado_em=CURRENT_TIMESTAMP"
+    );
+    $stmt->execute([':v' => $version]);
+}
+
+function casa_run_version_migrations(PDO $pdo, ?string $currentVersion): void {
+    if ($currentVersion === CASA_SCHEMA_VERSION) {
+        return;
+    }
+
+    // Por enquanto a release consolidada do banco é 1.20.
+    // Novas versões devem ser adicionadas aqui em ordem crescente.
+    $migrations = [
+        '1.20' => __DIR__ . '/migrations/1.20.sql',
+    ];
+
+    foreach ($migrations as $version => $file) {
+        if ($currentVersion !== null && version_compare($currentVersion, $version, '>=')) {
+            continue;
+        }
+
+        casa_execute_schema_file($pdo, $file);
+        casa_set_schema_version($pdo, $version);
+        $currentVersion = $version;
+    }
+}
+
 function ensure_database_schema(PDO $pdo): void {
     static $checked = false;
     if ($checked || !cfg_bool('auto_init_db', 'JARVIS_AUTO_INIT_DB', true)) {
         return;
     }
     $checked = true;
-
-    $missing = casa_missing_tables($pdo);
-    if (empty($missing)) {
-        return;
-    }
 
     $lockName = 'casa_jarvis_schema_install';
     try {
@@ -134,10 +184,35 @@ function ensure_database_schema(PDO $pdo): void {
     }
 
     try {
+        casa_ensure_param_table($pdo);
+        $version = casa_schema_version($pdo);
+
+        // Regra de instalação: VERSAO=1.20 significa banco pronto e não executa novamente.
+        if ($version === CASA_SCHEMA_VERSION) {
+            return;
+        }
+
+        // Instalação limpa: primeiro cria o schema-base legado, depois aplica as migrations.
+        // Em banco existente, só executa o schema-base quando realmente faltam tabelas-base.
+        $baseRequired = [
+            'configuracoes_sistema', 'usuarios', 'devices', 'devpar',
+            'dispositivos_cluster', 'api_client_tokens'
+        ];
         $missing = casa_missing_tables($pdo);
-        if (!empty($missing)) {
+        $missingLookup = array_fill_keys($missing, true);
+        $needsBase = false;
+        foreach ($baseRequired as $table) {
+            if (isset($missingLookup[$table])) {
+                $needsBase = true;
+                break;
+            }
+        }
+
+        if ($needsBase) {
             casa_execute_schema_file($pdo, __DIR__ . '/schema_mysql.sql');
         }
+
+        casa_run_version_migrations($pdo, $version);
 
         $remaining = casa_missing_tables($pdo);
         if (!empty($remaining)) {
@@ -145,6 +220,9 @@ function ensure_database_schema(PDO $pdo): void {
                 'Instalação automática incompleta. Tabelas ausentes: ' . implode(', ', $remaining)
             );
         }
+
+        // Só marca 1.20 depois de toda a validação concluir sem erro.
+        casa_set_schema_version($pdo, CASA_SCHEMA_VERSION);
     } finally {
         try {
             $unlock = $pdo->prepare('SELECT RELEASE_LOCK(:lock_name)');
