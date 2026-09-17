@@ -1,0 +1,54 @@
+name: Integration Control Plane
+
+on:
+  push:
+    paths:
+      - 'site/var/www/html/api/**'
+      - 'servicos/device_simulator.py'
+      - '.github/tests/**'
+      - '.github/workflows/integration-control-plane.yml'
+  workflow_dispatch:
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: casa_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mariadb-admin ping -h 127.0.0.1 -proot"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_mysql,curl,json
+
+      - name: Validate PHP syntax
+        shell: bash
+        run: |
+          find site/var/www/html/api -name '*.php' -print0 | xargs -0 -n1 php -l
+
+      - name: Test automatic empty-database install
+        run: php .github/tests/test_schema_install.php
+
+      - name: Validate schema version and audit table
+        shell: bash
+        run: |
+          mariadb -h 127.0.0.1 -uroot -proot casa_test -e "SELECT chave,valor FROM param WHERE chave='VERSAO';"
+          mariadb -h 127.0.0.1 -uroot -proot casa_test -e "SHOW TABLES LIKE 'device_command_audit';"
+
+      - name: Validate simulator syntax
+        run: python3 -m py_compile servicos/device_simulator.py
