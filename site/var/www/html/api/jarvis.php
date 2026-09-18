@@ -129,15 +129,24 @@ $routing_mode = $configs['ia_routing_mode'] ?? 'auto';
 if (!empty($input['ia_mode'])) $routing_mode = trim($input['ia_mode']);
 elseif (!empty($_POST['ia_mode'])) $routing_mode = trim($_POST['ia_mode']);
 
-$ia_provider = trim($configs['ia_provider'] ?? 'local');
-$runpod_api_key = $configs['runpod_api_key'] ?? '';
+$ia_provider = strtolower(trim($configs['ia_provider'] ?? 'local')); // local | remote
+$ia_remote_provider = strtolower(trim($configs['ia_remote_provider'] ?? 'runpod'));
+$ia_remote_model = trim($configs['ia_remote_model'] ?? '');
+$ia_remote_api_key = trim($configs['ia_remote_api_key'] ?? '');
+$ia_remote_base_url = trim($configs['ia_remote_base_url'] ?? '');
+// Compatibilidade com configurações anteriores.
+if (!in_array($ia_provider, ['local','remote'], true)) {
+    $ia_remote_provider = $ia_provider === 'openai_compatible' ? 'custom' : $ia_provider;
+    $ia_provider = ($ia_remote_provider === 'local') ? 'local' : 'remote';
+}
+$runpod_api_key = $configs['runpod_api_key'] ?? $ia_remote_api_key;
 $runpod_endpoint_id = $configs['runpod_endpoint_id'] ?? '';
-$runpod_model = !empty($configs['runpod_model']) ? $configs['runpod_model'] : 'meta-llama/Meta-Llama-3-8B-Instruct';
+$runpod_model = !empty($configs['runpod_model']) ? $configs['runpod_model'] : ($ia_remote_model ?: 'meta-llama/Meta-Llama-3-8B-Instruct');
 $local_model = $configs['local_model'] ?? 'jarvis-local:latest';
 $local_ollama_url = trim($configs['local_ollama_url'] ?? 'http://127.0.0.1:11434');
-$openai_base_url = trim($configs['openai_base_url'] ?? '');
-$openai_api_key = trim($configs['openai_api_key'] ?? '');
-$openai_model = trim($configs['openai_model'] ?? '');
+$openai_base_url = trim($configs['openai_base_url'] ?? $ia_remote_base_url);
+$openai_api_key = trim($configs['openai_api_key'] ?? $ia_remote_api_key);
+$openai_model = trim($configs['openai_model'] ?? $ia_remote_model);
 $jarvis_voice = $configs['jarvis_voice'] ?? 'padrao';
 
 function chamar_llm_runpod($apiKey, $endpointId, $model, $systemPrompt, $userMsg) {
@@ -262,46 +271,45 @@ function jarvis_lista_modelos_ia(PDO $pdo, string $preferencia='auto'): array {
 }
 
 function jarvis_chamar_modelo(array $m, string $systemPrompt, string $userMsg): array {
-    $provedor = $m['provedor'] ?? 'openai_compatible';
+    $provedor = strtolower((string)($m['provedor'] ?? 'openai_compatible'));
     $timeout = max(5, (int)($m['timeout_segundos'] ?? 45));
     $maxTokens = max(32, (int)($m['max_tokens'] ?? 600));
     $temperature = (float)($m['temperatura'] ?? 0.35);
+    $baseUrl = rtrim(trim((string)($m['base_url'] ?? '')), '/');
+    $apiKey = trim((string)($m['api_key'] ?? ''));
+    $model = trim((string)($m['modelo'] ?? ''));
 
-    if ($provedor === 'ollama') {
-        return chamar_llm_local($m['base_url'] ?? '', $m['modelo'] ?? '', $systemPrompt, $userMsg);
+    if ($provedor === 'ollama' || $provedor === 'local') {
+        return chamar_llm_local($baseUrl, $model, $systemPrompt, $userMsg);
+    }
+    if ($model === '') return ['ok'=>false,'erro'=>'Modelo ausente','http'=>0];
+
+    if ($provedor === 'gemini') {
+        if ($baseUrl === '') $baseUrl='https://generativelanguage.googleapis.com/v1beta';
+        if ($apiKey === '') return ['ok'=>false,'erro'=>'API key Gemini ausente','http'=>0];
+        $url=$baseUrl.'/models/'.rawurlencode($model).':generateContent?key='.rawurlencode($apiKey);
+        $payload=[
+            'system_instruction'=>['parts'=>[['text'=>$systemPrompt]]],
+            'contents'=>[['role'=>'user','parts'=>[['text'=>$userMsg]]]],
+            'generationConfig'=>['temperature'=>$temperature,'maxOutputTokens'=>$maxTokens]
+        ];
+        $headers=['Content-Type: application/json'];
+    } elseif ($provedor === 'anthropic' || $provedor === 'claude') {
+        if ($baseUrl === '') $baseUrl='https://api.anthropic.com/v1';
+        if ($apiKey === '') return ['ok'=>false,'erro'=>'API key Anthropic ausente','http'=>0];
+        $url=$baseUrl.'/messages';
+        $payload=['model'=>$model,'system'=>$systemPrompt,'messages'=>[['role'=>'user','content'=>$userMsg]],'temperature'=>$temperature,'max_tokens'=>$maxTokens];
+        $headers=['Content-Type: application/json','x-api-key: '.$apiKey,'anthropic-version: 2023-06-01'];
+    } else {
+        if ($baseUrl === '') return ['ok'=>false,'erro'=>'URL do provedor ausente','http'=>0];
+        $url = preg_match('#/chat/completions$#i', $baseUrl) ? $baseUrl : $baseUrl . '/chat/completions';
+        $payload=['model'=>$model,'messages'=>[['role'=>'system','content'=>$systemPrompt],['role'=>'user','content'=>$userMsg]],'temperature'=>$temperature,'max_tokens'=>$maxTokens,'stream'=>false];
+        $headers=['Content-Type: application/json'];
+        if ($apiKey !== '') $headers[]='Authorization: Bearer '.$apiKey;
     }
 
-    $baseUrl = $m['base_url'] ?? '';
-    $apiKey = $m['api_key'] ?? '';
-    $model = $m['modelo'] ?? '';
-
-    $baseUrl = rtrim(trim((string)$baseUrl), '/');
-    if ($baseUrl === '' || trim((string)$model) === '') {
-        return ['ok'=>false,'erro'=>'URL/modelo ausentes','http'=>0];
-    }
-    $url = preg_match('#/chat/completions$#i', $baseUrl) ? $baseUrl : $baseUrl . '/chat/completions';
-    $payload = [
-        'model'=>$model,
-        'messages'=>[
-            ['role'=>'system','content'=>$systemPrompt],
-            ['role'=>'user','content'=>$userMsg]
-        ],
-        'temperature'=>$temperature,
-        'max_tokens'=>$maxTokens,
-        'stream'=>false
-    ];
-    $headers = ['Content-Type: application/json'];
-    if (trim((string)$apiKey) !== '') $headers[] = 'Authorization: Bearer ' . $apiKey;
-
-    $ch = curl_init($url);
-    curl_setopt_array($ch,[
-        CURLOPT_RETURNTRANSFER=>true,
-        CURLOPT_POST=>true,
-        CURLOPT_POSTFIELDS=>json_encode($payload,JSON_UNESCAPED_UNICODE),
-        CURLOPT_HTTPHEADER=>$headers,
-        CURLOPT_CONNECTTIMEOUT=>5,
-        CURLOPT_TIMEOUT=>$timeout
-    ]);
+    $ch=curl_init($url);
+    curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_POST=>true,CURLOPT_POSTFIELDS=>json_encode($payload,JSON_UNESCAPED_UNICODE),CURLOPT_HTTPHEADER=>$headers,CURLOPT_CONNECTTIMEOUT=>5,CURLOPT_TIMEOUT=>$timeout]);
     $res=curl_exec($ch);
     $http=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);
     $err=curl_error($ch);
@@ -309,14 +317,17 @@ function jarvis_chamar_modelo(array $m, string $systemPrompt, string $userMsg): 
 
     if ($res !== false && $http >= 200 && $http < 300) {
         $j=json_decode((string)$res,true);
-        $txt=$j['choices'][0]['message']['content'] ?? '';
+        if ($provedor === 'gemini') $txt=$j['candidates'][0]['content']['parts'][0]['text'] ?? '';
+        elseif ($provedor === 'anthropic' || $provedor === 'claude') $txt=$j['content'][0]['text'] ?? '';
+        else $txt=$j['choices'][0]['message']['content'] ?? '';
         if (trim((string)$txt) !== '') return ['ok'=>true,'texto'=>trim((string)$txt),'http'=>$http];
-        return ['ok'=>false,'erro'=>'Resposta sem choices[0].message.content','http'=>$http];
+        return ['ok'=>false,'erro'=>'Resposta do provedor sem texto reconhecível','http'=>$http];
     }
     $detail='';
     if ($res !== false) {
         $j=json_decode((string)$res,true);
-        $detail=is_array($j)?($j['error']['message']??$j['message']??''):'';
+        $detail=is_array($j)?($j['error']['message']??$j['message']??$j['error']??''):'';
+        if (is_array($detail)) $detail=json_encode($detail,JSON_UNESCAPED_UNICODE);
     }
     return ['ok'=>false,'erro'=>$err ?: ($detail ?: ('HTTP '.$http)),'http'=>$http];
 }
@@ -338,7 +349,7 @@ function jarvis_registrar_saude_modelo(PDO $pdo, int $id, array $r): void {
     } catch(Throwable $e) {}
 }
 
-$target_ia = ($ia_provider === 'openai_compatible') ? 'openai_compatible' : (($ia_provider === 'runpod') ? 'runpod' : 'local');
+$target_ia = ($ia_provider === 'remote') ? $ia_remote_provider : 'local';
 $tipo_tarefa = 'automacao_perguntas_simples';
 if (strpos($comando, '/cloud') === 0 || strpos($comando, '/runpod') === 0) {
     $target_ia = 'runpod';
@@ -381,18 +392,48 @@ elseif (strpos($comando, '/local') === 0) $preferenciaModelos = 'local';
 
 $modelosIA = jarvis_lista_modelos_ia($pdo, $preferenciaModelos);
 
-// Compatibilidade para instalações que ainda não carregaram a migration 1.21.
+// Compatibilidade/configuração simples quando não há registros ativos em ia_modelos.
 if (!$modelosIA) {
-    if ($openai_base_url !== '' && $openai_model !== '') {
-        $modelosIA[] = [
-            'id'=>0,'nome'=>'OpenAI-compatible legado','provedor'=>'openai_compatible',
-            'base_url'=>$openai_base_url,'api_key'=>$openai_api_key,'modelo'=>$openai_model,
+    if ($ia_provider === 'remote') {
+        $p=$ia_remote_provider ?: 'runpod';
+        $base=$ia_remote_base_url;
+        $key=$ia_remote_api_key;
+        $model=$ia_remote_model;
+        if ($p === 'runpod') {
+            $base = $runpod_endpoint_id !== '' ? "https://api.runpod.ai/v2/{$runpod_endpoint_id}/openai/v1" : '';
+            $key = $runpod_api_key;
+            $model = $runpod_model;
+            $execProvider='runpod';
+        } elseif ($p === 'openai') {
+            if ($base==='') $base='https://api.openai.com/v1';
+            $execProvider='openai_compatible';
+        } elseif ($p === 'openrouter') {
+            if ($base==='') $base='https://openrouter.ai/api/v1';
+            $execProvider='openai_compatible';
+        } elseif ($p === 'cerebras') {
+            if ($base==='') $base='https://api.cerebras.ai/v1';
+            $execProvider='openai_compatible';
+        } elseif ($p === 'deepseek') {
+            if ($base==='') $base='https://api.deepseek.com/v1';
+            $execProvider='openai_compatible';
+        } elseif ($p === 'gemini') {
+            if ($base==='') $base='https://generativelanguage.googleapis.com/v1beta';
+            $execProvider='gemini';
+        } elseif ($p === 'anthropic') {
+            if ($base==='') $base='https://api.anthropic.com/v1';
+            $execProvider='anthropic';
+        } else {
+            $execProvider='openai_compatible';
+        }
+        $modelosIA[]=[
+            'id'=>0,'nome'=>'Remoto / '.strtoupper($p),'provedor'=>$execProvider,
+            'base_url'=>$base,'api_key'=>$key,'modelo'=>$model,
             'classe_hardware'=>'GPU_HIGH','nivel_capacidade'=>'PROFISSIONAL',
             'timeout_segundos'=>45,'max_tokens'=>600,'temperatura'=>0.35,'padrao'=>1,'prioridade'=>10
         ];
     } else {
-        $modelosIA[] = [
-            'id'=>0,'nome'=>'Ollama legado','provedor'=>'ollama',
+        $modelosIA[]=[
+            'id'=>0,'nome'=>'Local','provedor'=>'ollama',
             'base_url'=>$local_ollama_url,'api_key'=>'','modelo'=>$local_model,
             'classe_hardware'=>'CPU','nivel_capacidade'=>'ESTUDANTE',
             'timeout_segundos'=>25,'max_tokens'=>220,'temperatura'=>0.3,'padrao'=>1,'prioridade'=>20
