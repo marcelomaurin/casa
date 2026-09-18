@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
 import math
+import mmap
 import os
+import select
+import struct
 import subprocess
+import sys
 import tempfile
+import termios
 import threading
 import time
+import tty
 
-import pygame
 import requests
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 BASE = os.getenv("CASA_BASE_URL", "https://casa.maurinsoft.com.br").rstrip("/")
 API_TOKEN = os.getenv("CASA_API_TOKEN", "")
@@ -30,6 +35,63 @@ def auth_headers():
 
 def device_headers():
     return {"X-Device-Token": DEVICE_TOKEN} if DEVICE_TOKEN else {}
+
+class Framebuffer:
+    def __init__(self, dev="/dev/fb0"):
+        self.dev = dev
+        self.fd = None
+        self.mem = None
+        self.width = 800
+        self.height = 480
+        self.bpp = 32
+        try:
+            with open("/sys/class/graphics/fb0/virtual_size", "r", encoding="ascii") as f:
+                w, h = f.read().strip().split(",")
+                self.width, self.height = int(w), int(h)
+            with open("/sys/class/graphics/fb0/bits_per_pixel", "r", encoding="ascii") as f:
+                self.bpp = int(f.read().strip())
+            self.fd = os.open(dev, os.O_RDWR)
+            size = self.width * self.height * max(2, self.bpp // 8)
+            self.mem = mmap.mmap(self.fd, size, mmap.MAP_SHARED, mmap.PROT_WRITE | mmap.PROT_READ)
+        except Exception:
+            self.close()
+
+    @property
+    def available(self):
+        return self.mem is not None
+
+    def show(self, image):
+        if not self.available:
+            return
+        image = image.resize((self.width, self.height)).convert("RGB")
+        if self.bpp == 32:
+            raw = image.tobytes("raw", "BGRX")
+        elif self.bpp == 16:
+            out = bytearray(self.width * self.height * 2)
+            p = 0
+            for r, g, b in image.getdata():
+                v = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
+                struct.pack_into("<H", out, p, v)
+                p += 2
+            raw = bytes(out)
+        else:
+            return
+        self.mem.seek(0)
+        self.mem.write(raw)
+
+    def close(self):
+        if self.mem is not None:
+            try:
+                self.mem.close()
+            except Exception:
+                pass
+        self.mem = None
+        if self.fd is not None:
+            try:
+                os.close(self.fd)
+            except Exception:
+                pass
+        self.fd = None
 
 class Agent:
     def __init__(self):
@@ -55,238 +117,211 @@ class Agent:
             "model": "CASA Kinect Avatar",
             "firmware_version": "yocto-1.0",
             "protocol_version": "1",
-            "capabilities": [
-                "avatar", "speaker", "microphone",
-                "kinect_rgb", "kinect_depth", "vision"
-            ],
+            "capabilities": ["avatar","speaker","microphone","kinect_rgb","kinect_depth","vision"],
             "data": {"avatar_state": self.state},
         }
         try:
-            requests.post(
-                BASE + "/api/v1/device.php?acao=heartbeat",
-                json=payload, headers=device_headers(), timeout=8
-            )
+            requests.post(BASE + "/api/v1/device.php?acao=heartbeat", json=payload, headers=device_headers(), timeout=8)
         except Exception:
             pass
 
     def record(self, wav):
         subprocess.run([
-            "arecord", "-q", "-D", CAPTURE_DEV,
-            "-f", "S16_LE", "-r", "16000", "-c", "1",
-            "-d", str(LISTEN_SECONDS), wav
+            "arecord","-q","-D",CAPTURE_DEV,"-f","S16_LE","-r","16000","-c","1",
+            "-d",str(LISTEN_SECONDS),wav
         ], check=True, timeout=LISTEN_SECONDS + 10)
 
     def stt(self, wav):
         with open(wav, "rb") as f:
-            r = requests.post(
-                BASE + "/api/v1/avatar.php?acao=stt",
-                headers=auth_headers(),
-                files={"audio": ("speech.wav", f, "audio/wav")},
-                timeout=90,
-            )
+            r=requests.post(BASE+"/api/v1/avatar.php?acao=stt",headers=auth_headers(),
+                            files={"audio":("speech.wav",f,"audio/wav")},timeout=90)
         r.raise_for_status()
-        j = r.json()
-        text = str(j.get("texto") or j.get("text") or "").strip()
+        j=r.json()
+        text=str(j.get("texto") or j.get("text") or "").strip()
         if not text:
             raise RuntimeError("STT não retornou texto")
         return text
 
     def capture_scene(self):
-        subprocess.run(
-            ["kinect-snapshot", RGB_FILE, DEPTH_FILE],
-            check=True, timeout=15
-        )
-        jpg = "/tmp/casa-kinect-rgb.jpg"
-        Image.open(RGB_FILE).convert("RGB").save(jpg, "JPEG", quality=78)
+        subprocess.run(["kinect-snapshot",RGB_FILE,DEPTH_FILE],check=True,timeout=15)
+        jpg="/tmp/casa-kinect-rgb.jpg"
+        Image.open(RGB_FILE).convert("RGB").save(jpg,"JPEG",quality=78)
         return jpg
 
     def vision(self, prompt, jpg):
-        with open(jpg, "rb") as f:
-            r = requests.post(
-                BASE + "/api/v1/avatar.php?acao=vision",
-                headers=auth_headers(),
-                data={"prompt": prompt},
-                files={"image": ("kinect.jpg", f, "image/jpeg")},
-                timeout=120,
-            )
+        with open(jpg,"rb") as f:
+            r=requests.post(BASE+"/api/v1/avatar.php?acao=vision",headers=auth_headers(),
+                            data={"prompt":prompt},
+                            files={"image":("kinect.jpg",f,"image/jpeg")},timeout=120)
         if r.status_code >= 400:
             return ""
         return str(r.json().get("descricao") or "").strip()
 
     def ask(self, text, visual=""):
-        command = text
+        command=text
         if visual:
             command += "\n\nContexto visual do Kinect: " + visual
-        r = requests.post(
-            BASE + "/api/v1/comando",
-            headers=auth_headers(),
-            json={"comando": command, "ia_mode": "auto", "origem": DEVICE_ID},
-            timeout=120,
-        )
+        r=requests.post(BASE+"/api/v1/comando",headers=auth_headers(),
+                        json={"comando":command,"ia_mode":"auto","origem":DEVICE_ID},timeout=120)
         r.raise_for_status()
-        j = r.json()
-        answer = str(j.get("resposta") or "").strip()
+        j=r.json()
+        answer=str(j.get("resposta") or "").strip()
         if not answer:
             raise RuntimeError("JARVIS não retornou resposta")
-        return answer, j.get("audio_url")
+        return answer,j.get("audio_url")
 
     def speak(self, text, audio_url):
         if audio_url:
             try:
-                url = audio_url if str(audio_url).startswith("http") else BASE + str(audio_url)
-                r = requests.get(url, headers=auth_headers(), timeout=60)
-                r.raise_for_status()
-                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-                    path = f.name
-                    f.write(r.content)
+                url=audio_url if str(audio_url).startswith("http") else BASE+str(audio_url)
+                rr=requests.get(url,headers=auth_headers(),timeout=60)
+                rr.raise_for_status()
+                with tempfile.NamedTemporaryFile(suffix=".wav",delete=False) as f:
+                    path=f.name
+                    f.write(rr.content)
                 try:
-                    subprocess.run(
-                        ["aplay", "-q", "-D", PLAYBACK_DEV, path],
-                        check=True, timeout=180
-                    )
+                    subprocess.run(["aplay","-q","-D",PLAYBACK_DEV,path],check=True,timeout=180)
                     return
                 finally:
-                    try:
-                        os.unlink(path)
-                    except OSError:
-                        pass
+                    try: os.unlink(path)
+                    except OSError: pass
             except Exception:
                 pass
-
-        subprocess.run(
-            ["espeak-ng", "-v", "pt-br", "-s", "155", text],
-            check=False, timeout=180
-        )
+        subprocess.run(["espeak","-v","pt-br","-s","155",text],check=False,timeout=180)
 
     def interaction(self):
         if self.busy:
             return
-        self.busy = True
-        wav = None
+        self.busy=True
+        wav=None
         try:
-            self.state_set(LISTENING, "Estou ouvindo...")
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-                wav = f.name
+            self.state_set(LISTENING,"Estou ouvindo...")
+            with tempfile.NamedTemporaryFile(suffix=".wav",delete=False) as f:
+                wav=f.name
             self.record(wav)
+            self.state_set(THINKING,"Reconhecendo a fala...")
+            text=self.stt(wav)
+            self.message="Você: "+text
 
-            self.state_set(THINKING, "Reconhecendo a fala...")
-            text = self.stt(wav)
-            self.message = "Você: " + text
-
-            visual = ""
+            visual=""
             if VISION_ENABLED:
                 try:
-                    self.state_set(SEEING, "Observando pelo Kinect...")
-                    jpg = self.capture_scene()
-                    visual = self.vision(text, jpg)
+                    self.state_set(SEEING,"Observando pelo Kinect...")
+                    jpg=self.capture_scene()
+                    visual=self.vision(text,jpg)
                 except Exception as exc:
-                    self.last_error = "Visão indisponível: " + str(exc)
+                    self.last_error="Visão indisponível: "+str(exc)
 
-            self.state_set(THINKING, "Consultando o JARVIS...")
-            answer, audio = self.ask(text, visual)
-
-            self.state_set(SPEAKING, answer)
-            self.speak(answer, audio)
-            self.state_set(IDLE, "ENTER para falar")
+            self.state_set(THINKING,"Consultando o JARVIS...")
+            answer,audio=self.ask(text,visual)
+            self.state_set(SPEAKING,answer)
+            self.speak(answer,audio)
+            self.state_set(IDLE,"ENTER para falar")
         except Exception as exc:
-            self.last_error = str(exc)
-            self.state_set(ERROR, self.last_error)
+            self.last_error=str(exc)
+            self.state_set(ERROR,self.last_error)
             time.sleep(3)
-            self.state_set(IDLE, "ENTER para tentar novamente")
+            self.state_set(IDLE,"ENTER para tentar novamente")
         finally:
             if wav:
-                try:
-                    os.unlink(wav)
-                except OSError:
-                    pass
-            self.busy = False
+                try: os.unlink(wav)
+                except OSError: pass
+            self.busy=False
 
     def start(self):
-        threading.Thread(target=self.interaction, daemon=True).start()
+        threading.Thread(target=self.interaction,daemon=True).start()
 
-def wrap(text, limit=70):
-    out = []
-    text = str(text)
-    while text:
-        cut = min(limit, len(text))
-        if len(text) > cut:
-            sp = text.rfind(" ", 0, cut)
-            if sp > 20:
-                cut = sp
-        out.append(text[:cut])
-        text = text[cut:].lstrip()
-    return out
+def wrap(text, limit=62):
+    words=str(text).split()
+    lines=[]
+    current=""
+    for word in words:
+        test=(current+" "+word).strip()
+        if len(test)>limit and current:
+            lines.append(current)
+            current=word
+        else:
+            current=test
+    if current:
+        lines.append(current)
+    return lines
 
-def draw(screen, agent, title_font, font, t):
-    w, h = screen.get_size()
-    screen.fill((242, 236, 222))
-    colors = {
-        IDLE:(105,145,126), LISTENING:(223,138,84), SEEING:(83,132,174),
-        THINKING:(150,116,174), SPEAKING:(203,153,67), ERROR:(192,83,94)
+def draw_avatar(width, height, agent, t):
+    img=Image.new("RGB",(width,height),(242,236,222))
+    d=ImageDraw.Draw(img)
+    font=ImageFont.load_default()
+    colors={
+        IDLE:(105,145,126),LISTENING:(223,138,84),SEEING:(83,132,174),
+        THINKING:(150,116,174),SPEAKING:(203,153,67),ERROR:(192,83,94)
     }
-    color = colors.get(agent.state, (100,100,100))
-    cx, cy = w//2, max(170, h//2 - 40)
-    radius = min(w,h)//5 + int(7*math.sin(t*3))
+    color=colors.get(agent.state,(100,100,100))
+    cx,cy=width//2,max(150,height//2-35)
+    radius=min(width,height)//5+int(6*math.sin(t*3))
 
-    pygame.draw.circle(screen, color, (cx,cy), radius, 10)
-    pygame.draw.circle(screen, (255,251,243), (cx,cy), radius-16)
-
-    eye_y, eye_dx = cy-radius//4, radius//3
-    if int(t*2)%13 == 0:
-        for ex in (cx-eye_dx,cx+eye_dx):
-            pygame.draw.line(screen,(35,35,35),(ex-12,eye_y),(ex+12,eye_y),4)
+    d.ellipse((cx-radius,cy-radius,cx+radius,cy+radius),outline=color,width=10,fill=(255,251,243))
+    ey=cy-radius//4
+    ex=radius//3
+    if int(t*2)%13==0:
+        d.line((cx-ex-12,ey,cx-ex+12,ey),fill=(35,35,35),width=4)
+        d.line((cx+ex-12,ey,cx+ex+12,ey),fill=(35,35,35),width=4)
     else:
-        pygame.draw.circle(screen,(35,35,35),(cx-eye_dx,eye_y),10)
-        pygame.draw.circle(screen,(35,35,35),(cx+eye_dx,eye_y),10)
+        d.ellipse((cx-ex-9,ey-9,cx-ex+9,ey+9),fill=(35,35,35))
+        d.ellipse((cx+ex-9,ey-9,cx+ex+9,ey+9),fill=(35,35,35))
 
-    my = cy + radius//3
-    if agent.state == SPEAKING:
-        mh = 12 + abs(int(18*math.sin(t*11)))
-        pygame.draw.ellipse(screen,(60,45,45),(cx-35,my-mh//2,70,mh),3)
+    my=cy+radius//3
+    if agent.state==SPEAKING:
+        mh=10+abs(int(16*math.sin(t*11)))
+        d.ellipse((cx-32,my-mh//2,cx+32,my+mh//2),outline=(60,45,45),width=3)
     else:
-        pygame.draw.arc(screen,(60,45,45),(cx-38,my-18,76,38),0.15,2.95,4)
+        d.arc((cx-36,my-18,cx+36,my+22),0,180,fill=(60,45,45),width=4)
 
-    screen.blit(title_font.render("CASA · JARVIS",True,(45,43,47)),(28,22))
-    screen.blit(font.render(agent.state,True,color),(28,67))
-
-    lines = wrap(agent.message)[-5:]
-    y = h - 55 - len(lines)*25
+    d.text((25,20),"CASA / JARVIS",font=font,fill=(45,43,47))
+    d.text((25,42),agent.state,font=font,fill=color)
+    lines=wrap(agent.message)[-6:]
+    y=height-35-len(lines)*15
     for line in lines:
-        screen.blit(font.render(line,True,(55,52,55)),(28,y))
-        y += 25
-    screen.blit(font.render("ENTER/ESPAÇO: falar · ESC: sair",True,(105,100,100)),(28,h-32))
+        d.text((25,y),line,font=font,fill=(55,52,55))
+        y+=15
+    d.text((25,height-18),"ENTER: falar | ESC: sair",font=font,fill=(105,100,100))
+    return img
 
 def main():
-    pygame.init()
-    info = pygame.display.Info()
-    screen = pygame.display.set_mode(
-        (info.current_w or 800, info.current_h or 480), pygame.FULLSCREEN
-    )
-    pygame.mouse.set_visible(False)
-    title_font = pygame.font.Font(None, 44)
-    font = pygame.font.Font(None, 27)
-    clock = pygame.time.Clock()
-    agent = Agent()
-    next_hb = 0.0
+    fb=Framebuffer()
+    agent=Agent()
+    old_term=None
+    if sys.stdin.isatty():
+        try:
+            old_term=termios.tcgetattr(sys.stdin)
+            tty.setcbreak(sys.stdin.fileno())
+        except Exception:
+            old_term=None
 
-    while agent.running:
-        now = time.time()
-        if now >= next_hb:
-            threading.Thread(target=agent.heartbeat, daemon=True).start()
-            next_hb = now + 45
-        for ev in pygame.event.get():
-            if ev.type == pygame.QUIT:
-                agent.running = False
-            elif ev.type == pygame.KEYDOWN:
-                if ev.key == pygame.K_ESCAPE:
-                    agent.running = False
-                elif ev.key in (pygame.K_RETURN, pygame.K_SPACE):
-                    agent.start()
-        draw(screen, agent, title_font, font, now)
-        pygame.display.flip()
-        clock.tick(30)
+    try:
+        next_hb=0.0
+        while agent.running:
+            now=time.time()
+            if now>=next_hb:
+                threading.Thread(target=agent.heartbeat,daemon=True).start()
+                next_hb=now+45
 
-    pygame.quit()
+            if sys.stdin.isatty():
+                ready,_,_=select.select([sys.stdin],[],[],0)
+                if ready:
+                    ch=sys.stdin.read(1)
+                    if ch=="\x1b":
+                        agent.running=False
+                    elif ch in ("\r","\n"," "):
+                        agent.start()
 
-if __name__ == "__main__":
+            if fb.available:
+                fb.show(draw_avatar(fb.width,fb.height,agent,now))
+            else:
+                print("\r[%s] %s" % (agent.state,agent.message[:100]),end="",flush=True)
+            time.sleep(0.12)
+    finally:
+        if old_term is not None:
+            termios.tcsetattr(sys.stdin,termios.TCSADRAIN,old_term)
+        fb.close()
+
+if __name__=="__main__":
     main()
