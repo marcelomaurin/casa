@@ -685,3 +685,21 @@ body{overscroll-behavior:none}
 .ja-chat-text{display:inline;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}
 .ja-chat-line.user{align-self:flex-end;max-width:90%}
 .ja-chat-line.ai,.ja-chat-line.error{align-self:stretch}
+
+
+/* Editor cron de agendamentos */
+.ja-schedule-backdrop{position:fixed;inset:0;z-index:11500;display:grid;place-items:center;padding:16px;background:#000b;backdrop-filter:blur(3px)}
+.ja-schedule-modal{width:min(760px,96vw);max-height:92vh;display:grid;grid-template-rows:auto minmax(0,1fr) auto;background:#080808;color:#fff;border:4px solid var(--ja-orange);border-radius:24px;overflow:hidden;box-shadow:0 24px 80px #000}
+.ja-schedule-modal>header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;background:var(--ja-orange);color:#111}
+.ja-schedule-modal>header button,.ja-schedule-modal>footer button{border:0;border-radius:12px;padding:9px 14px;font-weight:900;cursor:pointer}
+.ja-schedule-modal>header button{background:#111;color:#fff}
+.ja-schedule-form{min-height:0;overflow:auto;padding:14px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.ja-schedule-form label{display:grid;gap:5px;min-width:0}.ja-schedule-form label.wide{grid-column:1/-1}
+.ja-schedule-form label span{font-size:11px;font-weight:900;color:#8fc7ef}
+.ja-schedule-form input,.ja-schedule-form select,.ja-schedule-form textarea{width:100%;min-width:0;border:2px solid #3f82ad;border-radius:12px;background:#101010;color:#fff;padding:9px 11px;font:inherit}
+.ja-schedule-form small{color:#bdbdbd;font-size:10px}
+.ja-schedule-device{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.ja-schedule-device.is-hidden{display:none}
+.ja-schedule-message{grid-column:1/-1;min-height:30px;padding:7px 10px;border-radius:9px}.ja-schedule-message.error{border:2px solid #ef6969;color:#ff9b9b}
+.ja-schedule-modal>footer{display:flex;justify-content:flex-end;padding:12px 16px}.ja-schedule-modal>footer button{background:var(--ja-orange);color:#111}
+.ja-schedule-modal>footer button:disabled{opacity:.6}
+@media(max-width:620px){.ja-schedule-form{grid-template-columns:1fr}.ja-schedule-form label.wide,.ja-schedule-device{grid-column:1}.ja-schedule-device{grid-template-columns:1fr}}
