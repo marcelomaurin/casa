@@ -428,7 +428,18 @@ body{overscroll-behavior:none}
 .ja-config-subgrid.is-hidden,
 .ja-config-subgrid .is-hidden{display:none!important}
 #ja-runpod-endpoint-wrap{min-width:0}
-#ja-runpod-endpoint-wrap label{height:100%}
+#ja-runpod-endpoint-wrap:not(.is-hidden){
+  display:contents;
+}
+#ja-runpod-endpoint-wrap label{
+  min-width:0;
+  height:auto;
+}
+#ja-runpod-endpoint-wrap label input,
+#ja-runpod-endpoint-wrap label select{
+  width:100%;
+  min-width:0;
+}
 @media(max-width:560px){
   .ja-config-subgrid{grid-template-columns:1fr}
 }
