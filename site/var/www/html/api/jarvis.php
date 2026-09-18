@@ -129,10 +129,15 @@ $routing_mode = $configs['ia_routing_mode'] ?? 'auto';
 if (!empty($input['ia_mode'])) $routing_mode = trim($input['ia_mode']);
 elseif (!empty($_POST['ia_mode'])) $routing_mode = trim($_POST['ia_mode']);
 
+$ia_provider = trim($configs['ia_provider'] ?? 'local');
 $runpod_api_key = $configs['runpod_api_key'] ?? '';
 $runpod_endpoint_id = $configs['runpod_endpoint_id'] ?? '';
 $runpod_model = !empty($configs['runpod_model']) ? $configs['runpod_model'] : 'meta-llama/Meta-Llama-3-8B-Instruct';
 $local_model = $configs['local_model'] ?? 'jarvis-local:latest';
+$local_ollama_url = trim($configs['local_ollama_url'] ?? 'http://127.0.0.1:11434');
+$openai_base_url = trim($configs['openai_base_url'] ?? '');
+$openai_api_key = trim($configs['openai_api_key'] ?? '');
+$openai_model = trim($configs['openai_model'] ?? '');
 $jarvis_voice = $configs['jarvis_voice'] ?? 'padrao';
 
 function chamar_llm_runpod($apiKey, $endpointId, $model, $systemPrompt, $userMsg) {
@@ -163,32 +168,86 @@ function chamar_llm_runpod($apiKey, $endpointId, $model, $systemPrompt, $userMsg
     return false;
 }
 
-function chamar_llm_local($model, $systemPrompt, $userMsg) {
-    // Primeiro tenta Ollama; pode ser alterado por configuracao no futuro.
+function chamar_llm_openai_compatible($baseUrl, $apiKey, $model, $systemPrompt, $userMsg) {
+    $baseUrl = rtrim(trim((string)$baseUrl), '/');
+    $model = trim((string)$model);
+    if ($baseUrl === '' || $model === '') return ['ok'=>false,'erro'=>'URL/modelo OpenAI-compatible não configurados','http'=>0];
+
+    if (preg_match('#/chat/completions$#i', $baseUrl)) $url = $baseUrl;
+    else $url = $baseUrl . '/chat/completions';
+
+    $payload = [
+        'model'=>$model,
+        'messages'=>[
+            ['role'=>'system','content'=>$systemPrompt],
+            ['role'=>'user','content'=>$userMsg]
+        ],
+        'temperature'=>0.35,
+        'max_tokens'=>600,
+        'stream'=>false
+    ];
+    $headers = ['Content-Type: application/json'];
+    if ($apiKey !== '') $headers[] = 'Authorization: Bearer ' . $apiKey;
+
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER=>true,
+        CURLOPT_POST=>true,
+        CURLOPT_POSTFIELDS=>json_encode($payload, JSON_UNESCAPED_UNICODE),
+        CURLOPT_HTTPHEADER=>$headers,
+        CURLOPT_CONNECTTIMEOUT=>5,
+        CURLOPT_TIMEOUT=>45
+    ]);
+    $res = curl_exec($ch);
+    $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $err = curl_error($ch);
+    curl_close($ch);
+
+    if ($res !== false && $code >= 200 && $code < 300) {
+        $j = json_decode($res, true);
+        $txt = $j['choices'][0]['message']['content'] ?? null;
+        if (is_string($txt) && trim($txt) !== '') return ['ok'=>true,'texto'=>trim($txt),'http'=>$code];
+        return ['ok'=>false,'erro'=>'Resposta OpenAI-compatible sem choices[0].message.content','http'=>$code];
+    }
+    $detail = '';
+    if (is_string($res) && $res !== '') {
+        $j = json_decode($res, true);
+        $detail = is_array($j) ? ($j['error']['message'] ?? $j['message'] ?? '') : '';
+    }
+    return ['ok'=>false,'erro'=>trim($err ?: ($detail ?: ('HTTP ' . $code))),'http'=>$code];
+}
+
+function chamar_llm_local($baseUrl, $model, $systemPrompt, $userMsg) {
+    $baseUrl = rtrim(trim((string)$baseUrl), '/');
+    if ($baseUrl === '') return ['ok'=>false,'erro'=>'URL do Ollama local não configurada','http'=>0];
     $payload = [
         'model'=>$model,
         'prompt'=>$systemPrompt."\n\nUsuario: ".$userMsg."\nJARVIS:",
         'stream'=>false,
         'options'=>['num_predict'=>220,'temperature'=>0.3]
     ];
-    $ch = curl_init('http://127.0.0.1:11434/api/generate');
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload, JSON_UNESCAPED_UNICODE));
-    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 20);
+    $ch = curl_init($baseUrl . '/api/generate');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER=>true,
+        CURLOPT_POST=>true,
+        CURLOPT_POSTFIELDS=>json_encode($payload, JSON_UNESCAPED_UNICODE),
+        CURLOPT_HTTPHEADER=>['Content-Type: application/json'],
+        CURLOPT_CONNECTTIMEOUT=>3,
+        CURLOPT_TIMEOUT=>25
+    ]);
     $res = curl_exec($ch);
-    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $err = curl_error($ch);
     curl_close($ch);
-    if ($res && $code === 200) {
+    if ($res !== false && $code >= 200 && $code < 300) {
         $j = json_decode($res, true);
-        return isset($j['response']) ? trim($j['response']) : false;
+        if (isset($j['response']) && trim((string)$j['response']) !== '') return ['ok'=>true,'texto'=>trim($j['response']),'http'=>$code];
+        return ['ok'=>false,'erro'=>'Resposta Ollama sem campo response','http'=>$code];
     }
-    return false;
+    return ['ok'=>false,'erro'=>$err ?: ('HTTP '.$code),'http'=>$code];
 }
 
-$target_ia = 'local';
+$target_ia = ($ia_provider === 'openai_compatible') ? 'openai_compatible' : (($ia_provider === 'runpod') ? 'runpod' : 'local');
 $tipo_tarefa = 'automacao_perguntas_simples';
 if (strpos($comando, '/cloud') === 0 || strpos($comando, '/runpod') === 0) {
     $target_ia = 'runpod';
@@ -222,18 +281,42 @@ $systemCloud = "Voce e o JARVIS em modo de alta capacidade. Responda em portugue
 
 $resposta = false;
 $provedor = '';
-if ($target_ia === 'runpod') {
+$ia_diagnostico = [];
+if ($target_ia === 'openai_compatible') {
+    $r = chamar_llm_openai_compatible($openai_base_url, $openai_api_key, $openai_model, $systemCloud, $comando);
+    $ia_diagnostico[] = ['provedor'=>'openai_compatible','ok'=>$r['ok'],'http'=>$r['http'] ?? 0,'erro'=>$r['erro'] ?? null];
+    if ($r['ok']) {
+        $resposta = $r['texto'];
+        $provedor = 'API OpenAI-compatible';
+    }
+} elseif ($target_ia === 'runpod') {
     $resposta = chamar_llm_runpod($runpod_api_key, $runpod_endpoint_id, $runpod_model, $systemCloud, $comando);
     if ($resposta) $provedor = 'IA Externa: RunPod GPU';
-    if (!$resposta) {
-        $resposta = chamar_llm_local($local_model, $systemLocal, $comando);
-        $provedor = 'IA Local: fallback';
-    }
+    else $ia_diagnostico[] = ['provedor'=>'runpod','ok'=>false,'erro'=>'RunPod não respondeu'];
 } else {
-    $resposta = chamar_llm_local($local_model, $systemLocal, $comando);
-    $provedor = 'IA Local';
+    $r = chamar_llm_local($local_ollama_url, $local_model, $systemLocal, $comando);
+    $ia_diagnostico[] = ['provedor'=>'ollama','ok'=>$r['ok'],'http'=>$r['http'] ?? 0,'erro'=>$r['erro'] ?? null];
+    if ($r['ok']) {
+        $resposta = $r['texto'];
+        $provedor = 'IA Local: Ollama';
+    }
 }
-if (!$resposta) $resposta = 'O nucleo de IA nao respondeu neste momento.';
+
+// Fallback configurável: se o provedor primário falhar, tenta OpenAI-compatible se estiver configurado.
+if (!$resposta && $target_ia !== 'openai_compatible' && $openai_base_url !== '' && $openai_model !== '') {
+    $r = chamar_llm_openai_compatible($openai_base_url, $openai_api_key, $openai_model, $systemCloud, $comando);
+    $ia_diagnostico[] = ['provedor'=>'openai_compatible_fallback','ok'=>$r['ok'],'http'=>$r['http'] ?? 0,'erro'=>$r['erro'] ?? null];
+    if ($r['ok']) {
+        $resposta = $r['texto'];
+        $provedor = 'API OpenAI-compatible: fallback';
+        $target_ia = 'openai_compatible';
+    }
+}
+
+if (!$resposta) {
+    $provedor = $provedor ?: 'indisponivel';
+    $resposta = 'O núcleo de IA não respondeu. Consulte o diagnóstico da integração.';
+}
 
 $cmdLower = mb_strtolower($comando, 'UTF-8');
 $acao = null;
@@ -273,5 +356,5 @@ echo json_encode([
     'status'=>'sucesso','comando'=>$comando,'resposta'=>$respostaLimpa,
     'provedor'=>$provedor,'target_ia'=>$target_ia,'tipo_tarefa'=>$tipo_tarefa,
     'modo_roteamento'=>$routing_mode,'acao'=>$acao,'audio_url'=>$audioUrl,
-    'speaker'=>$jarvis_voice
+    'speaker'=>$jarvis_voice,'ia_diagnostico'=>$ia_diagnostico
 ], JSON_UNESCAPED_UNICODE);
