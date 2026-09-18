@@ -60,7 +60,8 @@ function chamar_jarvis_com_fontes($pergunta, $fontes) {
     $payload = json_encode([
         'comando' => '/cloud ' . $prompt,
         'origem' => 'AGENTE_INTERNET',
-        'skip_planner' => true
+        'skip_planner' => true,
+        'task_context' => $GLOBALS['taskContext']
     ], JSON_UNESCAPED_UNICODE);
 
     $ch = curl_init('http://127.0.0.1/api/jarvis.php');
@@ -87,6 +88,7 @@ function chamar_jarvis_com_fontes($pergunta, $fontes) {
 }
 
 $in = internet_input();
+$taskContext = is_array($in['task_context'] ?? null) ? $in['task_context'] : null;
 $acao = $_GET['acao'] ?? ($_POST['acao'] ?? ($in['acao'] ?? 'pesquisar'));
 $query = trim($in['query'] ?? ($in['pergunta'] ?? ($_POST['query'] ?? ($_GET['q'] ?? ''))));
 $maxResults = intval($in['max_results'] ?? ($_POST['max_results'] ?? 5));
