@@ -556,25 +556,50 @@ async function renderConfig(){
     add('send','Enviando requisição...');
     status.textContent='AGUARDANDO RESPOSTA';
 
+    async function requestTest(data,label){
+      const started=performance.now();
+      const resp=await fetch('/casa/api/testar_ia.php',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(data)
+      });
+      const elapsed=Math.round(performance.now()-started);
+      let raw='';
+      let j={};
+      try{raw=await resp.text();j=raw?JSON.parse(raw):{};}catch(_){j={};}
+      add(resp.ok?'recv':'error',label+' retornou em '+elapsed+' ms — HTTP '+resp.status+'.');
+      if(j.tempo_ms!==undefined) add('info','Tempo medido no servidor: '+j.tempo_ms+' ms.');
+      if(j.url) add('info','URL executada: '+j.url);
+      if(j.body_preview) add(resp.ok?'recv':'error','Resposta HTTP: '+j.body_preview);
+      if(!resp.ok){
+        const reported=j.erro_reportado||j.mensagem||j.error||raw||('HTTP '+resp.status);
+        add('error','Erro reportado: '+reported);
+        const e=new Error(reported);
+        e.http=resp.status;
+        e.dados=j;
+        e.elapsed=elapsed;
+        throw e;
+      }
+      return j;
+    }
+
     try{
       let r;
       if(payload.provider==='runpod' && payload.runpod_protocol==='openai'){
         add('send','Pré-teste: consultando /models para verificar worker e autenticação...');
         status.textContent='TESTANDO /MODELS';
-        const pre=await postJson('/casa/api/testar_ia.php',{...payload,stage:'models'});
-        add('recv','/models respondeu'+(pre.http?' — HTTP '+pre.http:'')+'.');
+        const pre=await requestTest({...payload,stage:'models'},'GET /models');
         if(pre.url) add('info','URL /models: '+pre.url);
         if(pre.modelos_encontrados!==undefined) add('info','Modelos retornados: '+pre.modelos_encontrados+'.');
         if(pre.modelo_presente===false) add('error','O modelo configurado não apareceu em /models.');
         if(pre.modelo_presente===true) add('ok','Modelo configurado encontrado em /models.');
         add('send','Pré-teste concluído. Enviando /chat/completions...');
         status.textContent='TESTANDO CHAT COMPLETIONS';
-        r=await postJson('/casa/api/testar_ia.php',{...payload,stage:'completion'});
+        r=await requestTest({...payload,stage:'completion'},'POST /chat/completions');
       }else{
-        r=await postJson('/casa/api/testar_ia.php',payload);
+        r=await requestTest(payload,'Requisição');
       }
       const ms=Math.round(performance.now()-ini);
-      add('recv','Resposta recebida'+(r.http?' — HTTP '+r.http:'')+'.');
       if(r.url) add('info','URL confirmada pelo servidor: '+r.url);
       if(r.resposta) add('recv','Resposta do modelo: '+r.resposta);
       else if(r.mensagem) add('recv',r.mensagem);
