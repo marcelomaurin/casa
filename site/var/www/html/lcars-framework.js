@@ -66,14 +66,13 @@
 
   function renderRail(spec){
     const groups = spec.groups.length ? spec.groups : [
-      {label:'← GRUPOS',action:'back',back:true},
-      {label:'VISÃO GERAL'},
-      {label:spec.group,active:true}
+      {label:'CASA',action:'home',level:0,active:true}
     ];
-    return '<nav class="ja-rail" aria-label="Navegação do grupo">'+groups.map((g,i)=>{
-      const cls=(g.back?' back':'')+(g.active?' active':'');
+    return '<nav class="ja-rail" aria-label="Navegação por níveis">'+groups.map((g,i)=>{
+      const level=Number.isFinite(Number(g.level))?Math.max(0,Math.min(4,Number(g.level))):1;
+      const cls='ja-level-'+level+(g.active?' active':'')+(g.levelNav?' level-nav':'');
       const id=esc(g.id || ('g'+i));
-      return '<button type="button" class="'+cls.trim()+'" data-ja-action="'+esc(g.action||'navigate')+'" data-ja-id="'+id+'">'+esc(g.label||g.title||'Item')+'</button>';
+      return '<button type="button" class="'+cls+'" data-ja-level="'+level+'" data-ja-action="'+esc(g.action||'navigate')+'" data-ja-id="'+id+'">'+esc(g.label||g.title||'Item')+'</button>';
     }).join('')+'</nav>';
   }
 
@@ -153,10 +152,8 @@
     const el=typeof target==='string'?document.querySelector(target):target;
     if(!el) throw new Error('CASALcars: destino não encontrado');
     const spec=normalize(input);
-    const crumbs=spec.breadcrumb.length?spec.breadcrumb:['CASA','GRUPOS',spec.group];
     el.innerHTML='<div class="ja-shell">'+
       '<header class="ja-top"><div class="ja-brand"><strong>CASA / JARVIS</strong><span>SUA CASA. MAIS INTELIGENTE.</span></div><div class="ja-system"><span class="ja-chip ok">SISTEMA ONLINE</span></div></header>'+
-      '<div class="ja-breadcrumb">'+crumbs.map((c,i)=>(i?'<span>›</span>':'')+(i===crumbs.length-1?'<b>'+esc(c)+'</b>':'<span>'+esc(c)+'</span>')).join('')+'</div>'+
       '<div class="ja-workspace">'+renderRail(spec)+'<main class="ja-main"><section class="ja-panel"><header class="ja-panel-head"><div><h1>'+esc(spec.title)+'</h1></div><p>'+esc(spec.subtitle)+'</p></header><div class="ja-content">'+renderBody(spec)+'</div></section></main>'+renderStatus(spec)+'</div>'+
       '<footer class="ja-footer"><div>'+esc(spec.footer.hint||'Use ← GRUPOS para voltar aos grupos principais.')+'</div><div class="time" data-ja-clock>--:--</div><div class="online">CASA ONLINE</div></footer></div>';
     updateClock(el);
