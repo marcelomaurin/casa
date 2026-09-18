@@ -7,7 +7,7 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-const CASA_SCHEMA_VERSION = '1.20';
+const CASA_SCHEMA_VERSION = '1.21';
 
 function local_config(): array {
     static $cfg = null;
@@ -48,7 +48,7 @@ function casa_required_tables(): array {
         'device_command_audit',
         'scenes', 'scene_actions', 'scene_runs', 'scene_run_actions',
         'automation_rules', 'automation_rule_actions', 'automation_rule_runs',
-        'automation_rule_run_actions'
+        'automation_rule_run_actions', 'ia_modelos'
     ];
 }
 
@@ -111,6 +111,9 @@ function casa_run_version_migrations(PDO $pdo, ?string $currentVersion): void {
         '1.20' => [
             __DIR__ . '/migrations/1.20.sql',
             __DIR__ . '/migrations/1.20_audit.sql',
+        ],
+        '1.21' => [
+            __DIR__ . '/migrations/1.21.sql',
         ],
     ];
     foreach ($migrations as $version => $files) {
