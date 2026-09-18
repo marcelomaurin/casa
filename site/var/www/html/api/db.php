@@ -157,6 +157,24 @@ function ensure_database_schema(PDO $pdo): void {
     }
 }
 
+function casa_ensure_ai_config_defaults(PDO $pdo): void {
+    $defaults = [
+        ['ia_provider','local','Provedor principal de IA: local, openai_compatible ou runpod'],
+        ['ia_routing_mode','auto','Roteamento de IA'],
+        ['local_ollama_url','http://127.0.0.1:11434','URL base do Ollama local'],
+        ['local_model','jarvis-local:latest','Modelo do Ollama local'],
+        ['openai_base_url','','URL base de API OpenAI-compatible, normalmente terminando em /v1'],
+        ['openai_api_key','','Chave Bearer do provedor OpenAI-compatible'],
+        ['openai_model','','Modelo exposto pelo endpoint OpenAI-compatible']
+    ];
+    $stmt = $pdo->prepare("INSERT INTO configuracoes_sistema(chave,valor,descricao)
+        VALUES(:chave,:valor,:descricao)
+        ON DUPLICATE KEY UPDATE chave=VALUES(chave)");
+    foreach ($defaults as $d) {
+        $stmt->execute([':chave'=>$d[0],':valor'=>$d[1],':descricao'=>$d[2]]);
+    }
+}
+
 function get_db_pdo(): PDO {
     static $pdo = null;
     if ($pdo instanceof PDO) return $pdo;
@@ -170,6 +188,7 @@ function get_db_pdo(): PDO {
     $dsn = "mysql:host={$host};port={$port};dbname={$name};charset={$charset}";
     $pdo = new PDO($dsn, $user, $pass, [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC,PDO::ATTR_EMULATE_PREPARES=>false]);
     ensure_database_schema($pdo);
+    casa_ensure_ai_config_defaults($pdo);
     return $pdo;
 }
 
