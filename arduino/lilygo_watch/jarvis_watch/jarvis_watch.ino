@@ -783,12 +783,36 @@ void bleEventHandler(const String &type,const String &title,const String &text){
     return;
   }
 
+  if(type=="voice_ready"){
+    voiceText="CELULAR PRONTO";
+    lastMessage="Toque na notificacao do celular";
+    controller.setVoiceState(JARVIS_VOICE_WAITING_RESULT);
+    if(screenAwake&&currentScreen==SCREEN_VOICE)drawScreen();
+    return;
+  }
+
+  if(type=="voice_result"){
+    voiceText="VOZ NAO PROCESSADA";
+    lastMessage=text.isEmpty()?"Reconhecimento cancelado":text;
+    controller.setVoiceState(JARVIS_VOICE_ERROR);
+    if(screenAwake&&currentScreen==SCREEN_VOICE)drawScreen();
+    return;
+  }
+
   if(type=="jarvis_result"){
+    voiceText="RESPOSTA RECEBIDA";
     notificationTitle="JARVIS";
     notificationText=text;
     previousScreen=currentScreen;currentScreen=SCREEN_NOTIFICATION;
+    controller.emit(jarvisEvent(EVT_VOICE_RESULT,JARVIS_PRI_HIGH));
     controller.emit(jarvisEvent(EVT_USER_INTERACTION,JARVIS_PRI_HIGH));
     if(screenAwake)drawScreen();
+    return;
+  }
+
+  if(type=="alarm_sound_result"){
+    lastMessage="Alarme enviado ao celular";
+    if(screenAwake&&currentScreen==SCREEN_ALARM)drawScreen();
     return;
   }
 
