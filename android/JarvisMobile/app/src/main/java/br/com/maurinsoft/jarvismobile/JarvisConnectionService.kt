@@ -9,6 +9,8 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.ActivityCompat
@@ -38,8 +40,16 @@ class JarvisConnectionService : Service(), WatchClient.Listener {
         const val CHANNEL_SERVICE = "jarvis_service"
         const val CHANNEL_ALERTS = "jarvis_alerts"
         const val CHANNEL_WATCH = "jarvis_watch"
+        const val CHANNEL_WATCH_ALARM = "jarvis_watch_alarm_v1"
         const val NOTIFICATION_ID = 1001
         const val CAMERA_NOTIFICATION_ID = 1401
+        const val VOICE_NOTIFICATION_ID = 1402
+        const val ALARM_NOTIFICATION_ID = 1403
+
+        const val ACTION_VOICE_RECOGNIZED = "br.com.maurinsoft.jarvismobile.action.WATCH_VOICE_RECOGNIZED"
+        const val EXTRA_VOICE_TEXT = "watch_voice_text"
+        const val EXTRA_VOICE_ERROR = "watch_voice_error"
+        const val EXTRA_VOICE_DEVICE_ID = "watch_voice_device_id"
 
         private const val PREFS = "jarvis_connection_service"
         private const val KEY_WATCH_EVENT_AFTER = "watch_event_after"
@@ -79,6 +89,30 @@ class JarvisConnectionService : Service(), WatchClient.Listener {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_VOICE_RECOGNIZED) {
+            val deviceId = intent.getStringExtra(EXTRA_VOICE_DEVICE_ID).orEmpty()
+            val text = intent.getStringExtra(EXTRA_VOICE_TEXT).orEmpty().trim()
+            val error = intent.getStringExtra(EXTRA_VOICE_ERROR).orEmpty()
+            if (deviceId.isNotBlank()) {
+                scope.launch {
+                    if (text.isNotBlank()) {
+                        processVoiceText(deviceId, text)
+                    } else {
+                        sendWatchCommand(
+                            deviceId,
+                            "voice_result",
+                            JSONObject()
+                                .put("type", "voice_result")
+                                .put("ok", false)
+                                .put("error", if (error.isBlank()) "speech_cancelled" else error),
+                            priority = "normal",
+                            ttlSeconds = 120
+                        )
+                    }
+                }
+            }
+        }
+
         if (intent?.action == WatchCameraActivity.ACTION_CAMERA_RESULT) {
             val ok = intent.getBooleanExtra(WatchCameraActivity.EXTRA_CAMERA_OK, false)
             val path = intent.getStringExtra(WatchCameraActivity.EXTRA_CAMERA_PATH).orEmpty()
@@ -196,6 +230,26 @@ class JarvisConnectionService : Service(), WatchClient.Listener {
                     "JARVIS Watch",
                     NotificationManager.IMPORTANCE_HIGH
                 )
+            )
+
+            val alarmSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            val alarmAttributes = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ALARM)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+            nm.createNotificationChannel(
+                NotificationChannel(
+                    CHANNEL_WATCH_ALARM,
+                    "Alarmes do JARVIS Watch",
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "Alarmes solicitados pelo relógio JARVIS"
+                    enableVibration(true)
+                    vibrationPattern = longArrayOf(0, 350, 180, 350, 180, 700)
+                    setSound(alarmSound, alarmAttributes)
+                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                }
             )
         }
     }
@@ -387,30 +441,14 @@ class JarvisConnectionService : Service(), WatchClient.Listener {
                 if (callId > 0) showFamilyCallNotification(callId, mode)
             }
 
+            "voice_capture" -> showVoiceRequest(event.deviceId)
+
             "voice_text" -> {
                 val text = event.data.optString("text").trim()
-                if (text.isNotBlank()) {
-                    val result = JarvisApi.sendOrQueue(
-                        this@JarvisConnectionService,
-                        text
-                    )
-                    sendWatchCommand(
-                        event.deviceId,
-                        "jarvis_result",
-                        JSONObject()
-                            .put("type", "jarvis_result")
-                            .put("ok", result.delivered)
-                            .put("queued", result.queued)
-                            .put("text", result.answer?.text ?: result.message)
-                            .put(
-                                "audio_url",
-                                result.answer?.audioUrl ?: JSONObject.NULL
-                            ),
-                        "normal",
-                        300
-                    )
-                }
+                if (text.isNotBlank()) processVoiceText(event.deviceId, text)
             }
+
+            "alarm_sound" -> showWatchAlarm(event.deviceId, event.data)
 
             "gps_request" -> {
                 sendWatchCommand(
@@ -455,6 +493,179 @@ class JarvisConnectionService : Service(), WatchClient.Listener {
                 "low",
                 60
             )
+        }
+    }
+
+    private suspend fun processVoiceText(deviceId: String, text: String) {
+        val normalized = text.trim()
+        if (normalized.isBlank()) {
+            sendWatchCommand(
+                deviceId,
+                "voice_result",
+                JSONObject()
+                    .put("type", "voice_result")
+                    .put("ok", false)
+                    .put("error", "empty_voice_text"),
+                "normal",
+                120
+            )
+            return
+        }
+
+        val result = JarvisApi.sendOrQueue(this@JarvisConnectionService, normalized)
+        sendWatchCommand(
+            deviceId,
+            "jarvis_result",
+            JSONObject()
+                .put("type", "jarvis_result")
+                .put("ok", result.delivered)
+                .put("queued", result.queued)
+                .put("text", result.answer?.text ?: result.message)
+                .put("audio_url", result.answer?.audioUrl ?: JSONObject.NULL),
+            "normal",
+            300
+        )
+    }
+
+    private fun showVoiceRequest(deviceId: String) {
+        val canNotify = Build.VERSION.SDK_INT < 33 ||
+            ActivityCompat.checkSelfPermission(
+                this,
+                android.Manifest.permission.POST_NOTIFICATIONS
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+        if (!canNotify) {
+            scope.launch {
+                sendWatchCommand(
+                    deviceId,
+                    "voice_ready",
+                    JSONObject()
+                        .put("type", "voice_ready")
+                        .put("ok", false)
+                        .put("error", "notification_permission_required"),
+                    "normal",
+                    120
+                )
+            }
+            return
+        }
+
+        runCatching {
+            val intent = Intent(this, WatchVoiceActivity::class.java)
+                .putExtra(WatchVoiceActivity.EXTRA_WATCH_DEVICE_ID, deviceId)
+            val pending = PendingIntent.getActivity(
+                this,
+                VOICE_NOTIFICATION_ID,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val notification = NotificationCompat.Builder(this, CHANNEL_WATCH)
+                .setSmallIcon(R.drawable.ic_jarvis_launcher)
+                .setContentTitle("JARVIS Watch — voz")
+                .setContentText("Toque para falar com o JARVIS pelo celular.")
+                .setStyle(
+                    NotificationCompat.BigTextStyle()
+                        .bigText("O relógio detectou sua voz. Toque aqui e fale o comando; o celular reconhecerá a fala e enviará a resposta de volta ao relógio.")
+                )
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setCategory(NotificationCompat.CATEGORY_SERVICE)
+                .setAutoCancel(true)
+                .setContentIntent(pending)
+                .build()
+
+            getSystemService(NotificationManager::class.java)
+                .notify(VOICE_NOTIFICATION_ID, notification)
+
+            scope.launch {
+                sendWatchCommand(
+                    deviceId,
+                    "voice_ready",
+                    JSONObject()
+                        .put("type", "voice_ready")
+                        .put("ok", true)
+                        .put("gateway", "android")
+                        .put("requires_user_action", true)
+                        .put("accepts", "voice_text")
+                        .put("audio_stream", false),
+                    "normal",
+                    120
+                )
+            }
+        }.onFailure {
+            scope.launch {
+                sendWatchCommand(
+                    deviceId,
+                    "voice_ready",
+                    JSONObject()
+                        .put("type", "voice_ready")
+                        .put("ok", false)
+                        .put("error", "voice_gateway_unavailable"),
+                    "normal",
+                    120
+                )
+            }
+        }
+    }
+
+    private fun showWatchAlarm(deviceId: String, data: JSONObject) {
+        runCatching {
+            val label = data.optString("message")
+                .ifBlank { data.optString("tone") }
+                .ifBlank { "Alarme acionado pelo JARVIS Watch" }
+
+            val open = PendingIntent.getActivity(
+                this,
+                ALARM_NOTIFICATION_ID,
+                Intent(this, MainActivity::class.java),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val alarmSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+
+            val notification = NotificationCompat.Builder(this, CHANNEL_WATCH_ALARM)
+                .setSmallIcon(R.drawable.ic_jarvis_launcher)
+                .setContentTitle("Alarme JARVIS Watch")
+                .setContentText(label)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(label))
+                .setCategory(NotificationCompat.CATEGORY_ALARM)
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setSound(alarmSound)
+                .setVibrate(longArrayOf(0, 350, 180, 350, 180, 700))
+                .setAutoCancel(true)
+                .setContentIntent(open)
+                .build()
+
+            getSystemService(NotificationManager::class.java)
+                .notify(ALARM_NOTIFICATION_ID, notification)
+
+            scope.launch {
+                sendWatchCommand(
+                    deviceId,
+                    "alarm_sound_result",
+                    JSONObject()
+                        .put("type", "alarm_sound_result")
+                        .put("ok", true)
+                        .put("target", "phone"),
+                    "high",
+                    120
+                )
+            }
+        }.onFailure {
+            scope.launch {
+                sendWatchCommand(
+                    deviceId,
+                    "alarm_sound_result",
+                    JSONObject()
+                        .put("type", "alarm_sound_result")
+                        .put("ok", false)
+                        .put("error", "phone_alarm_unavailable"),
+                    "high",
+                    120
+                )
+            }
         }
     }
 
