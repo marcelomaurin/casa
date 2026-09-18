@@ -6,6 +6,20 @@ function te_json($value): string {
     return json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 }
 
+function te_has_parent_column(PDO $pdo): bool {
+    static $available = null;
+    if ($available !== null) return $available;
+    try {
+        $db=(string)$pdo->query("SELECT DATABASE()")->fetchColumn();
+        $st=$pdo->prepare("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=:db AND TABLE_NAME='jarvis_tarefas' AND COLUMN_NAME='tarefa_pai_id'");
+        $st->execute([':db'=>$db]);
+        $available=((int)$st->fetchColumn())>0;
+    } catch (Throwable $e) {
+        $available=false;
+    }
+    return $available;
+}
+
 function te_context_from_input($value): ?array {
     if (!is_array($value)) return null;
     $plan = (int)($value['id_plano'] ?? 0);
@@ -82,24 +96,30 @@ function te_next_order(PDO $pdo, int $plan): int {
 
 function te_add_subtask(PDO $pdo, array $ctx, string $titulo, string $executor, $payload=null, ?int $dependeDe=null, string $status='PENDENTE'): int {
     $order=te_next_order($pdo,(int)$ctx['id_plano']);
-    $st=$pdo->prepare(
-        "INSERT INTO jarvis_tarefas ".
-        "(id_plano,ordem,titulo,descricao,tipo,executor,payload,depende_de,tarefa_pai_id,status,iniciado_em) ".
-        "VALUES(:p,:o,:t,:d,'IMEDIATA',:e,:j,:dep,:pai,:s,CASE WHEN :s2='EXECUTANDO' THEN NOW() ELSE NULL END)"
-    );
     $desc=is_array($payload) ? (string)($payload['descricao'] ?? '') : '';
-    $st->execute([
-        ':p'=>$ctx['id_plano'],
-        ':o'=>$order,
-        ':t'=>$titulo,
-        ':d'=>$desc,
-        ':e'=>$executor,
-        ':j'=>te_json($payload),
-        ':dep'=>$dependeDe,
-        ':pai'=>$ctx['id_tarefa_raiz'],
-        ':s'=>$status,
-        ':s2'=>$status
-    ]);
+
+    if (te_has_parent_column($pdo)) {
+        $sql="INSERT INTO jarvis_tarefas ".
+             "(id_plano,ordem,titulo,descricao,tipo,executor,payload,depende_de,tarefa_pai_id,status,iniciado_em) ".
+             "VALUES(:p,:o,:t,:d,'IMEDIATA',:e,:j,:dep,:pai,:s,CASE WHEN :s2='EXECUTANDO' THEN NOW() ELSE NULL END)";
+        $params=[
+            ':p'=>$ctx['id_plano'], ':o'=>$order, ':t'=>$titulo, ':d'=>$desc,
+            ':e'=>$executor, ':j'=>te_json($payload), ':dep'=>$dependeDe,
+            ':pai'=>$ctx['id_tarefa_raiz'], ':s'=>$status, ':s2'=>$status
+        ];
+    } else {
+        $sql="INSERT INTO jarvis_tarefas ".
+             "(id_plano,ordem,titulo,descricao,tipo,executor,payload,depende_de,status,iniciado_em) ".
+             "VALUES(:p,:o,:t,:d,'IMEDIATA',:e,:j,:dep,:s,CASE WHEN :s2='EXECUTANDO' THEN NOW() ELSE NULL END)";
+        $params=[
+            ':p'=>$ctx['id_plano'], ':o'=>$order, ':t'=>$titulo, ':d'=>$desc,
+            ':e'=>$executor, ':j'=>te_json($payload), ':dep'=>$dependeDe,
+            ':s'=>$status, ':s2'=>$status
+        ];
+    }
+
+    $st=$pdo->prepare($sql);
+    $st->execute($params);
     return (int)$pdo->lastInsertId();
 }
 
@@ -145,7 +165,8 @@ function te_public_context(array $ctx): array {
 }
 
 function te_list_tasks(PDO $pdo, array $ctx): array {
-    $st=$pdo->prepare("SELECT id,ordem,titulo,tipo,executor,status,depende_de,tarefa_pai_id,erro,iniciado_em,concluido_em FROM jarvis_tarefas WHERE id_plano=:p ORDER BY ordem,id");
+    $parentCol=te_has_parent_column($pdo) ? "tarefa_pai_id" : "NULL AS tarefa_pai_id";
+    $st=$pdo->prepare("SELECT id,ordem,titulo,tipo,executor,status,depende_de,".$parentCol.",erro,iniciado_em,concluido_em FROM jarvis_tarefas WHERE id_plano=:p ORDER BY ordem,id");
     $st->execute([':p'=>$ctx['id_plano']]);
     return $st->fetchAll(PDO::FETCH_ASSOC);
 }
