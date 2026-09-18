@@ -34,7 +34,7 @@ function tia_is_daily_summary($question){
     return preg_match('/\b(resumo|relat[oó]rio|o que ocorreu|o que aconteceu|aconteceu|ocorreu|movimenta[cç][aã]o|atividade do dia|resumo do dia)\b/u',$q)===1;
 }
 
-function tia_call_computer($prompt,$timeout=55){
+function tia_call_computer($prompt,$timeout=55,$taskContext=null){
     $token=get_system_api_token();
     $ch=curl_init('http://127.0.0.1/api/jarvis.php');
     curl_setopt_array($ch,[
@@ -43,7 +43,8 @@ function tia_call_computer($prompt,$timeout=55){
         CURLOPT_POSTFIELDS=>json_encode([
             'comando'=>'/cloud '.$prompt,
             'skip_planner'=>true,
-            'origem'=>'TELEMETRIA_IA'
+            'origem'=>'TELEMETRIA_IA',
+            'task_context'=>$taskContext
         ],JSON_UNESCAPED_UNICODE),
         CURLOPT_HTTPHEADER=>[
             'Content-Type: application/json',
@@ -184,7 +185,7 @@ try{
             $schemaPrompt.
             "\n\nPERGUNTA DO USUÁRIO:\n".$pergunta;
 
-        $generated=tia_call_computer($sqlPrompt,55);
+        $generated=tia_call_computer($sqlPrompt,55,te_public_context($taskContext));
         $sql=tia_clean_sql($generated);
         $validation=tia_validate_sql($sql);
     }
@@ -256,7 +257,7 @@ try{
     $taskAnalysis=te_add_subtask($pdo,$taskContext,'Analisar dados e produzir resposta','ia',[
         'linhas'=>count($rows),'pergunta'=>$pergunta
     ],$taskQuery,'EXECUTANDO');
-    $resposta=tia_call_computer($answerPrompt . "\n\nCONTEXTO_TAREFA: " . te_json(te_public_context($taskContext)),55);
+    $resposta=tia_call_computer($answerPrompt,55,te_public_context($taskContext));
     te_complete($pdo,$taskAnalysis,['resposta'=>$resposta]);
     te_finish($pdo,$taskContext,$resposta,['sql'=>$sql,'linhas'=>count($rows)]);
 
