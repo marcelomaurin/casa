@@ -408,6 +408,8 @@ CREATE TABLE IF NOT EXISTS tarefas_agendadas (
     descricao TEXT NULL,
     horario VARCHAR(20) NULL,
     dias_semana VARCHAR(80) NOT NULL DEFAULT '*',
+    cron_expr VARCHAR(100) NULL,
+    executor_tipo VARCHAR(30) NOT NULL DEFAULT 'ia',
     tipo_acao VARCHAR(50) NOT NULL,
     payload LONGTEXT NOT NULL,
     target_node VARCHAR(120) NOT NULL DEFAULT 'auto',
