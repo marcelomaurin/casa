@@ -475,6 +475,7 @@ CREATE TABLE IF NOT EXISTS jarvis_tarefas (
     executor VARCHAR(60) NOT NULL DEFAULT 'jarvis',
     payload JSON NULL,
     depende_de BIGINT UNSIGNED NULL,
+    tarefa_pai_id BIGINT UNSIGNED NULL,
     status VARCHAR(30) NOT NULL DEFAULT 'PENDENTE',
     executar_em DATETIME NULL,
     recorrencia VARCHAR(120) NULL,
@@ -487,8 +488,10 @@ CREATE TABLE IF NOT EXISTS jarvis_tarefas (
     KEY idx_jarvis_tarefas_plano (id_plano, ordem),
     KEY idx_jarvis_tarefas_status (status, executar_em),
     KEY idx_jarvis_tarefas_execucao (executar_em, status),
+    KEY idx_jarvis_tarefas_pai (tarefa_pai_id, ordem),
     CONSTRAINT fk_jt_plano FOREIGN KEY (id_plano) REFERENCES jarvis_planos(id) ON DELETE CASCADE,
-    CONSTRAINT fk_jt_depende FOREIGN KEY (depende_de) REFERENCES jarvis_tarefas(id) ON DELETE SET NULL
+    CONSTRAINT fk_jt_depende FOREIGN KEY (depende_de) REFERENCES jarvis_tarefas(id) ON DELETE SET NULL,
+    CONSTRAINT fk_jt_pai FOREIGN KEY (tarefa_pai_id) REFERENCES jarvis_tarefas(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 ALTER TABLE tarefas_agendadas
