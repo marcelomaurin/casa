@@ -91,6 +91,7 @@ if ($acao==='salvar') {
     if (!ia_valid_provider($provedor)||!ia_valid_hw($hw)||!ia_valid_level($nivel)) ia_json(['status'=>'erro','mensagem'=>'Classificação inválida'],400);
     $padrao=!empty($input['padrao'])?1:0;
     $ativo=array_key_exists('ativo',$input)?(!empty($input['ativo'])?1:0):1;
+    if ($padrao) $ativo=1;
     $prioridade=max(1,(int)($input['prioridade']??100));
     $timeout=max(5,min(180,(int)($input['timeout_segundos']??45)));
     $maxTokens=max(32,min(32768,(int)($input['max_tokens']??600)));
@@ -114,7 +115,8 @@ if ($acao==='salvar') {
             $id=(int)$pdo->lastInsertId();
         }
         if ((int)$pdo->query("SELECT COUNT(*) FROM ia_modelos WHERE padrao=1 AND ativo=1")->fetchColumn()===0) {
-            $pdo->prepare("UPDATE ia_modelos SET padrao=1 WHERE id=:id")->execute([':id'=>$id]);
+            $fallbackId=(int)$pdo->query("SELECT id FROM ia_modelos WHERE ativo=1 ORDER BY prioridade ASC,id ASC LIMIT 1")->fetchColumn();
+            if ($fallbackId>0) $pdo->prepare("UPDATE ia_modelos SET padrao=1 WHERE id=:id")->execute([':id'=>$fallbackId]);
         }
         $pdo->commit();
     } catch(Throwable $e) {
@@ -150,8 +152,8 @@ if ($acao==='testar') {
     $st=$pdo->prepare("SELECT * FROM ia_modelos WHERE id=:id"); $st->execute([':id'=>$id]); $row=$st->fetch();
     if (!$row) ia_json(['status'=>'erro','mensagem'=>'Modelo não encontrado'],404);
     $r=ia_test_row($row);
-    $pdo->prepare("UPDATE ia_modelos SET ultima_tentativa=NOW(),ultimo_sucesso=IF(:ok=1,NOW(),ultimo_sucesso),ultimo_erro=:erro,falhas_consecutivas=IF(:ok=1,0,falhas_consecutivas+1) WHERE id=:id")
-        ->execute([':ok'=>$r['ok']?1:0,':erro'=>$r['ok']?null:($r['erro']??'Falha'),':id'=>$id]);
+    $pdo->prepare("UPDATE ia_modelos SET ultima_tentativa=NOW(),ultimo_sucesso=IF(:ok1=1,NOW(),ultimo_sucesso),ultimo_erro=:erro,falhas_consecutivas=IF(:ok2=1,0,falhas_consecutivas+1) WHERE id=:id")
+        ->execute([':ok1'=>$r['ok']?1:0,':ok2'=>$r['ok']?1:0,':erro'=>$r['ok']?null:($r['erro']??'Falha'),':id'=>$id]);
     ia_json(['status'=>$r['ok']?'sucesso':'erro','teste'=>$r],$r['ok']?200:502);
 }
 
