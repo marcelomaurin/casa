@@ -278,16 +278,8 @@ function chamar_llm_runpod_native($apiKey, $endpointId, $model, $systemPrompt, $
     if ($apiKey==='' || $endpointId==='') return ['ok'=>false,'erro'=>'RunPod API key/Endpoint ID ausentes','http'=>0];
 
     $url="https://api.runpod.ai/v2/{$endpointId}/runsync";
-    $input=[
-        'messages'=>[
-            ['role'=>'system','content'=>$systemPrompt],
-            ['role'=>'user','content'=>$userMsg]
-        ],
-        'temperature'=>(float)$temperature,
-        'max_tokens'=>(int)$maxTokens
-    ];
-    if (trim((string)$model)!=='') $input['model']=$model;
-    $payload=['input'=>$input];
+    $prompt=trim($systemPrompt . "\n\n" . $userMsg);
+    $payload=['input'=>['prompt'=>$prompt]];
 
     $ch=curl_init($url);
     curl_setopt_array($ch,[
