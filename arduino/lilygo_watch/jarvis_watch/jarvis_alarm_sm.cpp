@@ -59,7 +59,6 @@ void JarvisAlarmStateMachine::process(const JarvisEvent &event){
   uint32_t packed = (uint32_t)event.value2;
   uint8_t hour = (packed >> 16) & 0xFF;
   uint8_t minute = (packed >> 8) & 0xFF;
-  uint8_t second = packed & 0xFF;
 
   // Em deep sleep o ESP32 pode acordar alguns segundos dentro do minuto.
   // O lastDay_ impede repetição; não dependemos mais de acordar exatamente
