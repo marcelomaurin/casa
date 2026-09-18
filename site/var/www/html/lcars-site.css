@@ -285,8 +285,8 @@ body{overscroll-behavior:none}
 .ja-config-grid label{display:flex;flex-direction:column;gap:3px;min-width:0}.ja-config-grid label span{color:#8fc7ef;font-size:clamp(8px,.8vw,11px);font-weight:900;text-transform:uppercase}
 .ja-config-grid input,.ja-command input{min-width:0;border:2px solid #3f82ad;border-radius:12px;background:#101010;color:#fff;padding:clamp(6px,.8vh,10px);font-size:clamp(9px,.9vw,13px)}
 .ja-jarvis{height:100%;min-height:0;display:grid;grid-template-rows:minmax(0,1fr) auto;gap:8px}
-.ja-chat-log{min-height:0;overflow:hidden;border:2px solid #3f82ad;border-radius:16px;padding:10px;display:flex;flex-direction:column;justify-content:flex-end;gap:5px}
-.ja-chat-line{border-radius:12px;padding:7px 10px;background:#c6a7df;color:#111;font-size:clamp(9px,.9vw,13px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ja-chat-log{min-height:0;overflow-y:auto;overflow-x:hidden;border:2px solid #3f82ad;border-radius:16px;padding:10px;display:flex;flex-direction:column;justify-content:flex-start;gap:7px;scrollbar-width:thin}
+.ja-chat-line{border-radius:12px;padding:8px 10px;background:#c6a7df;color:#111;font-size:clamp(9px,.9vw,13px);white-space:normal;overflow:visible;overflow-wrap:anywhere;word-break:break-word;line-height:1.35;display:block;max-width:100%}
 .ja-chat-line.user{background:#f2a000;margin-left:10%}.ja-chat-line.error{background:#ef6969}
 .ja-command{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:6px}.ja-command button{border:0;border-radius:12px;background:#f2a000;font-weight:900;padding:0 14px}
 @media(max-width:900px){.ja-native-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ja-config-grid{grid-template-columns:1fr 1fr}}
@@ -680,3 +680,8 @@ body{overscroll-behavior:none}
   color:#111;
 }
 .ja-password-modal>footer button:disabled{opacity:.6;cursor:wait}
+
+.ja-chat-who{display:inline;font-weight:900;margin-right:6px}
+.ja-chat-text{display:inline;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}
+.ja-chat-line.user{align-self:flex-end;max-width:90%}
+.ja-chat-line.ai,.ja-chat-line.error{align-self:stretch}
