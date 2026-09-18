@@ -409,7 +409,7 @@ async function renderConfig(){
     '</div>'+
     '<div class="ja-native-summary"><div><b>MODELOS CADASTRADOS</b><strong>'+esc((models.dados||[]).length)+'</strong></div><div><b>MODO</b><strong id="ja-ai-mode-summary">'+esc(mode==='local'?'LOCAL':IA_REMOTE_PROVIDERS[remote].label.toUpperCase())+'</strong></div></div>';
 
-  moduleShell('Configurações RunPod / IA',form,actionBtn('SALVAR','save','primary'));
+  moduleShell('Configurações RunPod / IA',form,actionBtn('TESTAR CONEXÃO','test')+actionBtn('SALVAR','save','primary'));
 
   const modeEl=document.getElementById('ja-ia-mode');
   const providerEl=document.getElementById('ja-remote-provider');
@@ -436,6 +436,45 @@ async function renderConfig(){
   modeEl.onchange=updateMode;
   providerEl.onchange=updateProvider;
   updateProvider();
+
+  document.querySelector('[data-act="test"]')?.addEventListener('click',async()=>{
+    const btn=document.querySelector('[data-act="test"]');
+    const resultId='ja-ai-test-result';
+    let box=document.getElementById(resultId);
+    if(!box){
+      box=document.createElement('div');
+      box.id=resultId;
+      box.className='ja-ai-test-result';
+      document.querySelector('.ja-native-body')?.appendChild(box);
+    }
+    box.className='ja-ai-test-result testing';
+    box.textContent='Testando conexão...';
+    if(btn){btn.disabled=true;btn.textContent='TESTANDO...';}
+    const payload={
+      mode:modeEl.value,
+      local_url:document.getElementById('ja-local-url')?.value.trim()||'',
+      local_model:document.getElementById('ja-local-model')?.value.trim()||'',
+      provider:providerEl.value,
+      model:document.getElementById('ja-ia-model')?.value.trim()||'',
+      api_key:document.getElementById('ja-remote-key')?.value||'',
+      base_url:document.getElementById('ja-remote-url')?.value.trim()||'',
+      runpod_endpoint_id:document.getElementById('ja-runpod-endpoint')?.value.trim()||'',
+      runpod_protocol:document.getElementById('ja-runpod-protocol')?.value||'openai'
+    };
+    const ini=performance.now();
+    try{
+      const r=await postJson('/casa/api/testar_ia.php',payload);
+      const ms=Math.round(performance.now()-ini);
+      box.className='ja-ai-test-result ok';
+      box.innerHTML='<b>CONEXÃO OK</b><span>'+esc(r.provedor||payload.provider||payload.mode)+' · '+ms+' ms'+(r.http?' · HTTP '+esc(r.http):'')+'</span><small>'+esc(r.resposta||r.mensagem||'Teste concluído com sucesso.')+'</small>';
+    }catch(e){
+      const ms=Math.round(performance.now()-ini);
+      box.className='ja-ai-test-result error';
+      box.innerHTML='<b>FALHA NO TESTE</b><span>'+ms+' ms</span><small>'+esc(e.message||String(e))+'</small>';
+    }finally{
+      if(btn){btn.disabled=false;btn.textContent='TESTAR CONEXÃO';}
+    }
+  });
 
   document.querySelector('[data-act="save"]')?.addEventListener('click',async()=>{
     const mode=modeEl.value;
