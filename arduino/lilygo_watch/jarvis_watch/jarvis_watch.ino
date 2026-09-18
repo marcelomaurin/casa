@@ -75,6 +75,10 @@ bool lastWifiUiState=false,lastCasaUiState=false,lastCasaCheckedUiState=false;
 esp_sleep_wakeup_cause_t wakeCause=ESP_SLEEP_WAKEUP_UNDEFINED;
 bool backgroundTimerWake=false;
 unsigned long lastCasaCommandPoll=0;
+unsigned long lastCasaHeartbeat=0;
+unsigned long lastCasaTelemetry=0;
+static const unsigned long CASA_HEARTBEAT_INTERVAL_MS=30000UL;
+static const unsigned long CASA_TELEMETRY_INTERVAL_MS=60000UL;
 
 static const uint16_t C_BG=0xFFDF,C_TEXT=0x18C3,C_ORANGE=0xFBE0,C_SALMON=0xFB2C;
 static const uint16_t C_LAV=0xB57F,C_BLUE=0x5D7F,C_GREEN=0x6E6B,C_RED=0xF9E7,C_GOLD=0xFE60,C_WHITE=0xFFFF;
@@ -220,6 +224,72 @@ String jsonStringField(const String &json,const char *key){
     out+=ch;
   }
   return out;
+}
+
+String jsonEscapeValue(const String &value){
+  String out;
+  out.reserve(value.length()+8);
+  for(size_t i=0;i<value.length();i++){
+    char ch=value[i];
+    if(ch=='\\')out+="\\\\";
+    else if(ch=='"')out+="\\\"";
+    else if(ch=='\n')out+="\\n";
+    else if(ch=='\r')out+="\\r";
+    else if(ch=='\t')out+="\\t";
+    else if((uint8_t)ch>=0x20)out+=ch;
+  }
+  return out;
+}
+
+bool sendCasaHeartbeat(){
+  if(!jarvisWifiIsConnected()||!jarvisWifiHasCasaCredentials())return false;
+  String deviceId=jarvisWifiDeviceId();
+  if(deviceId.isEmpty())return false;
+
+  int batt=batteryPercent();
+  String payload="{\"device_id\":\""+jsonEscapeValue(deviceId)+
+    "\",\"transport\":\"wifi\",\"health\":\"ok\""+
+    ",\"protocol_version\":\"watch-1.0\""+
+    ",\"manufacturer\":\"LILYGO\""+
+    ",\"model\":\"JARVIS Watch\""+
+    ",\"rssi\":"+String(jarvisWifiRssi())+
+    ",\"uptime_sec\":"+String(millis()/1000UL);
+  if(batt>=0)payload+=",\"battery\":"+String(batt);
+  payload+=",\"data\":{\"wifi_ssid\":\""+jsonEscapeValue(jarvisWifiSsid())+
+    "\",\"power_mode\":\""+jsonEscapeValue(powerLabel())+"\"}}";
+
+  return jarvisWifiPostJson("/api/v1/device.php?acao=heartbeat",payload,nullptr);
+}
+
+bool sendCasaTelemetry(){
+  if(!jarvisWifiIsConnected()||!jarvisWifiHasCasaCredentials())return false;
+
+  int batt=batteryPercent();
+  String payload="{";
+  if(batt>=0)payload+="\"battery\":"+String(batt)+",";
+  payload+="\"steps\":"+String(steps)+
+    ",\"rssi_wifi\":"+String(jarvisWifiRssi())+
+    ",\"wifi_ssid\":\""+jsonEscapeValue(jarvisWifiSsid())+
+    "\",\"transport\":\"wifi\""+
+    ",\"power_mode\":\""+jsonEscapeValue(powerLabel())+
+    "\",\"alert_active\":"+(controller.alarm().ringing()?String("true"):String("false"))+
+    ",\"data\":{\"device_id\":\""+jsonEscapeValue(jarvisWifiDeviceId())+
+    "\",\"source\":\"watch-direct\"}}";
+
+  return jarvisWifiPostJson("/api/v1/watch.php?acao=telemetry",payload,nullptr);
+}
+
+void serviceCasaUplink(){
+  if(!jarvisWifiIsConnected()||!jarvisWifiHasCasaCredentials())return;
+  unsigned long now=millis();
+
+  if(lastCasaHeartbeat==0||now-lastCasaHeartbeat>=CASA_HEARTBEAT_INTERVAL_MS){
+    if(sendCasaHeartbeat())lastCasaHeartbeat=now;
+  }
+
+  if(lastCasaTelemetry==0||now-lastCasaTelemetry>=CASA_TELEMETRY_INTERVAL_MS){
+    if(sendCasaTelemetry())lastCasaTelemetry=now;
+  }
 }
 
 bool fetchBackgroundCasaUpdate(){
@@ -549,7 +619,20 @@ void drawNotificationScreen(){
 void drawScreen(){if(!screenAwake||!tft)return;if(currentScreen!=SCREEN_HOME)tft->fillScreen(C_BG);switch(currentScreen){case SCREEN_HOME:drawWatchFace();break;case SCREEN_APPS:drawApps();break;case SCREEN_VOICE:drawVoice();break;case SCREEN_ALARM:drawAlarm();break;case SCREEN_CAMERA:drawCamera();break;case SCREEN_GPS:drawGps();break;case SCREEN_CONTROLS:drawControls();break;case SCREEN_HEALTH:drawHealth();break;case SCREEN_STATUS:drawStatus();break;case SCREEN_SETTINGS:drawSettings();break;case SCREEN_CLOCK:drawClock();break;case SCREEN_WIFI:drawWifi();break;case SCREEN_KEYBOARD:drawKeyboard();break;case SCREEN_NOTIFICATION:drawNotificationScreen();break;}}
 void navigate(ScreenId s){previousScreen=currentScreen;currentScreen=s;lastMessage="";drawScreen();}
 void goHome(){previousScreen=currentScreen;currentScreen=SCREEN_HOME;drawScreen();}
-void sendCommand(const String&cmd){if(jarvisBleIsConnected()&&jarvisBleSendCommand(cmd))lastMessage="Enviado ao celular";else lastMessage="Celular indisponivel";drawScreen();}
+void sendCommand(const String&cmd){
+  if(jarvisBleIsConnected()&&jarvisBleSendCommand(cmd)){
+    lastMessage="Enviado ao celular";
+  }else if(jarvisWifiIsConnected()&&jarvisWifiHasCasaCredentials()){
+    String payload="{\"comando\":\""+jsonEscapeValue(cmd)+
+      "\",\"origem\":\"LILYGO_WATCH\",\"ia_mode\":\"auto\"}";
+    lastMessage=jarvisWifiPostJson("/api/v1/comando",payload,nullptr)
+      ?"Enviado ao site"
+      :"Falha ao chamar site";
+  }else{
+    lastMessage="Sem celular/site";
+  }
+  drawScreen();
+}
 
 void triggerCamera(){if(jarvisBleIsConnected()&&jarvisBleSendCommand("camera_capture"))cameraText="FOTO SOLICITADA";else cameraText="SEM CELULAR";drawScreen();}
 void startVideoCall(){
@@ -968,6 +1051,7 @@ void loop(){
   jarvisIrLoop();
   jarvisBleLoop();
   jarvisWifiLoop();
+  serviceCasaUplink();
 
   if(jarvisWifiIsConnected()&&millis()-lastCasaCommandPoll>=5000UL){
     lastCasaCommandPoll=millis();
