@@ -172,15 +172,26 @@ void powerScreenOffHook(){
 void powerDeepSleepHook(){enterDeepSleep();}
 
 uint32_t secondsToNextBackgroundWake(){
+  // CASA nao precisa ser consultado a cada minuto durante standby.
+  // ECO: ate 5 min; ULTRA: ate 15 min. O proximo alarme sempre prevalece.
+  uint32_t casaSec = powerMode==POWER_ULTRA ? 900U :
+                     powerMode==POWER_ECO ? 300U : 60U;
+
   if(watch&&watch->rtc){
     RTC_Date n=watch->rtc->getDateTime();
-    // Alinha os wakes ao inicio de cada minuto. Depois do sync HTTP, se o
-    // relogio dormir no segundo 3, por exemplo, acorda cerca de 57 s depois.
-    uint32_t sec=60U-(uint32_t)(n.second%60);
-    if(sec==0)sec=JARVIS_BACKGROUND_WAKE_SEC;
-    return sec;
+
+    if(alarmEnabled){
+      int nowSec=(int)n.hour*3600+(int)n.minute*60+(int)n.second;
+      int alarmSec=(int)alarmHour*3600+(int)alarmMinute*60;
+      int delta=alarmSec-nowSec;
+      if(delta<=0)delta+=24*3600;
+      if((uint32_t)delta<casaSec)casaSec=(uint32_t)delta;
+    }
+
+    // Evita wake imediato por arredondamento/horario exatamente coincidente.
+    if(casaSec<5U)casaSec=5U;
   }
-  return JARVIS_BACKGROUND_WAKE_SEC;
+  return casaSec;
 }
 
 int jsonIntField(const String &json,const char *key,int fallback=-1){
@@ -354,6 +365,26 @@ void enterDeepSleep(){
 
   jarvisIrShutdown();
   jarvisAudioShutdown();
+
+  // O microfone PDM usa I2S0 apenas sob demanda. Garante que DMA/clock do I2S
+  // nao permaneçam ligados quando o Watch entra em standby.
+  if(voiceReady){
+    i2s_driver_uninstall(I2S_NUM_0);
+    voiceReady=false;
+    voiceCapturing=false;
+  }
+
+  // O BMA423 nao e fonte de wake no deep sleep atual; desliga o acelerometro.
+  if(watch->bma)watch->bma->disableAccel();
+
+  // ADCs do AXP202 so sao necessarios enquanto o Watch esta acordado.
+  if(watch->power){
+    watch->power->adc1Enable(
+      AXP202_VBUS_VOL_ADC1|AXP202_VBUS_CUR_ADC1|
+      AXP202_BATT_CUR_ADC1|AXP202_BATT_VOL_ADC1,false
+    );
+  }
+
   jarvisWifiPrepareSleep();
 
   watch->displaySleep();   // FT6336 fica em monitor mode, nao em deep sleep.
@@ -402,10 +433,16 @@ void processVoiceCapture(){
   if(!voiceCapturing)return;int16_t buf[128];size_t got=0;
   esp_err_t e=i2s_read(I2S_NUM_0,buf,sizeof(buf),&got,0);if(e==ESP_OK&&got){int n=got/2;for(int i=0;i<n;i++){voiceSum+=abs((int)buf[i]);voiceSamples++;}}
   if((long)(voiceCaptureUntil-millis())>0)return;voiceCapturing=false;int level=voiceSamples?(int)(voiceSum/voiceSamples):0;
-  if(level<60){voiceText="NAO OUVI";lastMessage="Fale mais perto";controller.emit(jarvisEvent(EVT_VOICE_STOP));drawScreen();return;}
+  if(level<60){
+    voiceText="NAO OUVI";lastMessage="Fale mais perto";
+    controller.emit(jarvisEvent(EVT_VOICE_STOP));
+    i2s_driver_uninstall(I2S_NUM_0);voiceReady=false;
+    drawScreen();return;
+  }
   voiceText="VOZ DETECTADA";String cmd="voice_capture:"+voiceOutputLabel();
   if(jarvisBleIsConnected()&&jarvisBleSendCommand(cmd)){lastMessage="Enviado ao celular";controller.emit(jarvisEvent(EVT_VOICE_RESULT));}
   else{lastMessage="Voz captada; celular indisponivel";controller.setVoiceState(JARVIS_VOICE_ERROR);}
+  i2s_driver_uninstall(I2S_NUM_0);voiceReady=false;
   drawScreen();
 }
 
