@@ -48,7 +48,7 @@ A configuração usa a série Yocto LTS `scarthgap`.
 
 ```bash
 cd yocto/raspberrypi-avatar-agent
-./setup-env.sh
+sh ./setup-env.sh
 source build-env
 bitbake casa-avatar-image
 ```
@@ -78,6 +78,16 @@ O projeto usa libfreenect. RGB e depth são capturados por `kinect-snapshot`.
 O microfone é acessado por ALSA; confira com `arecord -l`.
 
 Algumas revisões do Kinect exigem firmware para o subsistema de áudio. Este projeto não redistribui firmware proprietário.
+
+## Diagnóstico físico
+
+Depois do primeiro boot, execute:
+
+```bash
+casa-avatar-diagnostics
+```
+
+Ele testa USB/Kinect, captura RGB/depth, ALSA de entrada, speaker, acesso ao CASA e tokens configurados. Use este resultado antes de testar a IA.
 
 ## Critério de aceite físico
 
