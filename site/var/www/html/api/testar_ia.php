@@ -59,9 +59,7 @@ if($provider==='runpod'){
     if($protocol==='native'){
         $url='https://api.runpod.ai/v2/'.$endpoint.'/runsync';
         [$http,$err,$raw,$j]=curl_json($url,['input'=>[
-            'model'=>$model,
-            'messages'=>[['role'=>'user','content'=>$prompt]],
-            'max_tokens'=>16,'temperature'=>0
+            'prompt'=>$prompt
         ]],['Content-Type: application/json','Authorization: Bearer '.$key],45);
         if($http>=200&&$http<300){
             $o=$j['output']??null;
