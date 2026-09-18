@@ -514,3 +514,8 @@ No ESP32 clássico essas duas polaridades não podem compartilhar a mesma
 configuração EXT1 de deep sleep. Por isso, durante deep sleep, são priorizados
 touch, botão e timer. O sensor BMA423 continua disponível enquanto o relógio está
 acordado, mas levantar o pulso não é fonte de wake em deep sleep.
+
+
+## Validação automática
+
+O firmware é compilado no GitHub Actions com ESP32 core 2.0.14 e partição Huge APP. O workflow `.github/workflows/build-jarvis-watch.yml` é acionado quando arquivos desta pasta são alterados.
