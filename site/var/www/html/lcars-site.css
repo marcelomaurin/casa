@@ -288,9 +288,9 @@ body{overscroll-behavior:none}
 .ja-chat-log{min-height:0;overflow-y:auto;overflow-x:hidden;border:2px solid #3f82ad;border-radius:16px;padding:10px;display:flex;flex-direction:column;justify-content:flex-start;gap:7px;scrollbar-width:thin}
 .ja-chat-line{border-radius:12px;padding:8px 10px;background:#c6a7df;color:#111;font-size:clamp(9px,.9vw,13px);white-space:normal;overflow:visible;overflow-wrap:anywhere;word-break:break-word;line-height:1.35;display:block;max-width:100%}
 .ja-chat-line.user{background:#f2a000;margin-left:10%}.ja-chat-line.error{background:#ef6969}
-.ja-command{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:6px}.ja-command button{border:0;border-radius:12px;background:#f2a000;font-weight:900;padding:0 14px}
+.ja-command{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:6px}.ja-command button{border:0;border-radius:12px;background:#f2a000;font-weight:900;padding:0 14px;white-space:nowrap}.ja-command button.danger{background:#ef6969;color:#111}.ja-command button:disabled{opacity:.6;cursor:wait}
 @media(max-width:900px){.ja-native-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ja-config-grid{grid-template-columns:1fr 1fr}}
-@media(max-width:560px){.ja-native-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ja-native-card:nth-child(n+5){display:none}.ja-camera-grid,.ja-config-grid{grid-template-columns:1fr}.ja-native-summary{grid-template-columns:1fr 1fr}.ja-command{grid-template-columns:minmax(0,1fr) auto}.ja-command button:last-child{display:none}}
+@media(max-width:560px){.ja-native-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ja-native-card:nth-child(n+5){display:none}.ja-camera-grid,.ja-config-grid{grid-template-columns:1fr}.ja-native-summary{grid-template-columns:1fr 1fr}.ja-command{grid-template-columns:minmax(0,1fr) auto auto}.ja-command #ja-command-mic{display:none}.ja-command #ja-command-clear{grid-column:1/-1;min-height:34px}}
 
 
 /* Cards da tela inicial: ação sempre visível e próxima ao título */
