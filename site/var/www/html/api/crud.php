@@ -81,6 +81,25 @@ try {
     if ($acao === 'atualizar') {
         if ($tabela === '') crud_json(['status'=>'erro','mensagem'=>'Tabela obrigatória'], 400);
         $input = crud_clean_columns($input);
+
+        // Configuracoes sao chave/valor e devem aceitar criacao e atualizacao.
+        // Isso permite adicionar novos provedores de IA sem depender de nova migration.
+        if ($tabela === 'configuracoes_sistema') {
+            $chave = trim((string)($input['chave'] ?? ($_GET['id'] ?? '')));
+            if ($chave === '' || !preg_match('/^[a-zA-Z0-9_.-]{1,120}$/', $chave)) {
+                crud_json(['status'=>'erro','mensagem'=>'Chave de configuração inválida'], 400);
+            }
+            $valor = array_key_exists('valor', $input) ? (string)$input['valor'] : '';
+            $descricao = array_key_exists('descricao', $input) ? (string)$input['descricao'] : null;
+            $stmt = $pdo->prepare("INSERT INTO configuracoes_sistema(chave,valor,descricao)
+                VALUES(:chave,:valor,:descricao)
+                ON DUPLICATE KEY UPDATE valor=VALUES(valor),
+                    descricao=COALESCE(VALUES(descricao),descricao),
+                    atualizado_em=CURRENT_TIMESTAMP");
+            $stmt->execute([':chave'=>$chave,':valor'=>$valor,':descricao'=>$descricao]);
+            crud_json(['status'=>'sucesso','mensagem'=>'Configuração salva','chave'=>$chave]);
+        }
+
         $pk = crud_pk($tabela);
         $pkVal = $input[$pk] ?? ($_GET['id'] ?? null);
         if ($pkVal === null || $pkVal === '') crud_json(['status'=>'erro','mensagem'=>"Identificador {$pk} ausente"], 400);
