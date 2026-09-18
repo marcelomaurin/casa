@@ -1,0 +1,14 @@
+MACHINE ??= "raspberrypi4-64"
+DISTRO ?= "poky"
+PACKAGE_CLASSES ?= "package_rpm"
+EXTRA_IMAGE_FEATURES ?= "debug-tweaks ssh-server-openssh"
+
+INIT_MANAGER = "systemd"
+VIRTUAL-RUNTIME_init_manager = "systemd"
+VIRTUAL-RUNTIME_initscripts = ""
+
+ENABLE_UART = "1"
+GPU_MEM = "128"
+IMAGE_ROOTFS_EXTRA_SPACE = "524288"
+DISTRO_FEATURES:append = " alsa opengl systemd usrmerge"
+BB_NO_NETWORK ?= "0"
