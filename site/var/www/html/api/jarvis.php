@@ -448,11 +448,11 @@ $preferenciaModelos = 'auto';
 if (strpos($comando, '/cloud') === 0 || strpos($comando, '/runpod') === 0) $preferenciaModelos = 'cloud';
 elseif (strpos($comando, '/local') === 0) $preferenciaModelos = 'local';
 
-$modelosIA = jarvis_lista_modelos_ia($pdo, $preferenciaModelos);
+$modelosFallback = jarvis_lista_modelos_ia($pdo, $preferenciaModelos);
+$modelosIA = [];
 
-// Compatibilidade/configuração simples quando não há registros ativos em ia_modelos.
-if (!$modelosIA) {
-    if ($ia_provider === 'remote') {
+// A configuração selecionada na tela IA tem prioridade. A tabela ia_modelos fica como fallback.
+if ($ia_provider === 'remote') {
         $p=$ia_remote_provider ?: 'runpod';
         $base=$ia_remote_base_url;
         $key=$ia_remote_api_key;
@@ -492,16 +492,31 @@ if (!$modelosIA) {
             'id'=>0,'nome'=>'Remoto / '.strtoupper($p),'provedor'=>$execProvider,
             'base_url'=>$base,'api_key'=>$key,'modelo'=>$model,'endpoint_id'=>$runpod_endpoint_id,
             'classe_hardware'=>'GPU_HIGH','nivel_capacidade'=>'PROFISSIONAL',
-            'timeout_segundos'=>45,'max_tokens'=>600,'temperatura'=>0.35,'padrao'=>1,'prioridade'=>10
+            'timeout_segundos'=>38,'max_tokens'=>600,'temperatura'=>0.35,'padrao'=>1,'prioridade'=>10
         ];
-    } else {
-        $modelosIA[]=[
-            'id'=>0,'nome'=>'Local','provedor'=>'ollama',
-            'base_url'=>$local_ollama_url,'api_key'=>'','modelo'=>$local_model,
-            'classe_hardware'=>'CPU','nivel_capacidade'=>'ESTUDANTE',
-            'timeout_segundos'=>25,'max_tokens'=>220,'temperatura'=>0.3,'padrao'=>1,'prioridade'=>20
-        ];
+} else {
+    $modelosIA[]=[
+        'id'=>0,'nome'=>'Local','provedor'=>'ollama',
+        'base_url'=>$local_ollama_url,'api_key'=>'','modelo'=>$local_model,
+        'classe_hardware'=>'CPU','nivel_capacidade'=>'ESTUDANTE',
+        'timeout_segundos'=>25,'max_tokens'=>220,'temperatura'=>0.3,'padrao'=>1,'prioridade'=>20
+    ];
+}
+
+// Mantém os modelos cadastrados como fallback, sem substituir a seleção atual.
+foreach ($modelosFallback as $fallback) {
+    $duplicado=false;
+    foreach ($modelosIA as $atual) {
+        if (
+            strtolower((string)($atual['provedor']??'')) === strtolower((string)($fallback['provedor']??'')) &&
+            trim((string)($atual['modelo']??'')) === trim((string)($fallback['modelo']??'')) &&
+            rtrim(trim((string)($atual['base_url']??'')),'/') === rtrim(trim((string)($fallback['base_url']??'')),'/')
+        ) {
+            $duplicado=true;
+            break;
+        }
     }
+    if(!$duplicado) $modelosIA[]=$fallback;
 }
 
 foreach ($modelosIA as $modeloIA) {
