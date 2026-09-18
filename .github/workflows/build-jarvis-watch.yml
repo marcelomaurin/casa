@@ -38,4 +38,6 @@ jobs:
       - name: Compile JARVIS Watch
         shell: bash
         run: |
-          arduino-cli compile             --fqbn esp32:esp32:esp32:PartitionScheme=huge_app,PSRAM=enabled             --warnings all             arduino/lilygo_watch/jarvis_watch
+          arduino-cli compile \
+            --fqbn esp32:esp32:esp32:PartitionScheme=huge_app,PSRAM=enabled \
+            arduino/lilygo_watch/jarvis_watch
