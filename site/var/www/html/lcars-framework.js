@@ -1,4 +1,4 @@
-/* CASA/JARVIS Adaptive LCARS Framework
+/* CASA/COMPUTER Adaptive LCARS Framework
  * A IA escolhe apenas layouts/componentes permitidos. Nenhum HTML arbitrario e aceito.
  */
 (function(global){
@@ -36,7 +36,7 @@
   function normalize(spec){
     spec = spec && typeof spec === 'object' ? spec : {};
     const out = {
-      title: String(spec.title || 'CASA / JARVIS'),
+      title: String(spec.title || 'CASA / COMPUTER'),
       subtitle: String(spec.subtitle || ''),
       group: String(spec.group || 'GERAL'),
       breadcrumb: arr(spec.breadcrumb).slice(0,6).map(String),
@@ -133,7 +133,7 @@
   }
 
   function renderChat(spec){
-    return '<div class="ja-chat"><div class="ja-messages">'+spec.messages.map(m=>'<div class="ja-msg '+(m.role==='user'?'user':'ai')+'">'+esc(m.content||m.text||'')+'</div>').join('')+'</div><div class="ja-chatbar"><input type="text" aria-label="Mensagem" placeholder="Fale com o JARVIS"><button type="button" data-ja-action="send">ENVIAR</button></div></div>';
+    return '<div class="ja-chat"><div class="ja-messages">'+spec.messages.map(m=>'<div class="ja-msg '+(m.role==='user'?'user':'ai')+'">'+esc(m.content||m.text||'')+'</div>').join('')+'</div><div class="ja-chatbar"><input type="text" aria-label="Mensagem" placeholder="Fale com o COMPUTER"><button type="button" data-ja-action="send">ENVIAR</button></div></div>';
   }
 
   function renderBody(spec){
@@ -153,7 +153,7 @@
     if(!el) throw new Error('CASALcars: destino não encontrado');
     const spec=normalize(input);
     el.innerHTML='<div class="ja-shell">'+
-      '<header class="ja-top"><div class="ja-brand"><strong>CASA / JARVIS</strong><span>SUA CASA. MAIS INTELIGENTE.</span></div><div class="ja-system"><span class="ja-chip ok">SISTEMA ONLINE</span></div></header>'+
+      '<header class="ja-top"><div class="ja-brand"><strong>CASA / COMPUTER</strong><span>SUA CASA. MAIS INTELIGENTE.</span></div><div class="ja-system"><span class="ja-chip ok">SISTEMA ONLINE</span></div></header>'+
       '<div class="ja-workspace">'+renderRail(spec)+'<main class="ja-main"><section class="ja-panel"><header class="ja-panel-head"><div><h1>'+esc(spec.title)+'</h1></div><p>'+esc(spec.subtitle)+'</p></header><div class="ja-content">'+renderBody(spec)+'</div></section></main>'+renderStatus(spec)+'</div>'+
       '<footer class="ja-footer"><div>'+esc(spec.footer.hint||'Use ← GRUPOS para voltar aos grupos principais.')+'</div><div class="time" data-ja-clock>--:--</div><div class="online">CASA ONLINE</div></footer></div>';
     updateClock(el);
