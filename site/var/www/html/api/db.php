@@ -168,7 +168,10 @@ function casa_ensure_ai_config_defaults(PDO $pdo): void {
         ['local_model','jarvis-local:latest','Modelo do Ollama local'],
         ['openai_base_url','','URL base de API OpenAI-compatible, normalmente terminando em /v1'],
         ['openai_api_key','','Chave Bearer do provedor OpenAI-compatible'],
-        ['openai_model','','Modelo exposto pelo endpoint OpenAI-compatible']
+        ['openai_model','','Modelo exposto pelo endpoint OpenAI-compatible'],
+        ['stt_base_url','https://api.openai.com/v1','URL base do serviço de transcrição compatível OpenAI'],
+        ['stt_api_key','','Chave do serviço STT'],
+        ['stt_model','whisper-1','Modelo de transcrição de áudio']
     ];
     $stmt = $pdo->prepare("INSERT INTO configuracoes_sistema(chave,valor,descricao)
         VALUES(:chave,:valor,:descricao)
