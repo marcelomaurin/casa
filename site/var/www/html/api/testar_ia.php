@@ -13,6 +13,7 @@ function out($data,$code=200){
     exit;
 }
 function curl_json($url,$payload,$headers,$timeout=45){
+    $started=microtime(true);
     $ch=curl_init($url);
     curl_setopt_array($ch,[
         CURLOPT_RETURNTRANSFER=>true,
@@ -25,11 +26,14 @@ function curl_json($url,$payload,$headers,$timeout=45){
     $res=curl_exec($ch);
     $http=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);
     $err=curl_error($ch);
+    $errno=curl_errno($ch);
     curl_close($ch);
     $json=$res!==false?json_decode((string)$res,true):null;
-    return [$http,$err,$res,$json];
+    $elapsed=(int)round((microtime(true)-$started)*1000);
+    return [$http,$err,$res,$json,$elapsed,$errno];
 }
 function curl_get_json($url,$headers,$timeout=150){
+    $started=microtime(true);
     $ch=curl_init($url);
     curl_setopt_array($ch,[
         CURLOPT_RETURNTRANSFER=>true,
@@ -41,14 +45,29 @@ function curl_get_json($url,$headers,$timeout=150){
     $res=curl_exec($ch);
     $http=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);
     $err=curl_error($ch);
+    $errno=curl_errno($ch);
     curl_close($ch);
     $json=$res!==false?json_decode((string)$res,true):null;
-    return [$http,$err,$res,$json];
+    $elapsed=(int)round((microtime(true)-$started)*1000);
+    return [$http,$err,$res,$json,$elapsed,$errno];
 }
 function body_preview($raw,$limit=1200){
     $s=trim((string)$raw);
     if(strlen($s)>$limit) $s=substr($s,0,$limit).'...';
     return $s;
+}
+
+function reported_error($err,$json,$raw,$http,$curlErrno=0){
+    if(trim((string)$err)!=='') return trim((string)$err);
+    if(is_array($json)){
+        $v=$json['error']['message']??$json['error']??$json['message']??$json['detail']??null;
+        if(is_array($v)) return json_encode($v,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+        if(is_string($v)&&trim($v)!=='') return trim($v);
+    }
+    $preview=body_preview($raw);
+    if($preview!=='') return $preview;
+    if($curlErrno) return 'cURL '.$curlErrno;
+    return 'HTTP '.$http;
 }
 
 $mode=strtolower(trim((string)($in['mode']??'local')));
@@ -59,7 +78,7 @@ if($mode==='local'){
     $base=rtrim(trim((string)($in['local_url']??'')),'/');
     $model=trim((string)($in['local_model']??''));
     if($base===''||$model==='') out(['status'=>'erro','mensagem'=>'Servidor local e modelo são obrigatórios.'],400);
-    [$http,$err,$raw,$j]=curl_json($base.'/api/generate',[
+    [$http,$err,$raw,$j,$tempoMs,$curlErrno]=curl_json($base.'/api/generate',[
         'model'=>$model,'prompt'=>$prompt,'stream'=>false,'options'=>['num_predict'=>16,'temperature'=>0]
     ],['Content-Type: application/json'],30);
     if($http>=200&&$http<300&&!empty($j['response'])){
@@ -81,20 +100,20 @@ if($provider==='runpod'){
 
     if($protocol==='native'){
         $url='https://api.runpod.ai/v2/'.$endpoint.'/runsync';
-        [$http,$err,$raw,$j]=curl_json($url,['input'=>[
+        [$http,$err,$raw,$j,$tempoMs,$curlErrno]=curl_json($url,['input'=>[
             'prompt'=>$prompt
         ]],['Content-Type: application/json','Authorization: Bearer '.$key],45);
         if($http>=200&&$http<300){
             $o=$j['output']??null;
             $txt=is_string($o)?$o:($o['choices'][0]['message']['content']??$o['text']??$o['response']??$o['output']??'');
-            if($txt!=='') out(['status'=>'sucesso','provedor'=>'RUNPOD NATIVO','http'=>$http,'resposta'=>is_string($txt)?trim($txt):'OK']);
+            if($txt!=='') out(['status'=>'sucesso','provedor'=>'RUNPOD NATIVO','http'=>$http,'resposta'=>is_string($txt)?trim($txt):'OK','url'=>$url,'tempo_ms'=>$tempoMs]);
         }
-        out(['status'=>'erro','mensagem'=>$err?:($j['error']??$j['message']??('HTTP '.$http)),'http'=>$http],502);
+        out(['status'=>'erro','mensagem'=>reported_error($err,$j,$raw,$http,$curlErrno),'erro_reportado'=>reported_error($err,$j,$raw,$http,$curlErrno),'http'=>$http,'url'=>$url,'body_preview'=>body_preview($raw),'tempo_ms'=>$tempoMs],502);
     } else {
         $base='https://api.runpod.ai/v2/'.$endpoint.'/openai/v1';
         if($stage==='models'){
             $url=$base.'/models';
-            [$http,$err,$raw,$j]=curl_get_json($url,[
+            [$http,$err,$raw,$j,$tempoMs,$curlErrno]=curl_get_json($url,[
                 'Accept: application/json',
                 'Authorization: Bearer '.$key
             ],150);
@@ -111,15 +130,18 @@ if($provider==='runpod'){
                     'modelos_encontrados'=>count($ids),
                     'modelo_presente'=>in_array($model,$ids,true),
                     'modelos'=>$ids,
-                    'body_preview'=>body_preview($raw)
+                    'body_preview'=>body_preview($raw),
+                    'tempo_ms'=>$tempoMs
                 ]);
             }
             out([
                 'status'=>'erro',
-                'mensagem'=>$err?:($j['error']['message']??$j['message']??('HTTP '.$http)),
+                'mensagem'=>reported_error($err,$j,$raw,$http,$curlErrno),
+                'erro_reportado'=>reported_error($err,$j,$raw,$http,$curlErrno),
                 'http'=>$http,
                 'url'=>$url,
-                'body_preview'=>body_preview($raw)
+                'body_preview'=>body_preview($raw),
+                'tempo_ms'=>$tempoMs
             ],502);
         }
     }
@@ -129,7 +151,7 @@ if($provider==='gemini'){
     if($key==='') out(['status'=>'erro','mensagem'=>'API Key do Google Gemini obrigatória.'],400);
     if($base==='') $base='https://generativelanguage.googleapis.com/v1beta';
     $url=$base.'/models/'.rawurlencode($model).':generateContent?key='.rawurlencode($key);
-    [$http,$err,$raw,$j]=curl_json($url,['contents'=>[['role'=>'user','parts'=>[['text'=>$prompt]]]],'generationConfig'=>['maxOutputTokens'=>16,'temperature'=>0]],['Content-Type: application/json'],45);
+    [$http,$err,$raw,$j,$tempoMs,$curlErrno]=curl_json($url,['contents'=>[['role'=>'user','parts'=>[['text'=>$prompt]]]],'generationConfig'=>['maxOutputTokens'=>16,'temperature'=>0]],['Content-Type: application/json'],45);
     $txt=$j['candidates'][0]['content']['parts'][0]['text']??'';
     if($http>=200&&$http<300&&$txt!=='') out(['status'=>'sucesso','provedor'=>'GOOGLE GEMINI','http'=>$http,'resposta'=>trim($txt)]);
     out(['status'=>'erro','mensagem'=>$err?:($j['error']['message']??('HTTP '.$http)),'http'=>$http],502);
@@ -138,7 +160,7 @@ if($provider==='gemini'){
 if($provider==='anthropic'){
     if($key==='') out(['status'=>'erro','mensagem'=>'API Key da Anthropic obrigatória.'],400);
     if($base==='') $base='https://api.anthropic.com/v1';
-    [$http,$err,$raw,$j]=curl_json($base.'/messages',[
+    [$http,$err,$raw,$j,$tempoMs,$curlErrno]=curl_json($base.'/messages',[
         'model'=>$model,'max_tokens'=>16,'temperature'=>0,
         'messages'=>[['role'=>'user','content'=>$prompt]]
     ],['Content-Type: application/json','x-api-key: '.$key,'anthropic-version: 2023-06-01'],45);
@@ -160,13 +182,13 @@ $url=preg_match('#/chat/completions$#i',$base)?$base:$base.'/chat/completions';
 $headers=['Content-Type: application/json'];
 if($key!=='') $headers[]='Authorization: Bearer '.$key;
 $requestTimeout=($provider==='runpod' && $protocol==='openai')?150:45;
-[$http,$err,$raw,$j]=curl_json($url,[
+[$http,$err,$raw,$j,$tempoMs,$curlErrno]=curl_json($url,[
     'model'=>$model,
     'messages'=>[['role'=>'user','content'=>$prompt]],
     'max_tokens'=>16,'temperature'=>0,'stream'=>false
 ],$headers,$requestTimeout);
 $txt=$j['choices'][0]['message']['content']??'';
 if($http>=200&&$http<300&&$txt!==''){
-    out(['status'=>'sucesso','provedor'=>strtoupper($provider),'http'=>$http,'url'=>$url,'resposta'=>trim($txt),'body_preview'=>body_preview($raw)]);
+    out(['status'=>'sucesso','provedor'=>strtoupper($provider),'http'=>$http,'url'=>$url,'resposta'=>trim($txt),'body_preview'=>body_preview($raw),'tempo_ms'=>$tempoMs]);
 }
-out(['status'=>'erro','mensagem'=>$err?:($j['error']['message']??$j['message']??('HTTP '.$http)),'http'=>$http,'url'=>$url,'body_preview'=>body_preview($raw)],502);
+out(['status'=>'erro','mensagem'=>reported_error($err,$j,$raw,$http,$curlErrno),'erro_reportado'=>reported_error($err,$j,$raw,$http,$curlErrno),'http'=>$http,'url'=>$url,'body_preview'=>body_preview($raw),'tempo_ms'=>$tempoMs],502);
