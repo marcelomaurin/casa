@@ -485,7 +485,7 @@ body{overscroll-behavior:none}
   height:min(620px,86vh);
   min-height:0;
   display:grid;
-  grid-template-rows:auto auto auto minmax(0,1fr);
+  grid-template-rows:auto auto auto auto minmax(0,1fr);
   overflow:hidden;
   background:#080808;
   color:#fff;
@@ -562,4 +562,29 @@ body{overscroll-behavior:none}
   .ja-test-modal{width:96vw;height:90vh}
   .ja-test-meta{grid-template-columns:58px minmax(0,1fr)}
   .ja-test-log-line{grid-template-columns:66px minmax(0,1fr)}
+}
+
+.ja-test-result-banner{
+  margin:8px 14px 0;
+  padding:9px 12px;
+  border-radius:10px;
+  text-align:center;
+  font-weight:900;
+  letter-spacing:.06em;
+  font-size:clamp(11px,1vw,14px);
+}
+.ja-test-result-banner.running{
+  background:#332600;
+  border:2px solid #f2a000;
+  color:#ffd36b;
+}
+.ja-test-result-banner.success{
+  background:#0b3217;
+  border:2px solid #35e66b;
+  color:#7dff9e;
+}
+.ja-test-result-banner.failure{
+  background:#3a1010;
+  border:2px solid #ef6969;
+  color:#ff9b9b;
 }
