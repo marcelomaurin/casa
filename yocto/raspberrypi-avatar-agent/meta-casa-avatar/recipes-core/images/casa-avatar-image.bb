@@ -16,6 +16,7 @@ IMAGE_INSTALL:append = " \
     python3-core \
     python3-requests \
     python3-pygame \
+    python3-pillow \
     libfreenect \
     casa-avatar \
 "
