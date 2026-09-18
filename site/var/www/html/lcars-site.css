@@ -432,3 +432,27 @@ body{overscroll-behavior:none}
 @media(max-width:560px){
   .ja-config-subgrid{grid-template-columns:1fr}
 }
+
+
+.ja-ai-test-result{
+  grid-column:1/-1;
+  min-height:0;
+  border:2px solid #3f82ad;
+  border-radius:14px;
+  padding:8px 12px;
+  display:grid;
+  grid-template-columns:auto auto;
+  gap:3px 10px;
+  align-items:center;
+  background:#070707;
+  color:#fff;
+  margin-top:6px;
+}
+.ja-ai-test-result b{font-size:clamp(9px,.9vw,13px)}
+.ja-ai-test-result span{font-size:clamp(8px,.8vw,11px);color:#a9b7c6;text-align:right}
+.ja-ai-test-result small{grid-column:1/-1;font-size:clamp(8px,.8vw,11px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ja-ai-test-result.testing{border-color:#f2a000}
+.ja-ai-test-result.ok{border-color:#35e66b}
+.ja-ai-test-result.ok b{color:#35e66b}
+.ja-ai-test-result.error{border-color:#ef6969}
+.ja-ai-test-result.error b{color:#ef6969}
