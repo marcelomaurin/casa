@@ -75,7 +75,8 @@ const GROUPS={
         {id:'agentes',label:'Agentes externos',tab:'tab-agentes'}
       ]},
       {title:'INTELIGÊNCIA',items:[
-        {id:'runpod',label:'RunPod / IA',tab:'tab-config'},
+        {id:'modelos-ia',label:'Conexões & Modelos de IA',url:'/casa/ia_modelos.php'},
+        {id:'runpod',label:'Configuração IA legada',tab:'tab-config'},
         {id:'webapi',label:'Acesso Web & API segura',tab:'tab-externo'}
       ]}
     ]
