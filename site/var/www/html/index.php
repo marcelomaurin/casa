@@ -9,7 +9,7 @@ $authName = !empty($_SESSION['auth_name']) ? $_SESSION['auth_name'] : ($_SESSION
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
   <title>CASA / COMPUTER</title>
   <link rel="stylesheet" href="/casa/lcars-framework.css?v=1.2.0">
-  <link rel="stylesheet" href="/casa/lcars-site.css?v=1.2.1">
+  <link rel="stylesheet" href="/casa/lcars-site.css?v=1.2.3">
 </head>
 <body>
   <div class="ja-site-tools" aria-label="Ferramentas do sistema">
@@ -20,6 +20,6 @@ $authName = !empty($_SESSION['auth_name']) ? $_SESSION['auth_name'] : ($_SESSION
   <div id="app"></div>
   <noscript>O CASA/COMPUTER precisa de JavaScript habilitado para a interface adaptativa.</noscript>
   <script src="/casa/lcars-framework.js?v=1.2.0"></script>
-  <script src="/casa/lcars-site.js?v=1.2.2"></script>
+  <script src="/casa/lcars-site.js?v=1.2.3"></script>
 </body>
 </html>
