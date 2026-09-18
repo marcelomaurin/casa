@@ -119,7 +119,7 @@
     const cls=telemetry?'ja-telemetry':'ja-cards';
     return '<div class="'+cls+'" style="--ja-columns:'+spec.columns+'">'+spec.items.map(it=> telemetry ?
       '<div class="ja-gauge"><strong>'+esc(it.value??it.metric??'--')+'</strong><small>'+esc(it.label||it.title||'Métrica')+'</small>'+(it.status?'<div class="'+statusClass(it.status)+'">'+esc(it.status)+'</div>':'')+'</div>' :
-      '<article class="ja-card"><h3>'+esc(it.title||it.label||'Item')+'</h3>'+(it.value!=null?'<div class="metric">'+esc(it.value)+'</div>':'')+(it.description?'<div class="sub">'+esc(it.description)+'</div>':'')+(it.status?'<span class="state">'+esc(it.status)+'</span>':'')+renderActions(it.actions)+'</article>'
+      '<article class="ja-card'+(it.icon?' ja-group-card-ui':'')+'">'+(it.icon?'<div class="ja-card-title"><span class="ja-card-icon" aria-hidden="true">'+esc(it.icon)+'</span><h3>'+esc(it.title||it.label||'Item')+'</h3></div>':'<h3>'+esc(it.title||it.label||'Item')+'</h3>')+(it.value!=null?'<div class="metric">'+esc(it.value)+'</div>':'')+(it.description?'<div class="sub">'+esc(it.description)+'</div>':'')+(it.status?'<span class="state">'+esc(it.status)+'</span>':'')+renderActions(it.actions)+'</article>'
     ).join('')+'</div>';
   }
 
