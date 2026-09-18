@@ -141,6 +141,8 @@ if (!in_array($ia_provider, ['local','remote'], true)) {
 }
 $runpod_api_key = $configs['runpod_api_key'] ?? $ia_remote_api_key;
 $runpod_endpoint_id = $configs['runpod_endpoint_id'] ?? '';
+$runpod_protocol = strtolower(trim($configs['runpod_protocol'] ?? 'openai')); // native | openai
+if (!in_array($runpod_protocol, ['native','openai'], true)) $runpod_protocol = 'openai';
 $runpod_model = !empty($configs['runpod_model']) ? $configs['runpod_model'] : ($ia_remote_model ?: 'meta-llama/Meta-Llama-3-8B-Instruct');
 $local_model = $configs['local_model'] ?? 'jarvis-local:latest';
 $local_ollama_url = trim($configs['local_ollama_url'] ?? 'http://127.0.0.1:11434');
@@ -270,6 +272,67 @@ function jarvis_lista_modelos_ia(PDO $pdo, string $preferencia='auto'): array {
     }
 }
 
+function chamar_llm_runpod_native($apiKey, $endpointId, $model, $systemPrompt, $userMsg, $timeout=45, $maxTokens=600, $temperature=0.35) {
+    $apiKey=trim((string)$apiKey);
+    $endpointId=trim((string)$endpointId);
+    if ($apiKey==='' || $endpointId==='') return ['ok'=>false,'erro'=>'RunPod API key/Endpoint ID ausentes','http'=>0];
+
+    $url="https://api.runpod.ai/v2/{$endpointId}/runsync";
+    $input=[
+        'messages'=>[
+            ['role'=>'system','content'=>$systemPrompt],
+            ['role'=>'user','content'=>$userMsg]
+        ],
+        'temperature'=>(float)$temperature,
+        'max_tokens'=>(int)$maxTokens
+    ];
+    if (trim((string)$model)!=='') $input['model']=$model;
+    $payload=['input'=>$input];
+
+    $ch=curl_init($url);
+    curl_setopt_array($ch,[
+        CURLOPT_RETURNTRANSFER=>true,
+        CURLOPT_POST=>true,
+        CURLOPT_POSTFIELDS=>json_encode($payload,JSON_UNESCAPED_UNICODE),
+        CURLOPT_HTTPHEADER=>['Content-Type: application/json','Authorization: Bearer '.$apiKey],
+        CURLOPT_CONNECTTIMEOUT=>5,
+        CURLOPT_TIMEOUT=>max(5,(int)$timeout)
+    ]);
+    $res=curl_exec($ch);
+    $http=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);
+    $err=curl_error($ch);
+    curl_close($ch);
+
+    if ($res!==false && $http>=200 && $http<300) {
+        $j=json_decode((string)$res,true);
+        $status=strtoupper((string)($j['status']??''));
+        if ($status==='FAILED') return ['ok'=>false,'erro'=>(string)($j['error']??'RunPod job failed'),'http'=>$http];
+
+        $out=$j['output']??null;
+        $txt='';
+        if (is_string($out)) $txt=$out;
+        elseif (is_array($out)) {
+            $txt=$out['choices'][0]['message']['content']
+                ?? $out['text']
+                ?? $out['response']
+                ?? $out['output']
+                ?? '';
+            if ($txt==='' && isset($out[0]) && is_string($out[0])) $txt=$out[0];
+        }
+        if (is_array($txt)) $txt=json_encode($txt,JSON_UNESCAPED_UNICODE);
+        if (trim((string)$txt)!=='') return ['ok'=>true,'texto'=>trim((string)$txt),'http'=>$http];
+        return ['ok'=>false,'erro'=>'RunPod respondeu sem texto reconhecível','http'=>$http];
+    }
+
+    $detail='';
+    if ($res!==false) {
+        $j=json_decode((string)$res,true);
+        if (is_array($j)) $detail=$j['error']??$j['message']??'';
+        if (is_array($detail)) $detail=json_encode($detail,JSON_UNESCAPED_UNICODE);
+    }
+    return ['ok'=>false,'erro'=>$err ?: ($detail ?: ('HTTP '.$http)),'http'=>$http];
+}
+
 function jarvis_chamar_modelo(array $m, string $systemPrompt, string $userMsg): array {
     $provedor = strtolower((string)($m['provedor'] ?? 'openai_compatible'));
     $timeout = max(5, (int)($m['timeout_segundos'] ?? 45));
@@ -281,6 +344,9 @@ function jarvis_chamar_modelo(array $m, string $systemPrompt, string $userMsg): 
 
     if ($provedor === 'ollama' || $provedor === 'local') {
         return chamar_llm_local($baseUrl, $model, $systemPrompt, $userMsg);
+    }
+    if ($provedor === 'runpod_native') {
+        return chamar_llm_runpod_native($apiKey, $m['endpoint_id'] ?? '', $model, $systemPrompt, $userMsg, $timeout, $maxTokens, $temperature);
     }
     if ($model === '') return ['ok'=>false,'erro'=>'Modelo ausente','http'=>0];
 
@@ -400,10 +466,15 @@ if (!$modelosIA) {
         $key=$ia_remote_api_key;
         $model=$ia_remote_model;
         if ($p === 'runpod') {
-            $base = $runpod_endpoint_id !== '' ? "https://api.runpod.ai/v2/{$runpod_endpoint_id}/openai/v1" : '';
             $key = $runpod_api_key;
             $model = $runpod_model;
-            $execProvider='runpod';
+            if ($runpod_protocol === 'native') {
+                $base = '';
+                $execProvider='runpod_native';
+            } else {
+                $base = $runpod_endpoint_id !== '' ? "https://api.runpod.ai/v2/{$runpod_endpoint_id}/openai/v1" : '';
+                $execProvider='openai_compatible';
+            }
         } elseif ($p === 'openai') {
             if ($base==='') $base='https://api.openai.com/v1';
             $execProvider='openai_compatible';
@@ -427,7 +498,7 @@ if (!$modelosIA) {
         }
         $modelosIA[]=[
             'id'=>0,'nome'=>'Remoto / '.strtoupper($p),'provedor'=>$execProvider,
-            'base_url'=>$base,'api_key'=>$key,'modelo'=>$model,
+            'base_url'=>$base,'api_key'=>$key,'modelo'=>$model,'endpoint_id'=>$runpod_endpoint_id,
             'classe_hardware'=>'GPU_HIGH','nivel_capacidade'=>'PROFISSIONAL',
             'timeout_segundos'=>45,'max_tokens'=>600,'temperatura'=>0.35,'padrao'=>1,'prioridade'=>10
         ];
