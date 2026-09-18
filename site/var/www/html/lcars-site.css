@@ -291,3 +291,64 @@ body{overscroll-behavior:none}
 .ja-command{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:6px}.ja-command button{border:0;border-radius:12px;background:#f2a000;font-weight:900;padding:0 14px}
 @media(max-width:900px){.ja-native-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ja-config-grid{grid-template-columns:1fr 1fr}}
 @media(max-width:560px){.ja-native-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ja-native-card:nth-child(n+5){display:none}.ja-camera-grid,.ja-config-grid{grid-template-columns:1fr}.ja-native-summary{grid-template-columns:1fr 1fr}.ja-command{grid-template-columns:minmax(0,1fr) auto}.ja-command button:last-child{display:none}}
+
+
+/* Cards da tela inicial: ação sempre visível e próxima ao título */
+.ja-group-card-ui{
+  justify-content:flex-start!important;
+  gap:clamp(4px,.6vh,8px);
+}
+.ja-group-card-ui .ja-card-title{
+  display:flex;
+  align-items:center;
+  gap:clamp(7px,.8vw,12px);
+  min-width:0;
+  flex:0 0 auto;
+}
+.ja-group-card-ui .ja-card-title h3{
+  margin:0!important;
+  line-height:1.05;
+}
+.ja-group-card-ui .ja-card-icon{
+  width:clamp(28px,2.8vw,40px);
+  height:clamp(28px,2.8vw,40px);
+  flex:0 0 auto;
+  display:grid;
+  place-items:center;
+  border-radius:10px 10px 10px 3px;
+  background:var(--ja-orange);
+  color:#111;
+  font-size:clamp(15px,1.6vw,22px);
+  font-weight:900;
+  box-shadow:inset 0 0 0 2px #1118;
+}
+.ja-group-card-ui:nth-child(3n+2) .ja-card-icon{background:var(--ja-lilac)}
+.ja-group-card-ui:nth-child(3n) .ja-card-icon{background:var(--ja-blue)}
+.ja-group-card-ui .sub{
+  flex:0 0 auto;
+  line-height:1.15;
+  margin:0!important;
+  display:-webkit-box;
+  -webkit-line-clamp:2;
+  -webkit-box-orient:vertical;
+  overflow:hidden;
+}
+.ja-group-card-ui .ja-actions{
+  flex:0 0 auto!important;
+  margin-top:clamp(2px,.35vh,5px);
+  align-self:flex-start;
+  width:min(100%,180px);
+}
+.ja-group-card-ui .ja-action{
+  flex:0 0 auto!important;
+  width:100%;
+  min-height:clamp(28px,4.2vh,38px)!important;
+  padding:clamp(4px,.55vh,7px) clamp(10px,1vw,14px)!important;
+}
+@media(max-height:680px){
+  .ja-group-card-ui{padding:6px!important;gap:3px}
+  .ja-group-card-ui .ja-card-icon{width:24px;height:24px;font-size:13px}
+  .ja-group-card-ui .sub{-webkit-line-clamp:1}
+  .ja-group-card-ui .ja-actions{margin-top:1px}
+  .ja-group-card-ui .ja-action{min-height:24px!important;padding:3px 8px!important}
+}
