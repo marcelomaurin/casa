@@ -4,6 +4,7 @@ header('Content-Type: application/json; charset=utf-8');
 require_once(__DIR__ . '/db.php');
 require_once(__DIR__ . '/seguranca.php');
 require_once(__DIR__ . '/agente_externo.php');
+require_once(__DIR__ . '/task_engine.php');
 verify_api_auth();
 
 $input = json_decode(file_get_contents('php://input'), true);
@@ -20,6 +21,15 @@ if ($comando === '') {
 }
 
 $pdo = get_db_pdo();
+
+$existingTaskContext=te_context_from_input($input['task_context'] ?? null);
+$taskContext=te_begin($pdo,$comando,$origem,'computer',$existingTaskContext);
+$taskInterpret=0;
+if($taskContext['root_created']){
+    $taskInterpret=te_add_subtask($pdo,$taskContext,'Interpretar e planejar solicitação','computer',[
+        'pergunta'=>$comando,'origem'=>$origem
+    ],null,'EXECUTANDO');
+}
 
 function computer_client_ip(): ?string {
     $cf=$_SERVER['HTTP_CF_CONNECTING_IP']??'';
@@ -121,10 +131,15 @@ function jarvis_pedido_web($cmd) {
 // 0. Planejamento antes da execucao quando a demanda pede varias etapas, futuro ou condicao.
 if (!$skipPlanner && ($forcarPlanejamento || jarvis_deve_planejar($comando))) {
     $demanda = preg_replace('/^\s*\/planejar\s*/iu', '', $comando);
+    if($taskInterpret>0) te_complete($pdo,$taskInterpret,['roteamento'=>'planejador']);
+    $taskPlanner=te_add_subtask($pdo,$taskContext,'Planejar e decompor solicitação','planejador',[
+        'demanda'=>$demanda
+    ],$taskInterpret>0?$taskInterpret:null,'EXECUTANDO');
     $p = jarvis_post_local('http://127.0.0.1/api/planejador.php', [
         'demanda'=>$demanda,
         'origem'=>$origem,
-        'executar_imediatas'=>true
+        'executar_imediatas'=>true,
+        'task_context'=>te_public_context($taskContext)
     ], 90);
     if ($p['ok'] && (($p['dados']['status'] ?? '') === 'ok')) {
         $dados = $p['dados'];
@@ -140,11 +155,19 @@ if (!$skipPlanner && ($forcarPlanejamento || jarvis_deve_planejar($comando))) {
         if ($nAg) $resp .= ", {$nAg} agendada(s)";
         if ($nCond) $resp .= ", {$nCond} condicional(is)";
         $resp .= '. ' . trim($dados['resumo'] ?? '');
+        te_complete($pdo,$taskPlanner,['plano'=>$dados]);
+        $taskFinal=te_add_subtask($pdo,$taskContext,'Consolidar resposta final','computer',[
+            'resposta'=>$resp
+        ],$taskPlanner,'EXECUTANDO');
+        te_complete($pdo,$taskFinal,['resposta'=>$resp]);
+        te_finish($pdo,$taskContext,$resp,['plano'=>$dados]);
         $audio = jarvis_tts($resp, $configs['jarvis_voice'] ?? 'padrao', true);
         computer_telemetry_finish($pdo,$telemetryId,'SUCESSO',$resp,'PLANO/AGENDAMENTO REGISTRADO','PLANEJADOR',$telemetryStarted);
         echo json_encode([
             'status'=>'sucesso','resposta'=>$resp,'tipo_tarefa'=>'plano_de_tarefas',
-            'id_plano'=>$dados['id_plano'] ?? null,'plano'=>$dados,'audio_url'=>$audio
+            'id_plano'=>$taskContext['id_plano'],'id_tarefa_raiz'=>$taskContext['id_tarefa_raiz'],
+            'tarefas_execucao'=>te_list_tasks($pdo,$taskContext),
+            'plano'=>$dados,'audio_url'=>$audio
         ], JSON_UNESCAPED_UNICODE);
         exit;
     }
@@ -153,16 +176,29 @@ if (!$skipPlanner && ($forcarPlanejamento || jarvis_deve_planejar($comando))) {
 // 1. Pesquisa web direta para demandas atuais.
 if (!$skipPlanner && jarvis_pedido_web($comando)) {
     $query = preg_replace('/^\s*\/web\s*/iu', '', $comando);
+    if($taskInterpret>0) te_complete($pdo,$taskInterpret,['roteamento'=>'web']);
+    $taskWeb=te_add_subtask($pdo,$taskContext,'Pesquisar e analisar fontes externas','web',[
+        'query'=>$query
+    ],$taskInterpret>0?$taskInterpret:null,'EXECUTANDO');
     $w = jarvis_post_local('http://127.0.0.1/api/agente_internet.php', [
-        'acao'=>'responder','query'=>$query,'max_results'=>5
+        'acao'=>'responder','query'=>$query,'max_results'=>5,
+        'task_context'=>te_public_context($taskContext)
     ], 75);
     if ($w['ok'] && (($w['dados']['status'] ?? '') === 'ok')) {
         $d = $w['dados'];
+        te_complete($pdo,$taskWeb,['fontes'=>$d['fontes'] ?? [],'resposta'=>$d['resposta'] ?? '']);
+        $taskFinal=te_add_subtask($pdo,$taskContext,'Consolidar resposta final','computer',[
+            'resposta'=>$d['resposta'] ?? ''
+        ],$taskWeb,'EXECUTANDO');
+        te_complete($pdo,$taskFinal,['resposta'=>$d['resposta'] ?? '']);
+        te_finish($pdo,$taskContext,$d['resposta'] ?? '',['fontes'=>$d['fontes'] ?? []]);
         computer_telemetry_finish($pdo,$telemetryId,'SUCESSO',$d['resposta'] ?? '','PESQUISA WEB','AGENTE_WEB',$telemetryStarted);
         echo json_encode([
             'status'=>'sucesso','comando'=>$comando,'resposta'=>$d['resposta'] ?? '',
             'provedor'=>'Agente Web','target_ia'=>'web','tipo_tarefa'=>'pesquisa_internet',
-            'fontes'=>$d['fontes'] ?? [],'audio_url'=>$d['audio_url'] ?? null
+            'fontes'=>$d['fontes'] ?? [],'audio_url'=>$d['audio_url'] ?? null,
+            'id_plano'=>$taskContext['id_plano'],'id_tarefa_raiz'=>$taskContext['id_tarefa_raiz'],
+            'tarefas_execucao'=>te_list_tasks($pdo,$taskContext)
         ], JSON_UNESCAPED_UNICODE);
         exit;
     }
@@ -562,6 +598,11 @@ foreach ($modelosFallback as $fallback) {
     if(!$duplicado) $modelosIA[]=$fallback;
 }
 
+if($taskInterpret>0) te_complete($pdo,$taskInterpret,['roteamento'=>'ia']);
+$taskIA=te_add_subtask($pdo,$taskContext,'Consultar modelo de IA','ia',[
+    'preferencia'=>$preferenciaModelos
+],$taskInterpret>0?$taskInterpret:null,'EXECUTANDO');
+
 foreach ($modelosIA as $modeloIA) {
     $promptSistema = (($modeloIA['nivel_capacidade'] ?? '') === 'PROFESSOR' || ($modeloIA['nivel_capacidade'] ?? '') === 'PROFISSIONAL')
         ? $systemCloud : $systemLocal;
@@ -638,6 +679,12 @@ try {
     $stmt->execute([':u'=>$comando, ':b'=>$respostaLimpa, ':c'=>$provedor]);
 } catch (Exception $e) {}
 
+te_complete($pdo,$taskIA,['resposta'=>$respostaLimpa,'modelo'=>$modelo_usado]);
+$taskFinal=te_add_subtask($pdo,$taskContext,'Consolidar resposta final','computer',[
+    'resposta'=>$respostaLimpa
+],$taskIA,'EXECUTANDO');
+te_complete($pdo,$taskFinal,['resposta'=>$respostaLimpa]);
+te_finish($pdo,$taskContext,$respostaLimpa,['acao'=>$acao,'modelo'=>$modelo_usado]);
 $audioUrl = jarvis_tts($respostaLimpa, $jarvis_voice, true);
 computer_telemetry_finish(
     $pdo,
@@ -652,5 +699,7 @@ echo json_encode([
     'status'=>'sucesso','comando'=>$comando,'resposta'=>$respostaLimpa,
     'provedor'=>$provedor,'target_ia'=>$target_ia,'tipo_tarefa'=>$tipo_tarefa,
     'modo_roteamento'=>$routing_mode,'acao'=>$acao,'audio_url'=>$audioUrl,
-    'speaker'=>$jarvis_voice,'modelo_usado'=>$modelo_usado,'ia_diagnostico'=>$ia_diagnostico
+    'speaker'=>$jarvis_voice,'modelo_usado'=>$modelo_usado,'ia_diagnostico'=>$ia_diagnostico,
+    'id_plano'=>$taskContext['id_plano'],'id_tarefa_raiz'=>$taskContext['id_tarefa_raiz'],
+    'tarefas_execucao'=>te_list_tasks($pdo,$taskContext)
 ], JSON_UNESCAPED_UNICODE);
