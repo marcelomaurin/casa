@@ -19,6 +19,7 @@ object JarvisApi {
         .build()
 
     private const val DEFAULT_BASE_URL = "https://maurinsoft.com.br/casa"
+    private const val LEGACY_BASE_URL = "https://casa.maurinsoft.com.br"
     private const val PREFS = "jarvis"
     private const val PENDING_KEY = "pending_commands"
 
@@ -30,16 +31,35 @@ object JarvisApi {
     @Volatile var lastAudioUrl: String? = null
         private set
 
+    private fun normalizeBaseUrl(value: String?): String {
+        val raw = value.orEmpty().trim().trimEnd('/')
+        if (raw.isBlank()) return DEFAULT_BASE_URL
+
+        val normalized = when {
+            raw.equals(LEGACY_BASE_URL, ignoreCase = true) -> DEFAULT_BASE_URL
+            raw.equals("https://maurinsoft.com.br", ignoreCase = true) -> DEFAULT_BASE_URL
+            raw.equals("https://maurinsoft.com.br/casa", ignoreCase = true) -> DEFAULT_BASE_URL
+            raw.equals("https://maurinsoft.com.br/casa/", ignoreCase = true) -> DEFAULT_BASE_URL
+            else -> raw
+        }
+        return normalized
+    }
+
     fun loadConfig(context: Context): Config {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val stored = p.getString("base_url", DEFAULT_BASE_URL)?.trim()?.trimEnd('/').orEmpty()
-        val migrated = if (stored.equals("https://casa.maurinsoft.com.br", ignoreCase = true)) DEFAULT_BASE_URL else stored
-        val baseUrl = migrated.ifBlank { DEFAULT_BASE_URL }
+        val stored = p.getString("base_url", DEFAULT_BASE_URL)
+        val baseUrl = normalizeBaseUrl(stored)
+
+        // Persiste a migração para que versões futuras já usem o endereço canônico.
+        if (stored?.trim()?.trimEnd('/') != baseUrl) {
+            p.edit().putString("base_url", baseUrl).apply()
+        }
+
         return Config(baseUrl, AppTokenStore.load(context))
     }
 
     fun saveConfig(context: Context, baseUrl: String, token: String) {
-        val normalized = baseUrl.trim().trimEnd('/').ifBlank { DEFAULT_BASE_URL }
+        val normalized = normalizeBaseUrl(baseUrl)
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString("base_url", normalized)
             .apply()
