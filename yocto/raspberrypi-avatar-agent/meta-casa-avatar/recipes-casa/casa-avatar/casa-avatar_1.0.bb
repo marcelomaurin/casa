@@ -7,6 +7,7 @@ SRC_URI = " \
     file://kinect_snapshot.c \
     file://casa-avatar.service \
     file://casa-avatar.env \
+    file://casa-avatar-diagnostics.sh \
 "
 
 S = "${WORKDIR}"
@@ -30,6 +31,7 @@ do_install() {
 
     install -d ${D}${bindir}
     install -m 0755 ${WORKDIR}/kinect-snapshot ${D}${bindir}/kinect-snapshot
+    install -m 0755 ${WORKDIR}/casa-avatar-diagnostics.sh ${D}${bindir}/casa-avatar-diagnostics
 
     install -d ${D}${sysconfdir}
     install -m 0640 ${WORKDIR}/casa-avatar.env ${D}${sysconfdir}/casa-avatar.env
