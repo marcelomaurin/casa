@@ -1,0 +1,17 @@
+[Unit]
+Description=CASA COMPUTER - Google Home Hardware Agent
+After=network-online.target casa-tts.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mmm
+WorkingDirectory=/home/mmm/servicos/google-home-agent
+EnvironmentFile=-/etc/casa/google-home-agent.env
+ExecStart=/home/mmm/servicos/google-home-agent/venv/bin/python3 /home/mmm/servicos/google-home-agent/google_home_agent.py
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
