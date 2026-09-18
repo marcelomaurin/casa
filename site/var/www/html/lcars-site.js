@@ -320,9 +320,28 @@ async function renderAgents(){
 async function renderPhrases(){
   loading('Frases & avisos');
   const j=await crud('frases'); const all=j.dados||[]; const p=paginate('phrases',all,6);
-  moduleShell('Frases & avisos',cards(p.slice,f=>'<article class="ja-native-card"><h3>'+esc(f.autor||'JARVIS')+'</h3><p>“'+esc(f.texto||'')+'”</p><div class="ja-row-actions">'+actionBtn('FALAR','speak:'+f.id,'primary')+actionBtn('EXCLUIR','delete:'+f.id,'danger')+'</div></article>')+pager('phrases',p),actionBtn('NOVA','new','primary'));
-  document.querySelector('.ja-native-actions [data-act]')?.addEventListener('click',async()=>{const texto=prompt('Texto da frase:');if(!texto)return;const autor=prompt('Autor/origem:','JARVIS')||'JARVIS';await postJson('/casa/api/crud.php?tabela=frases&acao=criar',{texto,autor});renderPhrases();});
-  document.querySelectorAll('.ja-native-body [data-act]').forEach(b=>b.onclick=async()=>{const [a,id]=b.dataset.act.split(':');const f=all.find(x=>String(x.id)===id);if(a==='speak'&&f)await postJson('/casa/ws/proxy_tts.php?action=falar',{texto:f.texto,speaker:'padrao',reproduzir:true}).catch(()=>{});if(a==='delete'&&confirm('Excluir frase?'))await postJson('/casa/api/crud.php?tabela=frases&acao=excluir&id='+id,{});renderPhrases();});
+  moduleShell('Frases & avisos',cards(p.slice,f=>'<article class="ja-native-card"><h3>'+esc(f.autor||'COMPUTER')+'</h3><p>“'+esc(f.texto||'')+'”</p><div class="ja-row-actions">'+actionBtn('FALAR','speak:'+f.id,'primary')+actionBtn('EXCLUIR','delete:'+f.id,'danger')+'</div></article>')+pager('phrases',p),actionBtn('NOVA','new','primary'));
+  document.querySelector('.ja-native-actions [data-act]')?.addEventListener('click',async()=>{
+    const texto=prompt('Texto da frase:');
+    if(!texto)return;
+    const autor=prompt('Autor/origem:','COMPUTER')||'COMPUTER';
+    await postJson('/casa/api/crud.php?tabela=frases&acao=criar',{texto,autor});
+    renderPhrases();
+  });
+  document.querySelectorAll('.ja-native-body [data-act]').forEach(b=>b.onclick=async()=>{
+    const [a,id]=b.dataset.act.split(':');
+    const f=all.find(x=>String(x.id)===id);
+    if(a==='speak'&&f){
+      if(!speakComputer(f.texto)){
+        alert('Não foi encontrada uma voz pt-BR disponível neste navegador.');
+      }
+      return;
+    }
+    if(a==='delete'&&confirm('Excluir frase?')){
+      await postJson('/casa/api/crud.php?tabela=frases&acao=excluir&id='+id,{});
+      renderPhrases();
+    }
+  });
   bindPager('phrases',p,renderPhrases);
 }
 
