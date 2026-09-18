@@ -18,7 +18,7 @@ object JarvisApi {
         .retryOnConnectionFailure(true)
         .build()
 
-    private const val DEFAULT_BASE_URL = "https://casa.maurinsoft.com.br"
+    private const val DEFAULT_BASE_URL = "https://maurinsoft.com.br/casa"
     private const val PREFS = "jarvis"
     private const val PENDING_KEY = "pending_commands"
 
@@ -33,7 +33,7 @@ object JarvisApi {
     fun loadConfig(context: Context): Config {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val stored = p.getString("base_url", DEFAULT_BASE_URL)?.trim()?.trimEnd('/').orEmpty()
-        val migrated = if (stored.equals("https://maurinsoft.com.br/casa", ignoreCase = true)) DEFAULT_BASE_URL else stored
+        val migrated = if (stored.equals("https://casa.maurinsoft.com.br", ignoreCase = true)) DEFAULT_BASE_URL else stored
         val baseUrl = migrated.ifBlank { DEFAULT_BASE_URL }
         return Config(baseUrl, AppTokenStore.load(context))
     }
