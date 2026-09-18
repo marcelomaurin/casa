@@ -285,11 +285,100 @@ async function renderNodes(){
   bindPager('nodes',p,renderNodes);
 }
 
+function scheduleCronLabel(t){
+  if(t.cron_expr) return t.cron_expr;
+  const h=String(t.horario||'').trim();
+  const d=String(t.dias_semana||'*').trim()||'*';
+  if(/^\d{1,2}:\d{2}$/.test(h)){
+    const [hh,mm]=h.split(':');
+    return Number(mm)+' '+Number(hh)+' * * '+d;
+  }
+  if(/^\/?\*\/\d+$/.test(h)) return h+' * * * '+d;
+  return h||'—';
+}
+function scheduleCronValid(expr){
+  const p=String(expr||'').trim().split(/\s+/);
+  if(p.length!==5)return false;
+  return p.every(x=>/^(\*|\*\/\d+|\d+|\d+-\d+|\d+(,\d+)+)$/.test(x));
+}
+function openScheduleEditor(){
+  document.getElementById('ja-schedule-modal')?.remove();
+  const modal=document.createElement('div');
+  modal.id='ja-schedule-modal';
+  modal.className='ja-schedule-backdrop';
+  modal.innerHTML=
+    '<section class="ja-schedule-modal" role="dialog" aria-modal="true">'+
+      '<header><strong>NOVO AGENDAMENTO</strong><button type="button" data-close>FECHAR</button></header>'+
+      '<div class="ja-schedule-form">'+
+        '<label><span>Título</span><input id="sch-title" placeholder="Ex.: Acordar às 8"></label>'+
+        '<label class="wide"><span>Descrição</span><input id="sch-desc" placeholder="Descrição opcional"></label>'+
+        '<label class="wide"><span>Cron</span><input id="sch-cron" value="0 8 * * *" placeholder="min hora dia mês dia-semana"><small>Ex.: 0 8 * * * = todos os dias às 08:00 · 0 10 * * 1-5 = seg-sex às 10:00</small></label>'+
+        '<label><span>Executor</span><select id="sch-executor"><option value="ia">IA / COMPUTER</option><option value="fala">FALA</option><option value="equipamento">EQUIPAMENTO</option></select></label>'+
+        '<label id="sch-target-wrap"><span>Destino</span><input id="sch-target" value="local" placeholder="local ou identificação do equipamento"></label>'+
+        '<label class="wide"><span>Comando / mensagem</span><textarea id="sch-payload" rows="4" placeholder="Ex.: Me acorde; Ligue a luz da sala"></textarea></label>'+
+        '<div id="sch-device-fields" class="ja-schedule-device is-hidden">'+
+          '<label><span>ID equipamento</span><input id="sch-device-id" type="number" min="1" placeholder="1"></label>'+
+          '<label><span>Parâmetro</span><input id="sch-device-par" value="dev1"></label>'+
+          '<label><span>Valor</span><input id="sch-device-value" value="1"></label>'+
+        '</div>'+
+        '<div id="sch-msg" class="ja-schedule-message"></div>'+
+      '</div>'+
+      '<footer><button type="button" data-save>SALVAR AGENDAMENTO</button></footer>'+
+    '</section>';
+  document.body.appendChild(modal);
+  const close=()=>modal.remove();
+  modal.querySelector('[data-close]').onclick=close;
+  modal.addEventListener('click',e=>{if(e.target===modal)close();});
+  const executor=modal.querySelector('#sch-executor');
+  const dev=modal.querySelector('#sch-device-fields');
+  executor.onchange=()=>dev.classList.toggle('is-hidden',executor.value!=='equipamento');
+  modal.querySelector('[data-save]').onclick=async()=>{
+    const title=modal.querySelector('#sch-title').value.trim();
+    const cron=modal.querySelector('#sch-cron').value.trim();
+    const payloadText=modal.querySelector('#sch-payload').value.trim();
+    const msg=modal.querySelector('#sch-msg');
+    if(!title){msg.textContent='Informe o título.';msg.className='ja-schedule-message error';return;}
+    if(!scheduleCronValid(cron)){msg.textContent='Cron inválido. Use 5 campos, por exemplo: 0 8 * * *';msg.className='ja-schedule-message error';return;}
+    let body={acao:'criar',titulo:title,descricao:modal.querySelector('#sch-desc').value.trim(),cron_expr:cron,executor:executor.value,target_node:modal.querySelector('#sch-target').value.trim()||'local',payload:payloadText};
+    if(executor.value==='equipamento'){
+      body.device_id=Number(modal.querySelector('#sch-device-id').value||0);
+      body.devparname=modal.querySelector('#sch-device-par').value.trim()||'dev1';
+      body.valor=modal.querySelector('#sch-device-value').value;
+      if(!body.device_id){msg.textContent='Informe o ID do equipamento.';msg.className='ja-schedule-message error';return;}
+    }else if(!payloadText){msg.textContent='Informe o comando ou mensagem.';msg.className='ja-schedule-message error';return;}
+    const save=modal.querySelector('[data-save]');
+    save.disabled=true;save.textContent='SALVANDO...';
+    try{
+      await postJson('/casa/api/agendamentos.php',body);
+      close();
+      renderSchedules();
+    }catch(e){
+      msg.textContent=e.message||'Falha ao salvar.';
+      msg.className='ja-schedule-message error';
+      save.disabled=false;save.textContent='SALVAR AGENDAMENTO';
+    }
+  };
+}
 async function renderSchedules(){
   loading('Agendamentos');
-  const j=await crud('tarefas_agendadas'); const all=j.dados||[]; const p=paginate('schedules',all,6);
-  moduleShell('Agendamentos',cards(p.slice,t=>'<article class="ja-native-card"><h3>'+esc(t.titulo||('Tarefa '+t.id))+'</h3><p>'+esc(t.descricao||'')+'</p><dl><dt>Horário</dt><dd>'+esc(t.horario||'—')+'</dd><dt>Dias</dt><dd>'+esc(t.dias_semana||'—')+'</dd><dt>Ação</dt><dd>'+esc(t.tipo_acao||'—')+'</dd></dl><div class="ja-row-actions">'+actionBtn('RODAR','run:'+t.id,'primary')+actionBtn(t.ativo?'PAUSAR':'ATIVAR','toggle:'+t.id)+actionBtn('EXCLUIR','delete:'+t.id,'danger')+'</div></article>')+pager('schedules',p));
-  document.querySelectorAll('[data-act]').forEach(b=>b.onclick=async()=>{const [a,id]=b.dataset.act.split(':');if(a==='run')await postJson('/casa/api/crud.php?tabela=tarefas_agendadas&acao=executar_tarefa&id='+id,{});if(a==='toggle'){const t=all.find(x=>String(x.id)===id);await postJson('/casa/api/crud.php?tabela=tarefas_agendadas&acao=atualizar',{id:Number(id),ativo:!t.ativo});}if(a==='delete'&&confirm('Excluir agendamento?'))await postJson('/casa/api/crud.php?tabela=tarefas_agendadas&acao=excluir&id='+id,{});renderSchedules();});
+  const j=await getJson('/casa/api/agendamentos.php?acao=listar');
+  const all=j.dados||[];
+  const p=paginate('schedules',all,6);
+  const body=cards(p.slice,t=>'<article class="ja-native-card"><h3>'+esc(t.titulo||('Tarefa '+t.id))+'</h3><p>'+esc(t.descricao||'')+'</p><dl><dt>Cron</dt><dd><code>'+esc(scheduleCronLabel(t))+'</code></dd><dt>Executor</dt><dd>'+esc((t.executor_tipo||t.tipo_acao||'IA').toUpperCase())+'</dd><dt>Destino</dt><dd>'+esc(t.target_node||'local')+'</dd></dl><div class="ja-row-actions">'+actionBtn('RODAR AGORA','run:'+t.id,'primary')+actionBtn(t.ativo?'PAUSAR':'ATIVAR','toggle:'+t.id)+actionBtn('EXCLUIR','delete:'+t.id,'danger')+'</div></article>')+pager('schedules',p);
+  moduleShell('Agendamentos',body,actionBtn('NOVO AGENDAMENTO','new','primary'));
+  document.querySelector('.ja-native-actions [data-act="new"]')?.addEventListener('click',openScheduleEditor);
+  document.querySelectorAll('.ja-native-body [data-act]').forEach(b=>b.onclick=async()=>{
+    const [a,id]=b.dataset.act.split(':');
+    try{
+      if(a==='run') await postJson('/casa/api/agendamentos.php',{acao:'executar',id:Number(id)});
+      if(a==='toggle'){
+        const t=all.find(x=>String(x.id)===id);
+        await postJson('/casa/api/agendamentos.php',{acao:'toggle',id:Number(id),ativo:!Number(t.ativo)});
+      }
+      if(a==='delete'&&confirm('Excluir agendamento?')) await postJson('/casa/api/agendamentos.php',{acao:'excluir',id:Number(id)});
+      renderSchedules();
+    }catch(e){alert(e.message||'Falha no agendamento.');}
+  });
   bindPager('schedules',p,renderSchedules);
 }
 
