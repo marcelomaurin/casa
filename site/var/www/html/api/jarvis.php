@@ -20,6 +20,47 @@ if ($comando === '') {
 }
 
 $pdo = get_db_pdo();
+
+function computer_client_ip(): ?string {
+    $cf=$_SERVER['HTTP_CF_CONNECTING_IP']??'';
+    if($cf!=='' && filter_var($cf,FILTER_VALIDATE_IP)) return $cf;
+    $xff=$_SERVER['HTTP_X_FORWARDED_FOR']??'';
+    if($xff!==''){
+        $first=trim(explode(',',$xff)[0]);
+        if(filter_var($first,FILTER_VALIDATE_IP)) return $first;
+    }
+    $ip=$_SERVER['REMOTE_ADDR']??'';
+    return filter_var($ip,FILTER_VALIDATE_IP)?$ip:null;
+}
+function computer_telemetry_start(PDO $pdo,string $origem,string $comando): int {
+    try{
+        $canal='web';
+        if(stripos($origem,'GOOGLE_HOME')!==false)$canal='google_home';
+        elseif(stripos($origem,'SCHEDULER')!==false)$canal='scheduler';
+        elseif(!empty($_SERVER['HTTP_X_DEVICE_TOKEN']))$canal='hardware';
+        elseif(!empty($_SERVER['HTTP_AUTHORIZATION'])||!empty($_SERVER['HTTP_X_API_KEY']))$canal='api';
+        $st=$pdo->prepare("INSERT INTO telemetria_operacional(origem,canal,ip_cliente,operacao,solicitacao,status,detalhes) VALUES(:o,:c,:ip,'COMPUTER_COMMAND',:s,'PROCESSANDO',:d)");
+        $st->execute([
+            ':o'=>$origem?:'COMPUTER',
+            ':c'=>$canal,
+            ':ip'=>computer_client_ip(),
+            ':s'=>$comando,
+            ':d'=>json_encode(['metodo'=>$_SERVER['REQUEST_METHOD']??'POST','rota'=>parse_url($_SERVER['REQUEST_URI']??'',PHP_URL_PATH)],JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES)
+        ]);
+        return (int)$pdo->lastInsertId();
+    }catch(Throwable $e){return 0;}
+}
+function computer_telemetry_finish(PDO $pdo,int $id,string $status,?string $resposta=null,?string $acao=null,?string $modelo=null,int $inicioNs=0): void {
+    if($id<=0)return;
+    try{
+        $ms=$inicioNs>0?(int)round((hrtime(true)-$inicioNs)/1000000):null;
+        $st=$pdo->prepare("UPDATE telemetria_operacional SET finalizado_em=NOW(),status=:s,resposta_ia=:r,acao_executada=:a,modelo=:m,duracao_ms=:d WHERE id=:id");
+        $st->execute([':s'=>$status,':r'=>$resposta,':a'=>$acao,':m'=>$modelo,':d'=>$ms,':id'=>$id]);
+    }catch(Throwable $e){}
+}
+$telemetryStarted=hrtime(true);
+$telemetryId=computer_telemetry_start($pdo,$origem,$comando);
+
 $configs = [];
 try {
     $stmt = $pdo->query("SELECT chave, valor FROM configuracoes_sistema");
@@ -100,6 +141,7 @@ if (!$skipPlanner && ($forcarPlanejamento || jarvis_deve_planejar($comando))) {
         if ($nCond) $resp .= ", {$nCond} condicional(is)";
         $resp .= '. ' . trim($dados['resumo'] ?? '');
         $audio = jarvis_tts($resp, $configs['jarvis_voice'] ?? 'padrao', true);
+        computer_telemetry_finish($pdo,$telemetryId,'SUCESSO',$resp,'PLANO/AGENDAMENTO REGISTRADO','PLANEJADOR',$telemetryStarted);
         echo json_encode([
             'status'=>'sucesso','resposta'=>$resp,'tipo_tarefa'=>'plano_de_tarefas',
             'id_plano'=>$dados['id_plano'] ?? null,'plano'=>$dados,'audio_url'=>$audio
@@ -116,6 +158,7 @@ if (!$skipPlanner && jarvis_pedido_web($comando)) {
     ], 75);
     if ($w['ok'] && (($w['dados']['status'] ?? '') === 'ok')) {
         $d = $w['dados'];
+        computer_telemetry_finish($pdo,$telemetryId,'SUCESSO',$d['resposta'] ?? '','PESQUISA WEB','AGENTE_WEB',$telemetryStarted);
         echo json_encode([
             'status'=>'sucesso','comando'=>$comando,'resposta'=>$d['resposta'] ?? '',
             'provedor'=>'Agente Web','target_ia'=>'web','tipo_tarefa'=>'pesquisa_internet',
@@ -596,6 +639,15 @@ try {
 } catch (Exception $e) {}
 
 $audioUrl = jarvis_tts($respostaLimpa, $jarvis_voice, true);
+computer_telemetry_finish(
+    $pdo,
+    $telemetryId,
+    'SUCESSO',
+    $respostaLimpa,
+    $acao,
+    is_array($modelo_usado)?($modelo_usado['modelo']??null):null,
+    $telemetryStarted
+);
 echo json_encode([
     'status'=>'sucesso','comando'=>$comando,'resposta'=>$respostaLimpa,
     'provedor'=>$provedor,'target_ia'=>$target_ia,'tipo_tarefa'=>$tipo_tarefa,
