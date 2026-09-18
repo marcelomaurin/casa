@@ -144,6 +144,17 @@ class JarvisConnectionService : Service(), WatchClient.Listener {
         if (deviceId.isBlank()) return
 
         scope.launch {
+            // O transporte local continua sendo o caminho mais rápido para a ação,
+            // mas o evento também é espelhado no site para histórico/telemetria.
+            runCatching {
+                JarvisApi.sendWatchEvent(
+                    this@JarvisConnectionService,
+                    type,
+                    json.optString("message", json.optString("text", "Evento do JARVIS Watch")),
+                    JSONObject(json.toString())
+                )
+            }
+
             handleWatchEvent(
                 WatchApi.WatchEvent(
                     id = 0L,
