@@ -786,7 +786,7 @@ void bleEventHandler(const String &type,const String &title,const String &text){
   if(type=="voice_ready"){
     voiceText="CELULAR PRONTO";
     lastMessage="Toque na notificacao do celular";
-    controller.setVoiceState(JARVIS_VOICE_WAITING_RESULT);
+    controller.setVoiceState(JARVIS_VOICE_WAITING);
     if(screenAwake&&currentScreen==SCREEN_VOICE)drawScreen();
     return;
   }
