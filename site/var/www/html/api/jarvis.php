@@ -325,12 +325,13 @@ function jarvis_registrar_saude_modelo(PDO $pdo, int $id, array $r): void {
     try {
         $stmt=$pdo->prepare("UPDATE ia_modelos
             SET ultima_tentativa=NOW(),
-                ultimo_sucesso=IF(:ok=1,NOW(),ultimo_sucesso),
+                ultimo_sucesso=IF(:ok1=1,NOW(),ultimo_sucesso),
                 ultimo_erro=:erro,
-                falhas_consecutivas=IF(:ok=1,0,falhas_consecutivas+1)
+                falhas_consecutivas=IF(:ok2=1,0,falhas_consecutivas+1)
             WHERE id=:id");
         $stmt->execute([
-            ':ok'=>!empty($r['ok'])?1:0,
+            ':ok1'=>!empty($r['ok'])?1:0,
+            ':ok2'=>!empty($r['ok'])?1:0,
             ':erro'=>!empty($r['ok'])?null:($r['erro']??'Falha desconhecida'),
             ':id'=>$id
         ]);
