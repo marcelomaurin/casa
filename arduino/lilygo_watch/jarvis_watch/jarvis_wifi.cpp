@@ -29,9 +29,14 @@ static bool isKnownSsid(const String &ssid){
 
 void jarvisWifiBegin(){
   wifiPrefs.begin("jarviswifi", false);
-  casaBase = wifiPrefs.getString("base", "https://casa.maurinsoft.com.br");
-  if(casaBase == "https://maurinsoft.com.br/casa"){
-    casaBase = "https://casa.maurinsoft.com.br";
+  casaBase = wifiPrefs.getString("base", "https://maurinsoft.com.br/casa");
+  casaBase.trim();
+  while(casaBase.endsWith("/")) casaBase.remove(casaBase.length()-1);
+  // Endereco canonico atual do projeto. Corrige automaticamente instalacoes
+  // antigas que ainda apontavam para o subdominio legado.
+  if(casaBase == "https://casa.maurinsoft.com.br" ||
+     casaBase == "https://maurinsoft.com.br"){
+    casaBase = "https://maurinsoft.com.br/casa";
     wifiPrefs.putString("base", casaBase);
   }
   casaToken = wifiPrefs.getString("token", "");
@@ -216,6 +221,10 @@ void jarvisWifiSetCasa(const String &baseUrl, const String &deviceToken){
   casaBase = baseUrl;
   casaBase.trim();
   while(casaBase.endsWith("/")) casaBase.remove(casaBase.length()-1);
+  if(casaBase == "https://casa.maurinsoft.com.br" ||
+     casaBase == "https://maurinsoft.com.br"){
+    casaBase = "https://maurinsoft.com.br/casa";
+  }
   casaToken = deviceToken;
   wifiPrefs.putString("base", casaBase);
   wifiPrefs.putString("token", casaToken);
