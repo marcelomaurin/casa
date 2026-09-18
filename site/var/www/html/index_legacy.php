@@ -711,8 +711,9 @@
           <div class="form-group">
             <label>Provedor Padrão de Inteligência Artificial:</label>
             <select id="cfg_ia_provider" class="form-control hud-input">
-              <option value="local">Local (llama.cpp no Raspberry Pi 4)</option>
-              <option value="runpod">Nuvem GPU Serverless (RunPod.io)</option>
+              <option value="local">Local via Ollama</option>
+              <option value="openai_compatible">API OpenAI-compatible</option>
+              <option value="runpod">RunPod Serverless</option>
             </select>
           </div>
           <div class="form-group">
@@ -731,8 +732,29 @@
             <input type="text" id="cfg_runpod_model" class="form-control hud-input" placeholder="meta-llama/Meta-Llama-3-8B-Instruct">
           </div>
           <div class="form-group">
-            <label>Modelo Local (llama.cpp):</label>
-            <input type="text" id="cfg_local_model" class="form-control hud-input" readonly value="LiquidAI/lfm2.5-1.2b-instruct:q4_k_m">
+            <label>Modelo Local (Ollama):</label>
+            <input type="text" id="cfg_local_model" class="form-control hud-input" placeholder="jarvis-local:latest">
+          </div>
+          <div class="form-group">
+            <label>URL do Ollama Local:</label>
+            <input type="text" id="cfg_local_ollama_url" class="form-control hud-input" placeholder="http://127.0.0.1:11434">
+          </div>
+          <hr style="border-color: rgba(255,255,255,.08);">
+          <div class="form-group">
+            <label>URL Base OpenAI-compatible:</label>
+            <input type="text" id="cfg_openai_base_url" class="form-control hud-input" placeholder="https://api.openai.com/v1 ou http://192.168.2.12:8082/v1">
+          </div>
+          <div class="form-group">
+            <label>API Key OpenAI-compatible:</label>
+            <input type="password" id="cfg_openai_api_key" class="form-control hud-input" placeholder="Opcional para servidores locais; obrigatória quando o provedor exigir">
+          </div>
+          <div class="form-group">
+            <label>Modelo OpenAI-compatible:</label>
+            <input type="text" id="cfg_openai_model" class="form-control hud-input" placeholder="Nome exato exposto pelo endpoint /v1/models">
+          </div>
+          <div class="form-group">
+            <button type="button" class="btn btn-sm hud-btn-outline" onclick="testarIntegracaoIA()"><i class="fa-solid fa-vial"></i> Testar integração IA</button>
+            <div id="iaTestResult" style="margin-top:8px;font-size:12px;"></div>
           </div>
           <div class="form-group">
             <label>Palavra de Ativação por Voz (Wake Word):</label>
@@ -1639,7 +1661,7 @@ function alterarModoIA(modo) {
 }
 
 function salvarConfiguracoes() {
-  var chaves = ['ia_provider', 'ia_routing_mode', 'ia_cloud_keywords', 'runpod_api_key', 'runpod_endpoint_id', 'runpod_model', 'local_model', 'jarvis_activation_word', 'jarvis_voice'];
+  var chaves = ['ia_provider', 'ia_routing_mode', 'ia_cloud_keywords', 'runpod_api_key', 'runpod_endpoint_id', 'runpod_model', 'local_model', 'local_ollama_url', 'openai_base_url', 'openai_api_key', 'openai_model', 'jarvis_activation_word', 'jarvis_voice'];
   var requests = [];
 
   chaves.forEach(function(k) {
@@ -1656,6 +1678,36 @@ function salvarConfiguracoes() {
 
   $.when.apply($, requests).done(function() {
     alert('Configurações e parâmetros Multi-IA atualizados com sucesso!');
+  });
+}
+
+function testarIntegracaoIA() {
+  var btn = event.currentTarget;
+  var antigo = $(btn).html();
+  $(btn).prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin"></i> Testando...');
+  $('#iaTestResult').css('color','#94a3b8').text('Enviando teste ao JARVIS...');
+
+  var modo = $('#cfg_ia_provider').val();
+  var iaMode = (modo === 'runpod') ? 'cloud_only' : ((modo === 'local') ? 'local_only' : 'auto');
+
+  $.ajax({
+    url: 'api/jarvis.php',
+    type: 'POST',
+    contentType: 'application/json',
+    data: JSON.stringify({ comando: 'Responda apenas: OK INTEGRACAO IA', ia_mode: iaMode, skip_planner: true }),
+    success: function(res) {
+      var diag = res.ia_diagnostico || [];
+      var texto = (res.provedor || 'provedor') + ': ' + (res.resposta || '');
+      if (diag.length) texto += ' | ' + JSON.stringify(diag);
+      var ok = res.status === 'sucesso' && (res.resposta || '').indexOf('núcleo de IA não respondeu') < 0;
+      $('#iaTestResult').css('color', ok ? '#34d399' : '#f87171').text(texto);
+    },
+    error: function(xhr) {
+      $('#iaTestResult').css('color','#f87171').text('Falha HTTP ' + xhr.status + ': ' + (xhr.responseText || xhr.statusText));
+    },
+    complete: function() {
+      $(btn).prop('disabled', false).html(antigo);
+    }
   });
 }
 
