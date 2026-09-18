@@ -741,7 +741,7 @@ body{overscroll-behavior:none}
   height:100%;
   min-height:0;
   display:grid;
-  grid-template-rows:auto auto minmax(0,1fr) auto;
+  grid-template-rows:auto auto auto minmax(0,1fr) auto;
   gap:7px;
   overflow:hidden;
 }
@@ -920,4 +920,123 @@ body{overscroll-behavior:none}
   .ja-telemetry-filters .search{grid-column:1/3}
   .ja-telemetry-event dl{grid-template-columns:76px minmax(0,1fr)}
   .ja-telemetry-event dd.wide{grid-column:2}
+}
+
+
+/* IA analítica da telemetria */
+.ja-telemetry-ai{
+  min-width:0;
+  display:grid;
+  gap:6px;
+  border:2px solid #b889d6;
+  border-radius:12px;
+  padding:7px 9px;
+  background:#120d16;
+}
+.ja-telemetry-ai-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+}
+.ja-telemetry-ai-head strong{
+  color:#e4b8ff;
+  font-size:10px;
+}
+.ja-telemetry-ai-head span{
+  color:#8fc7ef;
+  font-size:8px;
+  font-weight:800;
+}
+.ja-telemetry-ai-row{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto auto;
+  gap:6px;
+}
+.ja-telemetry-ai-row input{
+  min-width:0;
+  height:32px;
+  box-sizing:border-box;
+  border:2px solid #b889d6;
+  border-radius:9px;
+  padding:5px 8px;
+  background:#090909;
+  color:#fff;
+  font-size:10px;
+}
+.ja-telemetry-ai-row button{
+  height:32px;
+  border:0;
+  border-radius:9px;
+  padding:0 10px;
+  background:#b889d6;
+  color:#171217;
+  font-size:9px;
+  font-weight:900;
+  cursor:pointer;
+  white-space:nowrap;
+}
+.ja-telemetry-ai-row button:last-child{
+  background:#8fc7ef;
+}
+.ja-telemetry-ai-row button:disabled{
+  opacity:.55;
+  cursor:wait;
+}
+.ja-telemetry-ai-answer{
+  display:none;
+  max-height:82px;
+  overflow:auto;
+  border-radius:8px;
+  padding:7px 9px;
+  background:#090909;
+  color:#fff;
+  font-size:10px;
+  line-height:1.35;
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
+}
+.ja-telemetry-ai-answer:not(:empty){
+  display:block;
+}
+.ja-telemetry-ai-answer.pending{
+  color:#ffe087;
+}
+.ja-telemetry-ai-answer.ok{
+  border-left:4px solid #55d17b;
+}
+.ja-telemetry-ai-answer.error{
+  border-left:4px solid #ef6969;
+  color:#ffb0b0;
+}
+.ja-telemetry-ai details{
+  color:#8fc7ef;
+  font-size:8px;
+}
+.ja-telemetry-ai details:not([open]) pre{
+  display:none;
+}
+.ja-telemetry-ai pre{
+  max-height:64px;
+  overflow:auto;
+  margin:5px 0 0;
+  border-radius:7px;
+  padding:6px;
+  background:#050505;
+  color:#ddd;
+  font-size:8px;
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
+}
+@media(max-width:1050px){
+  .ja-telemetry-ai-row{
+    grid-template-columns:1fr 1fr;
+  }
+  .ja-telemetry-ai-row input{
+    grid-column:1/-1;
+  }
+  .ja-telemetry-ai-head{
+    align-items:flex-start;
+    flex-direction:column;
+  }
 }
