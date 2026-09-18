@@ -44,7 +44,9 @@ void jarvisWifiBegin(){
   preferredSlot = wifiPrefs.getInt("lastslot", -1);
   if(preferredSlot < 0 || preferredSlot > 4) preferredSlot = -1;
   WiFi.mode(WIFI_STA);
-  WiFi.setSleep(false);
+  // Modem-sleep reduz fortemente o consumo quando a interface STA esta ociosa.
+  // O radio acorda automaticamente quando precisa transmitir/receber.
+  WiFi.setSleep(true);
   WiFi.setAutoReconnect(true);
   WiFi.persistent(false);
   lastRetry = 0;
@@ -241,6 +243,13 @@ void jarvisWifiSetDeviceId(const String &deviceId){
 
 String jarvisWifiDeviceId(){ return casaDeviceId; }
 bool jarvisWifiHasCasaCredentials(){ return !casaBase.isEmpty() && !casaToken.isEmpty(); }
+
+bool jarvisWifiHasProfiles(){
+  for(uint8_t slot=0;slot<5;slot++){
+    if(!wifiPrefs.getString(keySsid(slot).c_str(), "").isEmpty()) return true;
+  }
+  return false;
+}
 
 bool jarvisWifiStartProfile(uint8_t slot){
   String ssid, pass;
