@@ -2,6 +2,7 @@
 header('Content-Type: application/json; charset=utf-8');
 require_once(__DIR__ . '/db.php');
 verify_api_auth();
+@set_time_limit(360);
 
 $in=json_decode(file_get_contents('php://input'),true);
 if(!is_array($in)) $in=$_POST;
@@ -28,9 +29,31 @@ function curl_json($url,$payload,$headers,$timeout=45){
     $json=$res!==false?json_decode((string)$res,true):null;
     return [$http,$err,$res,$json];
 }
+function curl_get_json($url,$headers,$timeout=300){
+    $ch=curl_init($url);
+    curl_setopt_array($ch,[
+        CURLOPT_RETURNTRANSFER=>true,
+        CURLOPT_HTTPGET=>true,
+        CURLOPT_HTTPHEADER=>$headers,
+        CURLOPT_CONNECTTIMEOUT=>10,
+        CURLOPT_TIMEOUT=>$timeout
+    ]);
+    $res=curl_exec($ch);
+    $http=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);
+    $err=curl_error($ch);
+    curl_close($ch);
+    $json=$res!==false?json_decode((string)$res,true):null;
+    return [$http,$err,$res,$json];
+}
+function body_preview($raw,$limit=1200){
+    $s=trim((string)$raw);
+    if(strlen($s)>$limit) $s=substr($s,0,$limit).'...';
+    return $s;
+}
 
 $mode=strtolower(trim((string)($in['mode']??'local')));
 $prompt='Responda somente: OK CASA';
+$stage=strtolower(trim((string)($in['stage']??'')));
 
 if($mode==='local'){
     $base=rtrim(trim((string)($in['local_url']??'')),'/');
@@ -69,6 +92,36 @@ if($provider==='runpod'){
         out(['status'=>'erro','mensagem'=>$err?:($j['error']??$j['message']??('HTTP '.$http)),'http'=>$http],502);
     } else {
         $base='https://api.runpod.ai/v2/'.$endpoint.'/openai/v1';
+        if($stage==='models'){
+            $url=$base.'/models';
+            [$http,$err,$raw,$j]=curl_get_json($url,[
+                'Accept: application/json',
+                'Authorization: Bearer '.$key
+            ],300);
+            if($http>=200&&$http<300){
+                $ids=[];
+                foreach(($j['data']??[]) as $item){
+                    if(is_array($item)&&isset($item['id'])) $ids[]=(string)$item['id'];
+                }
+                out([
+                    'status'=>'sucesso',
+                    'provedor'=>'RUNPOD OPENAI',
+                    'http'=>$http,
+                    'url'=>$url,
+                    'modelos_encontrados'=>count($ids),
+                    'modelo_presente'=>in_array($model,$ids,true),
+                    'modelos'=>$ids,
+                    'body_preview'=>body_preview($raw)
+                ]);
+            }
+            out([
+                'status'=>'erro',
+                'mensagem'=>$err?:($j['error']['message']??$j['message']??('HTTP '.$http)),
+                'http'=>$http,
+                'url'=>$url,
+                'body_preview'=>body_preview($raw)
+            ],502);
+        }
     }
 }
 
@@ -106,13 +159,14 @@ if($base==='') out(['status'=>'erro','mensagem'=>'URL do provedor não informada
 $url=preg_match('#/chat/completions$#i',$base)?$base:$base.'/chat/completions';
 $headers=['Content-Type: application/json'];
 if($key!=='') $headers[]='Authorization: Bearer '.$key;
+$requestTimeout=($provider==='runpod' && $protocol==='openai')?300:45;
 [$http,$err,$raw,$j]=curl_json($url,[
     'model'=>$model,
     'messages'=>[['role'=>'user','content'=>$prompt]],
     'max_tokens'=>16,'temperature'=>0,'stream'=>false
-],$headers,45);
+],$headers,$requestTimeout);
 $txt=$j['choices'][0]['message']['content']??'';
 if($http>=200&&$http<300&&$txt!==''){
-    out(['status'=>'sucesso','provedor'=>strtoupper($provider),'http'=>$http,'resposta'=>trim($txt)]);
+    out(['status'=>'sucesso','provedor'=>strtoupper($provider),'http'=>$http,'url'=>$url,'resposta'=>trim($txt),'body_preview'=>body_preview($raw)]);
 }
-out(['status'=>'erro','mensagem'=>$err?:($j['error']['message']??$j['message']??('HTTP '.$http)),'http'=>$http],502);
+out(['status'=>'erro','mensagem'=>$err?:($j['error']['message']??$j['message']??('HTTP '.$http)),'http'=>$http,'url'=>$url,'body_preview'=>body_preview($raw)],502);
