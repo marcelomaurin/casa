@@ -10,12 +10,12 @@ IMAGE_INSTALL:append = " \
     kernel-modules \
     ca-certificates \
     curl \
+    usbutils \
     openssh \
     alsa-utils \
-    espeak-ng \
+    espeak \
     python3-core \
     python3-requests \
-    python3-pygame \
     python3-pillow \
     libfreenect \
     casa-avatar \
