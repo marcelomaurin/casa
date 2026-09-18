@@ -3,6 +3,7 @@ header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 require_once(__DIR__.'/db.php');
 verify_api_auth();
+date_default_timezone_set('America/Sao_Paulo');
 
 $pdo=get_db_pdo();
 
@@ -23,6 +24,13 @@ function tia_dt($value,$fallback){
     if($value==='')return $fallback;
     $ts=strtotime($value);
     return $ts===false?$fallback:date('Y-m-d H:i:s',$ts);
+}
+
+function tia_is_daily_summary($question){
+    $q=mb_strtolower(trim((string)$question),'UTF-8');
+    if($q==='')return false;
+    if(preg_match('/\b(ontem|amanh[aã]|semana|m[eê]s|ano|entre|desde|at[eé]|per[ií]odo|dia \d{1,2}|\d{1,2}[\/\-]\d{1,2})\b/u',$q)) return false;
+    return preg_match('/\b(resumo|relat[oó]rio|o que ocorreu|o que aconteceu|aconteceu|ocorreu|movimenta[cç][aã]o|atividade do dia|resumo do dia)\b/u',$q)===1;
 }
 
 function tia_call_computer($prompt,$timeout=55){
@@ -116,8 +124,14 @@ $in=tia_input();
 $pergunta=trim((string)($in['pergunta']??''));
 if($pergunta==='')tia_out(['status'=>'erro','mensagem'=>'Informe uma pergunta sobre a telemetria.'],400);
 
-$inicio=tia_dt($in['inicio']??'',date('Y-m-d H:i:s',time()-86400));
-$fim=tia_dt($in['fim']??'',date('Y-m-d H:i:s'));
+$modoResumoHoje=tia_is_daily_summary($pergunta);
+if($modoResumoHoje){
+    $inicio=date('Y-m-d 00:00:00');
+    $fim=date('Y-m-d H:i:s');
+}else{
+    $inicio=tia_dt($in['inicio']??'',date('Y-m-d H:i:s',time()-86400));
+    $fim=tia_dt($in['fim']??'',date('Y-m-d H:i:s'));
+}
 
 $schemaPrompt =
 "TABELA AUTORIZADA: telemetria_operacional\n".
@@ -147,14 +161,22 @@ $schemaPrompt =
 "8. Retorne SOMENTE o SQL, sem markdown e sem explicação.";
 
 try{
-    $sqlPrompt=
-        "Você é o gerador SQL somente leitura da telemetria do sistema CASA/COMPUTER.\n\n".
-        $schemaPrompt.
-        "\n\nPERGUNTA DO USUÁRIO:\n".$pergunta;
+    if($modoResumoHoje){
+        $sql="SELECT data_hora,origem,canal,ip_cliente,operacao,solicitacao,resposta_ia,acao_executada,status,modelo,duracao_ms ".
+             "FROM telemetria_operacional ".
+             "WHERE data_hora BETWEEN '".addslashes($inicio)."' AND '".addslashes($fim)."' ".
+             "ORDER BY data_hora ASC LIMIT 200";
+        $validation=tia_validate_sql($sql);
+    }else{
+        $sqlPrompt=
+            "Você é o gerador SQL somente leitura da telemetria do sistema CASA/COMPUTER.\n\n".
+            $schemaPrompt.
+            "\n\nPERGUNTA DO USUÁRIO:\n".$pergunta;
 
-    $generated=tia_call_computer($sqlPrompt,55);
-    $sql=tia_clean_sql($generated);
-    $validation=tia_validate_sql($sql);
+        $generated=tia_call_computer($sqlPrompt,55);
+        $sql=tia_clean_sql($generated);
+        $validation=tia_validate_sql($sql);
+    }
 
     if($validation!==null){
         try{
@@ -188,16 +210,31 @@ try{
     $dataJson=json_encode($rows,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
     if(strlen($dataJson)>60000)$dataJson=substr($dataJson,0,60000).'...';
 
-    $answerPrompt=
-        "Você é o analista da telemetria do sistema CASA/COMPUTER. ".
-        "Responda em português, de forma objetiva e técnica. ".
-        "Use SOMENTE os dados fornecidos. Não invente eventos, causas, horários, IPs ou ações. ".
-        "Quando não houver dados suficientes, informe isso claramente. ".
-        "Explique números e padrões de forma textual.\n\n".
-        "PERGUNTA: ".$pergunta."\n".
-        "PERÍODO: ".$inicio." até ".$fim."\n".
-        "SQL EXECUTADO: ".$sql."\n".
-        "DADOS RETORNADOS: ".$dataJson;
+    if($modoResumoHoje){
+        $answerPrompt=
+            "Você é o analista operacional da telemetria do sistema CASA/COMPUTER. ".
+            "Gere um RELATÓRIO DO DIA em português, claro e objetivo, usando SOMENTE os dados fornecidos. ".
+            "O relatório deve sintetizar o que ocorreu hoje desde 00:00 até agora. ".
+            "Inclua, quando existirem dados: volume e tipos de operações, principais solicitações, ações realmente executadas, ".
+            "falhas/erros e respectivos horários, origens/canais, IPs externos relevantes, respostas da IA que mereçam destaque, ".
+            "operações mais lentas, padrões recorrentes e qualquer anomalia observável. ".
+            "Não invente causas nem eventos. Diferencie fato observado de interpretação. ".
+            "Se não houver eventos suficientes, diga explicitamente. ".
+            "Não mostre SQL ao usuário na resposta final.\n\n".
+            "PERÍODO DO RELATÓRIO: ".$inicio." até ".$fim."\n".
+            "DADOS DA TELEMETRIA: ".$dataJson;
+    }else{
+        $answerPrompt=
+            "Você é o analista da telemetria do sistema CASA/COMPUTER. ".
+            "Responda em português, de forma objetiva e técnica. ".
+            "Use SOMENTE os dados fornecidos. Não invente eventos, causas, horários, IPs ou ações. ".
+            "Quando não houver dados suficientes, informe isso claramente. ".
+            "Explique números e padrões de forma textual.\n\n".
+            "PERGUNTA: ".$pergunta."\n".
+            "PERÍODO: ".$inicio." até ".$fim."\n".
+            "SQL EXECUTADO: ".$sql."\n".
+            "DADOS RETORNADOS: ".$dataJson;
+    }
 
     $resposta=tia_call_computer($answerPrompt,55);
 
@@ -230,7 +267,8 @@ try{
         'linhas'=>count($rows),
         'duracao_sql_ms'=>$elapsed,
         'inicio'=>$inicio,
-        'fim'=>$fim
+        'fim'=>$fim,
+        'modo_relatorio_hoje'=>$modoResumoHoje
     ]);
 
 }catch(Throwable $e){
