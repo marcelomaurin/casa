@@ -135,7 +135,7 @@ function home(updateRoute=true){
   CASALcars.render('#app',{
     layout:'dashboard',group:'GRUPOS',title:'CASA / JARVIS',subtitle:'Escolha um grupo. A interface adapta o miolo conforme a tarefa.',
     breadcrumb:['CASA','GRUPOS'],groups:[{label:'GRUPOS',active:true}],status:STATUS,columns:3,
-    items:topGroupCards().map(g=>({title:g.title,description:g.description,status:'ABRIR',actions:[{label:'ENTRAR',action:'open-group:'+g.id,variant:'primary'}]})),
+    items:topGroupCards().map(g=>({title:g.title,description:g.description,actions:[{label:'ACESSAR',action:'open-group:'+g.id,variant:'primary'}]})),
     footer:{hint:'Interface em tela cheia: use grupos e paginação, sem rolagem.'}
   });
   if(updateRoute) setRoute(null,null);
