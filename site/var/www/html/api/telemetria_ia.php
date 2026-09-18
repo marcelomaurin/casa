@@ -2,6 +2,7 @@
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 require_once(__DIR__.'/db.php');
+require_once(__DIR__.'/task_engine.php');
 verify_api_auth();
 date_default_timezone_set('America/Sao_Paulo');
 
@@ -122,6 +123,8 @@ function tia_force_limit($sql){
 
 $in=tia_input();
 $pergunta=trim((string)($in['pergunta']??''));
+$existingTaskContext=te_context_from_input($in['task_context'] ?? null);
+$taskContext=te_begin($pdo,$pergunta,'TELEMETRIA_IA','telemetria',$existingTaskContext);
 if($pergunta==='')tia_out(['status'=>'erro','mensagem'=>'Informe uma pergunta sobre a telemetria.'],400);
 
 $modoResumoHoje=tia_is_daily_summary($pergunta);
@@ -132,6 +135,11 @@ if($modoResumoHoje){
     $inicio=tia_dt($in['inicio']??'',date('Y-m-d H:i:s',time()-86400));
     $fim=tia_dt($in['fim']??'',date('Y-m-d H:i:s'));
 }
+
+$taskIntent=te_add_subtask($pdo,$taskContext,'Interpretar pergunta e período','telemetria',[
+    'pergunta'=>$pergunta,'inicio'=>$inicio,'fim'=>$fim,'resumo_hoje'=>$modoResumoHoje
+],null,'EXECUTANDO');
+te_complete($pdo,$taskIntent,['inicio'=>$inicio,'fim'=>$fim,'resumo_hoje'=>$modoResumoHoje]);
 
 $schemaPrompt =
 "TABELA AUTORIZADA: telemetria_operacional\n".
@@ -161,6 +169,9 @@ $schemaPrompt =
 "8. Retorne SOMENTE o SQL, sem markdown e sem explicação.";
 
 try{
+    $taskSql=te_add_subtask($pdo,$taskContext,'Gerar e validar consulta somente leitura','telemetria_sql',[
+        'pergunta'=>$pergunta,'inicio'=>$inicio,'fim'=>$fim
+    ],$taskIntent,'EXECUTANDO');
     if($modoResumoHoje){
         $sql="SELECT data_hora,origem,canal,ip_cliente,operacao,solicitacao,resposta_ia,acao_executada,status,modelo,duracao_ms ".
              "FROM telemetria_operacional ".
@@ -195,6 +206,11 @@ try{
     }
 
     $sql=tia_force_limit($sql);
+    te_complete($pdo,$taskSql,['sql'=>$sql]);
+
+    $taskQuery=te_add_subtask($pdo,$taskContext,'Executar consulta de dados','telemetria_sql',[
+        'sql'=>$sql
+    ],$taskSql,'EXECUTANDO');
 
     try{$pdo->exec("SET SESSION TRANSACTION READ ONLY");}catch(Throwable $ignored){}
     $pdo->beginTransaction();
@@ -206,6 +222,7 @@ try{
 
     $pdo->rollBack();
     try{$pdo->exec("SET SESSION TRANSACTION READ WRITE");}catch(Throwable $ignored){}
+    te_complete($pdo,$taskQuery,['linhas'=>count($rows),'duracao_ms'=>$elapsed]);
 
     $dataJson=json_encode($rows,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
     if(strlen($dataJson)>60000)$dataJson=substr($dataJson,0,60000).'...';
@@ -236,7 +253,12 @@ try{
             "DADOS RETORNADOS: ".$dataJson;
     }
 
-    $resposta=tia_call_computer($answerPrompt,55);
+    $taskAnalysis=te_add_subtask($pdo,$taskContext,'Analisar dados e produzir resposta','ia',[
+        'linhas'=>count($rows),'pergunta'=>$pergunta
+    ],$taskQuery,'EXECUTANDO');
+    $resposta=tia_call_computer($answerPrompt . "\n\nCONTEXTO_TAREFA: " . te_json(te_public_context($taskContext)),55);
+    te_complete($pdo,$taskAnalysis,['resposta'=>$resposta]);
+    te_finish($pdo,$taskContext,$resposta,['sql'=>$sql,'linhas'=>count($rows)]);
 
     try{
         $ip=$_SERVER['HTTP_CF_CONNECTING_IP']??($_SERVER['REMOTE_ADDR']??null);
@@ -268,7 +290,10 @@ try{
         'duracao_sql_ms'=>$elapsed,
         'inicio'=>$inicio,
         'fim'=>$fim,
-        'modo_relatorio_hoje'=>$modoResumoHoje
+        'modo_relatorio_hoje'=>$modoResumoHoje,
+        'id_plano'=>$taskContext['id_plano'],
+        'id_tarefa_raiz'=>$taskContext['id_tarefa_raiz'],
+        'tarefas_execucao'=>te_list_tasks($pdo,$taskContext)
     ]);
 
 }catch(Throwable $e){
