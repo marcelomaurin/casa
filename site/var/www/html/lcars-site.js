@@ -110,7 +110,7 @@ const GROUPS={
     sections:[
       {title:'INFRAESTRUTURA',items:[
         {id:'nodes-sys',label:'Cluster ARM',module:'nodes'},
-        {id:'sensors-sys',label:'Sensores & telemetria',module:'sensors'},
+        {id:'sensors-sys',label:'Telemetria operacional',module:'telemetryOps'},
         {id:'iot-sys',label:'Cluster IoT',module:'iot'}
       ]},
       {title:'ADMINISTRAÇÃO',items:[
@@ -248,6 +248,7 @@ async function mountNativeModule(item){
   try{
     if(m==='devices') return renderDevices();
     if(m==='sensors') return renderSensors();
+    if(m==='telemetryOps') return renderOperationalTelemetry();
     if(m==='nodes') return renderNodes();
     if(m==='schedules') return renderSchedules();
     if(m==='iot') return renderIoT();
@@ -276,6 +277,72 @@ async function renderSensors(){
   const j=await crud('sensores_telemetria','listar','&limite=50'); const all=j.dados||[]; const p=paginate('sensors',all,8);
   moduleShell('Sensores & telemetria',cards(p.slice,s=>'<article class="ja-native-card metric"><h3>'+esc(s.sensor_nome||'Sensor')+'</h3><strong>'+esc(s.valor_numerico??'—')+' '+esc(s.unidade||'')+'</strong><p>'+esc(s.data_hora||'')+'</p></article>')+pager('sensors',p));
   bindPager('sensors',p,renderSensors);
+}
+
+
+function telemetryDateInputValue(d){
+  const pad=n=>String(n).padStart(2,'0');
+  return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes());
+}
+async function renderOperationalTelemetry(page=1){
+  loading('Telemetria operacional');
+  const state=moduleState.telemetryOps||(moduleState.telemetryOps={});
+  if(!state.ini){
+    const fim=new Date(), ini=new Date(fim.getTime()-24*60*60*1000);
+    state.ini=telemetryDateInputValue(ini);
+    state.fim=telemetryDateInputValue(fim);
+    state.origem='';
+    state.busca='';
+  }
+  const qs=new URLSearchParams({
+    inicio:state.ini||'',
+    fim:state.fim||'',
+    origem:state.origem||'',
+    busca:state.busca||'',
+    pagina:String(page),
+    limite:'20'
+  });
+  const j=await getJson('/casa/api/telemetria_operacional.php?'+qs.toString());
+  const rows=j.dados||[];
+  const summary='<div class="ja-native-summary ja-telemetry-summary">'+
+    '<div><b>EVENTOS</b><strong>'+esc(j.total??rows.length)+'</strong></div>'+
+    '<div><b>PERÍODO</b><strong class="small">'+esc((state.ini||'')+' → '+(state.fim||''))+'</strong></div>'+
+  '</div>';
+  const filters='<div class="ja-telemetry-filters">'+
+    '<label><span>Início</span><input id="tel-ini" type="datetime-local" value="'+attr(state.ini)+'"></label>'+
+    '<label><span>Fim</span><input id="tel-fim" type="datetime-local" value="'+attr(state.fim)+'"></label>'+
+    '<label><span>Origem</span><input id="tel-origem" value="'+attr(state.origem)+'" placeholder="web, COMPUTER, GOOGLE_HOME..."></label>'+
+    '<label><span>Operação / texto</span><input id="tel-busca" value="'+attr(state.busca)+'" placeholder="comando, resposta, ação..."></label>'+
+    '<button id="tel-filtrar">FILTRAR</button>'+
+  '</div>';
+  const list='<div class="ja-telemetry-list">'+rows.map(r=>
+    '<article class="ja-telemetry-event">'+
+      '<header><strong>'+esc(r.data_hora||'')+'</strong><span class="ja-state '+((r.status||'').match(/SUCESS|OK|CONCL/i)?'ok':'')+'">'+esc(r.status||'—')+'</span></header>'+
+      '<dl>'+
+        '<dt>Origem</dt><dd>'+esc(r.origem||'—')+'</dd>'+
+        '<dt>Canal</dt><dd>'+esc(r.canal||r.fonte||'—')+'</dd>'+
+        '<dt>IP cliente</dt><dd>'+esc(r.ip_cliente||'—')+'</dd>'+
+        '<dt>Operação</dt><dd>'+esc(r.operacao||'—')+'</dd>'+
+        '<dt>Solicitado</dt><dd class="wide">'+esc(r.solicitacao||'—')+'</dd>'+
+        '<dt>Resposta IA</dt><dd class="wide">'+esc(r.resposta_ia||'—')+'</dd>'+
+        '<dt>O que foi feito</dt><dd class="wide">'+esc(r.acao_executada||r.resultado||'—')+'</dd>'+
+        '<dt>Modelo</dt><dd>'+esc(r.modelo||'—')+'</dd>'+
+        '<dt>Duração</dt><dd>'+esc(r.duracao_ms!=null?(r.duracao_ms+' ms'):'—')+'</dd>'+
+      '</dl>'+
+    '</article>'
+  ).join('')+'</div>';
+  const pages=Math.max(1,Number(j.paginas||1));
+  const nav='<div class="ja-telemetry-pages"><button id="tel-prev" '+(page<=1?'disabled':'')+'>‹ ANTERIOR</button><span>'+page+' / '+pages+'</span><button id="tel-next" '+(page>=pages?'disabled':'')+'>PRÓXIMA ›</button></div>';
+  moduleShell('Telemetria operacional',summary+filters+list+nav);
+  document.getElementById('tel-filtrar').onclick=()=>{
+    state.ini=document.getElementById('tel-ini').value;
+    state.fim=document.getElementById('tel-fim').value;
+    state.origem=document.getElementById('tel-origem').value.trim();
+    state.busca=document.getElementById('tel-busca').value.trim();
+    renderOperationalTelemetry(1);
+  };
+  document.getElementById('tel-prev').onclick=()=>renderOperationalTelemetry(Math.max(1,page-1));
+  document.getElementById('tel-next').onclick=()=>renderOperationalTelemetry(Math.min(pages,page+1));
 }
 
 async function renderNodes(){
