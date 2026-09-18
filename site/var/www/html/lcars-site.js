@@ -397,8 +397,12 @@ async function renderConfig(){
         cfgSelect('ja-remote-provider','Provedor remoto',providers,remote)+
         '<div id="ja-remote-model-wrap">'+cfgModelField(remote,remoteModel)+'</div>'+
         cfgInput('ja-remote-key','Chave API / Token',remoteKey,'password','Token do provedor')+
-        cfgInput('ja-remote-url','URL / Endpoint',remoteUrl,'text','Endpoint do provedor')+
+        '<div id="ja-remote-url-wrap">'+cfgInput('ja-remote-url','URL / Endpoint',remoteUrl,'text','Endpoint do provedor')+'</div>'+
         '<div id="ja-runpod-endpoint-wrap" class="'+(remote==='runpod'?'':'is-hidden')+'">'+
+          cfgSelect('ja-runpod-protocol','Protocolo RunPod',[
+            {value:'native',label:'RunPod nativo'},
+            {value:'openai',label:'OpenAI-compatible'}
+          ],map.runpod_protocol||'openai')+
           cfgInput('ja-runpod-endpoint','RunPod Endpoint ID',map.runpod_endpoint_id||'','text','xxxxxxxxxxxxxxxxxxxxxxxx')+
         '</div>'+
       '</div>'+
@@ -424,12 +428,14 @@ async function renderConfig(){
     const modelValue=(def.models.includes(current)||!current)?(current||def.models[0]||''):current;
     document.getElementById('ja-remote-model-wrap').innerHTML=cfgModelField(p,modelValue);
     document.getElementById('ja-runpod-endpoint-wrap')?.classList.toggle('is-hidden',p!=='runpod');
+    document.getElementById('ja-remote-url-wrap')?.classList.toggle('is-hidden',p==='runpod');
     const url=document.getElementById('ja-remote-url');
     if(url && (!url.value || Object.values(IA_REMOTE_PROVIDERS).some(x=>x.endpoint===url.value))) url.value=def.endpoint||'';
     updateMode();
   }
   modeEl.onchange=updateMode;
   providerEl.onchange=updateProvider;
+  updateProvider();
 
   document.querySelector('[data-act="save"]')?.addEventListener('click',async()=>{
     const mode=modeEl.value;
@@ -444,7 +450,8 @@ async function renderConfig(){
       ia_remote_model:model,
       ia_remote_api_key:document.getElementById('ja-remote-key')?.value||'',
       ia_remote_base_url:document.getElementById('ja-remote-url')?.value.trim()||'',
-      runpod_endpoint_id:document.getElementById('ja-runpod-endpoint')?.value.trim()||''
+      runpod_endpoint_id:document.getElementById('ja-runpod-endpoint')?.value.trim()||'',
+      runpod_protocol:document.getElementById('ja-runpod-protocol')?.value||'openai'
     };
     // Compatibilidade com as chaves já usadas pelo JARVIS.
     if(provider==='runpod'){
