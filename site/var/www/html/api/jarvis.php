@@ -247,6 +247,96 @@ function chamar_llm_local($baseUrl, $model, $systemPrompt, $userMsg) {
     return ['ok'=>false,'erro'=>$err ?: ('HTTP '.$code),'http'=>$code];
 }
 
+function jarvis_lista_modelos_ia(PDO $pdo, string $preferencia='auto'): array {
+    $order = "padrao DESC, prioridade ASC, id ASC";
+    if ($preferencia === 'local') {
+        $order = "padrao DESC, CASE classe_hardware WHEN 'CPU' THEN 0 WHEN 'GPU_LOW' THEN 1 ELSE 2 END, prioridade ASC, id ASC";
+    } elseif ($preferencia === 'cloud') {
+        $order = "padrao DESC, CASE classe_hardware WHEN 'GPU_HIGH' THEN 0 WHEN 'GPU_LOW' THEN 1 ELSE 2 END, prioridade ASC, id ASC";
+    }
+    try {
+        return $pdo->query("SELECT * FROM ia_modelos WHERE ativo=1 ORDER BY {$order}")->fetchAll();
+    } catch (Throwable $e) {
+        return [];
+    }
+}
+
+function jarvis_chamar_modelo(array $m, string $systemPrompt, string $userMsg): array {
+    $provedor = $m['provedor'] ?? 'openai_compatible';
+    $timeout = max(5, (int)($m['timeout_segundos'] ?? 45));
+    $maxTokens = max(32, (int)($m['max_tokens'] ?? 600));
+    $temperature = (float)($m['temperatura'] ?? 0.35);
+
+    if ($provedor === 'ollama') {
+        return chamar_llm_local($m['base_url'] ?? '', $m['modelo'] ?? '', $systemPrompt, $userMsg);
+    }
+
+    $baseUrl = $m['base_url'] ?? '';
+    $apiKey = $m['api_key'] ?? '';
+    $model = $m['modelo'] ?? '';
+
+    $baseUrl = rtrim(trim((string)$baseUrl), '/');
+    if ($baseUrl === '' || trim((string)$model) === '') {
+        return ['ok'=>false,'erro'=>'URL/modelo ausentes','http'=>0];
+    }
+    $url = preg_match('#/chat/completions$#i', $baseUrl) ? $baseUrl : $baseUrl . '/chat/completions';
+    $payload = [
+        'model'=>$model,
+        'messages'=>[
+            ['role'=>'system','content'=>$systemPrompt],
+            ['role'=>'user','content'=>$userMsg]
+        ],
+        'temperature'=>$temperature,
+        'max_tokens'=>$maxTokens,
+        'stream'=>false
+    ];
+    $headers = ['Content-Type: application/json'];
+    if (trim((string)$apiKey) !== '') $headers[] = 'Authorization: Bearer ' . $apiKey;
+
+    $ch = curl_init($url);
+    curl_setopt_array($ch,[
+        CURLOPT_RETURNTRANSFER=>true,
+        CURLOPT_POST=>true,
+        CURLOPT_POSTFIELDS=>json_encode($payload,JSON_UNESCAPED_UNICODE),
+        CURLOPT_HTTPHEADER=>$headers,
+        CURLOPT_CONNECTTIMEOUT=>5,
+        CURLOPT_TIMEOUT=>$timeout
+    ]);
+    $res=curl_exec($ch);
+    $http=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);
+    $err=curl_error($ch);
+    curl_close($ch);
+
+    if ($res !== false && $http >= 200 && $http < 300) {
+        $j=json_decode((string)$res,true);
+        $txt=$j['choices'][0]['message']['content'] ?? '';
+        if (trim((string)$txt) !== '') return ['ok'=>true,'texto'=>trim((string)$txt),'http'=>$http];
+        return ['ok'=>false,'erro'=>'Resposta sem choices[0].message.content','http'=>$http];
+    }
+    $detail='';
+    if ($res !== false) {
+        $j=json_decode((string)$res,true);
+        $detail=is_array($j)?($j['error']['message']??$j['message']??''):'';
+    }
+    return ['ok'=>false,'erro'=>$err ?: ($detail ?: ('HTTP '.$http)),'http'=>$http];
+}
+
+function jarvis_registrar_saude_modelo(PDO $pdo, int $id, array $r): void {
+    try {
+        $stmt=$pdo->prepare("UPDATE ia_modelos
+            SET ultima_tentativa=NOW(),
+                ultimo_sucesso=IF(:ok=1,NOW(),ultimo_sucesso),
+                ultimo_erro=:erro,
+                falhas_consecutivas=IF(:ok=1,0,falhas_consecutivas+1)
+            WHERE id=:id");
+        $stmt->execute([
+            ':ok'=>!empty($r['ok'])?1:0,
+            ':erro'=>!empty($r['ok'])?null:($r['erro']??'Falha desconhecida'),
+            ':id'=>$id
+        ]);
+    } catch(Throwable $e) {}
+}
+
 $target_ia = ($ia_provider === 'openai_compatible') ? 'openai_compatible' : (($ia_provider === 'runpod') ? 'runpod' : 'local');
 $tipo_tarefa = 'automacao_perguntas_simples';
 if (strpos($comando, '/cloud') === 0 || strpos($comando, '/runpod') === 0) {
@@ -282,40 +372,74 @@ $systemCloud = "Voce e o JARVIS em modo de alta capacidade. Responda em portugue
 $resposta = false;
 $provedor = '';
 $ia_diagnostico = [];
-if ($target_ia === 'openai_compatible') {
-    $r = chamar_llm_openai_compatible($openai_base_url, $openai_api_key, $openai_model, $systemCloud, $comando);
-    $ia_diagnostico[] = ['provedor'=>'openai_compatible','ok'=>$r['ok'],'http'=>$r['http'] ?? 0,'erro'=>$r['erro'] ?? null];
-    if ($r['ok']) {
-        $resposta = $r['texto'];
-        $provedor = 'API OpenAI-compatible';
-    }
-} elseif ($target_ia === 'runpod') {
-    $resposta = chamar_llm_runpod($runpod_api_key, $runpod_endpoint_id, $runpod_model, $systemCloud, $comando);
-    if ($resposta) $provedor = 'IA Externa: RunPod GPU';
-    else $ia_diagnostico[] = ['provedor'=>'runpod','ok'=>false,'erro'=>'RunPod não respondeu'];
-} else {
-    $r = chamar_llm_local($local_ollama_url, $local_model, $systemLocal, $comando);
-    $ia_diagnostico[] = ['provedor'=>'ollama','ok'=>$r['ok'],'http'=>$r['http'] ?? 0,'erro'=>$r['erro'] ?? null];
-    if ($r['ok']) {
-        $resposta = $r['texto'];
-        $provedor = 'IA Local: Ollama';
+$modelo_usado = null;
+
+$preferenciaModelos = 'auto';
+if (strpos($comando, '/cloud') === 0 || strpos($comando, '/runpod') === 0) $preferenciaModelos = 'cloud';
+elseif (strpos($comando, '/local') === 0) $preferenciaModelos = 'local';
+
+$modelosIA = jarvis_lista_modelos_ia($pdo, $preferenciaModelos);
+
+// Compatibilidade para instalações que ainda não carregaram a migration 1.21.
+if (!$modelosIA) {
+    if ($openai_base_url !== '' && $openai_model !== '') {
+        $modelosIA[] = [
+            'id'=>0,'nome'=>'OpenAI-compatible legado','provedor'=>'openai_compatible',
+            'base_url'=>$openai_base_url,'api_key'=>$openai_api_key,'modelo'=>$openai_model,
+            'classe_hardware'=>'GPU_HIGH','nivel_capacidade'=>'PROFISSIONAL',
+            'timeout_segundos'=>45,'max_tokens'=>600,'temperatura'=>0.35,'padrao'=>1,'prioridade'=>10
+        ];
+    } else {
+        $modelosIA[] = [
+            'id'=>0,'nome'=>'Ollama legado','provedor'=>'ollama',
+            'base_url'=>$local_ollama_url,'api_key'=>'','modelo'=>$local_model,
+            'classe_hardware'=>'CPU','nivel_capacidade'=>'ESTUDANTE',
+            'timeout_segundos'=>25,'max_tokens'=>220,'temperatura'=>0.3,'padrao'=>1,'prioridade'=>20
+        ];
     }
 }
 
-// Fallback configurável: se o provedor primário falhar, tenta OpenAI-compatible se estiver configurado.
-if (!$resposta && $target_ia !== 'openai_compatible' && $openai_base_url !== '' && $openai_model !== '') {
-    $r = chamar_llm_openai_compatible($openai_base_url, $openai_api_key, $openai_model, $systemCloud, $comando);
-    $ia_diagnostico[] = ['provedor'=>'openai_compatible_fallback','ok'=>$r['ok'],'http'=>$r['http'] ?? 0,'erro'=>$r['erro'] ?? null];
-    if ($r['ok']) {
+foreach ($modelosIA as $modeloIA) {
+    $promptSistema = (($modeloIA['nivel_capacidade'] ?? '') === 'PROFESSOR' || ($modeloIA['nivel_capacidade'] ?? '') === 'PROFISSIONAL')
+        ? $systemCloud : $systemLocal;
+    $r = jarvis_chamar_modelo($modeloIA, $promptSistema, $comando);
+
+    if ((int)($modeloIA['id'] ?? 0) > 0) {
+        jarvis_registrar_saude_modelo($pdo, (int)$modeloIA['id'], $r);
+    }
+
+    $ia_diagnostico[] = [
+        'id'=>$modeloIA['id'] ?? null,
+        'nome'=>$modeloIA['nome'] ?? 'modelo',
+        'provedor'=>$modeloIA['provedor'] ?? null,
+        'modelo'=>$modeloIA['modelo'] ?? null,
+        'classe_hardware'=>$modeloIA['classe_hardware'] ?? null,
+        'nivel_capacidade'=>$modeloIA['nivel_capacidade'] ?? null,
+        'padrao'=>!empty($modeloIA['padrao']),
+        'prioridade'=>(int)($modeloIA['prioridade'] ?? 100),
+        'ok'=>!empty($r['ok']),
+        'http'=>$r['http'] ?? 0,
+        'erro'=>$r['erro'] ?? null
+    ];
+
+    if (!empty($r['ok'])) {
         $resposta = $r['texto'];
-        $provedor = 'API OpenAI-compatible: fallback';
-        $target_ia = 'openai_compatible';
+        $provedor = ($modeloIA['nome'] ?? 'IA') . ' / ' . ($modeloIA['modelo'] ?? '');
+        $target_ia = $modeloIA['provedor'] ?? 'openai_compatible';
+        $modelo_usado = [
+            'id'=>$modeloIA['id'] ?? null,
+            'nome'=>$modeloIA['nome'] ?? null,
+            'modelo'=>$modeloIA['modelo'] ?? null,
+            'classe_hardware'=>$modeloIA['classe_hardware'] ?? null,
+            'nivel_capacidade'=>$modeloIA['nivel_capacidade'] ?? null
+        ];
+        break;
     }
 }
 
 if (!$resposta) {
-    $provedor = $provedor ?: 'indisponivel';
-    $resposta = 'O núcleo de IA não respondeu. Consulte o diagnóstico da integração.';
+    $provedor = 'indisponivel';
+    $resposta = 'Nenhum modelo de IA configurado respondeu. Consulte o diagnóstico da integração.';
 }
 
 $cmdLower = mb_strtolower($comando, 'UTF-8');
@@ -356,5 +480,5 @@ echo json_encode([
     'status'=>'sucesso','comando'=>$comando,'resposta'=>$respostaLimpa,
     'provedor'=>$provedor,'target_ia'=>$target_ia,'tipo_tarefa'=>$tipo_tarefa,
     'modo_roteamento'=>$routing_mode,'acao'=>$acao,'audio_url'=>$audioUrl,
-    'speaker'=>$jarvis_voice,'ia_diagnostico'=>$ia_diagnostico
+    'speaker'=>$jarvis_voice,'modelo_usado'=>$modelo_usado,'ia_diagnostico'=>$ia_diagnostico
 ], JSON_UNESCAPED_UNICODE);
