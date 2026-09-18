@@ -439,17 +439,6 @@ async function renderConfig(){
 
   document.querySelector('[data-act="test"]')?.addEventListener('click',async()=>{
     const btn=document.querySelector('[data-act="test"]');
-    const resultId='ja-ai-test-result';
-    let box=document.getElementById(resultId);
-    if(!box){
-      box=document.createElement('div');
-      box.id=resultId;
-      box.className='ja-ai-test-result';
-      document.querySelector('.ja-native-body')?.appendChild(box);
-    }
-    box.className='ja-ai-test-result testing';
-    box.textContent='Testando conexão...';
-    if(btn){btn.disabled=true;btn.textContent='TESTANDO...';}
     const payload={
       mode:modeEl.value,
       local_url:document.getElementById('ja-local-url')?.value.trim()||'',
@@ -461,22 +450,92 @@ async function renderConfig(){
       runpod_endpoint_id:document.getElementById('ja-runpod-endpoint')?.value.trim()||'',
       runpod_protocol:document.getElementById('ja-runpod-protocol')?.value||'openai'
     };
+
+    function testUrl(p){
+      if(p.mode==='local') return (p.local_url||'').replace(/\/+$/,'')+'/api/generate';
+      if(p.provider==='runpod'){
+        if(p.runpod_protocol==='native') return 'https://api.runpod.ai/v2/'+encodeURIComponent(p.runpod_endpoint_id)+'/runsync';
+        return 'https://api.runpod.ai/v2/'+encodeURIComponent(p.runpod_endpoint_id)+'/openai/v1/chat/completions';
+      }
+      if(p.provider==='gemini'){
+        const b=(p.base_url||'https://generativelanguage.googleapis.com/v1beta').replace(/\/+$/,'');
+        return b+'/models/'+encodeURIComponent(p.model)+':generateContent?key=***';
+      }
+      if(p.provider==='anthropic') return (p.base_url||'https://api.anthropic.com/v1').replace(/\/+$/,'')+'/messages';
+      const defs={
+        openai:'https://api.openai.com/v1',
+        openrouter:'https://openrouter.ai/api/v1',
+        cerebras:'https://api.cerebras.ai/v1',
+        deepseek:'https://api.deepseek.com/v1'
+      };
+      const b=(p.base_url||defs[p.provider]||'').replace(/\/+$/,'');
+      return /\/chat\/completions$/i.test(b)?b:b+'/chat/completions';
+    }
+
+    document.getElementById('ja-ai-test-modal')?.remove();
+    const modal=document.createElement('div');
+    modal.id='ja-ai-test-modal';
+    modal.className='ja-test-modal-backdrop';
+    modal.innerHTML=
+      '<section class="ja-test-modal" role="dialog" aria-modal="true" aria-labelledby="ja-test-title">'+
+        '<header><div><b id="ja-test-title">TESTE DE CONEXÃO IA</b><small id="ja-test-status">INICIANDO</small></div>'+
+        '<button type="button" id="ja-test-close">FECHAR</button></header>'+
+        '<div class="ja-test-meta"><span>URL</span><code id="ja-test-url"></code></div>'+
+        '<div class="ja-test-meta"><span>MODELO</span><code>'+esc(payload.mode==='local'?payload.local_model:payload.model)+'</code></div>'+
+        '<div class="ja-test-log" id="ja-test-log" aria-live="polite"></div>'+
+      '</section>';
+    document.body.appendChild(modal);
+
+    const close=()=>modal.remove();
+    document.getElementById('ja-test-close').onclick=close;
+    modal.addEventListener('click',e=>{if(e.target===modal)close();});
+    const log=document.getElementById('ja-test-log');
+    const status=document.getElementById('ja-test-status');
+    const url=testUrl(payload);
+    document.getElementById('ja-test-url').textContent=url;
+
+    const add=(type,msg)=>{
+      const row=document.createElement('div');
+      row.className='ja-test-log-line '+type;
+      const now=new Date().toLocaleTimeString('pt-BR',{hour12:false});
+      row.innerHTML='<time>'+esc(now)+'</time><span>'+esc(msg)+'</span>';
+      log.appendChild(row);
+      log.scrollTop=log.scrollHeight;
+    };
+
+    add('info','Configuração carregada da tela.');
+    add('info','Protocolo: '+(payload.mode==='local'?'LOCAL':(payload.provider==='runpod'?'RUNPOD '+payload.runpod_protocol.toUpperCase():payload.provider.toUpperCase())));
+    add('info','URL criada: '+url);
+    add('info','Preparando requisição de teste...');
+    if(btn){btn.disabled=true;btn.textContent='TESTANDO...';}
+
     const ini=performance.now();
+    await new Promise(r=>setTimeout(r,120));
+    add('send','Enviando requisição...');
+    status.textContent='AGUARDANDO RESPOSTA';
+
     try{
       const r=await postJson('/casa/api/testar_ia.php',payload);
       const ms=Math.round(performance.now()-ini);
-      box.className='ja-ai-test-result ok';
-      box.innerHTML='<b>CONEXÃO OK</b><span>'+esc(r.provedor||payload.provider||payload.mode)+' · '+ms+' ms'+(r.http?' · HTTP '+esc(r.http):'')+'</span><small>'+esc(r.resposta||r.mensagem||'Teste concluído com sucesso.')+'</small>';
+      add('recv','Resposta recebida'+(r.http?' — HTTP '+r.http:'')+'.');
+      if(r.url) add('info','URL confirmada pelo servidor: '+r.url);
+      if(r.resposta) add('recv','Resposta do modelo: '+r.resposta);
+      else if(r.mensagem) add('recv',r.mensagem);
+      add('ok','Teste finalizado com sucesso em '+ms+' ms.');
+      status.textContent='CONEXÃO OK';
+      modal.querySelector('.ja-test-modal').classList.add('ok');
     }catch(e){
       const ms=Math.round(performance.now()-ini);
-      box.className='ja-ai-test-result error';
-      box.innerHTML='<b>FALHA NO TESTE</b><span>'+ms+' ms</span><small>'+esc(e.message||String(e))+'</small>';
+      add('error','Falha: '+(e.message||String(e)));
+      add('error','Teste encerrado após '+ms+' ms.');
+      status.textContent='FALHA';
+      modal.querySelector('.ja-test-modal').classList.add('error');
     }finally{
       if(btn){btn.disabled=false;btn.textContent='TESTAR CONEXÃO';}
     }
   });
 
-  document.querySelector('[data-act="save"]')?.addEventListener('click',async()=>{
+    document.querySelector('[data-act="save"]')?.addEventListener('click',async()=>{
     const mode=modeEl.value;
     const provider=providerEl.value;
     const model=document.getElementById('ja-ia-model')?.value.trim()||'';
