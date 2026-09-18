@@ -482,6 +482,7 @@ async function renderConfig(){
         '<button type="button" id="ja-test-close">FECHAR</button></header>'+
         '<div class="ja-test-meta"><span>URL</span><code id="ja-test-url"></code></div>'+
         '<div class="ja-test-meta"><span>MODELO</span><code>'+esc(payload.mode==='local'?payload.local_model:payload.model)+'</code></div>'+
+        '<div id="ja-test-result-banner" class="ja-test-result-banner running">TESTE EM ANDAMENTO</div>'+
         '<div class="ja-test-log" id="ja-test-log" aria-live="polite"></div>'+
       '</section>';
     document.body.appendChild(modal);
@@ -491,6 +492,7 @@ async function renderConfig(){
     modal.addEventListener('click',e=>{if(e.target===modal)close();});
     const log=document.getElementById('ja-test-log');
     const status=document.getElementById('ja-test-status');
+    const resultBanner=document.getElementById('ja-test-result-banner');
     const url=testUrl(payload);
     document.getElementById('ja-test-url').textContent=url;
 
@@ -578,13 +580,21 @@ async function renderConfig(){
       else if(r.mensagem) add('recv',r.mensagem);
       if(r.body_preview) add('recv','Body: '+r.body_preview);
       add('ok','Teste finalizado com sucesso em '+ms+' ms.');
-      status.textContent='CONEXÃO OK';
+      status.textContent='SUCESSO';
+      if(resultBanner){
+        resultBanner.className='ja-test-result-banner success';
+        resultBanner.textContent='SUCESSO — CONEXÃO REALIZADA';
+      }
       modal.querySelector('.ja-test-modal').classList.add('ok');
     }catch(e){
       const ms=Math.round(performance.now()-ini);
       add('error','Falha: '+(e.message||String(e)));
       add('error','Teste encerrado após '+ms+' ms.');
       status.textContent='FALHA';
+      if(resultBanner){
+        resultBanner.className='ja-test-result-banner failure';
+        resultBanner.textContent='FALHA — TESTE NÃO CONCLUÍDO';
+      }
       modal.querySelector('.ja-test-modal').classList.add('error');
     }finally{
       if(btn){btn.disabled=false;btn.textContent='TESTAR CONEXÃO';}
