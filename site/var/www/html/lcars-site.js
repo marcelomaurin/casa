@@ -294,6 +294,7 @@ async function renderOperationalTelemetry(page=1){
     state.origem='';
     state.busca='';
   }
+
   const qs=new URLSearchParams({
     inicio:state.ini||'',
     fim:state.fim||'',
@@ -302,44 +303,68 @@ async function renderOperationalTelemetry(page=1){
     pagina:String(page),
     limite:'20'
   });
+
   const j=await getJson('/casa/api/telemetria_operacional.php?'+qs.toString());
   const rows=j.dados||[];
-  const summary='<div class="ja-native-summary ja-telemetry-summary">'+
-    '<div><b>EVENTOS</b><strong>'+esc(j.total??rows.length)+'</strong></div>'+
-    '<div><b>PERÍODO</b><strong class="small">'+esc((state.ini||'')+' → '+(state.fim||''))+'</strong></div>'+
-  '</div>';
-  const filters='<div class="ja-telemetry-filters">'+
-    '<label><span>Início</span><input id="tel-ini" type="datetime-local" value="'+attr(state.ini)+'"></label>'+
-    '<label><span>Fim</span><input id="tel-fim" type="datetime-local" value="'+attr(state.fim)+'"></label>'+
-    '<label><span>Origem</span><input id="tel-origem" value="'+attr(state.origem)+'" placeholder="web, COMPUTER, GOOGLE_HOME..."></label>'+
-    '<label><span>Operação / texto</span><input id="tel-busca" value="'+attr(state.busca)+'" placeholder="comando, resposta, ação..."></label>'+
-    '<button id="tel-filtrar">FILTRAR</button>'+
-  '</div>';
-  const list='<div class="ja-telemetry-list">'+rows.map(r=>
-    '<article class="ja-telemetry-event">'+
-      '<header><strong>'+esc(r.data_hora||'')+'</strong><span class="ja-state '+((r.status||'').match(/SUCESS|OK|CONCL/i)?'ok':'')+'">'+esc(r.status||'—')+'</span></header>'+
-      '<dl>'+
-        '<dt>Origem</dt><dd>'+esc(r.origem||'—')+'</dd>'+
-        '<dt>Canal</dt><dd>'+esc(r.canal||r.fonte||'—')+'</dd>'+
-        '<dt>IP cliente</dt><dd>'+esc(r.ip_cliente||'—')+'</dd>'+
-        '<dt>Operação</dt><dd>'+esc(r.operacao||'—')+'</dd>'+
-        '<dt>Solicitado</dt><dd class="wide">'+esc(r.solicitacao||'—')+'</dd>'+
-        '<dt>Resposta IA</dt><dd class="wide">'+esc(r.resposta_ia||'—')+'</dd>'+
-        '<dt>O que foi feito</dt><dd class="wide">'+esc(r.acao_executada||r.resultado||'—')+'</dd>'+
-        '<dt>Modelo</dt><dd>'+esc(r.modelo||'—')+'</dd>'+
-        '<dt>Duração</dt><dd>'+esc(r.duracao_ms!=null?(r.duracao_ms+' ms'):'—')+'</dd>'+
-      '</dl>'+
-    '</article>'
-  ).join('')+'</div>';
   const pages=Math.max(1,Number(j.paginas||1));
-  const nav='<div class="ja-telemetry-pages"><button id="tel-prev" '+(page<=1?'disabled':'')+'>‹ ANTERIOR</button><span>'+page+' / '+pages+'</span><button id="tel-next" '+(page>=pages?'disabled':'')+'>PRÓXIMA ›</button></div>';
-  moduleShell('Telemetria operacional',summary+filters+list+nav);
+
+  const metrics=
+    '<div class="ja-telemetry-metrics">'+
+      '<div><span>EVENTOS</span><strong>'+esc(j.total??rows.length)+'</strong></div>'+
+      '<div><span>PÁGINA</span><strong>'+page+' / '+pages+'</strong></div>'+
+      '<div class="period"><span>PERÍODO</span><strong>'+esc((state.ini||'').replace('T',' ')+' → '+(state.fim||'').replace('T',' '))+'</strong></div>'+
+    '</div>';
+
+  const filters=
+    '<div class="ja-telemetry-filters">'+
+      '<label><span>INÍCIO</span><input id="tel-ini" type="datetime-local" value="'+attr(state.ini)+'"></label>'+
+      '<label><span>FIM</span><input id="tel-fim" type="datetime-local" value="'+attr(state.fim)+'"></label>'+
+      '<label><span>ORIGEM</span><input id="tel-origem" value="'+attr(state.origem)+'" placeholder="web, COMPUTER..."></label>'+
+      '<label class="search"><span>OPERAÇÃO / TEXTO</span><input id="tel-busca" value="'+attr(state.busca)+'" placeholder="comando, resposta, ação..."></label>'+
+      '<button id="tel-filtrar">FILTRAR</button>'+
+    '</div>';
+
+  const list=
+    '<div class="ja-telemetry-list">'+
+      (rows.length?rows.map(r=>
+        '<article class="ja-telemetry-event">'+
+          '<header><strong>'+esc(r.data_hora||'')+'</strong><span class="ja-state '+((r.status||'').match(/SUCESS|OK|CONCL/i)?'ok':'')+'">'+esc(r.status||'—')+'</span></header>'+
+          '<dl>'+
+            '<dt>Origem</dt><dd>'+esc(r.origem||'—')+'</dd>'+
+            '<dt>Canal</dt><dd>'+esc(r.canal||r.fonte||'—')+'</dd>'+
+            '<dt>IP cliente</dt><dd>'+esc(r.ip_cliente||'—')+'</dd>'+
+            '<dt>Operação</dt><dd>'+esc(r.operacao||'—')+'</dd>'+
+            '<dt>Solicitado</dt><dd class="wide">'+esc(r.solicitacao||'—')+'</dd>'+
+            '<dt>Resposta IA</dt><dd class="wide">'+esc(r.resposta_ia||'—')+'</dd>'+
+            '<dt>O que foi feito</dt><dd class="wide">'+esc(r.acao_executada||r.resultado||'—')+'</dd>'+
+            '<dt>Modelo</dt><dd>'+esc(r.modelo||'—')+'</dd>'+
+            '<dt>Duração</dt><dd>'+esc(r.duracao_ms!=null?(r.duracao_ms+' ms'):'—')+'</dd>'+
+          '</dl>'+
+        '</article>'
+      ).join(''):'<div class="ja-telemetry-empty">Nenhum evento encontrado neste período.</div>')+
+    '</div>';
+
+  const nav=
+    '<div class="ja-telemetry-pages">'+
+      '<button id="tel-prev" '+(page<=1?'disabled':'')+'>‹ ANTERIOR</button>'+
+      '<span>'+page+' / '+pages+'</span>'+
+      '<button id="tel-next" '+(page>=pages?'disabled':'')+'>PRÓXIMA ›</button>'+
+    '</div>';
+
+  moduleShell(
+    'Telemetria operacional',
+    '<div class="ja-telemetry-layout">'+metrics+filters+list+nav+'</div>'
+  );
+
   document.getElementById('tel-filtrar').onclick=()=>{
     state.ini=document.getElementById('tel-ini').value;
     state.fim=document.getElementById('tel-fim').value;
     state.origem=document.getElementById('tel-origem').value.trim();
     state.busca=document.getElementById('tel-busca').value.trim();
     renderOperationalTelemetry(1);
+  };
+  document.getElementById('tel-busca').onkeydown=e=>{
+    if(e.key==='Enter')document.getElementById('tel-filtrar').click();
   };
   document.getElementById('tel-prev').onclick=()=>renderOperationalTelemetry(Math.max(1,page-1));
   document.getElementById('tel-next').onclick=()=>renderOperationalTelemetry(Math.min(pages,page+1));
