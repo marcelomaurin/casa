@@ -128,7 +128,7 @@ if ($subpath === '' || $subpath === 'status') {
         'status'=>'sucesso',
         'sistema'=>'CASA_JARVIS',
         'versao_api'=>'v1.1.0',
-        'dominio'=>'https://casa.maurinsoft.com.br',
+        'dominio'=>'https://maurinsoft.com.br/casa',
         'cliente'=>$cliente,
         'timestamp'=>date('c'),
         'resumo_residencia'=>[
@@ -147,7 +147,7 @@ if ($subpath === 'comando') {
     if ($cmd === '') api_v1_error(400, 'Parâmetro comando obrigatório.');
 
     // No Hostinger esta rota delega ao jarvis.php do próprio site.
-    $url = 'https://casa.maurinsoft.com.br/api/jarvis.php';
+    $url = 'https://maurinsoft.com.br/casa/api/jarvis.php';
     $ch = curl_init($url);
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER=>true,
