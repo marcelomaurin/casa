@@ -2,7 +2,7 @@
 header('Content-Type: application/json; charset=utf-8');
 require_once(__DIR__ . '/db.php');
 verify_api_auth();
-@set_time_limit(360);
+@set_time_limit(210);
 
 $in=json_decode(file_get_contents('php://input'),true);
 if(!is_array($in)) $in=$_POST;
@@ -29,7 +29,7 @@ function curl_json($url,$payload,$headers,$timeout=45){
     $json=$res!==false?json_decode((string)$res,true):null;
     return [$http,$err,$res,$json];
 }
-function curl_get_json($url,$headers,$timeout=300){
+function curl_get_json($url,$headers,$timeout=150){
     $ch=curl_init($url);
     curl_setopt_array($ch,[
         CURLOPT_RETURNTRANSFER=>true,
@@ -97,7 +97,7 @@ if($provider==='runpod'){
             [$http,$err,$raw,$j]=curl_get_json($url,[
                 'Accept: application/json',
                 'Authorization: Bearer '.$key
-            ],300);
+            ],150);
             if($http>=200&&$http<300){
                 $ids=[];
                 foreach(($j['data']??[]) as $item){
@@ -159,7 +159,7 @@ if($base==='') out(['status'=>'erro','mensagem'=>'URL do provedor não informada
 $url=preg_match('#/chat/completions$#i',$base)?$base:$base.'/chat/completions';
 $headers=['Content-Type: application/json'];
 if($key!=='') $headers[]='Authorization: Bearer '.$key;
-$requestTimeout=($provider==='runpod' && $protocol==='openai')?300:45;
+$requestTimeout=($provider==='runpod' && $protocol==='openai')?150:45;
 [$http,$err,$raw,$j]=curl_json($url,[
     'model'=>$model,
     'messages'=>[['role'=>'user','content'=>$prompt]],
