@@ -1,6 +1,16 @@
 (function(){
 'use strict';
 
+const GROUP_ICONS={
+  'SEGURANÇA':'◆',
+  'OPERAÇÕES':'◈',
+  'DISPOSITIVOS':'▣',
+  'AUTOMAÇÃO':'⚙',
+  'IA & VOZ':'✦',
+  'FAMÍLIA':'●',
+  'SISTEMA':'⌘'
+};
+
 const STATUS=[
   {label:'RUNPOD',value:'CONFIG.'},
   {label:'WATCH',value:'OK'},
@@ -127,7 +137,7 @@ function setRoute(group,item){
 }
 
 function topGroupCards(){
-  return Object.keys(GROUPS).map(name=>({title:name,description:GROUPS[name].subtitle,id:name}));
+  return Object.keys(GROUPS).map(name=>({title:name,description:GROUPS[name].subtitle,id:name,icon:GROUP_ICONS[name]||'•'}));
 }
 
 function home(updateRoute=true){
@@ -135,7 +145,7 @@ function home(updateRoute=true){
   CASALcars.render('#app',{
     layout:'dashboard',group:'GRUPOS',title:'CASA / JARVIS',subtitle:'Escolha um grupo. A interface adapta o miolo conforme a tarefa.',
     breadcrumb:['CASA','GRUPOS'],groups:[{label:'GRUPOS',active:true}],status:STATUS,columns:3,
-    items:topGroupCards().map(g=>({title:g.title,description:g.description,actions:[{label:'ACESSAR',action:'open-group:'+g.id,variant:'primary'}]})),
+    items:topGroupCards().map(g=>({title:g.title,description:g.description,icon:g.icon,actions:[{label:'ACESSAR',action:'open-group:'+g.id,variant:'primary'}]})),
     footer:{hint:'Interface em tela cheia: use grupos e paginação, sem rolagem.'}
   });
   if(updateRoute) setRoute(null,null);
