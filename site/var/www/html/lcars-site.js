@@ -293,6 +293,9 @@ async function renderOperationalTelemetry(page=1){
     state.fim=telemetryDateInputValue(fim);
     state.origem='';
     state.busca='';
+    state.aiQuestion='';
+    state.aiAnswer='';
+    state.aiSql='';
   }
 
   const qs=new URLSearchParams({
@@ -324,6 +327,24 @@ async function renderOperationalTelemetry(page=1){
       '<button id="tel-filtrar">FILTRAR</button>'+
     '</div>';
 
+  const aiPanel=
+    '<section class="ja-telemetry-ai">'+
+      '<div class="ja-telemetry-ai-head">'+
+        '<strong>ANÁLISE POR IA</strong>'+
+        '<span>Somente SELECT · tabela telemetria_operacional</span>'+
+      '</div>'+
+      '<div class="ja-telemetry-ai-row">'+
+        '<input id="tel-ai-q" value="'+attr(state.aiQuestion||'')+'" placeholder="Ex.: Quais falhas ocorreram hoje e de quais IPs vieram?">'+
+        '<button id="tel-ai-ask">PERGUNTAR À IA</button>'+
+        '<button id="tel-ai-auto">ANALISAR PERÍODO</button>'+
+      '</div>'+
+      '<div id="tel-ai-answer" class="ja-telemetry-ai-answer">'+esc(state.aiAnswer||'')+'</div>'+
+      '<details id="tel-ai-details" '+(state.aiSql?'open':'')+'>'+
+        '<summary>SQL gerado</summary>'+
+        '<pre id="tel-ai-sql">'+esc(state.aiSql||'')+'</pre>'+
+      '</details>'+
+    '</section>';
+
   const list=
     '<div class="ja-telemetry-list">'+
       (rows.length?rows.map(r=>
@@ -353,7 +374,7 @@ async function renderOperationalTelemetry(page=1){
 
   moduleShell(
     'Telemetria operacional',
-    '<div class="ja-telemetry-layout">'+metrics+filters+list+nav+'</div>'
+    '<div class="ja-telemetry-layout">'+metrics+filters+aiPanel+list+nav+'</div>'
   );
 
   document.getElementById('tel-filtrar').onclick=()=>{
@@ -363,9 +384,65 @@ async function renderOperationalTelemetry(page=1){
     state.busca=document.getElementById('tel-busca').value.trim();
     renderOperationalTelemetry(1);
   };
+
   document.getElementById('tel-busca').onkeydown=e=>{
     if(e.key==='Enter')document.getElementById('tel-filtrar').click();
   };
+
+  const runTelemetryAI=async(autoMode)=>{
+    const answer=document.getElementById('tel-ai-answer');
+    const sqlBox=document.getElementById('tel-ai-sql');
+    const details=document.getElementById('tel-ai-details');
+    const askBtn=document.getElementById('tel-ai-ask');
+    const autoBtn=document.getElementById('tel-ai-auto');
+    const qInput=document.getElementById('tel-ai-q');
+
+    const question=autoMode
+      ? 'Analise este período da telemetria. Identifique falhas, operações mais frequentes, origens, IPs externos relevantes, respostas da IA, ações executadas, tempos anormais e padrões que mereçam atenção.'
+      : qInput.value.trim();
+
+    if(!question){
+      answer.textContent='Digite uma pergunta sobre a telemetria.';
+      answer.className='ja-telemetry-ai-answer error';
+      return;
+    }
+
+    if(!autoMode) state.aiQuestion=question;
+    answer.textContent='Analisando a telemetria...';
+    answer.className='ja-telemetry-ai-answer pending';
+    askBtn.disabled=true;
+    autoBtn.disabled=true;
+
+    try{
+      const r=await postJson('/casa/api/telemetria_ia.php',{
+        pergunta:question,
+        inicio:state.ini||'',
+        fim:state.fim||''
+      });
+      state.aiAnswer=r.resposta||'Sem resposta.';
+      state.aiSql=r.sql||'';
+      answer.textContent=state.aiAnswer;
+      answer.className='ja-telemetry-ai-answer ok';
+      sqlBox.textContent=state.aiSql;
+      if(state.aiSql) details.open=true;
+    }catch(e){
+      state.aiAnswer='';
+      state.aiSql='';
+      answer.textContent=e.message||'Falha ao analisar a telemetria.';
+      answer.className='ja-telemetry-ai-answer error';
+      sqlBox.textContent='';
+    }finally{
+      askBtn.disabled=false;
+      autoBtn.disabled=false;
+    }
+  };
+
+  document.getElementById('tel-ai-ask').onclick=()=>runTelemetryAI(false);
+  document.getElementById('tel-ai-auto').onclick=()=>runTelemetryAI(true);
+  document.getElementById('tel-ai-q').onkeydown=e=>{
+    if(e.key==='Enter')runTelemetryAI(false);
+  };
+
   document.getElementById('tel-prev').onclick=()=>renderOperationalTelemetry(Math.max(1,page-1));
   document.getElementById('tel-next').onclick=()=>renderOperationalTelemetry(Math.min(pages,page+1));
 }
