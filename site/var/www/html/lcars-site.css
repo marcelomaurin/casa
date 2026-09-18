@@ -400,3 +400,35 @@ body{overscroll-behavior:none}
 }
 .ja-rail button:hover{filter:brightness(1.08)}
 .ja-rail button:active{transform:translateY(1px)}
+
+
+/* Configuração de IA guiada por modo/provedor */
+.ja-ai-config{align-content:start!important}
+.ja-config-grid select,
+.ja-config-subgrid select{
+  min-width:0;
+  border:2px solid #3f82ad;
+  border-radius:12px;
+  background:#101010;
+  color:#fff;
+  padding:clamp(6px,.8vh,10px);
+  font-size:clamp(9px,.9vw,13px);
+}
+.ja-config-subgrid{
+  grid-column:1/-1;
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:8px;
+  min-height:0;
+  padding:8px;
+  border:2px solid #3f82ad;
+  border-radius:14px;
+  background:#070707;
+}
+.ja-config-subgrid.is-hidden,
+.ja-config-subgrid .is-hidden{display:none!important}
+#ja-runpod-endpoint-wrap{min-width:0}
+#ja-runpod-endpoint-wrap label{height:100%}
+@media(max-width:560px){
+  .ja-config-subgrid{grid-template-columns:1fr}
+}
