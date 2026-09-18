@@ -688,9 +688,33 @@ function speakComputer(text){
   window.speechSynthesis.speak(u);
   return true;
 }
-function renderJarvis(){
-  moduleShell('Núcleo COMPUTER','<div class="ja-jarvis"><div id="ja-chat-log" class="ja-chat-log"><div class="ja-chat-line ai">COMPUTER pronto.</div></div><div class="ja-command"><input id="ja-command-input" placeholder="Digite um comando para o COMPUTER"><button id="ja-command-send">ENVIAR</button><button id="ja-command-mic">VOZ</button></div></div>');
+async function loadComputerHistory(){
+  try{
+    const j=await getJson('/casa/api/computer_historico.php?limite=25');
+    return Array.isArray(j.dados)?j.dados:[];
+  }catch(e){
+    return [];
+  }
+}
+async function renderJarvis(){
+  moduleShell('Núcleo COMPUTER','<div class="ja-jarvis"><div id="ja-chat-log" class="ja-chat-log"><div class="ja-chat-line ai">Carregando histórico...</div></div><div class="ja-command"><input id="ja-command-input" placeholder="Digite um comando para o COMPUTER"><button id="ja-command-send">ENVIAR</button><button id="ja-command-mic">VOZ</button></div></div>');
   const input=document.getElementById('ja-command-input');
+  const log=document.getElementById('ja-chat-log');
+
+  const history=await loadComputerHistory();
+  if(log){
+    log.innerHTML='';
+    if(!history.length){
+      appendChat('COMPUTER','Pronto.','ai');
+    }else{
+      history.forEach(h=>{
+        appendChat('Você',h.user_msg||'','user',false);
+        appendChat('COMPUTER',h.bot_msg||'','ai',false);
+      });
+      log.scrollTop=log.scrollHeight;
+    }
+  }
+
   const send=async()=>{
     const cmd=input.value.trim();
     if(!cmd)return;
@@ -711,14 +735,24 @@ function renderJarvis(){
   input.onkeydown=e=>{if(e.key==='Enter')send();};
   document.getElementById('ja-command-mic').onclick=()=>startVoice(input,send);
 }
-function appendChat(who,text,cls){
+function appendChat(who,text,cls,scroll=true){
   const l=document.getElementById('ja-chat-log');
   if(!l)return;
   const d=document.createElement('div');
   d.className='ja-chat-line '+cls;
-  d.textContent=who+': '+text;
+  const name=document.createElement('strong');
+  name.className='ja-chat-who';
+  name.textContent=who+':';
+  const body=document.createElement('span');
+  body.className='ja-chat-text';
+  body.textContent=String(text??'');
+  d.appendChild(name);
+  d.appendChild(body);
   l.appendChild(d);
-  while(l.children.length>5)l.removeChild(l.firstChild);
+
+  // Mantém o DOM limitado sem perder o histórico persistido no banco.
+  while(l.children.length>100) l.removeChild(l.firstChild);
+  if(scroll) l.scrollTop=l.scrollHeight;
 }
 function startVoice(input,done){
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
