@@ -284,6 +284,52 @@ function telemetryDateInputValue(d){
   const pad=n=>String(n).padStart(2,'0');
   return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes());
 }
+
+function openTelemetryChatModal(question){
+  document.getElementById('ja-telemetry-chat-modal')?.remove();
+  const back=document.createElement('div');
+  back.id='ja-telemetry-chat-modal';
+  back.className='ja-ai-chat-backdrop';
+  back.innerHTML=
+    '<section class="ja-ai-chat-modal" role="dialog" aria-modal="true">'+
+      '<header><div><strong>COMPUTER · TELEMETRIA</strong><span>Análise em andamento</span></div><button type="button" data-close>FECHAR</button></header>'+
+      '<div class="ja-ai-chat-body" id="ja-ai-chat-body">'+
+        '<div class="ja-ai-msg user"><b>Você</b><div>'+esc(question)+'</div></div>'+
+        '<div class="ja-ai-msg assistant pending" id="ja-ai-msg-assistant"><b>COMPUTER</b><div>Analisando sua pergunta...</div></div>'+
+      '</div>'+
+      '<aside class="ja-ai-task-panel"><strong>EXECUÇÃO</strong><div id="ja-ai-task-list"><div class="ja-ai-task pending">Criando tarefa principal...</div></div></aside>'+
+    '</section>';
+  document.body.appendChild(back);
+  const close=()=>back.remove();
+  back.querySelector('[data-close]').onclick=close;
+  back.addEventListener('click',e=>{if(e.target===back)close();});
+  return back;
+}
+function updateTelemetryChatModal(modal,result,errorText){
+  if(!modal)return;
+  const msg=modal.querySelector('#ja-ai-msg-assistant');
+  const tasks=modal.querySelector('#ja-ai-task-list');
+  const status=modal.querySelector('header span');
+  if(errorText){
+    if(msg){msg.className='ja-ai-msg assistant error';msg.querySelector('div').textContent=errorText;}
+    if(status)status.textContent='Erro na execução';
+    if(tasks)tasks.innerHTML='<div class="ja-ai-task error">A tarefa não pôde ser concluída.</div>';
+    return;
+  }
+  if(msg){
+    msg.className='ja-ai-msg assistant';
+    msg.querySelector('div').textContent=(result&&result.resposta)?result.resposta:'Sem resposta.';
+  }
+  if(status)status.textContent='Concluído';
+  if(tasks){
+    const arr=(result&&Array.isArray(result.tarefas_execucao))?result.tarefas_execucao:[];
+    tasks.innerHTML=arr.length?arr.map(t=>
+      '<div class="ja-ai-task '+((t.status||'').match(/CONCL/i)?'ok':((t.status||'').match(/ERRO/i)?'error':'pending'))+'">'+
+      '<span>#'+esc(t.ordem||'')+'</span><b>'+esc(t.titulo||'Tarefa')+'</b><em>'+esc(t.status||'')+'</em></div>'
+    ).join(''):'<div class="ja-ai-task ok">Resposta concluída.</div>';
+  }
+}
+
 async function renderOperationalTelemetry(page=1){
   loading('Telemetria operacional');
   const state=moduleState.telemetryOps||(moduleState.telemetryOps={});
@@ -408,6 +454,7 @@ async function renderOperationalTelemetry(page=1){
     }
 
     if(!autoMode) state.aiQuestion=question;
+    const chatModal=openTelemetryChatModal(question);
     answer.textContent='Analisando a telemetria...';
     answer.className='ja-telemetry-ai-answer pending';
     askBtn.disabled=true;
@@ -419,6 +466,7 @@ async function renderOperationalTelemetry(page=1){
         inicio:state.ini||'',
         fim:state.fim||''
       });
+      updateTelemetryChatModal(chatModal,r,null);
       state.aiAnswer=r.resposta||'Sem resposta.';
       state.aiSql=r.sql||'';
       answer.textContent=state.aiAnswer;
@@ -426,6 +474,7 @@ async function renderOperationalTelemetry(page=1){
       sqlBox.textContent=state.aiSql;
       if(state.aiSql) details.open=true;
     }catch(e){
+      updateTelemetryChatModal(chatModal,null,e.message||'Falha ao analisar a telemetria.');
       state.aiAnswer='';
       state.aiSql='';
       answer.textContent=e.message||'Falha ao analisar a telemetria.';
