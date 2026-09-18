@@ -697,7 +697,7 @@ async function loadComputerHistory(){
   }
 }
 async function renderJarvis(){
-  moduleShell('Núcleo COMPUTER','<div class="ja-jarvis"><div id="ja-chat-log" class="ja-chat-log"><div class="ja-chat-line ai">Carregando histórico...</div></div><div class="ja-command"><input id="ja-command-input" placeholder="Digite um comando para o COMPUTER"><button id="ja-command-send">ENVIAR</button><button id="ja-command-mic">VOZ</button></div></div>');
+  moduleShell('Núcleo COMPUTER','<div class="ja-jarvis"><div id="ja-chat-log" class="ja-chat-log"><div class="ja-chat-line ai">Carregando histórico...</div></div><div class="ja-command"><input id="ja-command-input" placeholder="Digite um comando para o COMPUTER"><button id="ja-command-send">ENVIAR</button><button id="ja-command-mic">VOZ</button><button id="ja-command-clear" class="danger">LIMPAR HISTÓRICO</button></div></div>');
   const input=document.getElementById('ja-command-input');
   const log=document.getElementById('ja-chat-log');
 
@@ -734,6 +734,24 @@ async function renderJarvis(){
   document.getElementById('ja-command-send').onclick=send;
   input.onkeydown=e=>{if(e.key==='Enter')send();};
   document.getElementById('ja-command-mic').onclick=()=>startVoice(input,send);
+  document.getElementById('ja-command-clear').onclick=async()=>{
+    if(!confirm('Deseja apagar todo o histórico de conversas do COMPUTER? Esta ação não pode ser desfeita.')) return;
+    const clearBtn=document.getElementById('ja-command-clear');
+    clearBtn.disabled=true;
+    clearBtn.textContent='LIMPANDO...';
+    try{
+      const r=await postJson('/casa/api/computer_historico.php',{acao:'limpar'});
+      if(log){
+        log.innerHTML='';
+        appendChat('COMPUTER',r.mensagem||'Histórico limpo.','ai');
+      }
+    }catch(e){
+      appendChat('Sistema',e.message||'Falha ao limpar histórico.','error');
+    }finally{
+      clearBtn.disabled=false;
+      clearBtn.textContent='LIMPAR HISTÓRICO';
+    }
+  };
 }
 function appendChat(who,text,cls,scroll=true){
   const l=document.getElementById('ja-chat-log');
