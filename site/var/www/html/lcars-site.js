@@ -1134,6 +1134,41 @@ function handleAction(detail){
   if(action.startsWith('open-group:')) return openGroup(action.substring(11));
   if(action==='select' || action==='navigate'){const it=findItem(currentGroup,detail.id);if(it)openItem(it);}
 }
+
+function mountAdminTools(){
+  const status=document.querySelector('#app .ja-status');
+  const template=document.getElementById('ja-admin-template');
+  if(!status || !template) return;
+
+  let box=status.querySelector('.ja-admin-tools');
+  if(box) return;
+
+  box=document.createElement('section');
+  box.className='ja-admin-tools';
+  box.setAttribute('aria-label','Funções administrativas');
+  box.innerHTML='<div class="ja-admin-title">ADMINISTRAÇÃO</div>';
+
+  const homeBtn=template.querySelector('.home')?.cloneNode(true);
+  const passBtn=template.querySelector('.password')?.cloneNode(true);
+  const logout=template.querySelector('.logout')?.cloneNode(true);
+
+  if(homeBtn){
+    homeBtn.onclick=()=>home();
+    box.appendChild(homeBtn);
+  }
+  if(passBtn){
+    passBtn.onclick=()=>changePassword();
+    box.appendChild(passBtn);
+  }
+  if(logout) box.appendChild(logout);
+
+  status.appendChild(box);
+}
+
+function scheduleAdminMount(){
+  requestAnimationFrame(()=>mountAdminTools());
+}
+
 function restoreRoute(){
   const params=new URLSearchParams(location.search),g=params.get('grupo'),itemId=params.get('item');
   suppressHistory=true;
@@ -1141,7 +1176,14 @@ function restoreRoute(){
   suppressHistory=false;
 }
 
-document.addEventListener('DOMContentLoaded',()=>{const app=document.getElementById('app');app.addEventListener('ja:action',e=>handleAction(e.detail||{}));restoreRoute();});
+document.addEventListener('DOMContentLoaded',()=>{
+  const app=document.getElementById('app');
+  app.addEventListener('ja:action',e=>{handleAction(e.detail||{});scheduleAdminMount();});
+  const observer=new MutationObserver(()=>scheduleAdminMount());
+  observer.observe(app,{childList:true,subtree:true});
+  restoreRoute();
+  scheduleAdminMount();
+});
 window.addEventListener('popstate',restoreRoute);
 window.addEventListener('resize',()=>{const f=document.querySelector('.ja-module-frame');if(f)fitFrame(f);});
 window.CASASite={home,openGroup,openItem,changePassword,groups:GROUPS};
