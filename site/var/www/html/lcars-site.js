@@ -79,9 +79,9 @@ const GROUPS={
     ]
   },
   'IA & VOZ':{
-    subtitle:'JARVIS, reconhecimento, voz, RunPod e agentes.',
+    subtitle:'COMPUTER, reconhecimento, voz, RunPod e agentes.',
     sections:[
-      {title:'JARVIS',items:[
+      {title:'COMPUTER',items:[
         {id:'jarvis',label:'Núcleo de reconhecimento & voz',module:'jarvis'},
         {id:'frases',label:'Frases & avisos',module:'phrases'},
         {id:'agentes',label:'Agentes externos',module:'agents'}
@@ -143,7 +143,7 @@ function topGroupCards(){
 function home(updateRoute=true){
   currentGroup=null; currentItem=null;
   CASALcars.render('#app',{
-    layout:'dashboard',group:'GRUPOS',title:'CASA / JARVIS',subtitle:'Escolha um grupo. A interface adapta o miolo conforme a tarefa.',
+    layout:'dashboard',group:'GRUPOS',title:'CASA / COMPUTER',subtitle:'Escolha um grupo. A interface adapta o miolo conforme a tarefa.',
     breadcrumb:[],groups:[{label:'CASA',action:'home',level:0,levelNav:true,active:true}],status:STATUS,columns:3,
     items:topGroupCards().map(g=>({title:g.title,description:g.description,icon:g.icon,actions:[{label:'ACESSAR',action:'open-group:'+g.id,variant:'primary'}]})),
     footer:{hint:'Interface em tela cheia: use grupos e paginação, sem rolagem.'}
@@ -667,18 +667,76 @@ async function renderExternal(){
   moduleShell('Acesso web & API',body);
 }
 
+function computerVoice(){
+  if(!('speechSynthesis' in window)) return null;
+  const voices=window.speechSynthesis.getVoices()||[];
+  const br=voices.filter(v=>String(v.lang||'').toLowerCase()==='pt-br');
+  if(!br.length) return null;
+  const femaleHints=['francisca','maria','luciana','fernanda','vitoria','vitória','camila','leticia','letícia','female','feminina','woman'];
+  return br.find(v=>femaleHints.some(h=>(String(v.name||'')+' '+String(v.voiceURI||'')).toLowerCase().includes(h))) || br[0];
+}
+function speakComputer(text){
+  const speech=String(text||'').trim();
+  if(!speech || !('speechSynthesis' in window)) return false;
+  window.speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(speech);
+  u.lang='pt-BR';
+  u.rate=1;
+  u.pitch=1;
+  const v=computerVoice();
+  if(v) u.voice=v;
+  window.speechSynthesis.speak(u);
+  return true;
+}
 function renderJarvis(){
-  moduleShell('Núcleo JARVIS','<div class="ja-jarvis"><div id="ja-chat-log" class="ja-chat-log"><div class="ja-chat-line ai">JARVIS pronto.</div></div><div class="ja-command"><input id="ja-command-input" placeholder="Digite um comando para o JARVIS"><button id="ja-command-send">ENVIAR</button><button id="ja-command-mic">VOZ</button></div></div>');
+  moduleShell('Núcleo COMPUTER','<div class="ja-jarvis"><div id="ja-chat-log" class="ja-chat-log"><div class="ja-chat-line ai">COMPUTER pronto.</div></div><div class="ja-command"><input id="ja-command-input" placeholder="Digite um comando para o COMPUTER"><button id="ja-command-send">ENVIAR</button><button id="ja-command-mic">VOZ</button></div></div>');
   const input=document.getElementById('ja-command-input');
-  const send=async()=>{const cmd=input.value.trim();if(!cmd)return;input.value='';appendChat('Você',cmd,'user');try{const r=await postJson('/casa/api/jarvis.php',{comando:cmd,ia_mode:'auto'});appendChat('JARVIS',r.resposta||r.mensagem||'Sem resposta.','ai');}catch(e){appendChat('Sistema',e.message,'error');}};
-  document.getElementById('ja-command-send').onclick=send; input.onkeydown=e=>{if(e.key==='Enter')send();};
+  const send=async()=>{
+    const cmd=input.value.trim();
+    if(!cmd)return;
+    input.value='';
+    appendChat('Você',cmd,'user');
+    try{
+      const r=await postJson('/casa/api/jarvis.php',{comando:cmd,ia_mode:'auto'});
+      const resposta=r.resposta||r.mensagem||'Sem resposta.';
+      appendChat('COMPUTER',resposta,'ai');
+      if(!speakComputer(resposta)){
+        appendChat('Sistema','Voz pt-BR não disponível neste navegador.','error');
+      }
+    }catch(e){
+      appendChat('Sistema',e.message,'error');
+    }
+  };
+  document.getElementById('ja-command-send').onclick=send;
+  input.onkeydown=e=>{if(e.key==='Enter')send();};
   document.getElementById('ja-command-mic').onclick=()=>startVoice(input,send);
 }
-function appendChat(who,text,cls){const l=document.getElementById('ja-chat-log');if(!l)return;const d=document.createElement('div');d.className='ja-chat-line '+cls;d.textContent=who+': '+text;l.appendChild(d);while(l.children.length>5)l.removeChild(l.firstChild);}
-function startVoice(input,done){const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){alert('Reconhecimento de voz não disponível neste navegador.');return;}const r=new SR();r.lang='pt-BR';r.onresult=e=>{input.value=e.results[0][0].transcript;done();};r.start();}
+function appendChat(who,text,cls){
+  const l=document.getElementById('ja-chat-log');
+  if(!l)return;
+  const d=document.createElement('div');
+  d.className='ja-chat-line '+cls;
+  d.textContent=who+': '+text;
+  l.appendChild(d);
+  while(l.children.length>5)l.removeChild(l.firstChild);
+}
+function startVoice(input,done){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){alert('Reconhecimento de voz não disponível neste navegador.');return;}
+  const r=new SR();
+  r.lang='pt-BR';
+  r.onresult=e=>{input.value=e.results[0][0].transcript;done();};
+  r.start();
+}
+
+// Carrega a lista de vozes assim que o navegador disponibilizá-la.
+if('speechSynthesis' in window){
+  window.speechSynthesis.getVoices();
+  window.speechSynthesis.addEventListener?.('voiceschanged',()=>window.speechSynthesis.getVoices());
+}
 
 function renderCameras(){
-  moduleShell('Câmeras & visão','<div class="ja-camera-grid"><article class="ja-native-card"><h3>ESP32-CAM PORTÃO</h3><p>Stream configurado em 192.168.2.50.</p><div class="ja-row-actions">'+actionBtn('CAPTURAR','capture','primary')+actionBtn('STREAM','stream')+actionBtn('FLASH','flash')+'</div></article><article class="ja-native-card"><h3>ANÁLISE DE CENA</h3><p>Envia uma solicitação ao JARVIS para análise da captura recente.</p><div class="ja-row-actions">'+actionBtn('ANALISAR','analyze','primary')+'</div></article></div>');
+  moduleShell('Câmeras & visão','<div class="ja-camera-grid"><article class="ja-native-card"><h3>ESP32-CAM PORTÃO</h3><p>Stream configurado em 192.168.2.50.</p><div class="ja-row-actions">'+actionBtn('CAPTURAR','capture','primary')+actionBtn('STREAM','stream')+actionBtn('FLASH','flash')+'</div></article><article class="ja-native-card"><h3>ANÁLISE DE CENA</h3><p>Envia uma solicitação ao COMPUTER para análise da captura recente.</p><div class="ja-row-actions">'+actionBtn('ANALISAR','analyze','primary')+'</div></article></div>');
   document.querySelectorAll('[data-act]').forEach(b=>b.onclick=async()=>{if(b.dataset.act==='capture')window.open('http://192.168.2.50/capture?t='+Date.now(),'_blank');if(b.dataset.act==='stream')window.open('http://192.168.2.50/stream','_blank');if(b.dataset.act==='flash')fetch('http://192.168.2.50/flash/on').catch(()=>{});if(b.dataset.act==='analyze'){await postJson('/casa/api/jarvis.php',{comando:'/cloud Analise a imagem recente da câmera de entrada e descreva objetos, pessoas e riscos de segurança detectados.',ia_mode:'auto'}).then(r=>alert(r.resposta||'Solicitação enviada.'));}});
 }
 
