@@ -716,6 +716,86 @@ function fitFrame(frame){
   }catch(e){console.warn('CASA módulo:',e);}
 }
 
+
+function changePassword(){
+  document.getElementById('ja-password-modal')?.remove();
+  const modal=document.createElement('div');
+  modal.id='ja-password-modal';
+  modal.className='ja-password-backdrop';
+  modal.innerHTML=
+    '<section class="ja-password-modal" role="dialog" aria-modal="true" aria-labelledby="ja-password-title">'+
+      '<header><strong id="ja-password-title">ALTERAR SENHA</strong><button type="button" data-pass-close>FECHAR</button></header>'+
+      '<div class="ja-password-body">'+
+        '<label><span>Senha atual</span><input id="ja-pass-current" type="password" autocomplete="current-password"></label>'+
+        '<label><span>Nova senha</span><input id="ja-pass-new" type="password" autocomplete="new-password" minlength="8"></label>'+
+        '<label><span>Confirmar nova senha</span><input id="ja-pass-confirm" type="password" autocomplete="new-password" minlength="8"></label>'+
+        '<div id="ja-pass-message" class="ja-password-message" aria-live="polite"></div>'+
+      '</div>'+
+      '<footer><button type="button" data-pass-save>ALTERAR SENHA</button></footer>'+
+    '</section>';
+  document.body.appendChild(modal);
+
+  const close=()=>modal.remove();
+  modal.querySelector('[data-pass-close]').onclick=close;
+  modal.addEventListener('click',e=>{if(e.target===modal)close();});
+
+  const current=modal.querySelector('#ja-pass-current');
+  const next=modal.querySelector('#ja-pass-new');
+  const confirm=modal.querySelector('#ja-pass-confirm');
+  const msg=modal.querySelector('#ja-pass-message');
+  const save=modal.querySelector('[data-pass-save]');
+  current.focus();
+
+  const show=(text,type='')=>{
+    msg.className='ja-password-message '+type;
+    msg.textContent=text;
+  };
+
+  save.onclick=async()=>{
+    const senhaAtual=current.value;
+    const novaSenha=next.value;
+    const confirmar=confirm.value;
+
+    if(!senhaAtual || !novaSenha || !confirmar){
+      show('Preencha os três campos.','error');
+      return;
+    }
+    if(novaSenha.length<8){
+      show('A nova senha deve ter pelo menos 8 caracteres.','error');
+      return;
+    }
+    if(novaSenha!==confirmar){
+      show('A confirmação da nova senha não confere.','error');
+      return;
+    }
+    if(senhaAtual===novaSenha){
+      show('A nova senha deve ser diferente da senha atual.','error');
+      return;
+    }
+
+    save.disabled=true;
+    save.textContent='ALTERANDO...';
+    show('Validando senha atual...','info');
+    try{
+      const r=await postJson('/casa/api/alterar_senha.php',{
+        senha_atual:senhaAtual,
+        nova_senha:novaSenha,
+        confirmar_senha:confirmar
+      });
+      current.value='';
+      next.value='';
+      confirm.value='';
+      show(r.mensagem||'Senha alterada com sucesso.','success');
+      save.textContent='SENHA ALTERADA';
+      setTimeout(close,1400);
+    }catch(e){
+      show(e.message||'Não foi possível alterar a senha.','error');
+      save.disabled=false;
+      save.textContent='ALTERAR SENHA';
+    }
+  };
+}
+
 function handleAction(detail){
   const action=detail.action||'';
   if(action==='home' || action==='back') return home();
@@ -734,5 +814,5 @@ function restoreRoute(){
 document.addEventListener('DOMContentLoaded',()=>{const app=document.getElementById('app');app.addEventListener('ja:action',e=>handleAction(e.detail||{}));restoreRoute();});
 window.addEventListener('popstate',restoreRoute);
 window.addEventListener('resize',()=>{const f=document.querySelector('.ja-module-frame');if(f)fitFrame(f);});
-window.CASASite={home,openGroup,openItem,groups:GROUPS};
+window.CASASite={home,openGroup,openItem,changePassword,groups:GROUPS};
 })();
