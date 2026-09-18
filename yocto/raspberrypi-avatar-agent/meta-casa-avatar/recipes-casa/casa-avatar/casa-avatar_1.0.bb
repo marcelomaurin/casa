@@ -15,7 +15,7 @@ S = "${WORKDIR}"
 inherit systemd
 
 DEPENDS = "libfreenect libusb1"
-RDEPENDS:${PN} = "python3-core python3-requests python3-pygame python3-pillow alsa-utils espeak-ng libfreenect"
+RDEPENDS:${PN} = "python3-core python3-requests python3-pillow alsa-utils espeak libfreenect"
 
 SYSTEMD_SERVICE:${PN} = "casa-avatar.service"
 SYSTEMD_AUTO_ENABLE:${PN} = "enable"
