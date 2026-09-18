@@ -7,7 +7,7 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-const CASA_SCHEMA_VERSION = '1.22';
+const CASA_SCHEMA_VERSION = '1.23';
 
 function local_config(): array {
     static $cfg = null;
@@ -117,6 +117,9 @@ function casa_run_version_migrations(PDO $pdo, ?string $currentVersion): void {
         ],
         '1.22' => [
             __DIR__ . '/migrations/1.22.sql',
+        ],
+        '1.23' => [
+            __DIR__ . '/migrations/1.23.sql',
         ],
     ];
     foreach ($migrations as $version => $files) {
