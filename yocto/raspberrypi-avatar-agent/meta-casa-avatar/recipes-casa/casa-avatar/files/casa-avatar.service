@@ -1,0 +1,19 @@
+[Unit]
+Description=CASA/JARVIS Kinect Avatar Agent
+Wants=network-online.target
+After=network-online.target sound.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/casa-avatar.env
+ExecStart=/usr/bin/python3 /opt/casa-avatar/casa_avatar.py
+Restart=always
+RestartSec=3
+StandardInput=tty
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+WorkingDirectory=/opt/casa-avatar
+
+[Install]
+WantedBy=multi-user.target
