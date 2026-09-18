@@ -256,3 +256,38 @@ body{overscroll-behavior:none}
   .ja-footer>div:first-child{display:none}
   .ja-footer{grid-template-columns:1fr auto!important}
 }
+
+/* Módulos nativos do layout atual */
+.ja-native-module{width:100%;height:100%;min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr);overflow:hidden}
+.ja-native-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 0 clamp(5px,.8vh,10px);min-height:0}
+.ja-native-head>strong{font-size:clamp(12px,1.2vw,17px);text-transform:uppercase;color:#8fc7ef;letter-spacing:.4px}
+.ja-native-actions,.ja-row-actions{display:flex;gap:6px;align-items:center;flex-wrap:nowrap}
+.ja-native-body{height:100%;min-height:0;overflow:hidden;display:grid;grid-template-rows:minmax(0,1fr) auto;gap:6px}
+.ja-native-grid,.ja-camera-grid{height:100%;min-height:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:minmax(0,1fr);gap:clamp(5px,.8vh,10px);overflow:hidden}
+.ja-camera-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.ja-native-card{min-width:0;min-height:0;overflow:hidden;border:2px solid #3f82ad;border-radius:16px;background:#070707;padding:clamp(7px,1vh,13px);display:flex;flex-direction:column;justify-content:space-between}
+.ja-native-card h3{margin:0 0 5px;color:#8fc7ef;font-size:clamp(11px,1.1vw,16px);text-transform:uppercase}
+.ja-native-card p{margin:3px 0;color:#c7d0d8;font-size:clamp(9px,.85vw,12px);line-height:1.25;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.ja-native-card dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 8px;margin:4px 0;font-size:clamp(8px,.8vw,11px);min-width:0}
+.ja-native-card dt{color:#a9b7c6;font-weight:700}.ja-native-card dd{margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ja-native-card.metric strong{font-size:clamp(16px,2vw,28px);color:#f2a000;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ja-state{display:inline-flex;align-self:flex-start;border-radius:10px;padding:3px 7px;background:#8fc7ef;color:#111;font-weight:900;font-size:clamp(8px,.75vw,10px)}
+.ja-state.ok{background:#35e66b}.ja-state.off{background:#ef6969}
+.ja-mini{border:0;border-radius:12px;padding:clamp(5px,.6vh,8px) clamp(7px,.8vw,11px);font-weight:900;background:#8fc7ef;color:#111;cursor:pointer;font-size:clamp(8px,.75vw,11px);white-space:nowrap}
+.ja-mini.primary{background:#f2a000}.ja-mini.danger{background:#ef6969}
+.ja-pager{display:flex;align-items:center;justify-content:center;gap:8px;min-height:0}
+.ja-pager button{width:34px;height:28px;border:0;border-radius:10px;background:#8fc7ef;color:#111;font-weight:900;cursor:pointer}
+.ja-pager span{font-size:11px;font-weight:900;color:#f2a000}
+.ja-native-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:7px}
+.ja-native-summary>div{border:2px solid #3f82ad;border-radius:14px;padding:7px 10px;display:flex;justify-content:space-between;align-items:center;gap:10px;min-width:0}
+.ja-native-summary b{font-size:clamp(8px,.8vw,11px);color:#8fc7ef}.ja-native-summary strong{font-size:clamp(13px,1.4vw,20px);color:#f2a000;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ja-native-summary strong.small{font-size:clamp(8px,.8vw,11px)}
+.ja-config-grid{height:100%;min-height:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;align-content:center}
+.ja-config-grid label{display:flex;flex-direction:column;gap:3px;min-width:0}.ja-config-grid label span{color:#8fc7ef;font-size:clamp(8px,.8vw,11px);font-weight:900;text-transform:uppercase}
+.ja-config-grid input,.ja-command input{min-width:0;border:2px solid #3f82ad;border-radius:12px;background:#101010;color:#fff;padding:clamp(6px,.8vh,10px);font-size:clamp(9px,.9vw,13px)}
+.ja-jarvis{height:100%;min-height:0;display:grid;grid-template-rows:minmax(0,1fr) auto;gap:8px}
+.ja-chat-log{min-height:0;overflow:hidden;border:2px solid #3f82ad;border-radius:16px;padding:10px;display:flex;flex-direction:column;justify-content:flex-end;gap:5px}
+.ja-chat-line{border-radius:12px;padding:7px 10px;background:#c6a7df;color:#111;font-size:clamp(9px,.9vw,13px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ja-chat-line.user{background:#f2a000;margin-left:10%}.ja-chat-line.error{background:#ef6969}
+.ja-command{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:6px}.ja-command button{border:0;border-radius:12px;background:#f2a000;font-weight:900;padding:0 14px}
+@media(max-width:900px){.ja-native-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ja-config-grid{grid-template-columns:1fr 1fr}}
+@media(max-width:560px){.ja-native-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ja-native-card:nth-child(n+5){display:none}.ja-camera-grid,.ja-config-grid{grid-template-columns:1fr}.ja-native-summary{grid-template-columns:1fr 1fr}.ja-command{grid-template-columns:minmax(0,1fr) auto}.ja-command button:last-child{display:none}}
