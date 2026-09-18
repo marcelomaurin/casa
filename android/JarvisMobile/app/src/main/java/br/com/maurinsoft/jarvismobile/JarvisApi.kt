@@ -185,6 +185,22 @@ object JarvisApi {
         request(context, "/api/v1/mobile.php?acao=network_event", JSONObject().put("tipo", type).put("descricao", description).put("dados", details).put("idioma", LanguageManager.currentLanguage(context)))
     }
 
+    fun sendWatchEvent(
+        context: Context,
+        type: String,
+        message: String = "",
+        data: JSONObject = JSONObject()
+    ) {
+        request(
+            context,
+            "/api/v1/mobile.php?acao=watch_event",
+            JSONObject()
+                .put("type", type.take(80))
+                .put("message", message.take(500))
+                .put("data", data)
+        )
+    }
+
     fun absoluteUrl(context: Context, path: String): String = if (path.startsWith("http://") || path.startsWith("https://")) path else ensureConfigured(context).baseUrl + path
 
     fun executeBleBridgeRequest(context: Context, input: JSONObject): JSONObject = when (input.optString("type")) {
