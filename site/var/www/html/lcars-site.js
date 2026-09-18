@@ -506,6 +506,46 @@ async function renderConfig(){
     add('info','Configuração carregada da tela.');
     add('info','Protocolo: '+(payload.mode==='local'?'LOCAL':(payload.provider==='runpod'?'RUNPOD '+payload.runpod_protocol.toUpperCase():payload.provider.toUpperCase())));
     add('info','URL criada: '+url);
+
+    function requestPayloadForLog(p){
+      const prompt='Responda somente: OK CASA';
+      if(p.mode==='local'){
+        return {
+          model:p.local_model,
+          prompt,
+          stream:false,
+          options:{num_predict:16,temperature:0}
+        };
+      }
+      if(p.provider==='runpod' && p.runpod_protocol==='native'){
+        return {input:{prompt}};
+      }
+      if(p.provider==='gemini'){
+        return {
+          contents:[{role:'user',parts:[{text:prompt}]}],
+          generationConfig:{maxOutputTokens:16,temperature:0}
+        };
+      }
+      if(p.provider==='anthropic'){
+        return {
+          model:p.model,
+          max_tokens:16,
+          temperature:0,
+          messages:[{role:'user',content:prompt}]
+        };
+      }
+      return {
+        model:p.model,
+        messages:[{role:'user',content:prompt}],
+        max_tokens:16,
+        temperature:0,
+        stream:false
+      };
+    }
+
+    const requestBody=requestPayloadForLog(payload);
+    add('info','Payload enviado: '+JSON.stringify(requestBody));
+    add('info','Authorization: Bearer ***');
     add('info','Preparando requisição de teste...');
     if(btn){btn.disabled=true;btn.textContent='TESTANDO...';}
 
