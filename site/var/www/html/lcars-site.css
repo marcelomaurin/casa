@@ -44,7 +44,7 @@ body{overscroll-behavior:none}
   min-height:0!important;
   overflow:hidden!important;
   display:grid;
-  grid-template-rows:auto auto minmax(0,1fr) auto;
+  grid-template-rows:auto minmax(0,1fr) auto;
   padding:clamp(6px,1vw,12px)!important;
 }
 .ja-top{min-height:0!important;margin-bottom:clamp(4px,.7vh,10px)!important}
@@ -352,3 +352,51 @@ body{overscroll-behavior:none}
   .ja-group-card-ui .ja-actions{margin-top:1px}
   .ja-group-card-ui .ja-action{min-height:24px!important;padding:3px 8px!important}
 }
+
+
+/* Navegação hierárquica por nível */
+.ja-breadcrumb{display:none!important}
+.ja-rail button{
+  transition:transform .12s ease,filter .12s ease,outline-color .12s ease;
+}
+.ja-rail button.ja-level-0{
+  background:var(--ja-blue)!important;
+  color:#111!important;
+}
+.ja-rail button.ja-level-1{
+  background:var(--ja-lilac)!important;
+  color:#111!important;
+}
+.ja-rail button.ja-level-2{
+  background:var(--ja-orange)!important;
+  color:#111!important;
+}
+.ja-rail button.ja-level-3{
+  background:var(--ja-salmon)!important;
+  color:#111!important;
+}
+.ja-rail button.ja-level-4{
+  background:var(--ja-pink)!important;
+  color:#111!important;
+}
+.ja-rail button.level-nav{
+  position:relative;
+  font-weight:900;
+}
+.ja-rail button.level-nav::before{
+  content:'';
+  display:inline-block;
+  width:7px;
+  height:7px;
+  margin-right:7px;
+  border-radius:50%;
+  background:#111;
+  opacity:.75;
+  vertical-align:middle;
+}
+.ja-rail button.active{
+  outline:3px solid #fff!important;
+  outline-offset:-4px!important;
+}
+.ja-rail button:hover{filter:brightness(1.08)}
+.ja-rail button:active{transform:translateY(1px)}
