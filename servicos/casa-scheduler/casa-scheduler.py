@@ -122,6 +122,50 @@ def executar_acao(tarefa_id, titulo, tipo_acao, payload, target_node, id_tarefa_
     return erro is None
 
 
+def _cron_field_match(expr, value, minv, maxv):
+    expr = str(expr or "*").strip()
+    if expr == "*":
+        return True
+    for part in expr.split(","):
+        part = part.strip()
+        if part.startswith("*/"):
+            try:
+                step = int(part[2:])
+                if step > 0 and value % step == 0:
+                    return True
+            except ValueError:
+                pass
+        elif "-" in part:
+            try:
+                a, b = [int(x) for x in part.split("-", 1)]
+                if a <= value <= b:
+                    return True
+            except ValueError:
+                pass
+        else:
+            try:
+                if int(part) == value:
+                    return True
+            except ValueError:
+                pass
+    return False
+
+
+def cron_matches(expr, now):
+    fields = str(expr or "").strip().split()
+    if len(fields) != 5:
+        return False
+    minute, hour, dom, month, dow = fields
+    cron_dow = (now.weekday() + 1) % 7
+    return (
+        _cron_field_match(minute, now.minute, 0, 59)
+        and _cron_field_match(hour, now.hour, 0, 23)
+        and _cron_field_match(dom, now.day, 1, 31)
+        and _cron_field_match(month, now.month, 1, 12)
+        and _cron_field_match(dow, cron_dow, 0, 7)
+    )
+
+
 def tarefa_pode_rodar(depende_de):
     if not depende_de:
         return True
@@ -139,14 +183,14 @@ def verificar_agendamentos():
                            ta.payload, ta.target_node, ta.ultima_execucao,
                            COALESCE(ta.modo_agendamento,'RECORRENTE'), ta.executar_em,
                            COALESCE(ta.executar_uma_vez,FALSE), ta.id_tarefa_plano,
-                           jt.depende_de
+                           jt.depende_de, ta.cron_expr
                     FROM tarefas_agendadas ta
                     LEFT JOIN jarvis_tarefas jt ON jt.id=ta.id_tarefa_plano
                     WHERE ta.ativo=TRUE""")
 
     for r in rows:
         (tid, titulo, horario, dias, tipo, payload, target, ultima,
-         modo, executar_em, uma_vez, id_tarefa_plano, depende_de) = r
+         modo, executar_em, uma_vez, id_tarefa_plano, depende_de, cron_expr) = r
 
         if not tarefa_pode_rodar(depende_de):
             continue
@@ -162,15 +206,18 @@ def verificar_agendamentos():
                 permitidos = [x.strip() for x in dias.split(",")]
                 if dow not in permitidos and dow_iso not in permitidos:
                     continue
-            horario = (horario or "").strip()
-            if horario == hora:
-                disparar = True
-            elif horario.startswith("*/"):
-                try:
-                    intervalo = int(horario[2:])
-                    disparar = intervalo > 0 and now.minute % intervalo == 0
-                except ValueError:
-                    pass
+            if cron_expr:
+                disparar = cron_matches(cron_expr, now)
+            else:
+                horario = (horario or "").strip()
+                if horario == hora:
+                    disparar = True
+                elif horario.startswith("*/"):
+                    try:
+                        intervalo = int(horario[2:])
+                        disparar = intervalo > 0 and now.minute % intervalo == 0
+                    except ValueError:
+                        pass
 
         if disparar:
             ok = executar_acao(tid, titulo, tipo, payload, target or "local", id_tarefa_plano)
