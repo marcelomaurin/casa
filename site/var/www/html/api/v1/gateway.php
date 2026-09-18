@@ -42,7 +42,7 @@ if ($subpath === '' || $subpath === 'status') {
         'status'=>'sucesso',
         'sistema'=>'CASA_JARVIS',
         'versao_api'=>'v1.2.0',
-        'dominio'=>'https://casa.maurinsoft.com.br',
+        'dominio'=>'https://maurinsoft.com.br/casa',
         'cliente'=>$client['nome'] ?? 'cliente',
         'timestamp'=>date('c'),
         'endpoints'=>[
@@ -68,7 +68,7 @@ if ($subpath === 'comando') {
     if ($cmd==='') api_v1_json_response(400,['status'=>'erro','mensagem'=>'Parâmetro comando obrigatório']);
 
     $internalToken=get_system_api_token();
-    $ch=curl_init('https://casa.maurinsoft.com.br/api/jarvis.php');
+    $ch=curl_init('https://maurinsoft.com.br/casa/api/jarvis.php');
     curl_setopt_array($ch,[
         CURLOPT_RETURNTRANSFER=>true,
         CURLOPT_POST=>true,
