@@ -714,3 +714,22 @@ body{overscroll-behavior:none}
 .ja-google-home-result.pending{background:#fff0bd;color:#473800}
 .ja-google-home-result.ok{background:#d9f6df;color:#12351b}
 .ja-google-home-result.error{background:#ffd9d9;color:#541515}
+
+
+/* Telemetria operacional / auditoria */
+.ja-telemetry-summary{margin-bottom:8px}
+.ja-telemetry-filters{display:grid;grid-template-columns:1fr 1fr 1fr 1.4fr auto;gap:7px;align-items:end;margin-bottom:8px}
+.ja-telemetry-filters label{display:grid;gap:3px;min-width:0}
+.ja-telemetry-filters span{font-size:9px;font-weight:900;color:#8fc7ef;text-transform:uppercase}
+.ja-telemetry-filters input{width:100%;min-width:0;border:2px solid #3f82ad;border-radius:10px;padding:7px 8px;background:#101010;color:#fff;font-size:11px}
+.ja-telemetry-filters button,.ja-telemetry-pages button{border:0;border-radius:10px;padding:8px 11px;background:#f2a000;color:#111;font-weight:900;cursor:pointer}
+.ja-telemetry-list{min-height:0;height:calc(100% - 122px);overflow-y:auto;overflow-x:hidden;display:grid;gap:7px;padding-right:3px}
+.ja-telemetry-event{border:2px solid #3f82ad;border-radius:14px;background:#0d0d0d;color:#fff;padding:8px 10px;min-width:0}
+.ja-telemetry-event header{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px}
+.ja-telemetry-event header strong{color:#f2a000;font-size:11px}
+.ja-telemetry-event dl{display:grid;grid-template-columns:82px minmax(0,1fr) 82px minmax(0,1fr);gap:3px 7px;margin:0;font-size:10px;min-width:0}
+.ja-telemetry-event dt{color:#8fc7ef;font-weight:900}
+.ja-telemetry-event dd{margin:0;min-width:0;overflow-wrap:anywhere;white-space:pre-wrap}
+.ja-telemetry-event dd.wide{grid-column:2/-1}
+.ja-telemetry-pages{display:flex;justify-content:center;align-items:center;gap:10px;padding-top:7px}.ja-telemetry-pages span{font-size:11px;font-weight:900;color:#f2a000}.ja-telemetry-pages button:disabled{opacity:.4}
+@media(max-width:1000px){.ja-telemetry-filters{grid-template-columns:1fr 1fr 1fr}.ja-telemetry-filters button{grid-column:auto}.ja-telemetry-event dl{grid-template-columns:76px minmax(0,1fr)}.ja-telemetry-event dd.wide{grid-column:2}.ja-telemetry-list{height:calc(100% - 168px)}}
