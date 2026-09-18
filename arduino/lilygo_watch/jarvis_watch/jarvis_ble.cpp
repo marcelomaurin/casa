@@ -110,7 +110,15 @@ static void startProvisioningAp(){
 }
 
 void jarvisBleBegin(){
-  startProvisioningAp();
+  // O SoftAP consome energia continuamente. Depois que existe ao menos um
+  // perfil Wi-Fi salvo, o transporte local funciona apenas pelo STA/LAN.
+  // O AP JARVIS-WATCH permanece reservado ao primeiro provisionamento.
+  if(jarvisWifiHasProfiles()){
+    provisioningAp=false;
+    ensureServer();
+  }else{
+    startProvisioningAp();
+  }
 }
 
 bool jarvisBleIsConnected(){
