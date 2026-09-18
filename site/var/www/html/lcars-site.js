@@ -400,10 +400,55 @@ async function renderSecurity(){
 
 async function renderAgents(){
   loading('Agentes externos');
-  const [ag,clima]=await Promise.all([crud('agentes_externos'),getJson('/casa/api/agente_externo.php?acao=consultar_clima').catch(()=>({}))]);
+  const [ag,clima,gh]=await Promise.all([
+    crud('agentes_externos'),
+    getJson('/casa/api/agente_externo.php?acao=consultar_clima').catch(()=>({})),
+    getJson('/casa/api/google_home.php?acao=status').catch(e=>({online:false,mensagem:e.message,devices:[]}))
+  ]);
   const all=ag.dados||[];
-  const body='<div class="ja-native-summary"><div><b>AGENTES</b><strong>'+all.length+'</strong></div><div><b>CLIMA</b><strong>'+esc(clima.clima?.temperatura||'—')+'</strong></div></div>'+cards(all.slice(0,6),a=>'<article class="ja-native-card"><h3>'+esc(a.nome||a.tipo||'Agente')+'</h3><p>'+esc(a.descricao||'')+'</p><span class="ja-state '+(a.ativo?'ok':'off')+'">'+(a.ativo?'ATIVO':'INATIVO')+'</span></article>');
+  const devices=Array.isArray(gh.devices)?gh.devices:[];
+  const ghCard='<article class="ja-native-card ja-google-home-card">'+
+    '<h3>GOOGLE HOME / HARDWARE</h3>'+
+    '<p>'+esc(gh.online?'Agente conectado. O Google Home pode falar respostas do COMPUTER e enviar comandos como hardware.':(gh.mensagem||'Agente Google Home offline.'))+'</p>'+
+    '<dl><dt>Status</dt><dd>'+(gh.online?'ONLINE':'OFFLINE')+'</dd><dt>Google Cast</dt><dd>'+esc(devices.length)+'</dd><dt>Hardware</dt><dd>'+esc(gh.hardware_status||'—')+'</dd></dl>'+
+    '<label class="ja-google-home-field"><span>Destino</span><select id="gh-device"><option value="">Automático</option>'+
+      devices.map(d=>'<option value="'+attr(d.uuid||d.name||'')+'">'+esc(d.name||d.uuid||'Google Home')+'</option>').join('')+
+    '</select></label>'+
+    '<label class="ja-google-home-field"><span>Comando</span><input id="gh-command" placeholder="Ex.: Como está o sistema?"></label>'+
+    '<div class="ja-row-actions">'+actionBtn('ENVIAR E FALAR','gh-send','primary')+actionBtn('ATUALIZAR','gh-refresh')+actionBtn('PROVISIONAR HARDWARE','gh-provision')+'</div>'+
+    '<div id="gh-result" class="ja-google-home-result"></div>'+
+  '</article>';
+
+  const body='<div class="ja-native-summary"><div><b>AGENTES</b><strong>'+all.length+'</strong></div><div><b>CLIMA</b><strong>'+esc(clima.clima?.temperatura||'—')+'</strong></div></div>'+
+    '<div class="ja-native-grid">'+ghCard+
+    all.slice(0,5).map(a=>'<article class="ja-native-card"><h3>'+esc(a.nome||a.tipo||'Agente')+'</h3><p>'+esc(a.descricao||'')+'</p><span class="ja-state '+(a.ativo?'ok':'off')+'">'+(a.ativo?'ATIVO':'INATIVO')+'</span></article>').join('')+
+    '</div>';
+
   moduleShell('Agentes externos',body);
+
+  document.querySelector('[data-act="gh-refresh"]')?.addEventListener('click',renderAgents);
+  document.querySelector('[data-act="gh-send"]')?.addEventListener('click',async()=>{
+    const cmd=document.getElementById('gh-command')?.value.trim()||'';
+    const device=document.getElementById('gh-device')?.value||'';
+    const out=document.getElementById('gh-result');
+    if(!cmd){if(out)out.textContent='Digite um comando.';return;}
+    if(out){out.textContent='Enviando ao COMPUTER...';out.className='ja-google-home-result pending';}
+    try{
+      const r=await postJson('/casa/api/google_home.php',{acao:'comando',comando:cmd,device});
+      if(out){out.textContent=r.resposta||r.mensagem||'Comando enviado.';out.className='ja-google-home-result ok';}
+    }catch(e){if(out){out.textContent=e.message||'Falha no agente.';out.className='ja-google-home-result error';}}
+  });
+  document.querySelector('[data-act="gh-provision"]')?.addEventListener('click',async()=>{
+    const out=document.getElementById('gh-result');
+    if(out){out.textContent='Provisionando hardware virtual...';out.className='ja-google-home-result pending';}
+    try{
+      const r=await postJson('/casa/api/google_home_hardware.php',{acao:'provisionar',nome:'Google Home / COMPUTER'});
+      if(out){
+        out.textContent='Hardware provisionado. Copie o token agora e configure CASA_GOOGLE_HOME_DEVICE_TOKEN no serviço: '+(r.device_token||'');
+        out.className='ja-google-home-result ok';
+      }
+    }catch(e){if(out){out.textContent=e.message||'Falha ao provisionar.';out.className='ja-google-home-result error';}}
+  });
 }
 
 async function renderPhrases(){
