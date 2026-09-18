@@ -333,14 +333,134 @@ async function renderUsers(){
   bindPager('users',p,renderUsers);
 }
 
+const IA_REMOTE_PROVIDERS={
+  runpod:{label:'RunPod',models:['meta-llama/Meta-Llama-3-8B-Instruct','meta-llama/Llama-3.1-8B-Instruct','Qwen/Qwen2.5-7B-Instruct'],endpoint:'',needsEndpoint:true},
+  openai:{label:'OpenAI',models:['gpt-4o','gpt-4o-mini','o3-mini','gpt-4.1','gpt-4.1-mini'],endpoint:'https://api.openai.com/v1'},
+  gemini:{label:'Google Gemini',models:['gemini-2.5-flash','gemini-2.5-pro','gemini-2.0-flash'],endpoint:'https://generativelanguage.googleapis.com/v1beta'},
+  anthropic:{label:'Anthropic Claude',models:['claude-3-5-sonnet-20241022','claude-3-5-haiku-20241022','claude-3-opus-20240229'],endpoint:'https://api.anthropic.com/v1'},
+  openrouter:{label:'OpenRouter',models:['meta-llama/llama-3-8b-instruct:free','google/gemma-2-9b-it:free','deepseek/deepseek-r1:free'],endpoint:'https://openrouter.ai/api/v1'},
+  cerebras:{label:'Cerebras',models:['qwen-3-235b-a22b-instruct-2507'],endpoint:'https://api.cerebras.ai/v1'},
+  deepseek:{label:'DeepSeek',models:['deepseek-chat','deepseek-reasoner'],endpoint:'https://api.deepseek.com/v1'},
+  custom:{label:'OpenAI-compatible',models:[],endpoint:''}
+};
+
+function cfgSelect(id,label,options,value){
+  return '<label><span>'+esc(label)+'</span><select id="'+attr(id)+'">'+options.map(o=>'<option value="'+attr(o.value)+'" '+(String(o.value)===String(value)?'selected':'')+'>'+esc(o.label)+'</option>').join('')+'</select></label>';
+}
+function cfgInput(id,label,value,type='text',placeholder=''){
+  return '<label><span>'+esc(label)+'</span><input id="'+attr(id)+'" type="'+attr(type)+'" value="'+attr(value||'')+'" placeholder="'+attr(placeholder)+'"></label>';
+}
+function cfgModelField(provider,value){
+  const def=IA_REMOTE_PROVIDERS[provider]||IA_REMOTE_PROVIDERS.custom;
+  const listId='ja-model-list';
+  return '<label><span>Modelo</span><input id="ja-ia-model" list="'+listId+'" value="'+attr(value||'')+'" placeholder="Selecione ou digite o modelo"><datalist id="'+listId+'">'+def.models.map(m=>'<option value="'+attr(m)+'"></option>').join('')+'</datalist></label>';
+}
+
 async function renderConfig(){
-  loading('Configurações de IA');
-  const [cfg,models]=await Promise.all([crud('configuracoes_sistema'),getJson('/casa/api/ia_modelos.php?acao=listar').catch(()=>({dados:[]}))]);
-  const wanted=['ia_provider','ia_routing_mode','runpod_endpoint_id','runpod_model','local_model','local_ollama_url','openai_base_url','openai_model'];
+  loading('Configurações RunPod / IA');
+  const [cfg,models]=await Promise.all([
+    crud('configuracoes_sistema'),
+    getJson('/casa/api/ia_modelos.php?acao=listar').catch(()=>({dados:[]}))
+  ]);
   const map={};(cfg.dados||[]).forEach(x=>map[x.chave]=x.valor);
-  const body='<div class="ja-config-grid">'+wanted.map(k=>'<label><span>'+esc(k)+'</span><input data-cfg="'+attr(k)+'" value="'+attr(map[k]||'')+'"></label>').join('')+'</div><div class="ja-native-summary"><div><b>MODELOS CADASTRADOS</b><strong>'+esc((models.dados||[]).length)+'</strong></div><div><b>ROTEAMENTO</b><strong>'+esc(map.ia_routing_mode||'auto')+'</strong></div></div>';
-  moduleShell('Configurações de IA',body,actionBtn('SALVAR','save','primary'));
-  document.querySelector('[data-act="save"]')?.addEventListener('click',async()=>{for(const el of document.querySelectorAll('[data-cfg]'))await postJson('/casa/api/crud.php?tabela=configuracoes_sistema&acao=atualizar',{chave:el.dataset.cfg,valor:el.value});renderConfig();});
+
+  let mode=(map.ia_provider||'local').toLowerCase();
+  let remote=(map.ia_remote_provider||'').toLowerCase();
+  if(!['local','remote'].includes(mode)){
+    remote=mode==='runpod'?'runpod':(mode==='openai_compatible'?'custom':mode);
+    mode=mode==='local'?'local':'remote';
+  }
+  if(!IA_REMOTE_PROVIDERS[remote]) remote='runpod';
+
+  const localModel=map.local_model||'llama3.2:3b';
+  const remoteModel=map.ia_remote_model||
+    (remote==='runpod'?map.runpod_model:'')||
+    ((remote==='openai'||remote==='custom')?map.openai_model:'')||
+    ((IA_REMOTE_PROVIDERS[remote].models||[])[0]||'');
+  const remoteKey=map.ia_remote_api_key||
+    (remote==='runpod'?map.runpod_api_key:'')||
+    ((remote==='openai'||remote==='custom')?map.openai_api_key:'');
+  const remoteUrl=map.ia_remote_base_url||
+    ((remote==='openai'||remote==='custom')?map.openai_base_url:'')||
+    IA_REMOTE_PROVIDERS[remote].endpoint||'';
+
+  const providers=Object.entries(IA_REMOTE_PROVIDERS).map(([value,p])=>({value,label:p.label}));
+  let form=
+    '<div class="ja-config-grid ja-ai-config">'+
+      cfgSelect('ja-ia-mode','Execução',[{value:'local',label:'Local'},{value:'remote',label:'Remoto'}],mode)+
+      cfgSelect('ja-routing','Roteamento',[{value:'auto',label:'Automático'},{value:'local_only',label:'Somente local'},{value:'cloud_only',label:'Somente remoto'}],map.ia_routing_mode||'auto')+
+      '<div id="ja-local-fields" class="ja-config-subgrid '+(mode==='local'?'':'is-hidden')+'">'+
+        cfgInput('ja-local-url','Servidor local',map.local_ollama_url||'http://127.0.0.1:11434','text','http://127.0.0.1:11434')+
+        cfgInput('ja-local-model','Modelo local',localModel,'text','llama3.2:3b')+
+      '</div>'+
+      '<div id="ja-remote-fields" class="ja-config-subgrid '+(mode==='remote'?'':'is-hidden')+'">'+
+        cfgSelect('ja-remote-provider','Provedor remoto',providers,remote)+
+        '<div id="ja-remote-model-wrap">'+cfgModelField(remote,remoteModel)+'</div>'+
+        cfgInput('ja-remote-key','Chave API / Token',remoteKey,'password','Token do provedor')+
+        cfgInput('ja-remote-url','URL / Endpoint',remoteUrl,'text','Endpoint do provedor')+
+        '<div id="ja-runpod-endpoint-wrap" class="'+(remote==='runpod'?'':'is-hidden')+'">'+
+          cfgInput('ja-runpod-endpoint','RunPod Endpoint ID',map.runpod_endpoint_id||'','text','xxxxxxxxxxxxxxxxxxxxxxxx')+
+        '</div>'+
+      '</div>'+
+    '</div>'+
+    '<div class="ja-native-summary"><div><b>MODELOS CADASTRADOS</b><strong>'+esc((models.dados||[]).length)+'</strong></div><div><b>MODO</b><strong id="ja-ai-mode-summary">'+esc(mode==='local'?'LOCAL':IA_REMOTE_PROVIDERS[remote].label.toUpperCase())+'</strong></div></div>';
+
+  moduleShell('Configurações RunPod / IA',form,actionBtn('SALVAR','save','primary'));
+
+  const modeEl=document.getElementById('ja-ia-mode');
+  const providerEl=document.getElementById('ja-remote-provider');
+
+  function updateMode(){
+    const isRemote=modeEl.value==='remote';
+    document.getElementById('ja-local-fields')?.classList.toggle('is-hidden',isRemote);
+    document.getElementById('ja-remote-fields')?.classList.toggle('is-hidden',!isRemote);
+    const s=document.getElementById('ja-ai-mode-summary');
+    if(s) s.textContent=isRemote?(IA_REMOTE_PROVIDERS[providerEl.value]?.label||'REMOTO').toUpperCase():'LOCAL';
+  }
+  function updateProvider(){
+    const p=providerEl.value;
+    const def=IA_REMOTE_PROVIDERS[p]||IA_REMOTE_PROVIDERS.custom;
+    const current=document.getElementById('ja-ia-model')?.value||'';
+    const modelValue=(def.models.includes(current)||!current)?(current||def.models[0]||''):current;
+    document.getElementById('ja-remote-model-wrap').innerHTML=cfgModelField(p,modelValue);
+    document.getElementById('ja-runpod-endpoint-wrap')?.classList.toggle('is-hidden',p!=='runpod');
+    const url=document.getElementById('ja-remote-url');
+    if(url && (!url.value || Object.values(IA_REMOTE_PROVIDERS).some(x=>x.endpoint===url.value))) url.value=def.endpoint||'';
+    updateMode();
+  }
+  modeEl.onchange=updateMode;
+  providerEl.onchange=updateProvider;
+
+  document.querySelector('[data-act="save"]')?.addEventListener('click',async()=>{
+    const mode=modeEl.value;
+    const provider=providerEl.value;
+    const model=document.getElementById('ja-ia-model')?.value.trim()||'';
+    const writes={
+      ia_provider:mode,
+      ia_routing_mode:document.getElementById('ja-routing').value,
+      local_ollama_url:document.getElementById('ja-local-url').value.trim(),
+      local_model:document.getElementById('ja-local-model').value.trim(),
+      ia_remote_provider:provider,
+      ia_remote_model:model,
+      ia_remote_api_key:document.getElementById('ja-remote-key')?.value||'',
+      ia_remote_base_url:document.getElementById('ja-remote-url')?.value.trim()||'',
+      runpod_endpoint_id:document.getElementById('ja-runpod-endpoint')?.value.trim()||''
+    };
+    // Compatibilidade com as chaves já usadas pelo JARVIS.
+    if(provider==='runpod'){
+      writes.runpod_model=model;
+      writes.runpod_api_key=writes.ia_remote_api_key;
+    }
+    if(provider==='openai'||provider==='custom'){
+      writes.openai_model=model;
+      writes.openai_api_key=writes.ia_remote_api_key;
+      writes.openai_base_url=writes.ia_remote_base_url;
+    }
+    for(const [chave,valor] of Object.entries(writes)){
+      await postJson('/casa/api/crud.php?tabela=configuracoes_sistema&acao=atualizar',{chave,valor});
+    }
+    renderConfig();
+  });
 }
 
 async function renderExternal(){
