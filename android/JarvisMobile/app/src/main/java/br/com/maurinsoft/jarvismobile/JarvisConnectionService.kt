@@ -339,6 +339,54 @@ class JarvisConnectionService : Service(), WatchClient.Listener, WatchEventProce
         notifier.showFamilyCall(callId, mode, initiator)
     }
 
+    override suspend fun acceptFamilyCall(deviceId: String, callId: Long, mode: String) {
+        val accepted = runCatching {
+            FamilyApi.joinCall(this@JarvisConnectionService, callId, "JARVIS Mobile")
+            true
+        }.getOrDefault(false)
+
+        if (accepted) {
+            val intent = Intent(this@JarvisConnectionService, FamilyCallActivity::class.java)
+                .putExtra(FamilyCallActivity.EXTRA_CALL_ID, callId)
+                .putExtra(FamilyCallActivity.EXTRA_CALL_MODE, mode)
+                .putExtra(FamilyCallActivity.EXTRA_AUTO_JOIN, true)
+                .putExtra(FamilyCallActivity.EXTRA_INITIATOR, false)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(intent)
+        }
+
+        sendWatchCommand(
+            deviceId,
+            "family_call_control_result",
+            JSONObject()
+                .put("type", "family_call_control_result")
+                .put("action", "accept")
+                .put("call_id", callId)
+                .put("ok", accepted),
+            "high",
+            120
+        )
+    }
+
+    override suspend fun rejectFamilyCall(deviceId: String, callId: Long) {
+        val rejected = runCatching {
+            FamilyApi.endCall(this@JarvisConnectionService, callId)
+            true
+        }.getOrDefault(false)
+
+        sendWatchCommand(
+            deviceId,
+            "family_call_control_result",
+            JSONObject()
+                .put("type", "family_call_control_result")
+                .put("action", "reject")
+                .put("call_id", callId)
+                .put("ok", rejected),
+            "high",
+            120
+        )
+    }
+
     override fun networkSnapshot(): JarvisNetworkMonitor.Snapshot = networkMonitor.snapshot
 
     override fun jarvisOnline(): Boolean = jarvisOnline
