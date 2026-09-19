@@ -8,6 +8,7 @@ putenv('JARVIS_AUTO_INIT_DB=1');
 
 require __DIR__ . '/../../site/var/www/html/api/db.php';
 require __DIR__ . '/../../site/var/www/html/api/v1/rules_scheduler.php';
+require __DIR__ . '/../../site/var/www/html/api/task_engine.php';
 $pdo = get_db_pdo();
 
 function fail_test(string $msg): void { fwrite(STDERR, $msg . "\n"); exit(10); }
@@ -69,3 +70,41 @@ $ruleCommand=(int)$pdo->query("SELECT COUNT(*) FROM device_commands WHERE reques
 if($ruleCommand<1) fail_test('Regra nao gerou comando no Command Bus');
 
 echo "Control Plane OK: lifecycle, idempotencia, auditoria e schedule validados\n";
+
+
+// Task Engine -> Action -> Command Bus -> Task lifecycle
+$pdo->prepare("INSERT INTO jarvis_planos(demanda_original,origem,status,resumo,dados_plano)
+VALUES('CI acao device','CI','EM_EXECUCAO','Teste bridge',JSON_OBJECT())")->execute();
+$taskPlan=(int)$pdo->lastInsertId();
+$pdo->prepare("INSERT INTO jarvis_tarefas(id_plano,ordem,titulo,tipo,executor,payload,status,iniciado_em)
+VALUES(:p,1,'Acender TV','IMEDIATA','dispositivo',JSON_OBJECT(),'EXECUTANDO',NOW())")->execute([':p'=>$taskPlan]);
+$taskId=(int)$pdo->lastInsertId();
+$taskCtx=['id_plano'=>$taskPlan,'id_tarefa_raiz'=>$taskId,'current_task_id'=>$taskId,'origem'=>'CI','modulo'=>'test'];
+
+$bridge=te_device_action($pdo,$taskCtx,$taskId,[
+    'device_id'=>$deviceId,
+    'command'=>'power_on',
+    'payload'=>['source'=>'ci'],
+    'required_capability'=>'power',
+    'risk_level'=>1,
+    'ttl_seconds'=>120
+]);
+if((int)($bridge['command_id']??0)<=0 || (int)($bridge['action_id']??0)<=0) fail_test('Task bridge nao criou action/command');
+
+$taskStatus=$pdo->query("SELECT status FROM jarvis_tarefas WHERE id={$taskId}")->fetchColumn();
+if($taskStatus!=='AGUARDANDO') fail_test('Task nao ficou AGUARDANDO apos enqueue: '.$taskStatus);
+
+$bridgeCmd=(int)$bridge['command_id'];
+$pdo->prepare("UPDATE device_commands SET status='executing',lifecycle_status='EXECUTING',iniciado_em=NOW() WHERE id=:id")->execute([':id'=>$bridgeCmd]);
+te_sync_device_command($pdo,$bridgeCmd);
+$taskStatus=$pdo->query("SELECT status FROM jarvis_tarefas WHERE id={$taskId}")->fetchColumn();
+if($taskStatus!=='EXECUTANDO') fail_test('Task nao refletiu EXECUTING: '.$taskStatus);
+
+$pdo->prepare("UPDATE device_commands SET status='success',lifecycle_status='DONE',resultado=JSON_OBJECT('ok',true),concluido_em=NOW() WHERE id=:id")->execute([':id'=>$bridgeCmd]);
+te_sync_device_command($pdo,$bridgeCmd);
+$taskRow=$pdo->query("SELECT status,resultado,erro FROM jarvis_tarefas WHERE id={$taskId}")->fetch(PDO::FETCH_ASSOC);
+if(($taskRow['status']??'')!=='CONCLUIDA') fail_test('Task nao concluiu com device DONE');
+$actionRow=$pdo->query("SELECT status,command_id FROM jarvis_acoes WHERE id=".(int)$bridge['action_id'])->fetch(PDO::FETCH_ASSOC);
+if(($actionRow['status']??'')!=='DONE' || (int)($actionRow['command_id']??0)!==$bridgeCmd) fail_test('Action nao sincronizou com command DONE');
+
+echo "Task Action Bridge OK: task -> action -> command -> task validado\n";
