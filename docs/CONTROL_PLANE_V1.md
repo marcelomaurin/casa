@@ -254,3 +254,44 @@ Na primeira conexão ao banco, `api/db.php`:
 6. grava `VERSAO=1.20` apenas após sucesso completo.
 
 Quando `VERSAO=1.20`, as migrations não são executadas novamente.
+
+
+## Integração com o Task Engine
+
+Ações físicas originadas por IA ou pelo planejador seguem obrigatoriamente esta cadeia:
+
+```text
+jarvis_planos
+    ↓
+jarvis_tarefas
+    ↓
+jarvis_acoes
+    ↓
+device_commands
+    ↓
+device / adapter
+```
+
+`jarvis_acoes` é a fronteira determinística entre planejamento e execução física. O LLM pode propor uma ação estruturada, mas não acessa drivers nem altera diretamente o estado do dispositivo.
+
+Uma ação de dispositivo contém pelo menos:
+
+- `device_id`;
+- `command`;
+- `payload`;
+- `required_capability` quando aplicável;
+- `risk_level`;
+- `ttl_seconds`.
+
+Antes do enqueue, o Task Engine valida a existência do device, capability habilitada e nível de risco. Ações de risco 3 ou 4 exigem confirmação explícita.
+
+O mesmo `correlation_id` liga `jarvis_acoes` ao `device_commands`. O lifecycle do Command Bus é propagado de volta:
+
+```text
+QUEUED / SENT / ACKNOWLEDGED → tarefa AGUARDANDO
+EXECUTING                    → tarefa EXECUTANDO
+DONE                         → tarefa CONCLUIDA
+FAILED / EXPIRED             → tarefa ERRO
+```
+
+Isso permite rastrear uma solicitação desde o plano até o resultado efetivamente informado pelo equipamento.

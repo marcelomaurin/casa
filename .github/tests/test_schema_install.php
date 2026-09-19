@@ -10,8 +10,8 @@ require __DIR__ . '/../../site/var/www/html/api/db.php';
 
 $pdo = get_db_pdo();
 $version = casa_schema_version($pdo);
-if ($version !== '1.20') {
-    fwrite(STDERR, "VERSAO esperada 1.20, recebida: {$version}\n");
+if ($version !== CASA_SCHEMA_VERSION) {
+    fwrite(STDERR, "VERSAO esperada ".CASA_SCHEMA_VERSION.", recebida: {$version}\n");
     exit(2);
 }
 
@@ -26,11 +26,11 @@ sleep(1);
 ensure_database_schema($pdo);
 $after = (string)$pdo->query("SELECT atualizado_em FROM param WHERE chave='VERSAO'")->fetchColumn();
 if ($before !== $after) {
-    fwrite(STDERR, "Instalador executou novamente apesar de VERSAO=1.20\n");
+    fwrite(STDERR, "Instalador executou novamente apesar de VERSAO=".CASA_SCHEMA_VERSION."\n");
     exit(4);
 }
 
-$required = ['device_commands','device_command_audit','scenes','automation_rules'];
+$required = ['device_commands','device_command_audit','scenes','automation_rules','jarvis_acoes'];
 foreach ($required as $table) {
     $s=$pdo->prepare("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=:t");
     $s->execute([':t'=>$table]);
@@ -40,4 +40,4 @@ foreach ($required as $table) {
     }
 }
 
-echo "Schema CASA instalado e validado em VERSAO=1.20\n";
+echo "Schema CASA instalado e validado em VERSAO=".CASA_SCHEMA_VERSION."\n";
