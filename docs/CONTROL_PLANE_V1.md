@@ -300,3 +300,8 @@ Isso permite rastrear uma solicitação desde o plano até o resultado efetivame
 ## Device Registry
 
 Identidade, estado, capabilities e roteamento dos devices devem ser resolvidos pela camada central descrita em `docs/DEVICE_REGISTRY.md`. Novos módulos não devem consultar tabelas legadas de devices para decidir execução física.
+
+
+## Rastreamento universal de perguntas
+
+Perguntas e chamadas internas usam um único `task_context` conforme `docs/TASK_CONTEXT.md`. A UI pode consultar progresso pela API v1 de tarefas sem criar um novo plano.
