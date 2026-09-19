@@ -24,6 +24,8 @@ class WatchEventProcessor(
         )
 
         fun showFamilyCallNotification(callId: Long, mode: String, initiator: Boolean = false)
+        suspend fun acceptFamilyCall(deviceId: String, callId: Long, mode: String)
+        suspend fun rejectFamilyCall(deviceId: String, callId: Long)
         fun showVoiceRequest(deviceId: String)
         fun showWatchAlarm(deviceId: String, data: JSONObject)
         fun showCameraRequest(deviceId: String)
@@ -100,6 +102,15 @@ class WatchEventProcessor(
                 if (callId > 0) {
                     // O Android pareado é o terminal de mídia do lado do Watch.
                     actions.showFamilyCallNotification(callId, mode, true)
+                }
+            }
+
+            "family_call_control" -> {
+                val callId = event.data.optLong("call_id")
+                val mode = if (event.data.optString("mode") == "audio") "audio" else "video"
+                when (event.data.optString("action").lowercase()) {
+                    "accept" -> if (callId > 0) actions.acceptFamilyCall(event.deviceId, callId, mode)
+                    "reject" -> if (callId > 0) actions.rejectFamilyCall(event.deviceId, callId)
                 }
             }
 
