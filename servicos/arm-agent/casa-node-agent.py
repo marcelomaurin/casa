@@ -19,7 +19,7 @@ import urllib.request
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 CASA_BASE_URL = os.environ.get(
-    "CASA_BASE_URL", "https://casa.maurinsoft.com.br"
+    "CASA_BASE_URL", "https://maurinsoft.com.br/casa"
 ).rstrip("/")
 DEVICE_API = CASA_BASE_URL + "/api/v1/device.php"
 
