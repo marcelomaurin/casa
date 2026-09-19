@@ -33,6 +33,14 @@ jobs:
           --health-timeout=3s
           --health-retries=20
 
+    env:
+      JARVIS_DB_HOST: 127.0.0.1
+      JARVIS_DB_PORT: 3306
+      JARVIS_DB_NAME: casa_test
+      JARVIS_DB_USER: root
+      JARVIS_DB_PASS: root
+      JARVIS_AUTO_INIT_DB: 1
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -47,6 +55,7 @@ jobs:
         shell: bash
         run: |
           find site/var/www/html/api -name '*.php' -print0 | xargs -0 -n1 php -l
+          find .github/tests -name '*.php' -print0 | xargs -0 -n1 php -l
           php -l site/var/www/html/automacao.php
 
       - name: Enforce API v1 on external clients
@@ -58,8 +67,35 @@ jobs:
       - name: Test automatic empty-database install
         run: php .github/tests/test_schema_install.php
 
-      - name: Test Command Bus and automation
+      - name: Test Command Bus and automation internals
         run: php .github/tests/test_control_plane.php
+
+      - name: Test Control Plane HTTP end-to-end
+        shell: bash
+        run: |
+          set -euo pipefail
+          php -S 127.0.0.1:8099 -t site/var/www/html >/tmp/casa-control-plane-php.log 2>&1 &
+          SERVER_PID=$!
+          cleanup() {
+            kill "$SERVER_PID" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8099/api/v1/health.php >/dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              cat /tmp/casa-control-plane-php.log
+              exit 1
+            fi
+            sleep 1
+          done
+
+          CONTROL_PLANE_BASE_URL=http://127.0.0.1:8099/api/v1 php .github/tests/test_control_plane_http.php || {
+            cat /tmp/casa-control-plane-php.log
+            exit 1
+          }
 
       - name: Validate simulator syntax
         run: python3 -m py_compile servicos/device_simulator.py
