@@ -9,6 +9,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') { http_response_code(20
 
 require_once(__DIR__ . '/../db.php');
 require_once(__DIR__ . '/security_v1.php');
+require_once(__DIR__ . '/device_registry.php');
 
 $pdo = get_db_pdo();
 api_v1_basic_guard($pdo);
@@ -276,6 +277,7 @@ if ($action === 'autorizar_pareamento') {
             ':meta' => json_encode($metadata, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
             ':loc' => $location
         ]);
+        registry_sync_capabilities($pdo,$deviceId,$caps);
 
         // 2. Registrar o token de API com escopos de menor privilegio
         $stmtTok = $pdo->prepare("INSERT INTO api_client_tokens 
@@ -358,8 +360,7 @@ if ($action === 'rejeitar_pareamento') {
 }
 
 if ($action === 'list') {
-    $stmt = $pdo->query("SELECT id,device_id,nome,tipo,local_ip,observed_ip,transport,gateway_device_id,status,health,sinal_rssi,capabilities,firmware_version,protocol_version,config_version,ultimo_heartbeat,localizacao,criado_em FROM dispositivos_cluster ORDER BY criado_em DESC LIMIT 100");
-    echo json_encode(['status' => 'ok', 'devices' => $stmt->fetchAll(PDO::FETCH_ASSOC)], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    echo json_encode(['status' => 'ok', 'devices' => registry_list($pdo,false), 'registry'=>'dispositivos_cluster'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
 }
 
@@ -384,6 +385,7 @@ if ($action === 'create') {
         $stmt = $pdo->prepare("INSERT INTO dispositivos_cluster(device_id,nome,tipo,mac_address,device_token,device_token_hash,status,health,capabilities,metadata,localizacao) VALUES(:did,:n,:t,:m,'HASHED',:h,'offline','unknown',:cap,:meta,:loc)");
         $stmt->execute([':did' => $deviceId, ':n' => $name, ':t' => $type, ':m' => $mac !== '' ? $mac : null, ':h' => $hash, ':cap' => json_encode($caps, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), ':meta' => json_encode($metadata, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), ':loc' => $location ?: 'Residencia']);
         $internalId = (int)$pdo->lastInsertId();
+        registry_sync_capabilities($pdo,$deviceId,$caps);
         $stmt = $pdo->prepare("INSERT INTO api_client_tokens(nome,device_id,token_hash,token_prefix,scopes,ativo) VALUES(:n,:d,:h,:p,:s,1)");
         $stmt->execute([':n' => $name, ':d' => $deviceId, ':h' => $hash, ':p' => $prefix, ':s' => json_encode($scopes, JSON_UNESCAPED_UNICODE)]);
         $pdo->commit();

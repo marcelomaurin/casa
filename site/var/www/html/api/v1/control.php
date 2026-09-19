@@ -9,68 +9,35 @@ header('Access-Control-Allow-Headers: Authorization, Content-Type, X-Idempotency
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET')==='OPTIONS'){http_response_code(200);exit;}
 require_once(__DIR__.'/../db.php');
 require_once(__DIR__.'/security_v1.php');
+require_once(__DIR__.'/device_registry.php');
 $pdo=get_db_pdo(); api_v1_basic_guard($pdo);
 $action=$_GET['acao'] ?? 'devices';
 $read=in_array($action,['devices','device','capabilities','command_status','events'],true);
 $client=api_v1_auth_client_any($pdo,$read?['devices.read','mobile.read','home.read']:['devices.write','mobile.write','home.write']);
 $raw=file_get_contents('php://input'); $in=$raw?json_decode($raw,true):[]; if(!is_array($in))$in=[];
 
-function control_decode_json($value,$fallback=[]){
- if(is_array($value))return $value;
- if(!is_string($value)||$value==='')return $fallback;
- $d=json_decode($value,true); return is_array($d)?$d:$fallback;
-}
-function control_capabilities(PDO $pdo,string $deviceId,array $fallback=[]):array{
- try{
-  $stmt=$pdo->prepare("SELECT capability,enabled,risk_level,config FROM device_capabilities WHERE device_id=:d ORDER BY capability");
-  $stmt->execute([':d'=>$deviceId]); $rows=$stmt->fetchAll(PDO::FETCH_ASSOC);
-  if($rows){
-   return array_map(function($r){return ['name'=>$r['capability'],'enabled'=>(bool)$r['enabled'],'risk_level'=>(int)$r['risk_level'],'config'=>control_decode_json($r['config'],[])];},$rows);
-  }
- }catch(Throwable $e){}
- $out=[];
- foreach($fallback as $k=>$v){
-  if(is_int($k))$out[]=['name'=>(string)$v,'enabled'=>true,'risk_level'=>1,'config'=>[]];
-  else $out[]=['name'=>(string)$k,'enabled'=>(bool)$v,'risk_level'=>1,'config'=>[]];
- }
- return $out;
-}
-function control_fetch_device(PDO $pdo,string $deviceId){
- $stmt=$pdo->prepare("SELECT device_id,nome,tipo,status,health,transport,local_ip,observed_ip,gateway_device_id,sinal_rssi,battery_pct,capabilities,metadata,localizacao,manufacturer,model,firmware_version,protocol_version,config_version,ultimo_heartbeat,CASE WHEN ultimo_heartbeat IS NOT NULL AND ultimo_heartbeat>=DATE_SUB(NOW(),INTERVAL 120 SECOND) THEN 1 ELSE 0 END AS online FROM dispositivos_cluster WHERE device_id=:d LIMIT 1");
- $stmt->execute([':d'=>$deviceId]); $row=$stmt->fetch(PDO::FETCH_ASSOC);
- if(!$row)return null;
- $fallback=control_decode_json($row['capabilities']??null,[]);
- $row['capabilities']=control_capabilities($pdo,$deviceId,$fallback);
- $row['metadata']=control_decode_json($row['metadata']??null,[]);
- $row['online']=(bool)$row['online'];
- $row['battery_pct']=$row['battery_pct']===null?null:(int)$row['battery_pct'];
- return $row;
-}
-
 if($action==='devices'){
- $stmt=$pdo->query("SELECT device_id FROM dispositivos_cluster WHERE device_id IS NOT NULL AND device_id<>'' ORDER BY nome");
- $devices=[]; foreach($stmt->fetchAll(PDO::FETCH_COLUMN) as $id){$d=control_fetch_device($pdo,(string)$id);if($d)$devices[]=$d;}
- api_v1_json_response(200,['status'=>'ok','devices'=>$devices,'server_time'=>date('c')]);
+ $devices=registry_list($pdo,false);
+ api_v1_json_response(200,['status'=>'ok','devices'=>$devices,'server_time'=>date('c'),'registry'=>'dispositivos_cluster']);
 }
 if($action==='device'){
  $deviceId=trim((string)($_GET['device_id']??$in['device_id']??''));
  if($deviceId==='')api_v1_json_response(400,['status'=>'erro','mensagem'=>'device_id obrigatorio']);
- $dev=control_fetch_device($pdo,$deviceId);
+ $dev=registry_get($pdo,$deviceId,false);
  if(!$dev)api_v1_json_response(404,['status'=>'erro','mensagem'=>'Device nao encontrado']);
  api_v1_json_response(200,['status'=>'ok','device'=>$dev,'server_time'=>date('c')]);
 }
 if($action==='capabilities'){
  $deviceId=trim((string)($_GET['device_id']??$in['device_id']??''));
  if($deviceId==='')api_v1_json_response(400,['status'=>'erro','mensagem'=>'device_id obrigatorio']);
- $dev=control_fetch_device($pdo,$deviceId);
+ $dev=registry_get($pdo,$deviceId,false);
  if(!$dev)api_v1_json_response(404,['status'=>'erro','mensagem'=>'Device nao encontrado']);
  api_v1_json_response(200,['status'=>'ok','device_id'=>$deviceId,'capabilities'=>$dev['capabilities']]);
 }
 if($action==='enqueue'){
  $deviceId=trim((string)($in['device_id']??'')); $cmd=substr(trim((string)($in['command']??'')),0,120);
  if($deviceId===''||$cmd==='')api_v1_json_response(400,['status'=>'erro','mensagem'=>'device_id e command obrigatorios']);
- $stmt=$pdo->prepare("SELECT device_id,capabilities FROM dispositivos_cluster WHERE device_id=:d AND credential_revoked_at IS NULL LIMIT 1");$stmt->execute([':d'=>$deviceId]);$dev=$stmt->fetch(PDO::FETCH_ASSOC);
- if(!$dev)api_v1_json_response(404,['status'=>'erro','mensagem'=>'Device nao encontrado ou revogado']);
+ try{$dev=registry_require($pdo,$deviceId);}catch(Throwable $e){api_v1_json_response(404,['status'=>'erro','mensagem'=>'Device nao encontrado ou revogado']);}
  $priority=strtolower((string)($in['priority']??'normal'));if(!in_array($priority,['low','normal','high','critical'],true))$priority='normal';
  $ttl=max(10,min(86400,(int)($in['ttl_seconds']??300)));
  $maxRetries=max(1,min(20,(int)($in['max_retries']??3)));
@@ -83,10 +50,10 @@ if($action==='enqueue'){
  $requiredCapability=substr(trim((string)($in['required_capability']??'')),0,120);
  $riskLevel=max(0,min(4,(int)($in['risk_level']??1)));
  if($requiredCapability!==''){
-  $stmt=$pdo->prepare("SELECT enabled,risk_level FROM device_capabilities WHERE device_id=:d AND capability=:c LIMIT 1");$stmt->execute([':d'=>$deviceId,':c'=>$requiredCapability]);$cap=$stmt->fetch(PDO::FETCH_ASSOC);
-  if($cap){
-   if(!(bool)$cap['enabled'])api_v1_json_response(409,['status'=>'erro','mensagem'=>'Capability desabilitada']);
-   $riskLevel=max($riskLevel,(int)$cap['risk_level']);
+  try{$resolved=registry_require_capability($pdo,$deviceId,$requiredCapability);$riskLevel=max($riskLevel,(int)$resolved['risk_level']);}
+  catch(RuntimeException $e){
+   $m=$e->getMessage();
+   api_v1_json_response($m==='capability_disabled'?409:404,['status'=>'erro','mensagem'=>$m==='capability_disabled'?'Capability desabilitada':'Capability nao encontrada']);
   }
  }
  if($riskLevel>=3 && empty($in['confirm']))api_v1_json_response(409,['status'=>'confirmacao_necessaria','mensagem'=>'Acao sensivel exige confirm=true','risk_level'=>$riskLevel]);

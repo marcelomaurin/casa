@@ -57,8 +57,7 @@ function rules_scheduler_tick(PDO $pdo,bool $force=false):array {
             $runs[]=rules_scheduler_run_rule($pdo,$rule,['schedule'=>['now'=>date('c'),'hour'=>(int)date('G'),'minute'=>(int)date('i'),'weekday'=>(int)date('N')]],'schedule');continue;
         }
         $deviceId=trim((string)($cfg['device_id']??''));if($deviceId==='')continue;
-        $d=$pdo->prepare("SELECT device_id,nome,tipo,status,health,battery_pct,sinal_rssi,ultimo_heartbeat,metadata FROM dispositivos_cluster WHERE device_id=:d LIMIT 1");$d->execute([':d'=>$deviceId]);$dev=$d->fetch(PDO::FETCH_ASSOC);if(!$dev)continue;
-        $dev['battery_pct']=$dev['battery_pct']===null?null:(int)$dev['battery_pct'];$dev['sinal_rssi']=$dev['sinal_rssi']===null?null:(int)$dev['sinal_rssi'];$dev['metadata']=rules_json($dev['metadata']??null,[]);
+        $dev=registry_get($pdo,$deviceId,false);if(!$dev)continue;
         $runs[]=rules_scheduler_run_rule($pdo,$rule,['device'=>$dev,'state'=>$dev,'data'=>$dev['metadata']],'state');
     }
     return $runs;
