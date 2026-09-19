@@ -75,8 +75,13 @@ class WatchEventProcessor(
 
             "family_call" -> {
                 val mode = if (event.data.optString("mode") == "audio") "audio" else "video"
+                val targetPlatform = when (event.data.optString("target_platform").lowercase()) {
+                    "web" -> "web"
+                    else -> "mobile"
+                }
+                val targetClient = event.data.optString("target_client").trim().ifBlank { null }
                 val callId = runCatching {
-                    FamilyApi.startCall(context, mode, "watch")
+                    FamilyApi.startCall(context, mode, "watch", targetPlatform, targetClient)
                 }.getOrDefault(0L)
 
                 actions.sendWatchCommand(
@@ -86,12 +91,16 @@ class WatchEventProcessor(
                         .put("type", "family_call_result")
                         .put("ok", callId > 0)
                         .put("call_id", callId)
-                        .put("mode", mode),
+                        .put("mode", mode)
+                        .put("target_platform", targetPlatform),
                     "high",
                     300
                 )
 
-                if (callId > 0) actions.showFamilyCallNotification(callId, mode)
+                if (callId > 0) {
+                    // O Android pareado é o terminal de mídia do lado do Watch.
+                    actions.showFamilyCallNotification(callId, mode)
+                }
             }
 
             "voice_capture" -> actions.showVoiceRequest(event.deviceId)
