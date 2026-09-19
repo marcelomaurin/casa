@@ -187,19 +187,28 @@ class JarvisServiceNotifier(private val context: Context) {
 
     fun showFamilyCall(callId: Long, mode: String) {
         runCatching {
+            val openIntent = Intent(context, FamilyCallActivity::class.java)
+                .putExtra(FamilyCallActivity.EXTRA_CALL_ID, callId)
+                .putExtra(FamilyCallActivity.EXTRA_CALL_MODE, mode)
+                .putExtra(FamilyCallActivity.EXTRA_AUTO_JOIN, true)
             val open = PendingIntent.getActivity(
                 context,
                 callId.toInt(),
-                Intent(context, MainActivity::class.java),
+                openIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             val notification = NotificationCompat.Builder(context, JarvisConnectionService.CHANNEL_WATCH)
                 .setSmallIcon(R.drawable.ic_jarvis_launcher)
-                .setContentTitle("Chamada Família CASA")
-                .setContentText("Chamada $mode iniciada pelo relógio (#$callId)")
+                .setContentTitle("Videochamada Família CASA")
+                .setContentText("Toque para atender/usar câmera e áudio do celular (#$callId)")
+                .setStyle(NotificationCompat.BigTextStyle().bigText(
+                    "O JARVIS Watch iniciou ou recebeu uma chamada $mode. O relógio controla a chamada; câmera, microfone e vídeo são fornecidos pelo celular."
+                ))
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setCategory(NotificationCompat.CATEGORY_CALL)
                 .setAutoCancel(true)
                 .setContentIntent(open)
+                .addAction(0, "ATENDER", open)
                 .build()
             manager.notify((3000 + callId % 1000).toInt(), notification)
         }
