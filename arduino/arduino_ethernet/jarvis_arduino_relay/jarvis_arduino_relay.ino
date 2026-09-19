@@ -23,6 +23,7 @@ IPAddress subnet(255, 255, 255, 0);
 IPAddress jarvis_ip(192, 168, 2, 12);    // IP do Raspberry Pi JARVIS
 const int jarvis_port = 80;
 
+const char* device_id = "arduino-ethernet-reles-01";
 const char* device_token = "token_ard_reles_2026";
 const char* device_name = "Arduino Ethernet Reles";
 
@@ -73,20 +74,25 @@ void enviar_heartbeat() {
     Serial.println(F("[JARVIS] Enviando Heartbeat Ethernet..."));
 
     String json = "{";
-    json += "\"device_token\":\"" + String(device_token) + "\",";
-    json += "\"ram_livre\":" + String(freeRam()) + ",";
-    json += "\"sinal_rssi\":0,"; // Cabo de rede física
-    json += "\"reles_status\":{";
+    json += "\"device_id\":\"" + String(device_id) + "\",";
+    json += "\"transport\":\"ethernet\",";
+    json += "\"health\":\"ok\",";
+    json += "\"protocol_version\":\"CASA/1.0\",";
+    json += "\"capabilities\":[\"relay\",\"telemetry\"],";
+    json += "\"rssi\":0,"; // Cabo de rede fisica
+    json += "\"data\":{\"ram_livre\":" + String(freeRam()) + ",\"reles_status\":{";
     json += "\"rele1\":" + String(get_rele_state(PIN_RELE_1)) + ",";
     json += "\"rele2\":" + String(get_rele_state(PIN_RELE_2)) + ",";
     json += "\"rele3\":" + String(get_rele_state(PIN_RELE_3)) + ",";
     json += "\"rele4\":" + String(get_rele_state(PIN_RELE_4));
-    json += "}}";
+    json += "}}}";
 
-    client_heartbeat.println(F("POST /api/crud.php?tabela=dispositivos_cluster&acao=heartbeat_iot HTTP/1.1"));
+    client_heartbeat.println(F("POST /api/v1/device.php?acao=heartbeat HTTP/1.1"));
     client_heartbeat.println(F("Host: 192.168.2.12"));
     client_heartbeat.println(F("User-Agent: ArduinoEthernet/1.0"));
     client_heartbeat.println(F("Content-Type: application/json"));
+    client_heartbeat.print(F("Authorization: Bearer "));
+    client_heartbeat.println(device_token);
     client_heartbeat.print(F("X-Device-Token: "));
     client_heartbeat.println(device_token);
     client_heartbeat.print(F("Content-Length: "));
