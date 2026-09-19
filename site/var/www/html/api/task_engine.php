@@ -324,3 +324,18 @@ function te_list_actions(PDO $pdo, array $ctx): array {
     $st->execute([':p'=>$ctx['id_plano']]);
     return $st->fetchAll(PDO::FETCH_ASSOC);
 }
+
+
+function te_sync_device_actions_for_device(PDO $pdo, string $deviceId): array {
+    $st=$pdo->prepare("SELECT a.command_id FROM jarvis_acoes a
+        JOIN device_commands c ON c.id=a.command_id
+        WHERE c.device_id=:d AND a.command_id IS NOT NULL
+          AND a.status NOT IN('DONE','FAILED','EXPIRED')");
+    $st->execute([':d'=>$deviceId]);
+    $out=[];
+    foreach($st->fetchAll(PDO::FETCH_COLUMN) as $id){
+        $sync=te_sync_device_command($pdo,(int)$id);
+        if($sync)$out[]=$sync;
+    }
+    return $out;
+}
