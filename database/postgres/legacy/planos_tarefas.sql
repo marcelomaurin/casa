@@ -1,3 +1,5 @@
+-- ENGINE: PostgreSQL
+-- DOMAIN: LEGACY / archival only; not part of CASA Control Plane production schema
 -- JARVIS - Planejamento e decomposicao de demandas
 
 CREATE TABLE IF NOT EXISTS jarvis_planos (

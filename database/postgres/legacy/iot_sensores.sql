@@ -1,3 +1,5 @@
+-- ENGINE: PostgreSQL
+-- DOMAIN: LEGACY / archival only; not part of CASA Control Plane production schema
 -- JARVIS RESIDENCIAL - TELEMETRIA DE SENSORES IOT
 
 CREATE TABLE IF NOT EXISTS iot_leituras (

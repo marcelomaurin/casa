@@ -1,3 +1,5 @@
+-- ENGINE: PostgreSQL
+-- DOMAIN: LEGACY / archival only; not part of CASA Control Plane production schema
 -- JARVIS RESIDENCIAL
 -- Eventos da ESP32-CAM, detecção facial e análise visual da IA
 

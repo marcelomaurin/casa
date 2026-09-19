@@ -4,6 +4,8 @@ on:
   push:
     paths:
       - 'site/var/www/html/api/**'
+      - 'database/**'
+      - 'mysql/**'
       - 'site/var/www/html/automacao.php'
       - 'servicos/device_simulator.py'
       - 'servicos/arm-agent/**'
@@ -49,6 +51,9 @@ jobs:
 
       - name: Enforce API v1 on external clients
         run: python3 .github/tests/test_api_v1_clients.py
+
+      - name: Validate database domains
+        run: python3 .github/tests/test_database_domains.py
 
       - name: Test automatic empty-database install
         run: php .github/tests/test_schema_install.php

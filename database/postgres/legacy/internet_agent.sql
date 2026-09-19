@@ -1,3 +1,5 @@
+-- ENGINE: PostgreSQL
+-- DOMAIN: LEGACY / archival only; not part of CASA Control Plane production schema
 -- JARVIS - historico do agente de pesquisa na internet
 CREATE TABLE IF NOT EXISTS internet_pesquisas (
     id BIGSERIAL PRIMARY KEY,

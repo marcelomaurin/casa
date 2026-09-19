@@ -1,3 +1,5 @@
+-- ENGINE: PostgreSQL
+-- DOMAIN: LEGACY / archival only; not part of CASA Control Plane production schema
 -- Adicionar configuracoes para roteamento inteligente de multiplas IAs
 INSERT INTO configuracoes_sistema (chave, valor)
 VALUES 

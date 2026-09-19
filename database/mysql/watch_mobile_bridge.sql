@@ -1,3 +1,5 @@
+-- ENGINE: MySQL/MariaDB
+-- DOMAIN: CASA Control Plane
 -- CASA/JARVIS - integração site <-> celular <-> relógio
 -- MySQL/MariaDB
 

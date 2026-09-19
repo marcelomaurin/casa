@@ -1,3 +1,5 @@
+-- ENGINE: MySQL/MariaDB
+-- DOMAIN: CASA Control Plane
 -- CASA/JARVIS - Cenas e Rotinas
 -- Migration incremental para MySQL/MariaDB.
 

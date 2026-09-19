@@ -1,10 +1,13 @@
--- Inicializacao do Banco de Dados casadb no PostgreSQL
+-- ENGINE: PostgreSQL
+-- DOMAIN: LEGACY / archival only; not part of CASA Control Plane production schema
+-- SECURITY: credentials and bootstrap users must be provisioned outside SQL/version control.
+-- Inicializacao historica do Banco de Dados casadb no PostgreSQL
 DO $$
 BEGIN
    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'casadb_user') THEN
-      CREATE ROLE casadb_user WITH LOGIN PASSWORD 'casadb_password_2026';
+      CREATE ROLE casadb_user WITH LOGIN;
    ELSE
-      ALTER ROLE casadb_user WITH PASSWORD 'casadb_password_2026';
+      -- Password intentionally not managed in this file.
    END IF;
 END
 $$;
@@ -98,9 +101,7 @@ CREATE TABLE IF NOT EXISTS comandos_log (
 );
 
 -- Inserir dados iniciais caso nao existam
-INSERT INTO usuarios (nome, login, senha, email)
-SELECT 'Administrador', 'admin', '226468', 'marcelomaurinmartins@gmail.com'
-WHERE NOT EXISTS (SELECT 1 FROM usuarios WHERE login = 'admin');
+-- Bootstrap de usuario removido. Crie usuarios pela aplicacao ou por segredo externo.
 
 INSERT INTO devices (devname, devdesc, devtype, devcon, devstatus)
 SELECT 'sala', 'Controlador Principal da Sala (ESP8266 + Nextion)', 1, '192.168.2.210', TRUE

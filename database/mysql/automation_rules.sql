@@ -1,3 +1,5 @@
+-- ENGINE: MySQL/MariaDB
+-- DOMAIN: CASA Control Plane
 -- CASA/JARVIS - Motor de regras deterministico (sem IA)
 SET NAMES utf8mb4;
 

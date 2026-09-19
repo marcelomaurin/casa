@@ -1,3 +1,5 @@
+-- ENGINE: PostgreSQL
+-- DOMAIN: LEGACY / archival only; not part of CASA Control Plane production schema
 -- Migração para Cluster IoT, Segurança Anti-Intrusão e Agentes Externos
 CREATE TABLE IF NOT EXISTS dispositivos_cluster (
     id SERIAL PRIMARY KEY,

@@ -1,3 +1,5 @@
+-- ENGINE: PostgreSQL
+-- DOMAIN: LEGACY / archival only; not part of CASA Control Plane production schema
 -- Tabela de Agendamento de Tarefas Automatizadas
 CREATE TABLE IF NOT EXISTS tarefas_agendadas (
     id SERIAL PRIMARY KEY,

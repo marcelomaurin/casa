@@ -1,3 +1,5 @@
+-- ENGINE: MySQL/MariaDB
+-- DOMAIN: CASA Control Plane
 -- CASA/JARVIS - Control Plane seguro para todos os devices
 -- Migration incremental. Nao remove campos legados para manter compatibilidade.
 

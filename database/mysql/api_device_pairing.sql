@@ -1,3 +1,5 @@
+-- ENGINE: MySQL/MariaDB
+-- DOMAIN: CASA Control Plane
 -- CASA/JARVIS - Protocolo de Solicitacao e Passagem de Chaves via Celular
 -- Permite que dispositivos novos solicitem pareamento e o celular autorize com chave individual.
 

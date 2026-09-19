@@ -1,3 +1,5 @@
+-- ENGINE: MySQL/MariaDB
+-- DOMAIN: CASA Control Plane
 -- ============================================================================
 -- CASA / JARVIS - INSTALACAO UNIFICADA MYSQL / MARIADB
 -- Dominio: https://casa.maurinsoft.com.br

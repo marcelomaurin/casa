@@ -1,3 +1,5 @@
+-- ENGINE: PostgreSQL
+-- DOMAIN: LEGACY / archival only; not part of CASA Control Plane production schema
 -- JARVIS - hardening da API externa v1
 
 CREATE TABLE IF NOT EXISTS api_client_tokens (

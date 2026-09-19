@@ -1,3 +1,5 @@
+-- ENGINE: MySQL/MariaDB
+-- DOMAIN: CASA Control Plane
 -- CASA/JARVIS - broadcast familiar, assistência e sinalização de chamadas
 -- Pode ser executado manualmente em instalações existentes. A API também cria
 -- estas tabelas automaticamente com CREATE TABLE IF NOT EXISTS.
