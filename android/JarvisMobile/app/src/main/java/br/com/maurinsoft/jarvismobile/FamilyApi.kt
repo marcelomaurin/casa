@@ -90,15 +90,25 @@ object FamilyApi {
         return request(context, "assist_event", b).optLong("event_id")
     }
 
-    fun startCall(context: Context, mode: String = "video", origin: String = "mobile"): Long =
-        request(context, "call_start", JSONObject().put("mode", mode).put("origin", origin)).optLong("call_id")
+    fun startCall(
+        context: Context,
+        mode: String = "video",
+        origin: String = "mobile",
+        targetPlatform: String? = null,
+        targetClient: String? = null
+    ): Long {
+        val body = JSONObject().put("mode", mode).put("origin", origin)
+        if (!targetPlatform.isNullOrBlank()) body.put("target_platform", targetPlatform)
+        if (!targetClient.isNullOrBlank()) body.put("target_client", targetClient)
+        return request(context, "call_start", body).optLong("call_id")
+    }
 
     fun joinCall(context: Context, callId: Long, device: String = "JARVIS Mobile") {
         request(context, "call_join", JSONObject().put("call_id", callId).put("platform", "mobile").put("device", device))
     }
 
-    fun currentCall(context: Context): JSONObject? {
-        val c = request(context, "call_current").optJSONObject("call")
+    fun currentCall(context: Context, platform: String = "mobile"): JSONObject? {
+        val c = request(context, "call_current", null, "&platform=$platform").optJSONObject("call")
         return if (c == null || c.length() == 0) null else c
     }
 
