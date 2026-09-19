@@ -37,6 +37,8 @@ uint16_t screenTimeoutSec=20;
 uint32_t steps=0;
 String lastMessage="JARVIS pronto", voiceText="TOQUE PARA FALAR", gpsText="GPS PELO CELULAR", cameraText="CAMERA DO CELULAR";
 String notificationTitle="", notificationText="";
+long pendingCallId=0;
+String pendingCallMode="video", pendingCallSender="";
 
 bool alarmEnabled=false;
 uint8_t alarmHour=7, alarmMinute=0;
@@ -643,13 +645,19 @@ void drawWrappedText(const String &value,int x,int y,int maxChars,int maxLines){
 }
 
 void drawNotificationScreen(){
-  drawHeader(notificationTitle.startsWith("CHAMADA")?"CHAMADA":"MENSAGEM");
+  bool incoming=pendingCallId>0 && controller.callState()==JARVIS_CALL_RINGING;
+  drawHeader(incoming?"CHAMADA":"MENSAGEM");
   tft->setTextColor(C_TEXT,C_BG);
   String title=notificationTitle;
   if(title.length()>28)title=title.substring(0,28);
-  tft->drawString(title.c_str(),8,66,2);
-  drawWrappedText(notificationText,8,94,27,4);
-  tft->drawCentreString("toque para fechar",120,190,1);
+  tft->drawString(title.c_str(),8,62,2);
+  drawWrappedText(notificationText,8,88,27,incoming?2:4);
+  if(incoming){
+    lcarsButton(8,145,108,38,C_GREEN,"ATENDER");
+    lcarsButton(124,145,108,38,C_RED,"RECUSAR");
+  }else{
+    tft->drawCentreString("toque para fechar",120,190,1);
+  }
   drawFooter();
 }
 
@@ -709,9 +717,42 @@ void saveWifiFromKeyboard(){
   lastMessage="Conectando ao Wi-Fi";previousScreen=SCREEN_SETTINGS;currentScreen=SCREEN_WIFI;drawScreen();
 }
 
+void sendIncomingCallDecision(bool accept){
+  if(pendingCallId<=0)return;
+  String action=accept?"accept":"reject";
+  String payload="{\"type\":\"family_call_control\",\"action\":\""+action+
+    "\",\"call_id\":"+String(pendingCallId)+
+    ",\"mode\":\""+jsonEscapeValue(pendingCallMode)+"\"}";
+  bool sent=false;
+  if(jarvisBleIsConnected())sent=jarvisBleSendJson(payload);
+  if(!sent&&jarvisWifiIsConnected()&&jarvisWifiHasCasaCredentials()){
+    String eventPayload="{\"device_id\":\""+jsonEscapeValue(jarvisWifiDeviceId())+
+      "\",\"type\":\"family_call_control\",\"priority\":\"high\",\"data\":"+payload+"}";
+    sent=jarvisWifiPostJson("/api/v1/device.php?acao=event",eventPayload,nullptr);
+  }
+  if(accept){
+    controller.emit(jarvisEvent(EVT_CALL_ACCEPT,JARVIS_PRI_HIGH));
+    lastMessage=sent?"Atendendo no celular":"Celular indisponivel";
+  }else{
+    controller.emit(jarvisEvent(EVT_CALL_END,JARVIS_PRI_HIGH));
+    lastMessage=sent?"Chamada recusada":"Recusa nao enviada";
+  }
+  pendingCallId=0;
+  pendingCallSender="";
+  notificationTitle="";
+  notificationText="";
+  goHome();
+}
+
 void handleTap(int x,int y){
   controller.emit(jarvisEvent(EVT_TOUCH_TAP,JARVIS_PRI_NORMAL,x,y));vibrateShort();
-  if(currentScreen==SCREEN_NOTIFICATION){goHome();return;}
+  if(currentScreen==SCREEN_NOTIFICATION){
+    if(pendingCallId>0&&controller.callState()==JARVIS_CALL_RINGING){
+      if(y>=140&&y<=190){sendIncomingCallDecision(x<120);return;}
+      return;
+    }
+    goHome();return;
+  }
   if(currentScreen==SCREEN_HOME){navigate(SCREEN_APPS);return;}
   if(currentScreen!=SCREEN_HOME&&currentScreen!=SCREEN_KEYBOARD&&y>=207){if(x<78){ScreenId s=previousScreen;previousScreen=SCREEN_HOME;currentScreen=s;drawScreen();return;}if(x<154){goHome();return;}}
   if(currentScreen==SCREEN_APPS){if(y>=62&&y<=111){if(x<59)navigate(SCREEN_VOICE);else if(x<117)navigate(SCREEN_ALARM);else if(x<174)navigate(SCREEN_CAMERA);else navigate(SCREEN_GPS);return;}if(y>=117&&y<=167){if(x<59)navigate(SCREEN_CONTROLS);else if(x<117)navigate(SCREEN_HEALTH);else if(x<174)navigate(SCREEN_STATUS);else navigate(SCREEN_SETTINGS);return;}}
@@ -815,11 +856,24 @@ void bleEventHandler(const String &type,const String &title,const String &text){
   }
 
   if(type=="incoming_call"){
-    notificationTitle="CHAMADA: "+title;
-    notificationText=text.isEmpty()?"Chamada recebida no celular":text;
+    String meta=text;
+    int p1=meta.indexOf('|');
+    int p2=p1>=0?meta.indexOf('|',p1+1):-1;
+    if(p1>0){
+      pendingCallId=meta.substring(0,p1).toInt();
+      pendingCallMode=p2>p1?meta.substring(p1+1,p2):"video";
+      pendingCallSender=p2>p1?meta.substring(p2+1):title;
+    }else{
+      pendingCallId=0;
+      pendingCallMode="video";
+      pendingCallSender=title;
+    }
+    notificationTitle="CHAMADA: "+(pendingCallSender.isEmpty()?title:pendingCallSender);
+    notificationText=pendingCallMode=="audio"?"Chamada de audio recebida":"Videochamada recebida";
     previousScreen=currentScreen;currentScreen=SCREEN_NOTIFICATION;
     controller.emit(jarvisEvent(EVT_CALL_INCOMING,JARVIS_PRI_HIGH));
-    vibrateShort();
+    controller.emit(jarvisEvent(EVT_USER_INTERACTION,JARVIS_PRI_CRITICAL));
+    vibrateShort();vibrateShort();
     if(screenAwake)drawScreen();
     return;
   }
@@ -920,8 +974,9 @@ bool processCasaDeviceCommandOnce(){
   }else if(command=="incoming_call"||eventType=="incoming_call"){
     String sender=jsonStringField(payload,"sender");
     String mode=jsonStringField(payload,"mode");
-    String message=mode=="audio"?"Chamada de audio recebida":"Videochamada recebida";
-    bleEventHandler("incoming_call",sender,message);
+    int callId=jsonIntField(payload,"call_id",0);
+    String meta=String(callId)+"|"+(mode.isEmpty()?String("video"):mode)+"|"+sender;
+    bleEventHandler("incoming_call",sender,meta);
   }else if(command=="family_message"||eventType=="family_message"){
     bleEventHandler(
       "family_message",
