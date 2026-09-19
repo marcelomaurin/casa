@@ -2,6 +2,7 @@
 header('Content-Type: application/json; charset=utf-8');
 require_once(__DIR__ . '/db.php');
 require_once(__DIR__ . '/seguranca.php');
+require_once(__DIR__ . '/task_engine.php');
 
 verify_api_auth();
 $pdo = get_db_pdo();
@@ -88,7 +89,8 @@ function chamar_jarvis_com_fontes($pergunta, $fontes) {
 }
 
 $in = internet_input();
-$taskContext = is_array($in['task_context'] ?? null) ? $in['task_context'] : null;
+$existingTaskContext=te_context_from_input($in['task_context'] ?? null);
+$taskContext=null;
 $acao = $_GET['acao'] ?? ($_POST['acao'] ?? ($in['acao'] ?? 'pesquisar'));
 $query = trim($in['query'] ?? ($in['pergunta'] ?? ($_POST['query'] ?? ($_GET['q'] ?? ''))));
 $maxResults = intval($in['max_results'] ?? ($_POST['max_results'] ?? 5));
@@ -113,8 +115,14 @@ if ($query === '') {
     exit;
 }
 
+$taskContext=te_begin($pdo,$query,'AGENTE_INTERNET','web',$existingTaskContext);
+$taskSearch=te_add_subtask($pdo,$taskContext,'Pesquisar fontes externas','web_search',[
+    'query'=>$query,'max_results'=>$maxResults
+],null,'EXECUTANDO');
+
 $busca = chamar_web_agent($query, $maxResults, true);
 if (!$busca['ok']) {
+    te_fail_with_plan($pdo,$taskContext,$taskSearch,(string)$busca['erro']);
     try {
         $stmt = $pdo->prepare("INSERT INTO internet_pesquisas (consulta,status,erro) VALUES (:q,'ERRO',:e)");
         $stmt->execute([':q' => $query, ':e' => $busca['erro']]);
@@ -126,25 +134,31 @@ if (!$busca['ok']) {
 
 $dados = $busca['dados'];
 $fontes = $dados['resultados'] ?? [];
+te_complete($pdo,$taskSearch,['fontes'=>$fontes,'quantidade'=>count($fontes)]);
 $provedor = $fontes[0]['provedor'] ?? 'desconhecido';
 $respostaIa = null;
 $jarvis = null;
 
 if ($acao === 'perguntar' || $acao === 'responder') {
+    $taskAnswer=te_add_subtask($pdo,$taskContext,'Sintetizar resposta com as fontes','web_synthesis',[
+        'query'=>$query,'quantidade_fontes'=>count($fontes)
+    ],$taskSearch,'EXECUTANDO');
     $j = chamar_jarvis_com_fontes($query, $fontes);
     if (!$j['ok']) {
+        te_fail_with_plan($pdo,$taskContext,$taskAnswer,(string)$j['erro']);
         http_response_code(502);
         echo json_encode(['status' => 'erro', 'mensagem' => $j['erro']], JSON_UNESCAPED_UNICODE);
         exit;
     }
     $jarvis = $j['dados'];
     $respostaIa = $jarvis['resposta'] ?? '';
+    te_complete($pdo,$taskAnswer,['resposta'=>$respostaIa]);
 }
 
 try {
     $stmt = $pdo->prepare("INSERT INTO internet_pesquisas
         (consulta, provedor, quantidade_resultados, fontes, resposta_ia, status)
-        VALUES (:q,:p,:n,CAST(:f AS jsonb),:r,'OK') RETURNING id");
+        VALUES (:q,:p,:n,:f,:r,'OK')");
     $stmt->execute([
         ':q' => $query,
         ':p' => $provedor,
@@ -152,12 +166,16 @@ try {
         ':f' => json_encode($fontes, JSON_UNESCAPED_UNICODE),
         ':r' => $respostaIa
     ]);
-    $idPesquisa = intval($stmt->fetchColumn());
+    $idPesquisa = (int)$pdo->lastInsertId();
 } catch (Exception $e) {
     $idPesquisa = null;
 }
 
-echo json_encode([
+if($taskContext['root_created']){
+    $final=$respostaIa!==null && trim((string)$respostaIa)!=='' ? $respostaIa : ('Pesquisa concluída com '.count($fontes).' fonte(s).');
+    te_finish($pdo,$taskContext,$final,['id_pesquisa'=>$idPesquisa,'fontes'=>$fontes]);
+}
+echo json_encode(te_attach_context([
     'status' => 'ok',
     'id_pesquisa' => $idPesquisa,
     'query' => $query,
@@ -165,4 +183,4 @@ echo json_encode([
     'fontes' => $fontes,
     'resposta' => $respostaIa,
     'audio_url' => $jarvis['audio_url'] ?? null
-], JSON_UNESCAPED_UNICODE);
+],$taskContext,$pdo), JSON_UNESCAPED_UNICODE);
