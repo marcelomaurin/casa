@@ -163,12 +163,11 @@ if (!$skipPlanner && ($forcarPlanejamento || jarvis_deve_planejar($comando))) {
         te_finish($pdo,$taskContext,$resp,['plano'=>$dados]);
         $audio = jarvis_tts($resp, $configs['jarvis_voice'] ?? 'padrao', true);
         computer_telemetry_finish($pdo,$telemetryId,'SUCESSO',$resp,'PLANO/AGENDAMENTO REGISTRADO','PLANEJADOR',$telemetryStarted);
-        echo json_encode([
+        echo json_encode(te_attach_context([
             'status'=>'sucesso','resposta'=>$resp,'tipo_tarefa'=>'plano_de_tarefas',
-            'id_plano'=>$taskContext['id_plano'],'id_tarefa_raiz'=>$taskContext['id_tarefa_raiz'],
             'tarefas_execucao'=>te_list_tasks($pdo,$taskContext),
             'plano'=>$dados,'audio_url'=>$audio
-        ], JSON_UNESCAPED_UNICODE);
+        ],$taskContext,$pdo), JSON_UNESCAPED_UNICODE);
         exit;
     }
 }
@@ -193,13 +192,12 @@ if (!$skipPlanner && jarvis_pedido_web($comando)) {
         te_complete($pdo,$taskFinal,['resposta'=>$d['resposta'] ?? '']);
         te_finish($pdo,$taskContext,$d['resposta'] ?? '',['fontes'=>$d['fontes'] ?? []]);
         computer_telemetry_finish($pdo,$telemetryId,'SUCESSO',$d['resposta'] ?? '','PESQUISA WEB','AGENTE_WEB',$telemetryStarted);
-        echo json_encode([
+        echo json_encode(te_attach_context([
             'status'=>'sucesso','comando'=>$comando,'resposta'=>$d['resposta'] ?? '',
             'provedor'=>'Agente Web','target_ia'=>'web','tipo_tarefa'=>'pesquisa_internet',
             'fontes'=>$d['fontes'] ?? [],'audio_url'=>$d['audio_url'] ?? null,
-            'id_plano'=>$taskContext['id_plano'],'id_tarefa_raiz'=>$taskContext['id_tarefa_raiz'],
             'tarefas_execucao'=>te_list_tasks($pdo,$taskContext)
-        ], JSON_UNESCAPED_UNICODE);
+        ],$taskContext,$pdo), JSON_UNESCAPED_UNICODE);
         exit;
     }
 }
@@ -695,11 +693,10 @@ computer_telemetry_finish(
     is_array($modelo_usado)?($modelo_usado['modelo']??null):null,
     $telemetryStarted
 );
-echo json_encode([
+echo json_encode(te_attach_context([
     'status'=>'sucesso','comando'=>$comando,'resposta'=>$respostaLimpa,
     'provedor'=>$provedor,'target_ia'=>$target_ia,'tipo_tarefa'=>$tipo_tarefa,
     'modo_roteamento'=>$routing_mode,'acao'=>$acao,'audio_url'=>$audioUrl,
     'speaker'=>$jarvis_voice,'modelo_usado'=>$modelo_usado,'ia_diagnostico'=>$ia_diagnostico,
-    'id_plano'=>$taskContext['id_plano'],'id_tarefa_raiz'=>$taskContext['id_tarefa_raiz'],
     'tarefas_execucao'=>te_list_tasks($pdo,$taskContext)
-], JSON_UNESCAPED_UNICODE);
+],$taskContext,$pdo), JSON_UNESCAPED_UNICODE);
