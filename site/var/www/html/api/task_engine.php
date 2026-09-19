@@ -158,6 +158,8 @@ function te_fail(PDO $pdo, int $taskId, string $erro, $resultado=null): void {
 }
 
 function te_finish(PDO $pdo, array $ctx, string $resposta, $dados=null): void {
+    // Subchamadas que reutilizam um contexto pertencem ao plano raiz e nao podem encerra-lo.
+    if (array_key_exists('root_created',$ctx) && !$ctx['root_created']) return;
     $root=(int)$ctx['id_tarefa_raiz'];
     $plan=(int)$ctx['id_plano'];
     te_complete($pdo,$root,['resposta'=>$resposta,'dados'=>$dados]);
@@ -166,6 +168,8 @@ function te_finish(PDO $pdo, array $ctx, string $resposta, $dados=null): void {
 }
 
 function te_finish_error(PDO $pdo, array $ctx, string $erro): void {
+    // Uma falha interna deve ficar registrada na subtarefa, sem encerrar o plano do chamador.
+    if (array_key_exists('root_created',$ctx) && !$ctx['root_created']) return;
     te_fail($pdo,(int)$ctx['id_tarefa_raiz'],$erro);
     $pdo->prepare("UPDATE jarvis_planos SET status='ERRO',resumo=:r,concluido_em=NOW() WHERE id=:id")
         ->execute([':r'=>mb_substr($erro,0,2000,'UTF-8'),':id'=>$ctx['id_plano']]);
