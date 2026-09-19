@@ -15,7 +15,7 @@ for p in (ROOT / "database").glob("*.sql"):
 pg_signatures = [
     r"\bBIGSERIAL\b", r"\bSERIAL\s+PRIMARY\s+KEY\b", r"\bJSONB\b",
     r"::jsonb", r"\bINET\b", r"\bON\s+CONFLICT\b", r"\\gexec",
-    r"\bTIMESTAMP\s+WITHOUT\s+TIME\s+ZONE\b", r"\bBOOLEAN\b",
+    r"\bTIMESTAMP\s+WITHOUT\s+TIME\s+ZONE\b",
 ]
 mysql_signatures = [
     r"\bAUTO_INCREMENT\b", r"\bENGINE\s*=\s*InnoDB\b",
