@@ -295,3 +295,8 @@ FAILED / EXPIRED             → tarefa ERRO
 ```
 
 Isso permite rastrear uma solicitação desde o plano até o resultado efetivamente informado pelo equipamento.
+
+
+## Device Registry
+
+Identidade, estado, capabilities e roteamento dos devices devem ser resolvidos pela camada central descrita em `docs/DEVICE_REGISTRY.md`. Novos módulos não devem consultar tabelas legadas de devices para decidir execução física.
