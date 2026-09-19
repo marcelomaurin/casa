@@ -5,7 +5,7 @@ header('Cache-Control: no-store');
 header('X-Content-Type-Options: nosniff');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
-header('Access-Control-Allow-Headers: Authorization, Content-Type, X-Idempotency-Key');
+header('Access-Control-Allow-Headers: Authorization, Content-Type, X-Idempotency-Key, X-Correlation-ID');
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET')==='OPTIONS'){http_response_code(200);exit;}
 require_once(__DIR__.'/../db.php');
 require_once(__DIR__.'/security_v1.php');
@@ -60,7 +60,7 @@ if($action==='enqueue'){
  $corr=api_v1_correlation_id($in['correlation_id'] ?? null);
  $stmt=$pdo->prepare("INSERT INTO device_commands(device_id,comando,payload,prioridade,correlation_id,idempotency_key,status,lifecycle_status,max_retries,requested_by,risk_level,expira_em) VALUES(:d,:c,:p,:r,:x,:i,'pending','QUEUED',:mr,:rb,:risk,DATE_ADD(NOW(),INTERVAL :ttl SECOND))");
  $stmt->bindValue(':d',$deviceId);$stmt->bindValue(':c',$cmd);$stmt->bindValue(':p',json_encode(is_array($in['payload']??null)?$in['payload']:[],JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES));$stmt->bindValue(':r',$priority);$stmt->bindValue(':x',$corr);$stmt->bindValue(':i',$idem);$stmt->bindValue(':mr',$maxRetries,PDO::PARAM_INT);$stmt->bindValue(':rb',$requestedBy);$stmt->bindValue(':risk',$riskLevel,PDO::PARAM_INT);$stmt->bindValue(':ttl',$ttl,PDO::PARAM_INT);$stmt->execute();
- $id=(int)$pdo->lastInsertId();api_v1_log($pdo,'COMMAND_ENQUEUED','INFO',$requestedBy,['id'=>$id,'device_id'=>$deviceId,'command'=>$cmd,'risk_level'=>$riskLevel,'idempotency_key'=>$idem]);
+ $id=(int)$pdo->lastInsertId();api_v1_log($pdo,'COMMAND_ENQUEUED','INFO',$requestedBy,['id'=>$id,'device_id'=>$deviceId,'command'=>$cmd,'risk_level'=>$riskLevel,'idempotency_key'=>$idem],$corr);
  api_v1_json_response(201,['status'=>'ok','id'=>$id,'correlation_id'=>$corr,'lifecycle_status'=>'QUEUED','risk_level'=>$riskLevel]);
 }
 if($action==='command_status'){
