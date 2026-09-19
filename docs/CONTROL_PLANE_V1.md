@@ -305,3 +305,8 @@ Identidade, estado, capabilities e roteamento dos devices devem ser resolvidos p
 ## Rastreamento universal de perguntas
 
 Perguntas e chamadas internas usam um único `task_context` conforme `docs/TASK_CONTEXT.md`. A UI pode consultar progresso pela API v1 de tarefas sem criar um novo plano.
+
+
+## Observabilidade ponta a ponta
+
+Solicitações, tarefas, ações, comandos, eventos, telemetria e auditoria compartilham `correlation_id` conforme `docs/OBSERVABILITY.md`. O diagnóstico pode ser consultado em `/api/v1/trace.php?correlation_id=...`.
