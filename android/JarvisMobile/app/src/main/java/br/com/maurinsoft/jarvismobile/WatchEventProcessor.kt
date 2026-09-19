@@ -23,7 +23,7 @@ class WatchEventProcessor(
             data: JSONObject
         )
 
-        fun showFamilyCallNotification(callId: Long, mode: String)
+        fun showFamilyCallNotification(callId: Long, mode: String, initiator: Boolean = false)
         fun showVoiceRequest(deviceId: String)
         fun showWatchAlarm(deviceId: String, data: JSONObject)
         fun showCameraRequest(deviceId: String)
@@ -99,7 +99,7 @@ class WatchEventProcessor(
 
                 if (callId > 0) {
                     // O Android pareado é o terminal de mídia do lado do Watch.
-                    actions.showFamilyCallNotification(callId, mode)
+                    actions.showFamilyCallNotification(callId, mode, true)
                 }
             }
 
