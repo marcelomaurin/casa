@@ -5,6 +5,7 @@
 header('Content-Type: application/json; charset=utf-8');
 require_once(__DIR__ . '/db.php');
 require_once(__DIR__ . '/seguranca.php');
+require_once(__DIR__ . '/task_engine.php');
 verify_api_auth();
 
 $input = json_decode(file_get_contents('php://input'), true);
@@ -18,6 +19,11 @@ if ($comando === '') {
 }
 
 $pdo = get_db_pdo();
+$existingTaskContext=te_context_from_input($input['task_context'] ?? null);
+$taskContext=te_begin($pdo,$comando,trim((string)($input['origem'] ?? 'JARVIS_SITE')),'jarvis_site',$existingTaskContext,$input['correlation_id'] ?? null);
+$taskIa=te_add_subtask($pdo,$taskContext,'Consultar IA externa do site','runpod',[
+    'modo'=>'cloud_only'
+],null,'EXECUTANDO');
 $configs = [];
 try {
     $stmt = $pdo->query("SELECT chave, valor FROM configuracoes_sistema");
@@ -34,14 +40,15 @@ $jarvisVoice = trim($configs['jarvis_voice'] ?? 'padrao');
 $chatUrl = trim($configs['maurinsoft_chat_url'] ?? 'https://maurinsoft.com.br/api/chat');
 
 if ($runpodApiKey === '' || $runpodEndpointId === '') {
+    te_fail_with_plan($pdo,$taskContext,$taskIa,'RunPod nao configurado');
     http_response_code(503);
-    echo json_encode([
+    echo json_encode(te_attach_context([
         'status'=>'erro',
         'mensagem'=>'RunPod não configurado. Informe a API Key e o Endpoint ID nas configurações.',
         'provedor'=>'RunPod',
         'target_ia'=>'runpod',
         'modo_roteamento'=>'cloud_only'
-    ], JSON_UNESCAPED_UNICODE);
+    ],$taskContext,$pdo), JSON_UNESCAPED_UNICODE);
     exit;
 }
 
@@ -74,52 +81,58 @@ $curlError = curl_error($ch);
 curl_close($ch);
 
 if ($res === false || $res === '' || $httpCode < 200 || $httpCode >= 300) {
+    $msg='Falha ao consultar a API Maurinsoft/RunPod' . ($curlError ? ': ' . $curlError : ' (HTTP ' . $httpCode . ')');
+    te_fail_with_plan($pdo,$taskContext,$taskIa,$msg);
     http_response_code(502);
-    echo json_encode([
+    echo json_encode(te_attach_context([
         'status'=>'erro',
-        'mensagem'=>'Falha ao consultar a API Maurinsoft/RunPod' . ($curlError ? ': ' . $curlError : ' (HTTP ' . $httpCode . ')'),
+        'mensagem'=>$msg,
         'provedor'=>'RunPod',
         'target_ia'=>'runpod',
         'modo_roteamento'=>'cloud_only'
-    ], JSON_UNESCAPED_UNICODE);
+    ],$taskContext,$pdo), JSON_UNESCAPED_UNICODE);
     exit;
 }
 
 $data = json_decode($res, true);
 if (!is_array($data)) {
+    te_fail_with_plan($pdo,$taskContext,$taskIa,'A API Maurinsoft/RunPod retornou JSON inválido.');
     http_response_code(502);
-    echo json_encode([
+    echo json_encode(te_attach_context([
         'status'=>'erro',
         'mensagem'=>'A API Maurinsoft/RunPod retornou JSON inválido.',
         'provedor'=>'RunPod',
         'target_ia'=>'runpod',
         'modo_roteamento'=>'cloud_only'
-    ], JSON_UNESCAPED_UNICODE);
+    ],$taskContext,$pdo), JSON_UNESCAPED_UNICODE);
     exit;
 }
 
 if (empty($data['success'])) {
+    $msg=trim((string)($data['error'] ?? $data['message'] ?? 'A API Maurinsoft/RunPod retornou success=false.'));
+    te_fail_with_plan($pdo,$taskContext,$taskIa,$msg);
     http_response_code(502);
-    echo json_encode([
+    echo json_encode(te_attach_context([
         'status'=>'erro',
-        'mensagem'=>trim((string)($data['error'] ?? $data['message'] ?? 'A API Maurinsoft/RunPod retornou success=false.')),
+        'mensagem'=>$msg,
         'provedor'=>'RunPod',
         'target_ia'=>'runpod',
         'modo_roteamento'=>'cloud_only'
-    ], JSON_UNESCAPED_UNICODE);
+    ],$taskContext,$pdo), JSON_UNESCAPED_UNICODE);
     exit;
 }
 
 $resposta = trim((string)($data['output'] ?? ''));
 if ($resposta === '') {
+    te_fail_with_plan($pdo,$taskContext,$taskIa,'A API Maurinsoft/RunPod respondeu sem conteúdo em output.');
     http_response_code(502);
-    echo json_encode([
+    echo json_encode(te_attach_context([
         'status'=>'erro',
         'mensagem'=>'A API Maurinsoft/RunPod respondeu sem conteúdo em output.',
         'provedor'=>'RunPod',
         'target_ia'=>'runpod',
         'modo_roteamento'=>'cloud_only'
-    ], JSON_UNESCAPED_UNICODE);
+    ],$taskContext,$pdo), JSON_UNESCAPED_UNICODE);
     exit;
 }
 
@@ -132,8 +145,11 @@ try {
     ]);
 } catch (Exception $e) {}
 
+te_complete($pdo,$taskIa,['resposta'=>$resposta,'provedor'=>'RunPod','modelo'=>$runpodModel]);
+te_finish($pdo,$taskContext,$resposta,['provedor'=>'RunPod','modelo'=>$runpodModel]);
+
 // Mantem o formato esperado pelo JavaScript atual do site.
-echo json_encode([
+echo json_encode(te_attach_context([
     'status'=>'sucesso',
     'comando'=>$comando,
     'resposta'=>$resposta,
@@ -143,5 +159,6 @@ echo json_encode([
     'modo_roteamento'=>'cloud_only',
     'acao'=>null,
     'audio_url'=>null,
-    'speaker'=>$jarvisVoice
-], JSON_UNESCAPED_UNICODE);
+    'speaker'=>$jarvisVoice,
+    'tarefas_execucao'=>te_list_tasks($pdo,$taskContext)
+],$taskContext,$pdo), JSON_UNESCAPED_UNICODE);
