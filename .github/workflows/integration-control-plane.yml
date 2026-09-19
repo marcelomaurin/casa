@@ -64,6 +64,9 @@ jobs:
       - name: Validate database domains
         run: python3 .github/tests/test_database_domains.py
 
+      - name: Enforce universal task context
+        run: python3 .github/tests/test_task_context_contract.py
+
       - name: Test automatic empty-database install
         run: php .github/tests/test_schema_install.php
 
