@@ -70,7 +70,7 @@ bool enviarLeitura(float temperatura, float umidade) {
   client->setInsecure();
 
   HTTPClient http;
-  String url = prov.getBaseUrl() + "/api/v1/device.php?acao=event";
+  String url = prov.getBaseUrl() + "/api/v1/device.php?acao=heartbeat";
   if (!http.begin(*client, url)) {
     Serial.println("[HTTPS] Falha ao iniciar cliente.");
     return false;
@@ -85,14 +85,16 @@ bool enviarLeitura(float temperatura, float umidade) {
 
   String payload = "{";
   payload += "\"device_id\":\"" + prov.getDeviceId() + "\",";
-  payload += "\"type\":\"sensor.environment\",";
-  payload += "\"priority\":\"normal\",";
+  payload += "\"transport\":\"wifi\",";
+  payload += "\"health\":\"ok\",";
+  payload += "\"protocol_version\":\"CASA/1.0\",";
+  payload += "\"capabilities\":[\"temperature\",\"humidity\",\"rssi\",\"telemetry\"],";
+  payload += "\"rssi\":" + String(WiFi.RSSI()) + ",";
+  payload += "\"uptime_sec\":" + String(millis() / 1000UL) + ",";
   payload += "\"data\":{";
   payload += "\"sensor_type\":\"" + tipoSensor() + "\",";
   payload += "\"temperature_c\":" + String(temperatura, 2) + ",";
   payload += "\"humidity_pct\":" + String(umidade, 2) + ",";
-  payload += "\"rssi\":" + String(WiFi.RSSI()) + ",";
-  payload += "\"uptime_sec\":" + String(millis() / 1000UL) + ",";
   payload += "\"free_heap\":" + String(ESP.getFreeHeap()) + "}}";
 
   Serial.println("[HTTPS] POST " + payload);
