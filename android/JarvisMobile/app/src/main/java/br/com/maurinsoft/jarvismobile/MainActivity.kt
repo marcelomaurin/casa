@@ -3,13 +3,8 @@ package br.com.maurinsoft.jarvismobile
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.media.AudioAttributes
-import android.media.MediaPlayer
 import android.os.Build
 import android.os.Bundle
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -29,27 +24,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import okhttp3.Request
 
 class MainActivity : ComponentActivity() {
-    private var recognizer: SpeechRecognizer? = null
-    private var onSpeechResult: ((String) -> Unit)? = null
-    private val http = OkHttpClient()
-
-    private enum class Route {
-        HOME,
-        CASA_MENU,
-        JARVIS_MENU,
-        WATCH_MENU,
-        DEVICES_MENU,
-        SYSTEM_MENU,
-        OPERATIONS,
-        VOICE,
-        WATCH_STATUS,
-        DEVICES_LIST,
-        CONFIG
-    }
+    private lateinit var speechInput: SpeechInputController
+    private lateinit var audioPlayer: JarvisAudioPlayer
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -57,194 +35,62 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setupSpeechRecognizer()
+        speechInput = SpeechInputController(this).also { it.initialize() }
+        audioPlayer = JarvisAudioPlayer(this)
         setContent { JarvisApp() }
     }
 
     override fun onDestroy() {
-        recognizer?.destroy()
+        if (::speechInput.isInitialized) speechInput.destroy()
         super.onDestroy()
     }
 
-    private fun tr(key: String): String {
-        val lang = LanguageManager.currentLanguage(this)
-        val pt = mapOf(
-            "operations" to "Operações", "voice" to "Voz", "watch" to "Watch", "devices" to "Devices", "config" to "Configuração",
-            "assistant" to "Assistente residencial inteligente", "initializing" to "Inicializando modo local e conexão...",
-            "not_configured" to "Não configurado", "online" to "Online", "offline_reconnecting" to "Offline — reconectando",
-            "queue" to "Fila", "connection" to "Conexão", "connected_house" to "Online — conectado à casa",
-            "offline_detail" to "Offline — o app continua disponível e tenta reconectar automaticamente",
-            "waiting" to "comando(s) aguardando envio", "quick_ops" to "Operações rápidas", "turn_on" to "Ligar luz",
-            "turn_off" to "Desligar luz", "status" to "Status", "sensors" to "Sensores", "manual_command" to "Comando manual",
-            "processing" to "Processando...", "execute" to "Executar", "save_queue" to "Salvar na fila", "result" to "Resultado",
-            "manual_ready" to "Pronto para operações manuais.", "executed" to "Comando executado.", "connected_jarvis" to "Conectado ao JARVIS",
-            "offline_voice" to "Modo offline — reconexão automática ativa", "you" to "Você", "none" to "Nenhuma frase ainda.",
-            "touch_speak" to "Toque em Falar.", "offline_speech" to "Offline. A fala reconhecida será enfileirada para envio quando a conexão voltar.",
-            "listening" to "OUVINDO...", "speak" to "FALAR COM O JARVIS", "not_recognized" to "Não consegui reconhecer a fala.",
-            "config_loaded" to "Configuração carregada.", "config_help" to "Use a URL HTTPS externa da API da casa. O aplicativo funciona offline e continuará tentando a conexão após salvar.",
-            "public_url" to "URL pública da casa", "phone_token" to "Token deste celular", "save" to "Salvar", "test_now" to "Testar agora",
-            "testing" to "Testando...", "saved" to "Configuração salva. Reconexão automática ativa.", "language" to "Idioma",
-            "automatic" to "Automático (idioma do aparelho)", "language_help" to "A interface, o reconhecimento de voz e as respostas do JARVIS seguem este idioma."
-        )
-        val en = mapOf(
-            "operations" to "Operations", "voice" to "Voice", "watch" to "Watch", "devices" to "Devices", "config" to "Settings",
-            "assistant" to "Smart home assistant", "initializing" to "Starting local mode and connection...",
-            "not_configured" to "Not configured", "online" to "Online", "offline_reconnecting" to "Offline — reconnecting",
-            "queue" to "Queue", "connection" to "Connection", "connected_house" to "Online — connected to home",
-            "offline_detail" to "Offline — the app remains available and keeps reconnecting automatically",
-            "waiting" to "command(s) waiting to send", "quick_ops" to "Quick operations", "turn_on" to "Turn light on",
-            "turn_off" to "Turn light off", "status" to "Status", "sensors" to "Sensors", "manual_command" to "Manual command",
-            "processing" to "Processing...", "execute" to "Execute", "save_queue" to "Save to queue", "result" to "Result",
-            "manual_ready" to "Ready for manual operations.", "executed" to "Command executed.", "connected_jarvis" to "Connected to JARVIS",
-            "offline_voice" to "Offline mode — automatic reconnection active", "you" to "You", "none" to "No phrase yet.",
-            "touch_speak" to "Tap Speak.", "offline_speech" to "Offline. Recognized speech will be queued until the connection returns.",
-            "listening" to "LISTENING...", "speak" to "TALK TO JARVIS", "not_recognized" to "I could not recognize the speech.",
-            "config_loaded" to "Settings loaded.", "config_help" to "Use the external HTTPS URL for the home API. The app works offline and keeps trying after saving.",
-            "public_url" to "Public home URL", "phone_token" to "This phone token", "save" to "Save", "test_now" to "Test now",
-            "testing" to "Testing...", "saved" to "Settings saved. Automatic reconnection active.", "language" to "Language",
-            "automatic" to "Automatic (device language)", "language_help" to "The interface, speech recognition and JARVIS responses follow this language."
-        )
-        val es = mapOf(
-            "operations" to "Operaciones", "voice" to "Voz", "watch" to "Watch", "devices" to "Devices", "config" to "Configuración",
-            "assistant" to "Asistente residencial inteligente", "initializing" to "Iniciando modo local y conexión...",
-            "not_configured" to "No configurado", "online" to "En línea", "offline_reconnecting" to "Sin conexión — reconectando",
-            "queue" to "Cola", "connection" to "Conexión", "connected_house" to "En línea — conectado a la casa",
-            "offline_detail" to "Sin conexión — la aplicación sigue disponible e intenta reconectarse automáticamente",
-            "waiting" to "comando(s) pendientes", "quick_ops" to "Operaciones rápidas", "turn_on" to "Encender luz",
-            "turn_off" to "Apagar luz", "status" to "Estado", "sensors" to "Sensores", "manual_command" to "Comando manual",
-            "processing" to "Procesando...", "execute" to "Ejecutar", "save_queue" to "Guardar en cola", "result" to "Resultado",
-            "manual_ready" to "Listo para operaciones manuales.", "executed" to "Comando ejecutado.", "connected_jarvis" to "Conectado a JARVIS",
-            "offline_voice" to "Modo sin conexión — reconexión automática activa", "you" to "Tú", "none" to "Aún no hay frase.",
-            "touch_speak" to "Toca Hablar.", "offline_speech" to "Sin conexión. La voz reconocida se guardará hasta que vuelva la conexión.",
-            "listening" to "ESCUCHANDO...", "speak" to "HABLAR CON JARVIS", "not_recognized" to "No pude reconocer la voz.",
-            "config_loaded" to "Configuración cargada.", "config_help" to "Usa la URL HTTPS externa de la API de la casa. La aplicación funciona sin conexión y seguirá intentando conectarse.",
-            "public_url" to "URL pública de la casa", "phone_token" to "Token de este teléfono", "save" to "Guardar", "test_now" to "Probar ahora",
-            "testing" to "Probando...", "saved" to "Configuración guardada. Reconexión automática activa.", "language" to "Idioma",
-            "automatic" to "Automático (idioma del dispositivo)", "language_help" to "La interfaz, el reconocimiento de voz y las respuestas de JARVIS siguen este idioma."
-        )
-        val table = when (lang) { "en-US" -> en; "es-ES" -> es; else -> pt }
-        return table[key] ?: pt[key] ?: key
-    }
+    private fun tr(key: String): String = AppStrings.get(this, key)
 
     private fun startJarvisService() {
         ContextCompat.startForegroundService(this, Intent(this, JarvisConnectionService::class.java))
     }
 
-    private fun setupSpeechRecognizer() {
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) return
-        recognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
-            setRecognitionListener(object : RecognitionListener {
-                override fun onReadyForSpeech(params: Bundle?) {}
-                override fun onBeginningOfSpeech() {}
-                override fun onRmsChanged(rmsdB: Float) {}
-                override fun onBufferReceived(buffer: ByteArray?) {}
-                override fun onEndOfSpeech() {}
-                override fun onError(error: Int) { onSpeechResult?.invoke("") }
-                override fun onResults(results: Bundle?) {
-                    onSpeechResult?.invoke(results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty())
-                }
-                override fun onPartialResults(partialResults: Bundle?) {}
-                override fun onEvent(eventType: Int, params: Bundle?) {}
-            })
-        }
-    }
+    private fun listen(callback: (String) -> Unit) = speechInput.listen(callback)
 
-    private fun listen(callback: (String) -> Unit) {
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { callback(""); return }
-        onSpeechResult = callback
-        recognizer?.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, LanguageManager.recognitionTag(this@MainActivity))
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
-            putExtra(RecognizerIntent.EXTRA_PROMPT, "JARVIS")
-        })
-    }
-
-    private fun playAudio(path: String?) {
-        if (path.isNullOrBlank()) return
-        val cfg = JarvisApi.loadConfig(this)
-        val url = runCatching { JarvisApi.absoluteUrl(this, path) }.getOrNull() ?: return
-        Thread {
-            try {
-                http.newCall(Request.Builder().url(url).header("Authorization", "Bearer ${cfg.token}").header("X-Device-Token", cfg.token).build()).execute().use { response ->
-                    if (!response.isSuccessful) return@use
-                    val file = createTempFile("jarvis_", ".wav", cacheDir)
-                    file.writeBytes(response.body?.bytes() ?: return@use)
-                    runOnUiThread {
-                        MediaPlayer().apply {
-                            setAudioAttributes(AudioAttributes.Builder().setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY).build())
-                            setDataSource(file.absolutePath)
-                            setOnPreparedListener { it.start() }
-                            setOnCompletionListener { it.release(); file.delete() }
-                            prepareAsync()
-                        }
-                    }
-                }
-            } catch (_: Exception) {}
-        }.start()
-    }
+    private fun playAudio(path: String?) = audioPlayer.play(path)
 
     @Composable
     private fun JarvisApp() {
-        var splash by remember { mutableStateOf(true) }
-        var session by remember { mutableStateOf(MobileAuth.savedSession(this)) }
-        var online by remember { mutableStateOf(false) }
-        var configured by remember { mutableStateOf(JarvisApi.isConfigured(this)) }
-        var pending by remember { mutableIntStateOf(JarvisApi.pendingCount(this)) }
+        val appState = remember { MobileAppState(this@MainActivity) }
 
         LaunchedEffect(Unit) {
             delay(300)
-            // A sessao local libera imediatamente a interface. A validacao online
-            // nunca bloqueia a abertura do software.
-            session = MobileAuth.savedSession(this@MainActivity)
-            splash = false
-
-            if (session != null) {
-                launch(Dispatchers.IO) {
-                    val refreshed = MobileAuth.validate(this@MainActivity)
-                    if (refreshed != null) {
-                        withContext(Dispatchers.Main) {
-                            session = refreshed
-                        }
-                    }
-                }
+            appState.finishSplash()
+            if (appState.session != null) {
+                launch { appState.validateSession() }
             }
         }
 
-        LaunchedEffect(session) {
-            if (session != null) {
-                runCatching { startJarvisService() }
-            }
+        LaunchedEffect(appState.session) {
+            if (appState.session != null) runCatching { startJarvisService() }
         }
 
-        LaunchedEffect(splash, session) {
-            if (!splash && session != null) while (true) {
-                configured = JarvisApi.isConfigured(this@MainActivity)
-                online = if (configured) withContext(Dispatchers.IO) {
-                    JarvisApi.isOnline(this@MainActivity)
-                } else false
-                pending = JarvisApi.pendingCount(this@MainActivity)
-                delay(if (online) 10_000 else 5_000)
+        LaunchedEffect(appState.splash, appState.session) {
+            if (!appState.splash && appState.session != null) while (true) {
+                appState.refreshConnection()
+                delay(if (appState.online) 10_000 else 5_000)
             }
         }
 
         MaterialTheme {
             when {
-                splash -> SplashScreen()
-                session == null -> LoginScreen { session = it }
+                appState.splash -> SplashScreen()
+                appState.session == null -> LoginScreen { appState.onLoggedIn(it) }
                 else -> MainShell(
-                    online = online,
-                    configured = configured,
-                    pending = pending,
-                    session = session!!,
+                    online = appState.online,
+                    configured = appState.configured,
+                    pending = appState.pending,
+                    session = appState.session!!,
                     onLogout = {
-                        session = null
-                        runCatching {
-                            stopService(Intent(this@MainActivity, JarvisConnectionService::class.java))
-                        }
-                        Thread {
-                            runCatching { MobileAuth.logout(this@MainActivity) }
-                        }.start()
+                        appState.clearLocalSession()
+                        runCatching { stopService(Intent(this@MainActivity, JarvisConnectionService::class.java)) }
+                        Thread { runCatching { MobileAuth.logout(this@MainActivity) } }.start()
                     }
                 )
             }
@@ -357,10 +203,10 @@ class MainActivity : ComponentActivity() {
         session: MobileAuth.Session,
         onLogout: () -> Unit
     ) {
-        var stack by remember { mutableStateOf(listOf(Route.HOME)) }
+        var stack by remember { mutableStateOf(listOf(MobileRoute.HOME)) }
         val route = stack.last()
 
-        fun open(next: Route) {
+        fun open(next: MobileRoute) {
             stack = stack + next
         }
 
@@ -369,21 +215,21 @@ class MainActivity : ComponentActivity() {
         }
 
         fun home() {
-            stack = listOf(Route.HOME)
+            stack = listOf(MobileRoute.HOME)
         }
 
         val title = when (route) {
-            Route.HOME -> "JARVIS Mobile"
-            Route.CASA_MENU -> "CASA"
-            Route.JARVIS_MENU -> "JARVIS"
-            Route.WATCH_MENU -> "Watch"
-            Route.DEVICES_MENU -> "Devices"
-            Route.SYSTEM_MENU -> "Sistema"
-            Route.OPERATIONS -> "Operações"
-            Route.VOICE -> "Voz"
-            Route.WATCH_STATUS -> "Watch / Estado"
-            Route.DEVICES_LIST -> "Devices / Lista"
-            Route.CONFIG -> "Sistema / Configuração"
+            MobileRoute.HOME -> "JARVIS Mobile"
+            MobileRoute.CASA_MENU -> "CASA"
+            MobileRoute.JARVIS_MENU -> "JARVIS"
+            MobileRoute.WATCH_MENU -> "Watch"
+            MobileRoute.DEVICES_MENU -> "Devices"
+            MobileRoute.SYSTEM_MENU -> "Sistema"
+            MobileRoute.OPERATIONS -> "Operações"
+            MobileRoute.VOICE -> "Voz"
+            MobileRoute.WATCH_STATUS -> "Watch / Estado"
+            MobileRoute.DEVICES_LIST -> "Devices / Lista"
+            MobileRoute.CONFIG -> "Sistema / Configuração"
         }
 
         val subtitle = when {
@@ -402,54 +248,54 @@ class MainActivity : ComponentActivity() {
             onLogout = onLogout
         ) {
             when (route) {
-                Route.HOME -> {
+                MobileRoute.HOME -> {
                     LcarsSectionLabel("MENU PRINCIPAL", LcarsColors.Orange)
-                    LcarsMenuButton("CASA", "Operações, sensores e estado da residência", LcarsColors.Salmon) { open(Route.CASA_MENU) }
-                    LcarsMenuButton("JARVIS", "Voz, comando manual e respostas", LcarsColors.Lavender) { open(Route.JARVIS_MENU) }
-                    LcarsMenuButton("WATCH", "Relógio, recursos e configuração", LcarsColors.Blue) { open(Route.WATCH_MENU) }
-                    LcarsMenuButton("DEVICES", "Equipamentos e novos dispositivos", LcarsColors.Gold) { open(Route.DEVICES_MENU) }
-                    LcarsMenuButton("SISTEMA", "Conexão, idioma e credenciais", LcarsColors.Green) { open(Route.SYSTEM_MENU) }
+                    LcarsMenuButton("CASA", "Operações, sensores e estado da residência", LcarsColors.Salmon) { open(MobileRoute.CASA_MENU) }
+                    LcarsMenuButton("JARVIS", "Voz, comando manual e respostas", LcarsColors.Lavender) { open(MobileRoute.JARVIS_MENU) }
+                    LcarsMenuButton("WATCH", "Relógio, recursos e configuração", LcarsColors.Blue) { open(MobileRoute.WATCH_MENU) }
+                    LcarsMenuButton("DEVICES", "Equipamentos e novos dispositivos", LcarsColors.Gold) { open(MobileRoute.DEVICES_MENU) }
+                    LcarsMenuButton("SISTEMA", "Conexão, idioma e credenciais", LcarsColors.Green) { open(MobileRoute.SYSTEM_MENU) }
                 }
 
-                Route.CASA_MENU -> {
+                MobileRoute.CASA_MENU -> {
                     LcarsSectionLabel("CASA", LcarsColors.Salmon)
-                    LcarsMenuButton("OPERAÇÕES", "Controles rápidos e comando manual", LcarsColors.Salmon) { open(Route.OPERATIONS) }
-                    LcarsMenuButton("STATUS E SENSORES", "Consulta de estado, temperatura e sensores", LcarsColors.Orange) { open(Route.OPERATIONS) }
+                    LcarsMenuButton("OPERAÇÕES", "Controles rápidos e comando manual", LcarsColors.Salmon) { open(MobileRoute.OPERATIONS) }
+                    LcarsMenuButton("STATUS E SENSORES", "Consulta de estado, temperatura e sensores", LcarsColors.Orange) { open(MobileRoute.OPERATIONS) }
                 }
 
-                Route.JARVIS_MENU -> {
+                MobileRoute.JARVIS_MENU -> {
                     LcarsSectionLabel("JARVIS", LcarsColors.Lavender)
-                    LcarsMenuButton("VOZ", "Falar com o JARVIS", LcarsColors.Lavender) { open(Route.VOICE) }
-                    LcarsMenuButton("COMANDO MANUAL", "Digitar uma solicitação", LcarsColors.Blue) { open(Route.OPERATIONS) }
+                    LcarsMenuButton("VOZ", "Falar com o JARVIS", LcarsColors.Lavender) { open(MobileRoute.VOICE) }
+                    LcarsMenuButton("COMANDO MANUAL", "Digitar uma solicitação", LcarsColors.Blue) { open(MobileRoute.OPERATIONS) }
                 }
 
-                Route.WATCH_MENU -> {
+                MobileRoute.WATCH_MENU -> {
                     LcarsSectionLabel("WATCH", LcarsColors.Blue)
-                    LcarsMenuButton("ESTADO DO WATCH", "Conexão local, CASA e heartbeat", LcarsColors.Blue) { open(Route.WATCH_STATUS) }
+                    LcarsMenuButton("ESTADO DO WATCH", "Conexão local, CASA e heartbeat", LcarsColors.Blue) { open(MobileRoute.WATCH_STATUS) }
                     LcarsMenuButton("CONFIGURAR WATCH", "Wi-Fi, identidade e provisionamento", LcarsColors.Salmon) {
                         startActivity(Intent(this@MainActivity, WatchSetupActivity::class.java))
                     }
                 }
 
-                Route.DEVICES_MENU -> {
+                MobileRoute.DEVICES_MENU -> {
                     LcarsSectionLabel("DEVICES", LcarsColors.Gold)
-                    LcarsMenuButton("LISTAR DEVICES", "Equipamentos cadastrados", LcarsColors.Gold) { open(Route.DEVICES_LIST) }
+                    LcarsMenuButton("LISTAR DEVICES", "Equipamentos cadastrados", LcarsColors.Gold) { open(MobileRoute.DEVICES_LIST) }
                     LcarsMenuButton("ADICIONAR DEVICE", "Watch, ESP32-CAM e novos equipamentos", LcarsColors.Orange) {
                         startActivity(Intent(this@MainActivity, NewDevicesActivity::class.java))
                     }
                 }
 
-                Route.SYSTEM_MENU -> {
+                MobileRoute.SYSTEM_MENU -> {
                     LcarsSectionLabel("SISTEMA", LcarsColors.Green)
-                    LcarsMenuButton("CONFIGURAÇÃO", "URL CASA, token e idioma", LcarsColors.Green) { open(Route.CONFIG) }
+                    LcarsMenuButton("CONFIGURAÇÃO", "URL CASA, token e idioma", LcarsColors.Green) { open(MobileRoute.CONFIG) }
                     LcarsMenuButton("SAIR", "Encerrar sessão do operador", LcarsColors.Salmon) { onLogout() }
                 }
 
-                Route.OPERATIONS -> OperationsScreen(online, pending)
-                Route.VOICE -> VoiceScreen(online)
-                Route.WATCH_STATUS -> WatchScreen()
-                Route.DEVICES_LIST -> DevicesScreen()
-                Route.CONFIG -> ConfigScreen()
+                MobileRoute.OPERATIONS -> OperationsScreen(online, pending)
+                MobileRoute.VOICE -> VoiceScreen(online)
+                MobileRoute.WATCH_STATUS -> WatchScreen()
+                MobileRoute.DEVICES_LIST -> DevicesScreen()
+                MobileRoute.CONFIG -> ConfigScreen()
             }
         }
     }

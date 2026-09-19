@@ -64,6 +64,9 @@ jobs:
       - name: Validate database domains
         run: python3 .github/tests/test_database_domains.py
 
+      - name: Validate Android mobile architecture
+        run: python3 .github/tests/test_android_mobile_architecture.py
+
       - name: Enforce universal task context
         run: python3 .github/tests/test_task_context_contract.py
 
