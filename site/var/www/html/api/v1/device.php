@@ -14,6 +14,7 @@ require_once(__DIR__ . '/../db.php');
 require_once(__DIR__ . '/device_common.php');
 require_once(__DIR__ . '/rules_engine.php');
 require_once(__DIR__ . '/rules_scheduler.php');
+require_once(__DIR__ . '/../task_engine.php');
 $pdo=get_db_pdo();
 api_v1_basic_guard($pdo);
 
@@ -29,6 +30,7 @@ if ($action==='status') {
     try {
         $pdo->prepare("UPDATE device_commands SET status='expired',lifecycle_status='EXPIRED',concluido_em=COALESCE(concluido_em,NOW()),erro=COALESCE(erro,'Comando expirado') WHERE device_id=:d AND status IN('pending','ack','executing') AND expira_em IS NOT NULL AND expira_em<=NOW()")
             ->execute([':d'=>$deviceId]);
+        te_sync_device_actions_for_device($pdo,$deviceId);
         $stmt=$pdo->prepare("SELECT COUNT(*) FROM device_commands WHERE device_id=:d AND lifecycle_status IN('QUEUED','SENT') AND (expira_em IS NULL OR expira_em>NOW())");
         $stmt->execute([':d'=>$deviceId]); $pending=(int)$stmt->fetchColumn();
     } catch(Throwable $e) {}
@@ -145,7 +147,8 @@ if ($action==='command_start') {
     if ($id<=0) api_v1_json_response(400,['status'=>'erro','mensagem'=>'id do comando invalido']);
     $stmt=$pdo->prepare("UPDATE device_commands SET status='executing',lifecycle_status='EXECUTING',iniciado_em=COALESCE(iniciado_em,NOW()) WHERE id=:id AND device_id=:d AND lifecycle_status IN('SENT','ACKNOWLEDGED')");
     $stmt->execute([':id'=>$id,':d'=>$deviceId]);
-    api_v1_json_response(200,['status'=>'ok','updated'=>$stmt->rowCount(),'lifecycle_status'=>'EXECUTING']);
+    $taskSync=te_sync_device_command($pdo,$id);
+    api_v1_json_response(200,['status'=>'ok','updated'=>$stmt->rowCount(),'lifecycle_status'=>'EXECUTING','task_sync'=>$taskSync]);
 }
 
 if ($action==='command_ack' || $action==='command_result') {
@@ -154,7 +157,8 @@ if ($action==='command_ack' || $action==='command_result') {
     if ($action==='command_ack') {
         $stmt=$pdo->prepare("UPDATE device_commands SET status='ack',lifecycle_status='ACKNOWLEDGED',entregue_em=COALESCE(entregue_em,NOW()),ack_em=NOW() WHERE id=:id AND device_id=:d AND lifecycle_status IN('QUEUED','SENT')");
         $stmt->execute([':id'=>$id,':d'=>$deviceId]);
-        api_v1_json_response(200,['status'=>'ok','updated'=>$stmt->rowCount(),'lifecycle_status'=>'ACKNOWLEDGED']);
+        $taskSync=te_sync_device_command($pdo,$id);
+        api_v1_json_response(200,['status'=>'ok','updated'=>$stmt->rowCount(),'lifecycle_status'=>'ACKNOWLEDGED','task_sync'=>$taskSync]);
     }
     $resultStatus=strtolower((string)($input['status'] ?? 'success'));
     $ok=in_array($resultStatus,['success','ok','done'],true);
@@ -162,7 +166,8 @@ if ($action==='command_ack' || $action==='command_result') {
     $error=$ok?null:substr((string)($input['error'] ?? 'Falha informada pelo device'),0,2000);
     $stmt=$pdo->prepare("UPDATE device_commands SET status=:s,lifecycle_status=:ls,concluido_em=NOW(),resultado=:r,erro=:e WHERE id=:id AND device_id=:d AND lifecycle_status IN('QUEUED','SENT','ACKNOWLEDGED','EXECUTING')");
     $stmt->execute([':s'=>$ok?'success':'error',':ls'=>$ok?'DONE':'FAILED',':r'=>json_encode($result,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES),':e'=>$error,':id'=>$id,':d'=>$deviceId]);
-    api_v1_json_response(200,['status'=>'ok','updated'=>$stmt->rowCount(),'lifecycle_status'=>$ok?'DONE':'FAILED']);
+    $taskSync=te_sync_device_command($pdo,$id);
+    api_v1_json_response(200,['status'=>'ok','updated'=>$stmt->rowCount(),'lifecycle_status'=>$ok?'DONE':'FAILED','task_sync'=>$taskSync]);
 }
 
 api_v1_json_response(404,['status'=>'erro','mensagem'=>'Acao desconhecida','acoes'=>['status','heartbeat','event','commands','command_ack','command_start','command_result']]);
