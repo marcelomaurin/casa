@@ -1,4 +1,5 @@
 <?php
+require_once(__DIR__.'/device_registry.php');
 // CASA/JARVIS - Motor deterministico de regras. Nao usa LLM/IA.
 
 function rules_json($value, $fallback = []) {
@@ -64,17 +65,12 @@ function rules_enqueue_action(PDO $pdo, array $action, string $requestedBy, int 
     if ($risk >= 3) throw new RuntimeException('automatic_high_risk_blocked');
 
     $deviceId = trim((string)$action['device_id']);
-    $stmt = $pdo->prepare("SELECT device_id FROM dispositivos_cluster WHERE device_id=:d AND credential_revoked_at IS NULL LIMIT 1");
-    $stmt->execute([':d'=>$deviceId]);
-    if (!$stmt->fetchColumn()) throw new RuntimeException('device_not_found');
+    registry_require($pdo,$deviceId);
 
     $required = trim((string)($action['required_capability'] ?? ''));
     if ($required !== '') {
-        $stmt = $pdo->prepare("SELECT enabled,risk_level FROM device_capabilities WHERE device_id=:d AND capability=:c LIMIT 1");
-        $stmt->execute([':d'=>$deviceId, ':c'=>$required]);
-        $cap = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($cap && !(bool)$cap['enabled']) throw new RuntimeException('capability_disabled');
-        if ($cap && (int)$cap['risk_level'] >= 3) throw new RuntimeException('automatic_high_risk_blocked');
+        $resolved=registry_require_capability($pdo,$deviceId,$required);
+        if ((int)$resolved['risk_level'] >= 3) throw new RuntimeException('automatic_high_risk_blocked');
     }
 
     $corr = 'cmd_' . bin2hex(random_bytes(12));
