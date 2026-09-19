@@ -102,7 +102,7 @@ O planejador permite decompor uma demanda em múltiplas tarefas. Uma tarefa pode
 O ponto lógico oficial é:
 
 ```text
-https://casa.maurinsoft.com.br/api/v1
+https://maurinsoft.com.br/casa/api/v1
 ```
 
 O Control Plane usa `device_commands` e `device_events` como barramento comum. Mobile, TV, Watch, ESP32, Raspberry e nós de IA devem convergir para essa API em vez de criar canais paralelos.
