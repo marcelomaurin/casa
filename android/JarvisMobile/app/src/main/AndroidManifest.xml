@@ -7,6 +7,7 @@
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <!-- Opcionais: solicitadas somente ao usar a funcionalidade correspondente. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -70,6 +71,12 @@
         <activity
             android:name=".WatchVoiceActivity"
             android:exported="false"
+            android:theme="@style/Theme.JarvisMobile" />
+
+        <activity
+            android:name=".FamilyCallActivity"
+            android:exported="false"
+            android:label="Videochamada Família CASA"
             android:theme="@style/Theme.JarvisMobile" />
 
         <service
