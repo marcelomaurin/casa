@@ -3,7 +3,16 @@
 function api_v1_json_response($code,$payload){http_response_code($code);header('Content-Type: application/json; charset=utf-8');echo json_encode($payload,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);exit;}
 function api_v1_token_from_request(){$auth=$_SERVER['HTTP_AUTHORIZATION']??'';if(preg_match('/Bearer\s+(\S+)/i',$auth,$m))return trim($m[1]);if(!empty($_SERVER['HTTP_X_API_KEY']))return trim($_SERVER['HTTP_X_API_KEY']);if(!empty($_SERVER['HTTP_X_DEVICE_TOKEN']))return trim($_SERVER['HTTP_X_DEVICE_TOKEN']);return '';}
 function api_v1_client_ip(){$remote=$_SERVER['REMOTE_ADDR']??'';$cf=$_SERVER['HTTP_CF_CONNECTING_IP']??'';if($cf!==''&&filter_var($cf,FILTER_VALIDATE_IP))return $cf;return filter_var($remote,FILTER_VALIDATE_IP)?$remote:null;}
-function api_v1_correlation_id($value=null){$candidate=trim((string)($value??($_SERVER['HTTP_X_CORRELATION_ID']??'')));if($candidate!==''&&preg_match('/^[A-Za-z0-9._:-]{8,80}$/',$candidate))return $candidate;return 'req_'.bin2hex(random_bytes(16));}
+function api_v1_correlation_id($value=null){
+ static $requestCorrelation=null;
+ $candidate=trim((string)($value??''));
+ if($candidate!==''&&preg_match('/^[A-Za-z0-9._:-]{8,80}$/',$candidate)){$requestCorrelation=$candidate;return $candidate;}
+ $header=trim((string)($_SERVER['HTTP_X_CORRELATION_ID']??''));
+ if($header!==''&&preg_match('/^[A-Za-z0-9._:-]{8,80}$/',$header)){$requestCorrelation=$header;return $header;}
+ if($requestCorrelation!==null)return $requestCorrelation;
+ $requestCorrelation='req_'.bin2hex(random_bytes(16));
+ return $requestCorrelation;
+}
 function api_v1_redact($value){
  if(is_array($value)){foreach($value as $k=>$v){$key=strtolower((string)$k);if(preg_match('/(token|password|senha|secret|api[_-]?key|wifi|authorization|credential)/',$key)){$value[$k]='[REDACTED]';}else{$value[$k]=api_v1_redact($v);}}return $value;}
  if(is_string($value)){
