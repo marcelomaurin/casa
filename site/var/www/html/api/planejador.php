@@ -2,6 +2,7 @@
 header('Content-Type: application/json; charset=utf-8');
 require_once(__DIR__ . '/db.php');
 require_once(__DIR__ . '/seguranca.php');
+require_once(__DIR__ . '/task_engine.php');
 
 verify_api_auth();
 $pdo = get_db_pdo();
@@ -20,6 +21,7 @@ function planner_call_json($demanda) {
         "Formato obrigatorio: {\"resumo\":\"...\",\"tarefas\":[{" .
         "\"ordem\":1,\"titulo\":\"...\",\"descricao\":\"...\",\"tipo\":\"IMEDIATA|AGENDADA|CONDICIONAL\"," .
         "\"executor\":\"jarvis|web|dispositivo|fala\",\"payload\":{\"comando\":\"...\"}," .
+        "Para executor dispositivo, payload DEVE ser {\"device_id\":\"id registrado\",\"command\":\"comando\",\"payload\":{},\"required_capability\":\"capability opcional\",\"risk_level\":1}. " .
         "\"executar_em\":null,\"recorrencia\":null,\"depende_de_ordem\":null}]} . " .
         "Use AGENDADA quando houver data/hora futura ou recorrencia. Use CONDICIONAL quando depender de evento/condicao. " .
         "Use web quando a tarefa exigir pesquisa atual na internet. Nao invente data ausente. " .
@@ -97,7 +99,7 @@ function planner_tipo_acao($executor) {
     return 'comando_jarvis';
 }
 
-function planner_executar_imediata($executor, $payload) {
+function planner_executar_imediata(PDO $pdo, array $ctx, int $taskId, $executor, $payload) {
     $texto = planner_executor_payload($executor, $payload);
     if ($executor === 'web') {
         return planner_post('http://127.0.0.1/api/agente_internet.php', [
@@ -115,10 +117,17 @@ function planner_executar_imediata($executor, $payload) {
         return ($res && $code>=200 && $code<300) ? ['ok'=>true,'dados'=>json_decode($res,true)] : ['ok'=>false,'erro'=>'Falha TTS'];
     }
     if ($executor === 'dispositivo') {
-        $texto = 'Execute a acao de dispositivo: ' . json_encode($payload, JSON_UNESCAPED_UNICODE);
+        if (!is_array($payload)) return ['ok'=>false,'erro'=>'Payload de dispositivo invalido'];
+        try {
+            $queued=te_device_action($pdo,$ctx,$taskId,$payload,!empty($payload['confirm']));
+            return ['ok'=>true,'queued'=>true,'dados'=>$queued];
+        } catch (Throwable $e) {
+            return ['ok'=>false,'erro'=>$e->getMessage()];
+        }
     }
     return planner_post('http://127.0.0.1/api/jarvis.php', [
-        'comando'=>$texto,'skip_planner'=>true,'origem'=>'PLANEJADOR_EXECUTOR'
+        'comando'=>$texto,'skip_planner'=>true,'origem'=>'PLANEJADOR_EXECUTOR',
+        'task_context'=>te_public_context($ctx)
     ], 50);
 }
 
@@ -139,14 +148,14 @@ if (!$gen['ok']) {
 }
 $plano = $gen['plano'];
 
-$stmt = $pdo->prepare("INSERT INTO jarvis_planos (demanda_original,origem,status,resumo,dados_plano) VALUES (:d,:o,'PLANEJADO',:r,CAST(:j AS jsonb)) RETURNING id");
+$stmt = $pdo->prepare("INSERT INTO jarvis_planos (demanda_original,origem,status,resumo,dados_plano) VALUES (:d,:o,'PLANEJADO',:r,:j)");
 $stmt->execute([
     ':d'=>$demanda,
     ':o'=>trim($in['origem'] ?? 'JARVIS'),
     ':r'=>trim($plano['resumo'] ?? ''),
     ':j'=>json_encode($plano, JSON_UNESCAPED_UNICODE)
 ]);
-$idPlano = intval($stmt->fetchColumn());
+$idPlano = (int)$pdo->lastInsertId();
 
 $idsPorOrdem = [];
 $tarefasSalvas = [];
@@ -160,14 +169,14 @@ foreach ($plano['tarefas'] as $idx => $t) {
     $executarEm = !empty($t['executar_em']) ? date('Y-m-d H:i:s', strtotime($t['executar_em'])) : null;
     $status = $tipo === 'AGENDADA' ? 'AGENDADA' : ($tipo === 'CONDICIONAL' ? 'AGUARDANDO' : 'PENDENTE');
 
-    $st = $pdo->prepare("INSERT INTO jarvis_tarefas (id_plano,ordem,titulo,descricao,tipo,executor,payload,status,executar_em,recorrencia) VALUES (:p,:o,:t,:d,:tp,:e,CAST(:j AS jsonb),:s,:x,:r) RETURNING id");
+    $st = $pdo->prepare("INSERT INTO jarvis_tarefas (id_plano,ordem,titulo,descricao,tipo,executor,payload,status,executar_em,recorrencia) VALUES (:p,:o,:t,:d,:tp,:e,:j,:s,:x,:r)");
     $st->execute([
         ':p'=>$idPlano, ':o'=>$ordem, ':t'=>trim($t['titulo'] ?? ('Tarefa '.$ordem)),
         ':d'=>trim($t['descricao'] ?? ''), ':tp'=>$tipo, ':e'=>$executor,
         ':j'=>json_encode($payload, JSON_UNESCAPED_UNICODE), ':s'=>$status,
         ':x'=>$executarEm, ':r'=>$t['recorrencia'] ?? null
     ]);
-    $idTarefa = intval($st->fetchColumn());
+    $idTarefa = (int)$pdo->lastInsertId();
     $idsPorOrdem[$ordem] = $idTarefa;
     $tarefasSalvas[] = ['id'=>$idTarefa,'ordem'=>$ordem,'tipo'=>$tipo,'executor'=>$executor,'payload'=>$payload,'executar_em'=>$executarEm,'depende_de_ordem'=>$t['depende_de_ordem'] ?? null];
 }
@@ -189,9 +198,10 @@ foreach ($tarefasSalvas as &$t) {
         }
         $tipoAcao = planner_tipo_acao($t['executor']);
         $payloadTxt = planner_executor_payload($t['executor'], $t['payload']);
-        $st = $pdo->prepare("INSERT INTO tarefas_agendadas (titulo,descricao,horario,dias_semana,tipo_acao,payload,target_node,ativo,modo_agendamento,executar_em,id_plano,id_tarefa_plano,executar_uma_vez) SELECT titulo,descricao,to_char(:x::timestamp,'HH24:MI'),'*',:a,:pl,'local',TRUE,'UNICA',:x,:p,id,TRUE FROM jarvis_tarefas WHERE id=:id RETURNING id");
+        $st = $pdo->prepare("INSERT INTO tarefas_agendadas (titulo,descricao,horario,dias_semana,tipo_acao,payload,target_node,ativo,modo_agendamento,executar_em,id_plano,id_tarefa_plano,executar_uma_vez)
+            SELECT titulo,descricao,DATE_FORMAT(:x,'%H:%i'),'*',:a,:pl,'local',1,'UNICA',:x,:p,id,1 FROM jarvis_tarefas WHERE id=:id");
         $st->execute([':x'=>$quando, ':a'=>$tipoAcao, ':pl'=>$payloadTxt, ':p'=>$idPlano, ':id'=>$t['id']]);
-        $t['id_agendamento'] = intval($st->fetchColumn());
+        $t['id_agendamento'] = (int)$pdo->lastInsertId();
         $t['status'] = 'AGENDADA';
     }
 }
@@ -211,11 +221,15 @@ if ($executarImediatas) {
             }
         }
         $pdo->prepare("UPDATE jarvis_tarefas SET status='EXECUTANDO', iniciado_em=CURRENT_TIMESTAMP WHERE id=:id")->execute([':id'=>$t['id']]);
-        $exec = planner_executar_imediata($t['executor'], $t['payload']);
-        $status = $exec['ok'] ? 'CONCLUIDA' : 'ERRO';
-        $pdo->prepare("UPDATE jarvis_tarefas SET status=:s, resultado=CAST(:r AS jsonb), erro=:e, concluido_em=CURRENT_TIMESTAMP WHERE id=:id")->execute([
-            ':s'=>$status, ':r'=>json_encode($exec, JSON_UNESCAPED_UNICODE), ':e'=>$exec['ok'] ? null : ($exec['erro'] ?? 'erro'), ':id'=>$t['id']
-        ]);
+        $ctx=['id_plano'=>$idPlano,'id_tarefa_raiz'=>$t['id'],'current_task_id'=>$t['id'],'origem'=>'PLANEJADOR','modulo'=>'planejador'];
+        $exec = planner_executar_imediata($pdo,$ctx,(int)$t['id'],$t['executor'], $t['payload']);
+        $queued=!empty($exec['queued']);
+        $status = $exec['ok'] ? ($queued ? 'AGUARDANDO' : 'CONCLUIDA') : 'ERRO';
+        if(!$queued){
+            $pdo->prepare("UPDATE jarvis_tarefas SET status=:s, resultado=:r, erro=:e, concluido_em=CURRENT_TIMESTAMP WHERE id=:id")->execute([
+                ':s'=>$status, ':r'=>json_encode($exec, JSON_UNESCAPED_UNICODE), ':e'=>$exec['ok'] ? null : ($exec['erro'] ?? 'erro'), ':id'=>$t['id']
+            ]);
+        }
         $t['status'] = $status;
         $resultados[] = ['id_tarefa'=>$t['id'],'resultado'=>$exec];
     }
