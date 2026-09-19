@@ -68,7 +68,7 @@ async function presence(){const r=await api('presence',{});document.getElementBy
 async function poll(){const r=await api('poll',null,'&after='+lastMsg);for(const m of r.messages||[]){lastMsg=Math.max(lastMsg,+m.id);const d=document.createElement('div');d.className='msg '+(m.origem==='sistema'?'system':'');d.innerHTML='<b>'+esc(m.remetente)+'</b> <small>'+esc(m.origem)+'</small><br>'+esc(m.mensagem||'['+m.tipo+']');document.getElementById('messages').appendChild(d)}const box=document.getElementById('messages');box.scrollTop=box.scrollHeight}
 async function sendMessage(){const e=document.getElementById('message'),v=e.value.trim();if(!v)return;await api('send',{type:'texto',message:v});e.value='';await poll()}
 async function getMedia(mode){if(localStream)return localStream;localStream=await navigator.mediaDevices.getUserMedia({audio:true,video:mode==='video'});document.getElementById('localVideo').srcObject=localStream;return localStream}
-async function startCall(mode){const r=await api('call_start',{mode});callId=r.call_id;await api('call_join',{call_id:callId});await getMedia(mode);document.getElementById('callStatus').textContent='Chamada '+mode+' #'+callId;await sendSignal('join',{mode})}
+async function startCall(mode){const r=await api('call_start',{mode});callId=r.call_id;await getMedia(mode);document.getElementById('callStatus').textContent='Chamando • '+mode+' #'+callId}
 async function checkCurrent(){
   const r=await api('call_current');
   const btn=document.getElementById('acceptCallBtn');
