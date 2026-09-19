@@ -30,6 +30,7 @@ class EspCamProvisioner(private val context: Context) {
         val STATUS_UUID: UUID = UUID.fromString("7a5b0007-78fc-4b97-9f0f-9e9f5a31b401")
         val CASA_URL_UUID: UUID = UUID.fromString("7a5b0008-78fc-4b97-9f0f-9e9f5a31b401")
         val DEVICE_TOKEN_UUID: UUID = UUID.fromString("7a5b0009-78fc-4b97-9f0f-9e9f5a31b401")
+        val DEVICE_ID_UUID: UUID = UUID.fromString("7a5b000c-78fc-4b97-9f0f-9e9f5a31b401")
         val DEVICE_NAME_UUID: UUID = UUID.fromString("7a5b000a-78fc-4b97-9f0f-9e9f5a31b401")
         val LOCATION_UUID: UUID = UUID.fromString("7a5b000b-78fc-4b97-9f0f-9e9f5a31b401")
     }
@@ -69,11 +70,12 @@ class EspCamProvisioner(private val context: Context) {
         wifiPassword: String,
         casaUrl: String,
         deviceToken: String,
+        deviceId: String,
         deviceName: String,
         location: String
     ) {
         if (!canConnect()) { listener?.onError("Permissão Bluetooth Connect não concedida"); return }
-        if (ssid.isBlank() || casaUrl.isBlank() || deviceToken.isBlank()) { listener?.onError("Configuração incompleta"); return }
+        if (ssid.isBlank() || casaUrl.isBlank() || deviceToken.isBlank() || deviceId.isBlank()) { listener?.onError("Configuração incompleta"); return }
         stopScan()
         pendingWrites.clear()
         fun add(uuid: UUID, text: String) { pendingWrites.add(uuid to text.toByteArray(Charsets.UTF_8)) }
@@ -81,6 +83,7 @@ class EspCamProvisioner(private val context: Context) {
         add(WIFI_PASS_UUID, wifiPassword)
         add(CASA_URL_UUID, casaUrl.trimEnd('/'))
         add(DEVICE_TOKEN_UUID, deviceToken)
+        add(DEVICE_ID_UUID, deviceId)
         add(DEVICE_NAME_UUID, deviceName)
         add(LOCATION_UUID, location)
         add(APPLY_UUID, "APPLY")

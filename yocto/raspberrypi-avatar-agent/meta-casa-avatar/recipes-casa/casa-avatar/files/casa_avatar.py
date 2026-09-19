@@ -15,7 +15,7 @@ import tty
 import requests
 from PIL import Image, ImageDraw, ImageFont
 
-BASE = os.getenv("CASA_BASE_URL", "https://casa.maurinsoft.com.br").rstrip("/")
+BASE = os.getenv("CASA_BASE_URL", "https://maurinsoft.com.br/casa").rstrip("/")
 API_TOKEN = os.getenv("CASA_API_TOKEN", "")
 DEVICE_ID = os.getenv("CASA_DEVICE_ID", "avatar-rpi-01")
 DEVICE_TOKEN = os.getenv("CASA_DEVICE_TOKEN", "")

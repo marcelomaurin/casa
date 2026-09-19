@@ -174,7 +174,7 @@ void enviar_heartbeat() {
   WiFiClientSecure client;
   prepararTLS(client);
   HTTPClient http;
-  String url = String(jarvis_server) + "/api/crud.php?tabela=dispositivos_cluster&acao=heartbeat_iot";
+  String url = String(jarvis_server) + "/api/v1/device.php?acao=heartbeat";
 
   if (!http.begin(client, url)) return;
 
@@ -183,11 +183,19 @@ void enviar_heartbeat() {
 
   StaticJsonDocument<512> doc;
   doc["device_id"] = device_id;
-  doc["device_name"] = device_name;
-  doc["capabilities"] = device_capabilities;
-  doc["ram_livre"] = ESP.getFreeHeap();
-  doc["sinal_rssi"] = WiFi.RSSI();
-  doc["uptime_s"] = millis() / 1000UL;
+  doc["transport"] = "wifi";
+  doc["health"] = "ok";
+  doc["protocol_version"] = "CASA/1.0";
+  doc["model"] = device_name;
+  JsonArray caps = doc.createNestedArray("capabilities");
+  caps.add("voice");
+  caps.add("microphone");
+  caps.add("speaker");
+  caps.add("telemetry");
+  doc["rssi"] = WiFi.RSSI();
+  doc["uptime_sec"] = millis() / 1000UL;
+  JsonObject data = doc.createNestedObject("data");
+  data["free_heap"] = ESP.getFreeHeap();
 
   String payload;
   serializeJson(doc, payload);

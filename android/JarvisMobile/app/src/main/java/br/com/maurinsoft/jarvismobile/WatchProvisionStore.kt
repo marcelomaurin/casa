@@ -97,7 +97,12 @@ object WatchProvisionStore {
                             deviceId = deviceId,
                             name = o.optString("name", "JARVIS Watch"),
                             location = o.optString("location", "Residencia"),
-                            baseUrl = o.optString("base_url", "https://casa.maurinsoft.com.br").let { if (it == "https://maurinsoft.com.br/casa") "https://casa.maurinsoft.com.br" else it },
+                            baseUrl = o.optString("base_url", "https://maurinsoft.com.br/casa").let {
+                                val raw = it.trim().trimEnd('/')
+                                if (raw == "https://casa.maurinsoft.com.br" || raw == "https://maurinsoft.com.br") {
+                                    "https://maurinsoft.com.br/casa"
+                                } else raw
+                            },
                             token = token,
                             createdAt = o.optLong("created_at", 0L)
                         )

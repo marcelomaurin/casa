@@ -3,7 +3,7 @@
 Endpoint lógico oficial:
 
 ```text
-https://casa.maurinsoft.com.br
+https://maurinsoft.com.br/casa
 ```
 
 Todos os clientes e nós distribuídos que precisam do sistema central devem usar o domínio oficial. IPs privados, endereços de provedores de IA e URLs de serviços internos não devem ser incorporados aos clientes.

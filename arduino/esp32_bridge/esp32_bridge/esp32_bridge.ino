@@ -25,7 +25,7 @@
 static const char *FW_VERSION = "0.2.0";
 static const char *PROTOCOL_VERSION = "CASA/1.0";
 static const char *DEFAULT_DEVICE_NAME = "CASA-BRIDGE-ESP32";
-static const char *DEFAULT_CASA_URL = "https://casa.maurinsoft.com.br";
+static const char *DEFAULT_CASA_URL = "https://maurinsoft.com.br/casa";
 static const uint32_t POLL_INTERVAL_MS = 2500;
 static const uint32_t HEARTBEAT_INTERVAL_MS = 30000;
 static const uint32_t BLE_SCAN_INTERVAL_MS = 60000;

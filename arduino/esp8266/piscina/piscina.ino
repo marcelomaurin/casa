@@ -69,7 +69,7 @@ void enviarHeartbeat() {
   client->setInsecure();
 
   HTTPClient http;
-  String url = String(CASA_URL) + "/api/crud.php?tabela=dispositivos_cluster&acao=heartbeat_iot";
+  String url = String(CASA_URL) + "/api/v1/device.php?acao=heartbeat";
   if (!http.begin(*client, url)) return;
 
   http.addHeader("Content-Type", "application/json");
@@ -80,10 +80,13 @@ void enviarHeartbeat() {
 
   String payload = "{";
   payload += "\"device_id\":\"" + String(DEVICE_ID) + "\",";
-  payload += "\"capabilities\":\"" + String(DEVICE_CAPABILITIES) + "\",";
-  payload += "\"sinal_rssi\":" + String(WiFi.RSSI()) + ",";
-  payload += "\"uptime_s\":" + String(millis() / 1000UL) + ",";
-  payload += "\"reles_status\":{\"rele01\":" + String(rele01 ? 1 : 0) + ",\"rele02\":" + String(rele02 ? 1 : 0) + "}";
+  payload += "\"transport\":\"wifi\",";
+  payload += "\"health\":\"ok\",";
+  payload += "\"protocol_version\":\"CASA/1.0\",";
+  payload += "\"capabilities\":[\"pool\",\"relay\",\"telemetry\",\"rssi\"],";
+  payload += "\"rssi\":" + String(WiFi.RSSI()) + ",";
+  payload += "\"uptime_sec\":" + String(millis() / 1000UL) + ",";
+  payload += "\"data\":{\"reles_status\":{\"rele01\":" + String(rele01 ? 1 : 0) + ",\"rele02\":" + String(rele02 ? 1 : 0) + "}}";
   payload += "}";
 
   int code = http.POST(payload);

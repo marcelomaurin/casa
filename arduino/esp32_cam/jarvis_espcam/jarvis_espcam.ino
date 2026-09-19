@@ -31,6 +31,7 @@ String wifi_ssid;
 String wifi_password;
 String casa_url;
 String device_token;
+String device_id;
 String device_name;
 String device_location;
 bool provisioned = false;
@@ -43,6 +44,7 @@ bool provisioned = false;
 #define BLE_CHAR_STATUS_UUID    "7a5b0007-78fc-4b97-9f0f-9e9f5a31b401"
 #define BLE_CHAR_CASA_URL_UUID  "7a5b0008-78fc-4b97-9f0f-9e9f5a31b401"
 #define BLE_CHAR_TOKEN_UUID     "7a5b0009-78fc-4b97-9f0f-9e9f5a31b401"
+#define BLE_CHAR_DEVICE_ID_UUID "7a5b000c-78fc-4b97-9f0f-9e9f5a31b401"
 #define BLE_CHAR_NAME_UUID      "7a5b000a-78fc-4b97-9f0f-9e9f5a31b401"
 #define BLE_CHAR_LOCATION_UUID  "7a5b000b-78fc-4b97-9f0f-9e9f5a31b401"
 
@@ -56,6 +58,7 @@ String pending_ssid;
 String pending_wifi_password;
 String pending_casa_url;
 String pending_device_token;
+String pending_device_id;
 String pending_device_name;
 String pending_location;
 
@@ -116,11 +119,12 @@ void loadConfig() {
   wifi_password = preferences.getString("wifi_pass", "");
   casa_url = preferences.getString("casa_url", "https://maurinsoft.com.br/casa");
   device_token = preferences.getString("token", "");
+  device_id = preferences.getString("device_id", "");
   device_name = preferences.getString("name", "ESP32-CAM");
   device_location = preferences.getString("location", "Residencia");
   preferences.end();
 
-  if (wifi_ssid.isEmpty() || casa_url.isEmpty() || device_token.isEmpty()) provisioned = false;
+  if (wifi_ssid.isEmpty() || casa_url.isEmpty() || device_token.isEmpty() || device_id.isEmpty()) provisioned = false;
 }
 
 bool saveConfig(
@@ -128,16 +132,18 @@ bool saveConfig(
   const String& wifiPass,
   const String& casaUrl,
   const String& token,
+  const String& deviceId,
   const String& name,
   const String& location
 ) {
-  if (ssid.isEmpty() || casaUrl.isEmpty() || token.isEmpty()) return false;
+  if (ssid.isEmpty() || casaUrl.isEmpty() || token.isEmpty() || deviceId.isEmpty()) return false;
   preferences.begin(NVS_NAMESPACE, false);
   bool ok = true;
   ok &= preferences.putString("ssid", ssid) > 0;
   preferences.putString("wifi_pass", wifiPass);
   ok &= preferences.putString("casa_url", casaUrl) > 0;
   ok &= preferences.putString("token", token) > 0;
+  ok &= preferences.putString("device_id", deviceId) > 0;
   preferences.putString("name", name.isEmpty() ? "ESP32-CAM" : name);
   preferences.putString("location", location.isEmpty() ? "Residencia" : location);
   preferences.putBool("configured", ok);
@@ -171,6 +177,7 @@ void clearPending() {
   pending_wifi_password = "";
   pending_casa_url = "";
   pending_device_token = "";
+  pending_device_id = "";
   pending_device_name = "";
   pending_location = "";
 }
@@ -227,6 +234,7 @@ void startBleProvisioning() {
   addWrite(BLE_CHAR_WIFI_UUID, &pending_wifi_password);
   addWrite(BLE_CHAR_CASA_URL_UUID, &pending_casa_url);
   addWrite(BLE_CHAR_TOKEN_UUID, &pending_device_token);
+  addWrite(BLE_CHAR_DEVICE_ID_UUID, &pending_device_id);
   addWrite(BLE_CHAR_NAME_UUID, &pending_device_name);
   addWrite(BLE_CHAR_LOCATION_UUID, &pending_location);
 
@@ -252,6 +260,7 @@ void processProvisioning() {
   if (pending_wifi_password.length() > 0 && pending_wifi_password.length() < 8) { bleStatusUpdate("ERRO", "Senha Wi-Fi invalida"); return; }
   if (!pending_casa_url.startsWith("https://")) { bleStatusUpdate("ERRO", "URL CASA deve usar HTTPS"); return; }
   if (pending_device_token.isEmpty()) { bleStatusUpdate("ERRO", "Token individual nao informado"); return; }
+  if (pending_device_id.isEmpty()) { bleStatusUpdate("ERRO", "Device ID nao informado"); return; }
 
   bleStatusUpdate("TESTANDO_WIFI", "Conectando a rede informada...");
   if (!connectWifi(pending_ssid, pending_wifi_password, 15000UL)) {
@@ -259,7 +268,7 @@ void processProvisioning() {
     return;
   }
 
-  if (!saveConfig(pending_ssid, pending_wifi_password, pending_casa_url, pending_device_token, pending_device_name, pending_location)) {
+  if (!saveConfig(pending_ssid, pending_wifi_password, pending_casa_url, pending_device_token, pending_device_id, pending_device_name, pending_location)) {
     bleStatusUpdate("ERRO_NVS", "Falha ao gravar configuracao");
     return;
   }
@@ -320,12 +329,12 @@ void sendHeartbeat() {
   if (WiFi.status() != WL_CONNECTED || device_token.isEmpty() || casa_url.isEmpty()) return;
   WiFiClientSecure tls;
   HTTPClient http;
-  String url = casa_url + "/api/crud.php?tabela=dispositivos_cluster&acao=heartbeat_iot";
+  String url = casa_url + "/api/v1/device.php?acao=heartbeat";
   if (!beginSecureHttp(http, tls, url)) return;
   http.addHeader("Content-Type", "application/json");
   http.addHeader("X-Device-Token", device_token);
   http.addHeader("Authorization", "Bearer " + device_token);
-  String payload = "{\"device_token\":\"" + jsonEscape(device_token) + "\",\"ram_livre\":" + String(ESP.getFreeHeap()) + ",\"sinal_rssi\":" + String(WiFi.RSSI()) + ",\"ip_address\":\"" + WiFi.localIP().toString() + "\",\"metadata\":{\"local\":\"" + jsonEscape(device_location) + "\"}}";
+  String payload = "{\"device_id\":\"" + jsonEscape(device_id) + "\",\"transport\":\"wifi\",\"health\":\"ok\",\"protocol_version\":\"CASA/1.0\",\"model\":\"ESP32-CAM\",\"rssi\":" + String(WiFi.RSSI()) + ",\"local_ip\":\"" + WiFi.localIP().toString() + "\",\"capabilities\":[\"camera\",\"snapshot\",\"mjpeg\",\"flash\",\"telemetry\",\"wifi\"],\"data\":{\"free_heap\":" + String(ESP.getFreeHeap()) + ",\"location\":\"" + jsonEscape(device_location) + "\"}}";
   int code = http.POST(payload);
   Serial.printf("[CASA] Heartbeat HTTP %d\n", code);
   http.end();

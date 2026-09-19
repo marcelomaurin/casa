@@ -158,6 +158,7 @@ class NewDevicesActivity : ComponentActivity(), EspCamProvisioner.Listener {
                     wifiPassword = wifiPass,
                     casaUrl = cfg.baseUrl,
                     deviceToken = device.token,
+                    deviceId = device.deviceId,
                     deviceName = device.name,
                     location = device.location
                 )
