@@ -31,6 +31,7 @@ class JarvisConnectionService : Service(), WatchClient.Listener, WatchEventProce
     private lateinit var notifier: JarvisServiceNotifier
     private var localWatchConnected = false
     private var reportedWifiState = false
+    private val watchInitiatedCalls = linkedSetOf<Long>()
 
     companion object {
         const val CHANNEL_SERVICE = "jarvis_service"
@@ -327,6 +328,14 @@ class JarvisConnectionService : Service(), WatchClient.Listener, WatchEventProce
     }
 
     override fun showFamilyCallNotification(callId: Long, mode: String, initiator: Boolean) {
+        if (initiator) {
+            synchronized(watchInitiatedCalls) {
+                watchInitiatedCalls += callId
+                while (watchInitiatedCalls.size > 32) {
+                    watchInitiatedCalls.remove(watchInitiatedCalls.first())
+                }
+            }
+        }
         notifier.showFamilyCall(callId, mode, initiator)
     }
 
@@ -398,8 +407,12 @@ class JarvisConnectionService : Service(), WatchClient.Listener, WatchEventProce
                                     val callId = m.data.optLong("call_id")
                                     val mode = m.data.optString("mode", "video")
                                     val targetPlatform = m.data.optString("target_platform")
-                                    if (callId > 0 && (targetPlatform.isBlank() || targetPlatform == "mobile" || m.origin == "watch")) {
-                                        showFamilyCallNotification(callId, mode, m.origin == "watch")
+                                    val localInitiator = synchronized(watchInitiatedCalls) {
+                                        watchInitiatedCalls.contains(callId)
+                                    }
+                                    val directWatchNeedsBridge = m.origin == "watch" && targetPlatform == "web" && !localInitiator
+                                    if (callId > 0 && (localInitiator || targetPlatform.isBlank() || targetPlatform == "mobile" || directWatchNeedsBridge)) {
+                                        showFamilyCallNotification(callId, mode, localInitiator || directWatchNeedsBridge)
                                     }
                                 }
 
