@@ -326,8 +326,8 @@ class JarvisConnectionService : Service(), WatchClient.Listener, WatchEventProce
         }
     }
 
-    override fun showFamilyCallNotification(callId: Long, mode: String) {
-        notifier.showFamilyCall(callId, mode)
+    override fun showFamilyCallNotification(callId: Long, mode: String, initiator: Boolean) {
+        notifier.showFamilyCall(callId, mode, initiator)
     }
 
     override fun networkSnapshot(): JarvisNetworkMonitor.Snapshot = networkMonitor.snapshot
@@ -399,7 +399,7 @@ class JarvisConnectionService : Service(), WatchClient.Listener, WatchEventProce
                                     val mode = m.data.optString("mode", "video")
                                     val targetPlatform = m.data.optString("target_platform")
                                     if (callId > 0 && (targetPlatform.isBlank() || targetPlatform == "mobile" || m.origin == "watch")) {
-                                        showFamilyCallNotification(callId, mode)
+                                        showFamilyCallNotification(callId, mode, m.origin == "watch")
                                     }
                                 }
 
