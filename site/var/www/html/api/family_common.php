@@ -43,6 +43,9 @@ function family_ensure_schema(PDO $pdo): void {
             canal_id BIGINT UNSIGNED NOT NULL,
             iniciado_por VARCHAR(120) NOT NULL,
             modo VARCHAR(20) NOT NULL DEFAULT 'video',
+            destino_cliente VARCHAR(120) NULL,
+            destino_plataforma VARCHAR(30) NULL,
+            atendido_por VARCHAR(120) NULL,
             status VARCHAR(30) NOT NULL DEFAULT 'chamando',
             criado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             encerrado_em DATETIME NULL,
@@ -79,6 +82,13 @@ function family_ensure_schema(PDO $pdo): void {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     ];
     foreach ($sql as $q) $pdo->exec($q);
+
+    // Evolução compatível de instalações existentes.
+    $cols = $pdo->query("SHOW COLUMNS FROM family_calls")->fetchAll(PDO::FETCH_COLUMN);
+    if (!in_array('destino_cliente',$cols,true)) $pdo->exec("ALTER TABLE family_calls ADD COLUMN destino_cliente VARCHAR(120) NULL AFTER modo");
+    if (!in_array('destino_plataforma',$cols,true)) $pdo->exec("ALTER TABLE family_calls ADD COLUMN destino_plataforma VARCHAR(30) NULL AFTER destino_cliente");
+    if (!in_array('atendido_por',$cols,true)) $pdo->exec("ALTER TABLE family_calls ADD COLUMN atendido_por VARCHAR(120) NULL AFTER destino_plataforma");
+
     $pdo->exec("INSERT IGNORE INTO family_channels (nome, slug, tipo) VALUES ('Família CASA', 'familia', 'familia')");
 }
 
@@ -126,4 +136,21 @@ function family_alert(PDO $pdo, string $type, string $severity, string $message,
     $channel = family_channel($pdo, 'familia');
     family_send($pdo, (int)$channel['id'], 'JARVIS', 'sistema', 'alerta', $message, array_merge($data, ['event_id'=>$id,'severity'=>$severity,'type'=>$type]));
     return $id;
+}
+
+
+function family_start_call(PDO $pdo, int $channelId, string $startedBy, string $mode='video', ?string $targetClient=null, ?string $targetPlatform=null): int {
+    $mode = in_array($mode,['audio','video'],true) ? $mode : 'video';
+    $targetClient = $targetClient !== null && trim($targetClient) !== '' ? substr(trim($targetClient),0,120) : null;
+    $targetPlatform = $targetPlatform !== null && trim($targetPlatform) !== '' ? substr(trim($targetPlatform),0,30) : null;
+    $stmt=$pdo->prepare("INSERT INTO family_calls(canal_id,iniciado_por,modo,destino_cliente,destino_plataforma,status)
+        VALUES(:c,:u,:m,:dc,:dp,'chamando')");
+    $stmt->execute([':c'=>$channelId,':u'=>substr($startedBy,0,120),':m'=>$mode,':dc'=>$targetClient,':dp'=>$targetPlatform]);
+    return (int)$pdo->lastInsertId();
+}
+
+function family_call_visible_sql(string $clientParam=':me', string $platformParam=':platform'): string {
+    return "(iniciado_por={$clientParam}
+        OR (destino_cliente IS NOT NULL AND destino_cliente={$clientParam})
+        OR (destino_cliente IS NULL AND (destino_plataforma IS NULL OR destino_plataforma='' OR destino_plataforma={$platformParam})))";
 }
