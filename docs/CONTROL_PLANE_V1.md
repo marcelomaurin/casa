@@ -2,7 +2,7 @@
 
 ## Visão geral
 
-O Control Plane centraliza descoberta de devices, comandos, eventos, cenas, regras e saúde operacional. O schema atual é identificado em `param` por `VERSAO=1.20`.
+O Control Plane centraliza descoberta de devices, comandos, eventos, cenas, regras e saúde operacional. O schema atual é identificado em `param` por `VERSAO=1.26`.
 
 ## Device Registry
 
@@ -249,11 +249,11 @@ Na primeira conexão ao banco, `api/db.php`:
 1. cria `param` se necessário;
 2. verifica `VERSAO`;
 3. instala schema-base se necessário;
-4. aplica todos os módulos da migration `1.20`;
+4. aplica sequencialmente as migrations `1.20` até `1.26`;
 5. valida as tabelas obrigatórias;
-6. grava `VERSAO=1.20` apenas após sucesso completo.
+6. grava `VERSAO=1.26` apenas após sucesso completo.
 
-Quando `VERSAO=1.20`, as migrations não são executadas novamente.
+Quando `VERSAO=1.26`, as migrations não são executadas novamente.
 
 
 ## Integração com o Task Engine
