@@ -204,11 +204,29 @@ if ($action === 'family_poll') {
 if ($action === 'call_start') {
     $channel=family_channel($pdo,$input['channel'] ?? 'familia');
     $mode=in_array(($input['mode'] ?? 'audio'),['audio','video'],true)?$input['mode']:'audio';
-    $stmt=$pdo->prepare("INSERT INTO family_calls(canal_id,iniciado_por,modo,status) VALUES(:c,:u,:m,'chamando')");
-    $stmt->execute([':c'=>$channel['id'],':u'=>$clientName,':m'=>$mode]);
-    $callId=(int)$pdo->lastInsertId();
-    family_send($pdo,(int)$channel['id'],$clientName,'watch','call','Chamada familiar iniciada pelo relógio',['call_id'=>$callId,'mode'=>$mode]);
-    echo json_encode(['status'=>'ok','call_id'=>$callId,'mode'=>$mode,'video_source'=>'phone_or_web']); exit;
+    $targetPlatform=trim((string)($input['target_platform'] ?? 'mobile'));
+    if (!in_array($targetPlatform,['mobile','web'],true)) {
+        api_v1_json_response(400,['status'=>'erro','mensagem'=>'Destino deve ser mobile ou web']);
+    }
+    $targetClient=trim((string)($input['target_client'] ?? '')) ?: null;
+    $callId=family_start_call($pdo,(int)$channel['id'],$clientName,$mode,$targetClient,$targetPlatform);
+    family_send(
+        $pdo,
+        (int)$channel['id'],
+        $clientName,
+        'watch',
+        'call',
+        'Chamada familiar iniciada pelo relógio',
+        ['call_id'=>$callId,'mode'=>$mode,'target_platform'=>$targetPlatform,'target_client'=>$targetClient]
+    );
+    echo json_encode([
+        'status'=>'ok',
+        'call_id'=>$callId,
+        'mode'=>$mode,
+        'target_platform'=>$targetPlatform,
+        'target_client'=>$targetClient,
+        'video_source'=>$targetPlatform === 'mobile' ? 'phone' : 'web'
+    ]); exit;
 }
 
 api_v1_json_response(404,[
