@@ -1,4 +1,5 @@
 <?php
+require_once(__DIR__ . '/v1/device_registry.php');
 // CASA / COMPUTER - motor generico de tarefas para qualquer solicitacao de IA.
 // Toda pergunta externa cria uma tarefa-raiz. Modulos internos anexam subtarefas ao mesmo contexto.
 
@@ -194,18 +195,11 @@ function te_device_action(PDO $pdo, array $ctx, int $taskId, array $action, bool
     $required=substr(trim((string)($action['required_capability'] ?? '')),0,120);
     $payload=is_array($action['payload'] ?? null)?$action['payload']:[];
 
-    $st=$pdo->prepare("SELECT device_id FROM dispositivos_cluster WHERE device_id=:d AND credential_revoked_at IS NULL LIMIT 1");
-    $st->execute([':d'=>$deviceId]);
-    if(!$st->fetchColumn()) throw new RuntimeException('device_not_found');
+    registry_require($pdo,$deviceId);
 
     if($required!==''){
-        $st=$pdo->prepare("SELECT enabled,risk_level FROM device_capabilities WHERE device_id=:d AND capability=:c LIMIT 1");
-        $st->execute([':d'=>$deviceId,':c'=>$required]);
-        $cap=$st->fetch(PDO::FETCH_ASSOC);
-        if($cap){
-            if(!(bool)$cap['enabled']) throw new RuntimeException('capability_disabled');
-            $risk=max($risk,(int)$cap['risk_level']);
-        }
+        $resolved=registry_require_capability($pdo,$deviceId,$required);
+        $risk=max($risk,(int)$resolved['risk_level']);
     }
     if($risk>=3 && !$confirm) throw new RuntimeException('confirmation_required');
 
