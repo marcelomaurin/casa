@@ -14,7 +14,7 @@ function planner_input() {
     return is_array($j) ? $j : [];
 }
 
-function planner_call_json($demanda) {
+function planner_call_json($demanda, array $taskContext) {
     $agora = date('Y-m-d H:i:s');
     $prompt = "Voce e o planejador do JARVIS. Data/hora atual: {$agora}. " .
         "Decomponha a demanda do usuario em tarefas executaveis. Retorne SOMENTE JSON valido, sem markdown. " .
@@ -31,7 +31,9 @@ function planner_call_json($demanda) {
     $payload = json_encode([
         'comando' => '/cloud ' . $prompt,
         'skip_planner' => true,
-        'origem' => 'PLANEJADOR'
+        'origem' => 'PLANEJADOR',
+        'task_context' => te_public_context($taskContext),
+        'correlation_id' => $taskContext['correlation_id'] ?? null
     ], JSON_UNESCAPED_UNICODE);
 
     $ch = curl_init('http://127.0.0.1/api/jarvis.php');
@@ -103,7 +105,9 @@ function planner_executar_imediata(PDO $pdo, array $ctx, int $taskId, $executor,
     $texto = planner_executor_payload($executor, $payload);
     if ($executor === 'web') {
         return planner_post('http://127.0.0.1/api/agente_internet.php', [
-            'acao'=>'responder','query'=>$texto,'max_results'=>5
+            'acao'=>'responder','query'=>$texto,'max_results'=>5,
+            'task_context'=>te_public_context($ctx),
+            'correlation_id'=>$ctx['correlation_id'] ?? null
         ], 65);
     }
     if ($executor === 'fala') {
@@ -141,22 +145,31 @@ if ($demanda === '') {
     exit;
 }
 
-$gen = planner_call_json($demanda);
-if (!$gen['ok']) {
-    http_response_code(502);
-    echo json_encode(['status'=>'erro','etapa'=>'planejamento','mensagem'=>$gen['erro'],'raw'=>$gen['raw'] ?? null], JSON_UNESCAPED_UNICODE);
-    exit;
-}
-$plano = $gen['plano'];
-
 $taskContext=te_begin(
     $pdo,
     $demanda,
     trim($in['origem'] ?? 'JARVIS'),
     'planejador',
-    $existingTaskContext
+    $existingTaskContext,
+    $in['correlation_id'] ?? null
 );
 $idPlano=(int)$taskContext['id_plano'];
+
+$taskPlanning=te_add_subtask($pdo,$taskContext,'Gerar plano estruturado','planejador',[
+    'demanda'=>$demanda
+],null,'EXECUTANDO');
+
+$gen = planner_call_json($demanda,$taskContext);
+if (!$gen['ok']) {
+    te_fail_with_plan($pdo,$taskContext,$taskPlanning,(string)$gen['erro'],['raw'=>$gen['raw'] ?? null]);
+    http_response_code(502);
+    echo json_encode(te_attach_context([
+        'status'=>'erro','etapa'=>'planejamento','mensagem'=>$gen['erro'],'raw'=>$gen['raw'] ?? null
+    ],$taskContext,$pdo), JSON_UNESCAPED_UNICODE);
+    exit;
+}
+$plano = $gen['plano'];
+te_complete($pdo,$taskPlanning,['resumo'=>$plano['resumo'] ?? '','tarefas_previstas'=>count($plano['tarefas'] ?? [])]);
 
 $pdo->prepare("UPDATE jarvis_planos SET status='EM_EXECUCAO',resumo=:r,dados_plano=:j WHERE id=:id")
     ->execute([
@@ -179,12 +192,12 @@ foreach ($plano['tarefas'] as $idx => $t) {
     $executarEm = !empty($t['executar_em']) ? date('Y-m-d H:i:s', strtotime($t['executar_em'])) : null;
     $status = $tipo === 'AGENDADA' ? 'AGENDADA' : ($tipo === 'CONDICIONAL' ? 'AGUARDANDO' : 'PENDENTE');
 
-    $st = $pdo->prepare("INSERT INTO jarvis_tarefas (id_plano,ordem,titulo,descricao,tipo,executor,payload,status,executar_em,recorrencia) VALUES (:p,:o,:t,:d,:tp,:e,:j,:s,:x,:r)");
+    $st = $pdo->prepare("INSERT INTO jarvis_tarefas (id_plano,correlation_id,ordem,titulo,descricao,tipo,executor,payload,status,executar_em,recorrencia,tarefa_pai_id) VALUES (:p,:corr,:o,:t,:d,:tp,:e,:j,:s,:x,:r,:pai)");
     $st->execute([
-        ':p'=>$idPlano, ':o'=>$ordem, ':t'=>trim($t['titulo'] ?? ('Tarefa '.$ordem)),
+        ':p'=>$idPlano, ':corr'=>$taskContext['correlation_id'] ?? null, ':o'=>$ordem, ':t'=>trim($t['titulo'] ?? ('Tarefa '.$ordem)),
         ':d'=>trim($t['descricao'] ?? ''), ':tp'=>$tipo, ':e'=>$executor,
         ':j'=>json_encode($payload, JSON_UNESCAPED_UNICODE), ':s'=>$status,
-        ':x'=>$executarEm, ':r'=>$t['recorrencia'] ?? null
+        ':x'=>$executarEm, ':r'=>$t['recorrencia'] ?? null, ':pai'=>$taskContext['id_tarefa_raiz']
     ]);
     $idTarefa = (int)$pdo->lastInsertId();
     $idsPorOrdem[$ordemDeclarada] = $idTarefa;
@@ -235,6 +248,7 @@ if ($executarImediatas) {
             'id_plano'=>$idPlano,
             'id_tarefa_raiz'=>(int)$taskContext['id_tarefa_raiz'],
             'current_task_id'=>(int)$t['id'],
+            'correlation_id'=>$taskContext['correlation_id'] ?? '',
             'origem'=>'PLANEJADOR',
             'modulo'=>'planejador'
         ];
