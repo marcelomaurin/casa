@@ -49,7 +49,7 @@ object AppStrings {
         "offline_detail" to "Sin conexión — la aplicación sigue disponible e intenta reconectarse automáticamente",
         "waiting" to "comando(s) pendientes", "quick_ops" to "Operaciones rápidas", "turn_on" to "Encender luz",
         "turn_off" to "Apagar luz", "status" to "Estado", "sensors" to "Sensores", "manual_command" to "Comando manual",
-        "processing" to "Procesando...", "execute" to "Ejecutar", "save_queue" to "Guardar na cola", "result" to "Resultado",
+        "processing" to "Procesando...", "execute" to "Ejecutar", "save_queue" to "Guardar en cola", "result" to "Resultado",
         "manual_ready" to "Listo para operaciones manuales.", "executed" to "Comando ejecutado.", "connected_jarvis" to "Conectado a JARVIS",
         "offline_voice" to "Modo sin conexión — reconexión automática activa", "you" to "Tú", "none" to "Aún no hay frase.",
         "touch_speak" to "Toca Hablar.", "offline_speech" to "Sin conexión. La voz reconocida se guardará hasta que vuelva la conexión.",
