@@ -65,11 +65,12 @@ def heartbeat(base, device_id, token, kind):
     return request_json("POST", f"{base}/device.php?acao=heartbeat", token, payload)
 
 
-def emit_event(base, device_id, token, event_type, data=None):
+def emit_event(base, device_id, token, event_type, data=None, correlation_id=None):
     return request_json("POST", f"{base}/device.php?acao=event", token, {
         "device_id": device_id,
         "type": event_type,
         "priority": "normal",
+        "correlation_id": correlation_id,
         "data": data or {"simulated": True},
     })
 
@@ -123,6 +124,7 @@ def main():
     parser.add_argument("--mode", choices=["success", "failure", "timeout", "random"], default="success")
     parser.add_argument("--failure-rate", type=float, default=0.0)
     parser.add_argument("--event", default="", help="Tipo de evento a emitir apos heartbeat")
+    parser.add_argument("--correlation-id", default="", help="Correlation ID opcional para eventos E2E")
     parser.add_argument("--disconnect-after-heartbeat", action="store_true", help="Envia heartbeat e encerra para simular desconexao")
     parser.add_argument("--once", action="store_true")
     args = parser.parse_args()
@@ -136,7 +138,7 @@ def main():
         if status >= 400:
             return 2
         if args.event:
-            e_status, e_body = emit_event(base, args.device_id, args.token, args.event, {"simulated": True, "value": True})
+            e_status, e_body = emit_event(base, args.device_id, args.token, args.event, {"simulated": True, "value": True}, args.correlation_id or None)
             print(f"EVENT type={args.event} http={e_status} body={e_body}")
         if args.disconnect_after_heartbeat:
             print("DISCONNECT simulado apos heartbeat")
