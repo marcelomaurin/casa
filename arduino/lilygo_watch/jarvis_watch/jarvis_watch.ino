@@ -933,6 +933,20 @@ void bleEventHandler(const String &type,const String &title,const String &text){
     return;
   }
 
+  if(type=="family_call_control_result"){
+    bool ok=text.endsWith("|true");
+    String action=text.substring(0,text.indexOf('|'));
+    if(ok){
+      lastMessage=action=="accept"?"Chamada aceita":"Chamada recusada";
+      controller.setCallState(action=="accept"?JARVIS_CALL_ACTIVE:JARVIS_CALL_IDLE);
+    }else{
+      lastMessage="Falha na chamada";
+      controller.setCallState(JARVIS_CALL_ERROR);
+    }
+    if(screenAwake)drawScreen();
+    return;
+  }
+
   if(type=="phone_state"){
     lastMessage=jarvisBlePhoneInternet()?"Celular online":"Celular sem Internet";
     if(screenAwake&&currentScreen==SCREEN_STATUS)drawScreen();
