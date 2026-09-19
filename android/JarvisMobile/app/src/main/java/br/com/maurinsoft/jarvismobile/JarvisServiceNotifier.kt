@@ -185,12 +185,13 @@ class JarvisServiceNotifier(private val context: Context) {
         true
     }.getOrDefault(false)
 
-    fun showFamilyCall(callId: Long, mode: String) {
+    fun showFamilyCall(callId: Long, mode: String, initiator: Boolean = false) {
         runCatching {
             val openIntent = Intent(context, FamilyCallActivity::class.java)
                 .putExtra(FamilyCallActivity.EXTRA_CALL_ID, callId)
                 .putExtra(FamilyCallActivity.EXTRA_CALL_MODE, mode)
-                .putExtra(FamilyCallActivity.EXTRA_AUTO_JOIN, true)
+                .putExtra(FamilyCallActivity.EXTRA_AUTO_JOIN, !initiator)
+                .putExtra(FamilyCallActivity.EXTRA_INITIATOR, initiator)
             val open = PendingIntent.getActivity(
                 context,
                 callId.toInt(),
@@ -200,9 +201,12 @@ class JarvisServiceNotifier(private val context: Context) {
             val notification = NotificationCompat.Builder(context, JarvisConnectionService.CHANNEL_WATCH)
                 .setSmallIcon(R.drawable.ic_jarvis_launcher)
                 .setContentTitle("Videochamada Família CASA")
-                .setContentText("Toque para atender/usar câmera e áudio do celular (#$callId)")
+                .setContentText(if (initiator) "Toque para usar o celular como câmera da chamada (#$callId)" else "Toque para atender a videochamada (#$callId)")
                 .setStyle(NotificationCompat.BigTextStyle().bigText(
-                    "O JARVIS Watch iniciou ou recebeu uma chamada $mode. O relógio controla a chamada; câmera, microfone e vídeo são fornecidos pelo celular."
+                    if (initiator)
+                        "O JARVIS Watch iniciou uma chamada $mode. Abra para usar câmera e microfone do celular como terminal de mídia."
+                    else
+                        "Videochamada $mode recebida. Toque em ATENDER para abrir câmera, microfone e vídeo no celular."
                 ))
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setCategory(NotificationCompat.CATEGORY_CALL)
