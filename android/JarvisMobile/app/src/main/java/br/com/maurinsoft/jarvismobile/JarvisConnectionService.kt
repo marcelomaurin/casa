@@ -393,18 +393,36 @@ class JarvisConnectionService : Service(), WatchClient.Listener, WatchEventProce
                                 familyLastId
                             ).forEach { m ->
                                 familyLastId = maxOf(familyLastId, m.id)
+
+                                if (m.type == "call") {
+                                    val callId = m.data.optLong("call_id")
+                                    val mode = m.data.optString("mode", "video")
+                                    val targetPlatform = m.data.optString("target_platform")
+                                    if (callId > 0 && (targetPlatform.isBlank() || targetPlatform == "mobile" || m.origin == "watch")) {
+                                        showFamilyCallNotification(callId, mode)
+                                    }
+                                }
+
                                 if (m.origin != "watch") {
+                                    val command = if (m.type == "call") "incoming_call" else "family_message"
+                                    val payload = JSONObject()
+                                        .put("type", if (m.type == "call") "incoming_call" else "family_message")
+                                        .put("id", m.id)
+                                        .put("sender", m.sender)
+                                        .put("message_type", m.type)
+                                        .put("message", m.message)
+                                    if (m.type == "call") {
+                                        payload
+                                            .put("call_id", m.data.optLong("call_id"))
+                                            .put("mode", m.data.optString("mode", "video"))
+                                            .put("target_platform", m.data.optString("target_platform"))
+                                    }
                                     WatchApi.enqueueToWatches(
                                         this@JarvisConnectionService,
-                                        "family_message",
-                                        JSONObject()
-                                            .put("type", "family_message")
-                                            .put("id", m.id)
-                                            .put("sender", m.sender)
-                                            .put("message_type", m.type)
-                                            .put("message", m.message),
-                                        priority = "normal",
-                                        ttlSeconds = 3600
+                                        command,
+                                        payload,
+                                        priority = if (m.type == "call") "high" else "normal",
+                                        ttlSeconds = if (m.type == "call") 300 else 3600
                                     )
                                 }
                             }
