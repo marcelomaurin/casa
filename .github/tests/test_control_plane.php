@@ -22,6 +22,27 @@ ON DUPLICATE KEY UPDATE nome=VALUES(nome),status='online',health='ok',ultimo_hea
 $pdo->prepare("INSERT INTO device_capabilities(device_id,capability,enabled,risk_level) VALUES(:d,'power',1,1)
 ON DUPLICATE KEY UPDATE enabled=1,risk_level=1")->execute([':d'=>$deviceId]);
 
+
+$registryDevice=registry_get($pdo,$deviceId,false);
+if(!$registryDevice || ($registryDevice['device_id']??'')!==$deviceId) fail_test('Registry nao resolveu device');
+$powerCaps=array_values(array_filter($registryDevice['capabilities']??[],fn($x)=>($x['name']??'')==='power'));
+if(count($powerCaps)!==1 || empty($powerCaps[0]['enabled'])) fail_test('Registry nao resolveu capability power');
+if(!array_key_exists('routing',$registryDevice)) fail_test('Registry nao expos roteamento');
+
+$legacyId='sim_ci_legacy_caps';
+$pdo->prepare("INSERT INTO dispositivos_cluster(device_id,nome,tipo,device_token,status,health,capabilities,ultimo_heartbeat)
+VALUES(:d,'Legacy Caps','sensor','token_legacy_caps','online','ok',JSON_ARRAY('temperature','humidity'),NOW())
+ON DUPLICATE KEY UPDATE capabilities=VALUES(capabilities),ultimo_heartbeat=NOW()")->execute([':d'=>$legacyId]);
+$legacyRegistry=registry_get($pdo,$legacyId,false);
+$legacyNames=array_column($legacyRegistry['capabilities']??[],'name');
+if(!in_array('temperature',$legacyNames,true)||!in_array('humidity',$legacyNames,true)) fail_test('Registry nao normalizou capabilities legadas');
+
+$missingCapabilityBlocked=false;
+try{registry_require_capability($pdo,$deviceId,'capability_que_nao_existe');}catch(RuntimeException $e){$missingCapabilityBlocked=$e->getMessage()==='capability_not_found';}
+if(!$missingCapabilityBlocked) fail_test('Registry permitiu capability inexistente');
+
+echo "Device Registry OK: identidade, capabilities e roteamento validados\n";
+
 $corr='ci_'.bin2hex(random_bytes(6));
 $idem='idem_'.bin2hex(random_bytes(6));
 $pdo->prepare("INSERT INTO device_commands(device_id,comando,payload,prioridade,correlation_id,idempotency_key,status,lifecycle_status,max_retries,requested_by,risk_level,expira_em)
