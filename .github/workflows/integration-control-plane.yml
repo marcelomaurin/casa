@@ -6,6 +6,10 @@ on:
       - 'site/var/www/html/api/**'
       - 'site/var/www/html/automacao.php'
       - 'servicos/device_simulator.py'
+      - 'servicos/arm-agent/**'
+      - 'android/**'
+      - 'arduino/**'
+      - 'yocto/**'
       - '.github/tests/**'
       - '.github/workflows/integration-control-plane.yml'
   workflow_dispatch:
@@ -48,6 +52,9 @@ jobs:
 
       - name: Test Command Bus and automation
         run: php .github/tests/test_control_plane.php
+
+      - name: Enforce API v1 on external clients
+        run: python3 .github/tests/test_api_v1_clients.py
 
       - name: Validate simulator syntax
         run: python3 -m py_compile servicos/device_simulator.py
