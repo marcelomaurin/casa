@@ -36,7 +36,7 @@ function te_context_from_input($value): ?array {
     ];
 }
 
-function te_begin(PDO $pdo, string $pergunta, string $origem='COMPUTER', string $modulo='computer', ?array $existing=null): array {
+function te_begin(PDO $pdo, string $pergunta, string $origem='COMPUTER', string $modulo='computer', ?array $existing=null, ?string $requestedCorrelation=null): array {
     if ($existing && !empty($existing['id_plano']) && !empty($existing['id_tarefa_raiz'])) {
         $corr=trim((string)($existing['correlation_id'] ?? ''));
         if($corr===''){
@@ -57,7 +57,8 @@ function te_begin(PDO $pdo, string $pergunta, string $origem='COMPUTER', string 
         ];
     }
 
-    $corr='req_'.bin2hex(random_bytes(16));
+    $corr=trim((string)$requestedCorrelation);
+    if($corr==='' || !preg_match('/^[A-Za-z0-9._:-]{8,80}$/',$corr))$corr='req_'.bin2hex(random_bytes(16));
     $pdo->beginTransaction();
     try {
         $st=$pdo->prepare(
