@@ -134,6 +134,7 @@ function planner_executar_imediata(PDO $pdo, array $ctx, int $taskId, $executor,
 $in = planner_input();
 $demanda = trim($in['demanda'] ?? ($in['comando'] ?? ($_POST['demanda'] ?? '')));
 $executarImediatas = array_key_exists('executar_imediatas', $in) ? (bool)$in['executar_imediatas'] : true;
+$existingTaskContext=te_context_from_input($in['task_context'] ?? null);
 if ($demanda === '') {
     http_response_code(400);
     echo json_encode(['status'=>'erro','mensagem'=>'Demanda vazia'], JSON_UNESCAPED_UNICODE);
@@ -148,19 +149,28 @@ if (!$gen['ok']) {
 }
 $plano = $gen['plano'];
 
-$stmt = $pdo->prepare("INSERT INTO jarvis_planos (demanda_original,origem,status,resumo,dados_plano) VALUES (:d,:o,'PLANEJADO',:r,:j)");
-$stmt->execute([
-    ':d'=>$demanda,
-    ':o'=>trim($in['origem'] ?? 'JARVIS'),
-    ':r'=>trim($plano['resumo'] ?? ''),
-    ':j'=>json_encode($plano, JSON_UNESCAPED_UNICODE)
-]);
-$idPlano = (int)$pdo->lastInsertId();
+$taskContext=te_begin(
+    $pdo,
+    $demanda,
+    trim($in['origem'] ?? 'JARVIS'),
+    'planejador',
+    $existingTaskContext
+);
+$idPlano=(int)$taskContext['id_plano'];
+
+$pdo->prepare("UPDATE jarvis_planos SET status='EM_EXECUCAO',resumo=:r,dados_plano=:j WHERE id=:id")
+    ->execute([
+        ':r'=>trim($plano['resumo'] ?? ''),
+        ':j'=>json_encode($plano, JSON_UNESCAPED_UNICODE),
+        ':id'=>$idPlano
+    ]);
 
 $idsPorOrdem = [];
 $tarefasSalvas = [];
+$baseOrdem=te_next_order($pdo,$idPlano);
 foreach ($plano['tarefas'] as $idx => $t) {
-    $ordem = intval($t['ordem'] ?? ($idx + 1));
+    $ordemDeclarada = intval($t['ordem'] ?? ($idx + 1));
+    $ordem = $baseOrdem + $idx;
     $tipo = strtoupper(trim($t['tipo'] ?? 'IMEDIATA'));
     if (!in_array($tipo, ['IMEDIATA','AGENDADA','CONDICIONAL'], true)) $tipo = 'IMEDIATA';
     $executor = strtolower(trim($t['executor'] ?? 'jarvis'));
@@ -177,7 +187,7 @@ foreach ($plano['tarefas'] as $idx => $t) {
         ':x'=>$executarEm, ':r'=>$t['recorrencia'] ?? null
     ]);
     $idTarefa = (int)$pdo->lastInsertId();
-    $idsPorOrdem[$ordem] = $idTarefa;
+    $idsPorOrdem[$ordemDeclarada] = $idTarefa;
     $tarefasSalvas[] = ['id'=>$idTarefa,'ordem'=>$ordem,'tipo'=>$tipo,'executor'=>$executor,'payload'=>$payload,'executar_em'=>$executarEm,'depende_de_ordem'=>$t['depende_de_ordem'] ?? null];
 }
 
@@ -221,7 +231,13 @@ if ($executarImediatas) {
             }
         }
         $pdo->prepare("UPDATE jarvis_tarefas SET status='EXECUTANDO', iniciado_em=CURRENT_TIMESTAMP WHERE id=:id")->execute([':id'=>$t['id']]);
-        $ctx=['id_plano'=>$idPlano,'id_tarefa_raiz'=>$t['id'],'current_task_id'=>$t['id'],'origem'=>'PLANEJADOR','modulo'=>'planejador'];
+        $ctx=[
+            'id_plano'=>$idPlano,
+            'id_tarefa_raiz'=>(int)$taskContext['id_tarefa_raiz'],
+            'current_task_id'=>(int)$t['id'],
+            'origem'=>'PLANEJADOR',
+            'modulo'=>'planejador'
+        ];
         $exec = planner_executar_imediata($pdo,$ctx,(int)$t['id'],$t['executor'], $t['payload']);
         $queued=!empty($exec['queued']);
         $status = $exec['ok'] ? ($queued ? 'AGUARDANDO' : 'CONCLUIDA') : 'ERRO';
@@ -238,10 +254,9 @@ if ($executarImediatas) {
 
 $pdo->prepare("UPDATE jarvis_planos SET status='EM_EXECUCAO' WHERE id=:id")->execute([':id'=>$idPlano]);
 
-echo json_encode([
+echo json_encode(te_attach_context([
     'status'=>'ok',
-    'id_plano'=>$idPlano,
     'resumo'=>$plano['resumo'] ?? '',
     'tarefas'=>$tarefasSalvas,
     'resultados_imediatos'=>$resultados
-], JSON_UNESCAPED_UNICODE);
+],$taskContext,$pdo), JSON_UNESCAPED_UNICODE);
