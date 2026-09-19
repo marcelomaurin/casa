@@ -2,6 +2,7 @@
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 require_once(__DIR__.'/db.php');
+require_once(__DIR__.'/task_engine.php');
 verify_api_auth();
 
 function gh_out($data,$code=200){http_response_code($code);echo json_encode($data,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);exit;}
@@ -36,8 +37,19 @@ if($acao==='status'){
 }
 if($acao==='comando'){
     $cmd=trim((string)($in['comando']??''));if($cmd==='')gh_out(['status'=>'erro','mensagem'=>'Comando vazio.'],400);
-    $r=gh_call('POST','/command',['comando'=>$cmd,'device'=>trim((string)($in['device']??''))?:null,'speaker'=>'padrao'],60);
-    if(!$r['ok'])gh_out(['status'=>'erro','mensagem'=>$r['erro']],502);
-    gh_out($r['data']);
+    $pdo=get_db_pdo();
+    $existingTaskContext=te_context_from_input($in['task_context']??null);
+    $taskContext=te_begin($pdo,$cmd,trim((string)($in['origem']??'GOOGLE_HOME')),'google_home',$existingTaskContext,$in['correlation_id']??null);
+    $taskId=te_add_subtask($pdo,$taskContext,'Executar comando no Google Home','google_home',[
+        'comando'=>$cmd,'device'=>trim((string)($in['device']??''))?:null
+    ],null,'EXECUTANDO');
+    $r=gh_call('POST','/command',['comando'=>$cmd,'device'=>trim((string)($in['device']??''))?:null,'speaker'=>'padrao','task_context'=>te_public_context($taskContext)],60);
+    if(!$r['ok']){
+        te_fail_with_plan($pdo,$taskContext,$taskId,(string)$r['erro']);
+        gh_out(te_attach_context(['status'=>'erro','mensagem'=>$r['erro']],$taskContext,$pdo),502);
+    }
+    te_complete($pdo,$taskId,$r['data']);
+    te_finish($pdo,$taskContext,'Comando Google Home executado',$r['data']);
+    gh_out(te_attach_context($r['data'],$taskContext,$pdo));
 }
 gh_out(['status'=>'erro','mensagem'=>'Ação desconhecida.'],400);
