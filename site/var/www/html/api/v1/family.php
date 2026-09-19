@@ -103,13 +103,24 @@ if ($action === 'call_current') {
 if ($action === 'call_join') {
     $callId=(int)($input['call_id'] ?? 0);
     $platform=trim((string)($input['platform'] ?? 'mobile'));
+
+    $q=$pdo->prepare("SELECT iniciado_por,status FROM family_calls WHERE id=:id AND canal_id=:c LIMIT 1");
+    $q->execute([':id'=>$callId,':c'=>$channel['id']]);
+    $call=$q->fetch(PDO::FETCH_ASSOC);
+    if (!$call) api_v1_json_response(404,['status'=>'erro','mensagem'=>'Chamada não encontrada']);
+
+    if (($call['iniciado_por'] ?? '') === $clientName) {
+        family_presence($pdo,(int)$channel['id'],$clientName,$platform,$input['device'] ?? null,['call_id'=>$callId,'role'=>'initiator']);
+        echo json_encode(['status'=>'ok','call_id'=>$callId,'role'=>'initiator']); exit;
+    }
+
     $visibility = family_call_visible_sql(':me',':platform');
     $stmt=$pdo->prepare("UPDATE family_calls SET status='ativa',atendido_por=:me
         WHERE id=:id AND canal_id=:c AND status='chamando' AND {$visibility}");
     $stmt->execute([':id'=>$callId,':c'=>$channel['id'],':me'=>$clientName,':platform'=>$platform]);
     if ($stmt->rowCount() < 1) api_v1_json_response(409,['status'=>'erro','mensagem'=>'Chamada não disponível para este cliente']);
-    family_presence($pdo,(int)$channel['id'],$clientName,$platform,$input['device'] ?? null,['call_id'=>$callId]);
-    echo json_encode(['status'=>'ok','call_id'=>$callId,'answered_by'=>$clientName]); exit;
+    family_presence($pdo,(int)$channel['id'],$clientName,$platform,$input['device'] ?? null,['call_id'=>$callId,'role'=>'callee']);
+    echo json_encode(['status'=>'ok','call_id'=>$callId,'answered_by'=>$clientName,'role'=>'callee']); exit;
 }
 
 if ($action === 'call_signal') {
