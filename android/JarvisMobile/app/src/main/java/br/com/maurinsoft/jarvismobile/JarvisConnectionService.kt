@@ -28,6 +28,7 @@ class JarvisConnectionService : Service(), WatchClient.Listener, WatchEventProce
     private lateinit var watchCommands: WatchCommandDispatcher
     private lateinit var networkMonitor: JarvisNetworkMonitor
     private lateinit var watchEventProcessor: WatchEventProcessor
+    private lateinit var notifier: JarvisServiceNotifier
     private var localWatchConnected = false
     private var reportedWifiState = false
 
@@ -56,11 +57,12 @@ class JarvisConnectionService : Service(), WatchClient.Listener, WatchEventProce
         watchEventAfter = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getLong(KEY_WATCH_EVENT_AFTER, 0L)
 
-        runCatching { createChannels() }
+        notifier = JarvisServiceNotifier(this)
+        runCatching { notifier.createChannels() }
         runCatching {
             startForeground(
                 NOTIFICATION_ID,
-                serviceNotification("Inicializando JARVIS...")
+                notifier.serviceNotification("Inicializando JARVIS...")
             )
         }.onFailure {
             stopSelf()
@@ -227,81 +229,8 @@ class JarvisConnectionService : Service(), WatchClient.Listener, WatchEventProce
         localWatchConnected = false
     }
 
-    private fun createChannels() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val nm = getSystemService(NotificationManager::class.java)
-            nm.createNotificationChannel(
-                NotificationChannel(
-                    CHANNEL_SERVICE,
-                    "Conexão JARVIS",
-                    NotificationManager.IMPORTANCE_LOW
-                )
-            )
-            nm.createNotificationChannel(
-                NotificationChannel(
-                    CHANNEL_ALERTS,
-                    "Alertas JARVIS",
-                    NotificationManager.IMPORTANCE_HIGH
-                )
-            )
-            nm.createNotificationChannel(
-                NotificationChannel(
-                    CHANNEL_WATCH,
-                    "JARVIS Watch",
-                    NotificationManager.IMPORTANCE_HIGH
-                )
-            )
-
-            val alarmSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-            val alarmAttributes = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_ALARM)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .build()
-            nm.createNotificationChannel(
-                NotificationChannel(
-                    CHANNEL_WATCH_ALARM,
-                    "Alarmes do JARVIS Watch",
-                    NotificationManager.IMPORTANCE_HIGH
-                ).apply {
-                    description = "Alarmes solicitados pelo relógio JARVIS"
-                    enableVibration(true)
-                    vibrationPattern = longArrayOf(0, 350, 180, 350, 180, 700)
-                    setSound(alarmSound, alarmAttributes)
-                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-                }
-            )
-        }
-    }
-
-    private fun serviceNotification(text: String): Notification {
-        val openMain = PendingIntent.getActivity(
-            this,
-            0,
-            Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        val setup = PendingIntent.getActivity(
-            this,
-            1,
-            Intent(this, WatchSetupActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        return NotificationCompat.Builder(this, CHANNEL_SERVICE)
-            .setSmallIcon(R.drawable.ic_jarvis_launcher)
-            .setContentTitle("JARVIS Mobile")
-            .setContentText(text)
-            .setOngoing(true)
-            .setContentIntent(openMain)
-            .addAction(0, "Relógio", setup)
-            .build()
-    }
-
     private fun updateServiceNotification(text: String) {
-        runCatching {
-            getSystemService(NotificationManager::class.java)
-                .notify(NOTIFICATION_ID, serviceNotification(text))
-        }
+        runCatching { notifier.updateService(text) }
     }
 
     private fun withWatch(text: String): String =
@@ -320,144 +249,43 @@ class JarvisConnectionService : Service(), WatchClient.Listener, WatchEventProce
     }
 
     override fun showVoiceRequest(deviceId: String) {
-        val canNotify = Build.VERSION.SDK_INT < 33 ||
-            ActivityCompat.checkSelfPermission(
-                this,
-                android.Manifest.permission.POST_NOTIFICATIONS
-            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-
-        if (!canNotify) {
-            scope.launch {
-                sendWatchCommand(
-                    deviceId,
-                    "voice_ready",
-                    JSONObject()
-                        .put("type", "voice_ready")
-                        .put("ok", false)
-                        .put("error", "notification_permission_required"),
-                    "normal",
-                    120
-                )
-            }
-            return
-        }
-
-        runCatching {
-            val intent = Intent(this, WatchVoiceActivity::class.java)
-                .putExtra(WatchVoiceActivity.EXTRA_WATCH_DEVICE_ID, deviceId)
-            val pending = PendingIntent.getActivity(
-                this,
-                VOICE_NOTIFICATION_ID,
-                intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        val ok = notifier.showVoiceRequest(deviceId)
+        scope.launch {
+            sendWatchCommand(
+                deviceId,
+                "voice_ready",
+                JSONObject()
+                    .put("type", "voice_ready")
+                    .put("ok", ok)
+                    .put("gateway", if (ok) "android" else JSONObject.NULL)
+                    .put("requires_user_action", ok)
+                    .put("accepts", if (ok) "voice_text" else JSONObject.NULL)
+                    .put("audio_stream", false)
+                    .apply {
+                        if (!ok) put("error", if (notifier.canNotify()) "voice_gateway_unavailable" else "notification_permission_required")
+                    },
+                "normal",
+                120
             )
-
-            val notification = NotificationCompat.Builder(this, CHANNEL_WATCH)
-                .setSmallIcon(R.drawable.ic_jarvis_launcher)
-                .setContentTitle("JARVIS Watch — voz")
-                .setContentText("Toque para falar com o JARVIS pelo celular.")
-                .setStyle(
-                    NotificationCompat.BigTextStyle()
-                        .bigText("O relógio detectou sua voz. Toque aqui e fale o comando; o celular reconhecerá a fala e enviará a resposta de volta ao relógio.")
-                )
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setCategory(NotificationCompat.CATEGORY_SERVICE)
-                .setAutoCancel(true)
-                .setContentIntent(pending)
-                .build()
-
-            getSystemService(NotificationManager::class.java)
-                .notify(VOICE_NOTIFICATION_ID, notification)
-
-            scope.launch {
-                sendWatchCommand(
-                    deviceId,
-                    "voice_ready",
-                    JSONObject()
-                        .put("type", "voice_ready")
-                        .put("ok", true)
-                        .put("gateway", "android")
-                        .put("requires_user_action", true)
-                        .put("accepts", "voice_text")
-                        .put("audio_stream", false),
-                    "normal",
-                    120
-                )
-            }
-        }.onFailure {
-            scope.launch {
-                sendWatchCommand(
-                    deviceId,
-                    "voice_ready",
-                    JSONObject()
-                        .put("type", "voice_ready")
-                        .put("ok", false)
-                        .put("error", "voice_gateway_unavailable"),
-                    "normal",
-                    120
-                )
-            }
         }
     }
 
     override fun showWatchAlarm(deviceId: String, data: JSONObject) {
-        runCatching {
-            val label = data.optString("message")
-                .ifBlank { data.optString("tone") }
-                .ifBlank { "Alarme acionado pelo JARVIS Watch" }
-
-            val open = PendingIntent.getActivity(
-                this,
-                ALARM_NOTIFICATION_ID,
-                Intent(this, MainActivity::class.java),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        val ok = notifier.showWatchAlarm(data)
+        scope.launch {
+            sendWatchCommand(
+                deviceId,
+                "alarm_sound_result",
+                JSONObject()
+                    .put("type", "alarm_sound_result")
+                    .put("ok", ok)
+                    .apply {
+                        if (ok) put("target", "phone")
+                        else put("error", "phone_alarm_unavailable")
+                    },
+                "high",
+                120
             )
-
-            val alarmSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-
-            val notification = NotificationCompat.Builder(this, CHANNEL_WATCH_ALARM)
-                .setSmallIcon(R.drawable.ic_jarvis_launcher)
-                .setContentTitle("Alarme JARVIS Watch")
-                .setContentText(label)
-                .setStyle(NotificationCompat.BigTextStyle().bigText(label))
-                .setCategory(NotificationCompat.CATEGORY_ALARM)
-                .setPriority(NotificationCompat.PRIORITY_MAX)
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                .setSound(alarmSound)
-                .setVibrate(longArrayOf(0, 350, 180, 350, 180, 700))
-                .setAutoCancel(true)
-                .setContentIntent(open)
-                .build()
-
-            getSystemService(NotificationManager::class.java)
-                .notify(ALARM_NOTIFICATION_ID, notification)
-
-            scope.launch {
-                sendWatchCommand(
-                    deviceId,
-                    "alarm_sound_result",
-                    JSONObject()
-                        .put("type", "alarm_sound_result")
-                        .put("ok", true)
-                        .put("target", "phone"),
-                    "high",
-                    120
-                )
-            }
-        }.onFailure {
-            scope.launch {
-                sendWatchCommand(
-                    deviceId,
-                    "alarm_sound_result",
-                    JSONObject()
-                        .put("type", "alarm_sound_result")
-                        .put("ok", false)
-                        .put("error", "phone_alarm_unavailable"),
-                    "high",
-                    120
-                )
-            }
         }
     }
 
@@ -480,78 +308,26 @@ class JarvisConnectionService : Service(), WatchClient.Listener, WatchEventProce
     }
 
     override fun showCameraRequest(deviceId: String) {
-        runCatching {
-            val intent = Intent(this, WatchCameraActivity::class.java)
-                .putExtra(WatchCameraActivity.EXTRA_WATCH_DEVICE_ID, deviceId)
-
-            val pending = PendingIntent.getActivity(
-                this,
-                CAMERA_NOTIFICATION_ID,
-                intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        val ok = notifier.showCameraRequest(deviceId)
+        scope.launch {
+            sendWatchCommand(
+                deviceId,
+                "camera_ready",
+                JSONObject()
+                    .put("type", "camera_ready")
+                    .put("ok", ok)
+                    .apply {
+                        if (ok) put("requires_user_action", true)
+                        else put("error", "camera_unavailable")
+                    },
+                "high",
+                120
             )
-
-            val n = NotificationCompat.Builder(this, CHANNEL_WATCH)
-                .setSmallIcon(R.drawable.ic_jarvis_launcher)
-                .setContentTitle("JARVIS Watch")
-                .setContentText("O relógio pediu uma foto. Toque para abrir a câmera.")
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setAutoCancel(true)
-                .setContentIntent(pending)
-                .build()
-
-            getSystemService(NotificationManager::class.java)
-                .notify(CAMERA_NOTIFICATION_ID, n)
-
-            scope.launch {
-                sendWatchCommand(
-                    deviceId,
-                    "camera_ready",
-                    JSONObject()
-                        .put("type", "camera_ready")
-                        .put("ok", true)
-                        .put("requires_user_action", true),
-                    "high",
-                    120
-                )
-            }
-        }.onFailure {
-            scope.launch {
-                sendWatchCommand(
-                    deviceId,
-                    "camera_ready",
-                    JSONObject()
-                        .put("type", "camera_ready")
-                        .put("ok", false)
-                        .put("error", "camera_unavailable"),
-                    "high",
-                    120
-                )
-            }
         }
     }
 
     override fun showFamilyCallNotification(callId: Long, mode: String) {
-        runCatching {
-            val open = PendingIntent.getActivity(
-                this,
-                callId.toInt(),
-                Intent(this, MainActivity::class.java),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-
-            val n = NotificationCompat.Builder(this, CHANNEL_WATCH)
-                .setSmallIcon(R.drawable.ic_jarvis_launcher)
-                .setContentTitle("Chamada Família CASA")
-                .setContentText("Chamada $mode iniciada pelo relógio (#$callId)")
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setAutoCancel(true)
-                .setContentIntent(open)
-                .build()
-
-            getSystemService(NotificationManager::class.java)
-                .notify((3000 + callId % 1000).toInt(), n)
-        }
+        notifier.showFamilyCall(callId, mode)
     }
 
     override fun networkSnapshot(): JarvisNetworkMonitor.Snapshot = networkMonitor.snapshot
@@ -685,31 +461,7 @@ class JarvisConnectionService : Service(), WatchClient.Listener, WatchEventProce
     }
 
     private fun showJarvisNotification(n: JarvisApi.MobileNotification) {
-        runCatching {
-            val open = PendingIntent.getActivity(
-                this,
-                n.id.toInt(),
-                Intent(this, MainActivity::class.java),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-
-            val notification = NotificationCompat.Builder(this, CHANNEL_ALERTS)
-                .setSmallIcon(R.drawable.ic_jarvis_launcher)
-                .setContentTitle(n.title)
-                .setContentText(n.message)
-                .setStyle(NotificationCompat.BigTextStyle().bigText(n.message))
-                .setPriority(
-                    if (n.priority == "critica")
-                        NotificationCompat.PRIORITY_MAX
-                    else
-                        NotificationCompat.PRIORITY_HIGH
-                )
-                .setAutoCancel(true)
-                .setContentIntent(open)
-                .build()
-
-            getSystemService(NotificationManager::class.java)
-                .notify((2000 + (n.id % 100000)).toInt(), notification)
-        }
+        notifier.showJarvisNotification(n)
     }
+
 }
