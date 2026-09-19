@@ -150,6 +150,12 @@ static void dispatchExternal(const String &json,const String &type){
   if(text.isEmpty()) text=jsonString(json,"message","");
   if(title.isEmpty()) title=jsonString(json,"sender","");
   if(type=="jarvis_result"&&text.isEmpty()) text=jsonString(json,"answer","");
+  if(type=="family_call_control_result"){
+    String action=jsonString(json,"action","");
+    String ok=jsonString(json,"ok","");
+    if(ok.isEmpty()) ok=json.indexOf("\"ok\":true")>=0?"true":"false";
+    text=action+"|"+ok;
+  }
   if(type=="incoming_call"){
     String callId=jsonString(json,"call_id","");
     if(callId.isEmpty()){
