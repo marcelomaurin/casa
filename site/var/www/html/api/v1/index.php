@@ -17,6 +17,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
 require_once(__DIR__ . '/../db.php');
 require_once(__DIR__ . '/../seguranca.php');
 require_once(__DIR__ . '/../agente_externo.php');
+require_once(__DIR__ . '/security_v1.php');
 
 $pdo = get_db_pdo();
 
@@ -146,6 +147,8 @@ if ($subpath === 'comando') {
     $ia_mode = trim($input['ia_mode'] ?? 'auto');
     if ($cmd === '') api_v1_error(400, 'Parâmetro comando obrigatório.');
 
+    $correlationId=api_v1_correlation_id($input['correlation_id'] ?? null);
+
     // No Hostinger esta rota delega ao jarvis.php do próprio site.
     $url = 'https://maurinsoft.com.br/casa/api/jarvis.php';
     $ch = curl_init($url);
@@ -155,7 +158,8 @@ if ($subpath === 'comando') {
         CURLOPT_POSTFIELDS=>json_encode([
             'comando'=>$cmd,
             'ia_mode'=>$ia_mode,
-            'origem'=>'API_V1'
+            'origem'=>'API_V1',
+            'correlation_id'=>$correlationId
         ]),
         CURLOPT_HTTPHEADER=>['Content-Type: application/json','X-API-Key: ' . get_system_api_token()],
         CURLOPT_TIMEOUT=>30
@@ -177,6 +181,7 @@ if ($subpath === 'comando') {
         'id_tarefa_raiz'=>$data['id_tarefa_raiz'] ?? null,
         'task_context'=>$data['task_context'] ?? null,
         'task_status'=>$data['task_status'] ?? null,
+        'correlation_id'=>$data['task_context']['correlation_id'] ?? $correlationId,
         'tarefas_execucao'=>$data['tarefas_execucao'] ?? []
     ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
     exit;
