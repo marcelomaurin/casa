@@ -24,9 +24,14 @@ jobs:
         shell: bash
         run: |
           git rm -r --cached --ignore-unmatch android/JarvisMobile/.gradle android/JarvisMobile/.idea
+          git rm --cached --ignore-unmatch android/JarvisMobile/local.properties
           while IFS= read -r -d '' dir; do
             git rm -r --cached --ignore-unmatch -- "$dir"
           done < <(find android/JarvisMobile -type d -name build -print0 2>/dev/null)
+
+          while IFS= read -r -d '' artifact; do
+            git rm --cached --ignore-unmatch -- "$artifact"
+          done < <(git ls-files -z '*.apk' '*.deb' 2>/dev/null)
 
           if git diff --cached --quiet; then
             echo "Repositorio ja esta limpo."

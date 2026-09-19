@@ -78,7 +78,7 @@ O objetivo é permitir que o JARVIS receba comandos em linguagem natural, consul
 | `android/` | Aplicativos Android, incluindo JARVIS Mobile |
 | `apis/` | Integrações e recursos relacionados a APIs |
 | `arduino/` | Firmwares ESP32, ESP8266 e outros microcontroladores |
-| `bin/` | Binários gerados e artefatos distribuíveis |
+| `bin/` | Recursos binários deliberadamente mantidos; builds gerados são publicados por CI/Releases |
 | `database/` | Migrations e estruturas de dados (inclui componentes PostgreSQL e API v1) |
 | `docs/` | Documentação técnica e instalação |
 | `mysql/` | Estruturas legadas/auxiliares MySQL |
@@ -132,11 +132,9 @@ Principais objetivos:
 - provisionamento BLE de dispositivos vestíveis;
 - uso da API v1 e do Command Bus como canal principal de integração.
 
-APK de desenvolvimento versionado:
+APK de desenvolvimento:
 
-```text
-bin/android/JarvisMobile-v2.1.0-debug.apk
-```
+O APK do JARVIS Mobile **não é versionado no Git**. Cada build da branch `master` é gerado pelo GitHub Actions e publicado como artifact e como pre-release no GitHub Releases, com o nome `JarvisMobile-v<VERSAO>-debug.apk`.
 
 Consulte `android/JarvisMobile/VERSIONAMENTO.md` para as regras de versão.
 
@@ -235,7 +233,7 @@ Projeto:
 android/JarvisMobile/
 ```
 
-A compilação automatizada utiliza GitHub Actions. Builds de desenvolvimento usam um identificador separado da aplicação oficial para evitar conflitos de assinatura durante os testes.
+A compilação automatizada utiliza GitHub Actions. Builds de desenvolvimento usam um identificador separado da aplicação oficial para evitar conflitos de assinatura durante os testes. APKs e pacotes gerados devem ser obtidos nos artifacts/Releases do GitHub e não devem ser adicionados ao repositório.
 
 Controle de versão:
 
