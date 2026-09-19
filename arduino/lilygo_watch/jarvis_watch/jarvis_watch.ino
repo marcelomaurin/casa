@@ -518,7 +518,7 @@ void drawMessage(){tft->fillRoundRect(5,181,230,22,8,C_WHITE);tft->drawRoundRect
 void drawApps(){drawHeader("APPS");lcarsButton(5,62,52,48,C_ORANGE,"VOZ");lcarsButton(62,62,52,48,C_SALMON,"ALM");lcarsButton(119,62,52,48,C_BLUE,"CAM");lcarsButton(176,62,59,48,C_GREEN,"GPS");lcarsButton(5,117,52,48,C_LAV,"CASA");lcarsButton(62,117,52,48,C_GOLD,"PASSOS");lcarsButton(119,117,52,48,C_BLUE,"STATUS");lcarsButton(176,117,59,48,C_SALMON,"CONFIG");tft->setTextColor(C_TEXT,C_BG);tft->drawCentreString("baixo: relogio",120,184,1);drawFooter();}
 void drawVoice(){drawHeader("VOZ IA");tft->setTextColor(C_TEXT,C_BG);tft->drawCentreString(voiceText.c_str(),120,76,2);lcarsButton(35,108,170,34,C_ORANGE,voiceCapturing?"OUVINDO...":"MICROFONE");lcarsButton(35,149,170,28,C_BLUE,("SAIDA: "+voiceOutputLabel()).c_str());drawMessage();drawFooter();}
 void drawAlarm(){drawHeader("ALARME");tft->setTextColor(C_TEXT,C_BG);tft->drawCentreString((twoDigits(alarmHour)+":"+twoDigits(alarmMinute)).c_str(),120,64,4);lcarsButton(12,101,48,32,C_LAV,"H-");lcarsButton(66,101,48,32,C_ORANGE,"H+");lcarsButton(126,101,48,32,C_BLUE,"M-");lcarsButton(180,101,48,32,C_SALMON,"M+");lcarsButton(25,139,190,28,C_GOLD,("TOQUE: "+alarmToneLabel()).c_str());lcarsButton(35,173,170,28,controller.alarm().ringing()?C_RED:(alarmEnabled?C_GREEN:C_RED),controller.alarm().ringing()?"PARAR ALARME":(alarmEnabled?"LIGADO":"DESLIGADO"));drawFooter();}
-void drawCamera(){drawHeader("CAMERA / VIDEO");tft->setTextColor(C_TEXT,C_BG);tft->drawCentreString("Usa camera do celular",120,69,2);lcarsButton(30,103,180,36,C_ORANGE,"FOTOGRAFAR");lcarsButton(30,147,180,36,C_BLUE,"VIDEO FAMILIA");drawFooter();}
+void drawCamera(){drawHeader("CAMERA / VIDEO");tft->setTextColor(C_TEXT,C_BG);tft->drawCentreString("Midia pelo celular/site",120,63,1);lcarsButton(30,88,180,30,C_ORANGE,"FOTOGRAFAR");lcarsButton(30,124,180,30,C_BLUE,"VIDEO CELULAR");lcarsButton(30,160,180,30,C_LAV,"VIDEO SITE");drawFooter();}
 void drawGps(){drawHeader("GPS");tft->setTextColor(C_TEXT,C_BG);tft->drawCentreString(gpsText.c_str(),120,82,2);lcarsButton(55,128,130,30,C_BLUE,"ATUALIZAR");drawFooter();}
 void drawControls(){drawHeader("CASA");lcarsButton(5,62,111,51,C_SALMON,"LUZ SALA");lcarsButton(124,62,111,51,C_ORANGE,"LUZ QUARTO");lcarsButton(5,119,111,51,C_BLUE,"PORTAO");lcarsButton(124,119,111,51,C_LAV,"CENA NOITE");drawMessage();drawFooter();}
 void drawHealth(){drawHeader("ATIVIDADE");tft->setTextColor(C_TEXT,C_BG);tft->drawCentreString("PASSOS",120,75,2);tft->drawCentreString(String(steps).c_str(),120,103,4);int pct=min(100,(int)(steps*100UL/6000UL));tft->drawRoundRect(27,151,184,14,6,C_TEXT);tft->fillRoundRect(29,153,(180*pct)/100,10,5,C_GREEN);drawFooter();}
@@ -672,12 +672,26 @@ void sendCommand(const String&cmd){
 }
 
 void triggerCamera(){if(jarvisBleIsConnected()&&jarvisBleSendCommand("camera_capture"))cameraText="FOTO SOLICITADA";else cameraText="SEM CELULAR";drawScreen();}
-void startVideoCall(){
+void startVideoCall(const String &targetPlatform){
   controller.emit(jarvisEvent(EVT_CALL_START,JARVIS_PRI_HIGH));
-  bool ok=false;if(jarvisBleIsConnected())ok=jarvisBleSendCommand("family_call:video");
-  if(!ok&&jarvisWifiIsConnected())ok=jarvisWifiPostJson("/api/v1/family.php?acao=call_start","{\"mode\":\"video\",\"origin\":\"watch\"}",nullptr);
-  lastMessage=ok?"Videochamada iniciada":"Sem conexao para chamada";
-  controller.setCallState(ok?JARVIS_CALL_ACTIVE:JARVIS_CALL_ERROR);drawScreen();
+  String target=targetPlatform=="web"?"web":"mobile";
+  bool ok=false;
+
+  if(jarvisBleIsConnected()){
+    String payload="{\"type\":\"family_call\",\"mode\":\"video\",\"target_platform\":\""+target+"\"}";
+    ok=jarvisBleSendJson(payload);
+  }
+
+  if(!ok&&jarvisWifiIsConnected()&&jarvisWifiHasCasaCredentials()){
+    String payload="{\"mode\":\"video\",\"origin\":\"watch\",\"target_platform\":\""+target+"\"}";
+    ok=jarvisWifiPostJson("/api/v1/watch.php?acao=call_start",payload,nullptr);
+  }
+
+  lastMessage=ok
+    ? (target=="web"?"Chamando usuario do site":"Chamando celular")
+    : "Sem conexao para chamada";
+  controller.setCallState(ok?JARVIS_CALL_DIALING:JARVIS_CALL_ERROR);
+  drawScreen();
 }
 void requestGps(){if(jarvisBleIsConnected()&&jarvisBleSendCommand("gps_request"))gpsText="SOLICITANDO GPS...";else gpsText="CELULAR NECESSARIO";drawScreen();}
 void adjustAlarm(int dh,int dm){int h=(int)alarmHour+dh,m=(int)alarmMinute+dm;while(h<0)h+=24;while(h>23)h-=24;while(m<0)m+=60;while(m>59)m-=60;alarmHour=h;alarmMinute=m;saveSettings();drawScreen();}
@@ -707,7 +721,7 @@ void handleTap(int x,int y){
     else if(y>=139&&y<=170){alarmTone=(AlarmTone)(((int)alarmTone+1)%4);saveSettings();previewAlarmTone();drawScreen();}
     else if(y>=171&&y<=205){if(controller.alarm().ringing()){controller.emit(jarvisEvent(EVT_ALARM_STOP,JARVIS_PRI_HIGH));lastMessage="Alarme confirmado";drawScreen();}else{alarmEnabled=!alarmEnabled;saveSettings();drawScreen();}}
   }
-  else if(currentScreen==SCREEN_CAMERA){if(y>=98&&y<=143)triggerCamera();else if(y>=144&&y<=190)startVideoCall();}
+  else if(currentScreen==SCREEN_CAMERA){if(y>=84&&y<=121)triggerCamera();else if(y>=122&&y<=157)startVideoCall("mobile");else if(y>=158&&y<=195)startVideoCall("web");}
   else if(currentScreen==SCREEN_GPS){if(y>=120&&y<=170)requestGps();}
   else if(currentScreen==SCREEN_CONTROLS){if(y>=62&&y<=113)sendCommand(x<120?"Alterne a luz da sala":"Alterne a luz do quarto");else if(y>=119&&y<=170)sendCommand(x<120?"Acione o portao":"Ative a cena noite");}
   else if(currentScreen==SCREEN_SETTINGS){if(y>=60&&y<=91){if(x>=110&&x<171)brightnessLevel=max(40,(int)brightnessLevel-20);else if(x>=171)brightnessLevel=min(255,(int)brightnessLevel+20);applyPowerMode();saveSettings();drawScreen();}else if(y>=94&&y<=125&&x>=120){powerMode=(PowerMode)(((int)powerMode+1)%3);screenTimeoutSec=powerMode==POWER_NORMAL?30:powerMode==POWER_ECO?20:10;applyPowerMode();saveSettings();drawScreen();}else if(y>=128&&y<=159&&x>=120){screenTimeoutSec=screenTimeoutSec==10?20:screenTimeoutSec==20?30:screenTimeoutSec==30?60:screenTimeoutSec==60?0:10;saveSettings();drawScreen();}else if(y>=164&&y<=201){if(x<80){navigate(SCREEN_WIFI);startWifiScan();}else if(x<157){vibrationEnabled=!vibrationEnabled;saveSettings();drawScreen();}else navigate(SCREEN_CLOCK);}}
@@ -903,12 +917,21 @@ bool processCasaDeviceCommandOnce(){
       jsonStringField(payload,"title"),
       jsonStringField(payload,"text")
     );
+  }else if(command=="incoming_call"||eventType=="incoming_call"){
+    String sender=jsonStringField(payload,"sender");
+    String mode=jsonStringField(payload,"mode");
+    String message=mode=="audio"?"Chamada de audio recebida":"Videochamada recebida";
+    bleEventHandler("incoming_call",sender,message);
   }else if(command=="family_message"||eventType=="family_message"){
     bleEventHandler(
       "family_message",
       jsonStringField(payload,"sender"),
       jsonStringField(payload,"message")
     );
+  }else if(command=="family_call_result"||eventType=="family_call_result"){
+    bool callOk=jsonStringField(payload,"ok")!="false";
+    lastMessage=callOk?"Chamada criada":"Falha ao criar chamada";
+    controller.setCallState(callOk?JARVIS_CALL_DIALING:JARVIS_CALL_ERROR);
   }else if(command=="jarvis_result"||eventType=="jarvis_result"){
     bleEventHandler("jarvis_result","JARVIS",jsonStringField(payload,"text"));
   }else if(command=="gps_result"||eventType=="gps_result"){
