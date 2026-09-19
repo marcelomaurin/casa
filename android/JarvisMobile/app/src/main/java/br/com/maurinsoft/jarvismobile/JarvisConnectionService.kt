@@ -68,8 +68,6 @@ class JarvisConnectionService : Service(), WatchClient.Listener, WatchEventProce
         }
 
         localWatchClient = WatchClient(this)
-        localWatchClient.addListener(this)
-        localWatchClient.connectLanSaved()
         watchCommands = WatchCommandDispatcher(this, localWatchClient) { localWatchConnected }
 
         networkMonitor = JarvisNetworkMonitor(
@@ -105,11 +103,13 @@ class JarvisConnectionService : Service(), WatchClient.Listener, WatchEventProce
                 }
             }
         )
+        watchEventProcessor = WatchEventProcessor(this, this)
+        localWatchClient.addListener(this)
+
         if (!networkMonitor.start()) {
             updateServiceNotification("Rede indisponível — JARVIS continua em modo local")
         }
-
-        watchEventProcessor = WatchEventProcessor(this, this)
+        localWatchClient.connectLanSaved()
         startConnectionLoop()
     }
 
