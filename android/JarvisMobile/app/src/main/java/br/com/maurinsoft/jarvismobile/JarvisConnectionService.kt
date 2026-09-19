@@ -3,8 +3,6 @@ package br.com.maurinsoft.jarvismobile
 import android.app.*
 import android.content.Context
 import android.content.Intent
-import android.location.Location
-import android.location.LocationManager
 import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.os.Build
@@ -20,7 +18,7 @@ import org.json.JSONObject
  * O Watch usa socket TCP local quando celular e relógio estão na mesma LAN.
  * A CASA continua como fallback remoto para comandos e eventos.
  */
-class JarvisConnectionService : Service(), WatchClient.Listener {
+class JarvisConnectionService : Service(), WatchClient.Listener, WatchEventProcessor.Actions {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var jarvisOnline = false
     private var familyLastId = 0L
@@ -29,6 +27,7 @@ class JarvisConnectionService : Service(), WatchClient.Listener {
     private lateinit var localWatchClient: WatchClient
     private lateinit var watchCommands: WatchCommandDispatcher
     private lateinit var networkMonitor: JarvisNetworkMonitor
+    private lateinit var watchEventProcessor: WatchEventProcessor
     private var localWatchConnected = false
     private var reportedWifiState = false
 
@@ -110,6 +109,7 @@ class JarvisConnectionService : Service(), WatchClient.Listener {
             updateServiceNotification("Rede indisponível — JARVIS continua em modo local")
         }
 
+        watchEventProcessor = WatchEventProcessor(this, this)
         startConnectionLoop()
     }
 
@@ -121,7 +121,7 @@ class JarvisConnectionService : Service(), WatchClient.Listener {
             if (deviceId.isNotBlank()) {
                 scope.launch {
                     if (text.isNotBlank()) {
-                        processVoiceText(deviceId, text)
+                        watchEventProcessor.processVoiceText(deviceId, text)
                     } else {
                         sendWatchCommand(
                             deviceId,
@@ -209,7 +209,7 @@ class JarvisConnectionService : Service(), WatchClient.Listener {
                 )
             }
 
-            handleWatchEvent(
+            watchEventProcessor.handle(
                 WatchApi.WatchEvent(
                     id = 0L,
                     deviceId = deviceId,
@@ -309,216 +309,17 @@ class JarvisConnectionService : Service(), WatchClient.Listener {
         else if (watchOnlineCount > 0) "$text • $watchOnlineCount Watch online"
         else "$text • Watch offline"
 
-    private fun canLocation(): Boolean =
-        ActivityCompat.checkSelfPermission(
-            this,
-            android.Manifest.permission.ACCESS_FINE_LOCATION
-        ) == android.content.pm.PackageManager.PERMISSION_GRANTED ||
-            ActivityCompat.checkSelfPermission(
-                this,
-                android.Manifest.permission.ACCESS_COARSE_LOCATION
-            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-
-    private fun gpsPayload(): JSONObject {
-        if (!canLocation()) {
-            return JSONObject()
-                .put("type", "gps_result")
-                .put("ok", false)
-                .put("error", "permission_required")
-        }
-
-        return runCatching {
-            val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-            var best: Location? = null
-            listOf(
-                LocationManager.GPS_PROVIDER,
-                LocationManager.NETWORK_PROVIDER,
-                LocationManager.PASSIVE_PROVIDER
-            ).forEach { provider ->
-                val loc = runCatching { lm.getLastKnownLocation(provider) }.getOrNull()
-                if (loc != null && (best == null || loc.time > best!!.time)) best = loc
-            }
-
-            val loc = best ?: return@runCatching JSONObject()
-                .put("type", "gps_result")
-                .put("ok", false)
-                .put("error", "unavailable")
-
-            JSONObject()
-                .put("type", "gps_result")
-                .put("ok", true)
-                .put("lat", loc.latitude)
-                .put("lon", loc.longitude)
-                .put("accuracy_m", loc.accuracy.toDouble())
-                .put("time", loc.time)
-        }.getOrElse {
-            JSONObject()
-                .put("type", "gps_result")
-                .put("ok", false)
-                .put("error", "gps_exception")
-        }
-    }
-
-    private suspend fun sendWatchCommand(
+    override suspend fun sendWatchCommand(
         deviceId: String,
         command: String,
         payload: JSONObject,
-        priority: String = "normal",
-        ttlSeconds: Int = 300
+        priority: String,
+        ttlSeconds: Int
     ) {
         watchCommands.send(deviceId, command, payload, priority, ttlSeconds)
     }
 
-    private suspend fun handleWatchEvent(event: WatchApi.WatchEvent) {
-        val declaredType = event.data.optString("type").trim()
-        val type = (if (declaredType.isNotBlank()) declaredType else event.type)
-            .substringAfterLast('.')
-            .lowercase()
-
-        when (type) {
-            "sos" -> sendAssist(
-                "SOS",
-                "critica",
-                "SOS acionado no JARVIS Watch",
-                event.data
-            )
-
-            "inactivity" -> sendAssist(
-                "INACTIVITY",
-                "alta",
-                "Relógio detectou período prolongado sem movimento",
-                event.data
-            )
-
-            "checkin" -> sendAssist(
-                "CHECKIN",
-                if (event.data.optBoolean("ok", true)) "info" else "alta",
-                "Check-in do JARVIS Watch",
-                event.data
-            )
-
-            "movement", "movement_heartbeat" -> sendAssist(
-                "MOVEMENT_HEARTBEAT",
-                "info",
-                "Telemetria de movimento do JARVIS Watch",
-                event.data
-            )
-
-            "family_message" -> {
-                FamilyApi.sendMessage(
-                    this@JarvisConnectionService,
-                    event.data.optString("message"),
-                    event.data.optString("message_type", "texto"),
-                    event.data
-                )
-            }
-
-            "family_call" -> {
-                val mode = if (event.data.optString("mode") == "audio") "audio" else "video"
-                val callId = runCatching {
-                    FamilyApi.startCall(
-                        this@JarvisConnectionService,
-                        mode,
-                        "watch"
-                    )
-                }.getOrDefault(0L)
-
-                sendWatchCommand(
-                    event.deviceId,
-                    "family_call_result",
-                    JSONObject()
-                        .put("type", "family_call_result")
-                        .put("ok", callId > 0)
-                        .put("call_id", callId)
-                        .put("mode", mode),
-                    "high",
-                    300
-                )
-
-                if (callId > 0) showFamilyCallNotification(callId, mode)
-            }
-
-            "voice_capture" -> showVoiceRequest(event.deviceId)
-
-            "voice_text" -> {
-                val text = event.data.optString("text").trim()
-                if (text.isNotBlank()) processVoiceText(event.deviceId, text)
-            }
-
-            "alarm_sound" -> showWatchAlarm(event.deviceId, event.data)
-
-            "gps_request" -> {
-                sendWatchCommand(
-                    event.deviceId,
-                    "gps_result",
-                    gpsPayload(),
-                    "normal",
-                    120
-                )
-            }
-
-            "camera_capture" -> showCameraRequest(event.deviceId)
-
-            "phone_state", "phone_state_request" -> {
-                val net = networkMonitor.snapshot
-                sendWatchCommand(
-                    event.deviceId,
-                    "phone_state",
-                    JSONObject()
-                        .put("type", "phone_state")
-                        .put("wifi", net.wifi)
-                        .put("wifi_ssid", net.ssid ?: JSONObject.NULL)
-                        .put("internet", net.internet)
-                        .put("jarvis_online", jarvisOnline),
-                    "low",
-                    120
-                )
-            }
-
-            "ping" -> sendWatchCommand(
-                event.deviceId,
-                "pong",
-                JSONObject()
-                    .put("type", "pong")
-                    .put("internet", jarvisOnline),
-                "low",
-                60
-            )
-        }
-    }
-
-    private suspend fun processVoiceText(deviceId: String, text: String) {
-        val normalized = text.trim()
-        if (normalized.isBlank()) {
-            sendWatchCommand(
-                deviceId,
-                "voice_result",
-                JSONObject()
-                    .put("type", "voice_result")
-                    .put("ok", false)
-                    .put("error", "empty_voice_text"),
-                "normal",
-                120
-            )
-            return
-        }
-
-        val result = JarvisApi.sendOrQueue(this@JarvisConnectionService, normalized)
-        sendWatchCommand(
-            deviceId,
-            "jarvis_result",
-            JSONObject()
-                .put("type", "jarvis_result")
-                .put("ok", result.delivered)
-                .put("queued", result.queued)
-                .put("text", result.answer?.text ?: result.message)
-                .put("audio_url", result.answer?.audioUrl ?: JSONObject.NULL),
-            "normal",
-            300
-        )
-    }
-
-    private fun showVoiceRequest(deviceId: String) {
+    override fun showVoiceRequest(deviceId: String) {
         val canNotify = Build.VERSION.SDK_INT < 33 ||
             ActivityCompat.checkSelfPermission(
                 this,
@@ -599,7 +400,7 @@ class JarvisConnectionService : Service(), WatchClient.Listener {
         }
     }
 
-    private fun showWatchAlarm(deviceId: String, data: JSONObject) {
+    override fun showWatchAlarm(deviceId: String, data: JSONObject) {
         runCatching {
             val label = data.optString("message")
                 .ifBlank { data.optString("tone") }
@@ -660,7 +461,7 @@ class JarvisConnectionService : Service(), WatchClient.Listener {
         }
     }
 
-    private suspend fun sendAssist(
+    override suspend fun sendAssist(
         type: String,
         severity: String,
         message: String,
@@ -678,7 +479,7 @@ class JarvisConnectionService : Service(), WatchClient.Listener {
         }
     }
 
-    private fun showCameraRequest(deviceId: String) {
+    override fun showCameraRequest(deviceId: String) {
         runCatching {
             val intent = Intent(this, WatchCameraActivity::class.java)
                 .putExtra(WatchCameraActivity.EXTRA_WATCH_DEVICE_ID, deviceId)
@@ -730,7 +531,7 @@ class JarvisConnectionService : Service(), WatchClient.Listener {
         }
     }
 
-    private fun showFamilyCallNotification(callId: Long, mode: String) {
+    override fun showFamilyCallNotification(callId: Long, mode: String) {
         runCatching {
             val open = PendingIntent.getActivity(
                 this,
@@ -752,6 +553,10 @@ class JarvisConnectionService : Service(), WatchClient.Listener {
                 .notify((3000 + callId % 1000).toInt(), n)
         }
     }
+
+    override fun networkSnapshot(): JarvisNetworkMonitor.Snapshot = networkMonitor.snapshot
+
+    override fun jarvisOnline(): Boolean = jarvisOnline
 
     private fun saveWatchEventCursor(value: Long) {
         if (value <= watchEventAfter) return
@@ -835,7 +640,7 @@ class JarvisConnectionService : Service(), WatchClient.Listener {
                                 watchEventAfter,
                                 100
                             )
-                            page.events.forEach { handleWatchEvent(it) }
+                            page.events.forEach { watchEventProcessor.handle(it) }
                             saveWatchEventCursor(page.nextAfter)
                         }
 
