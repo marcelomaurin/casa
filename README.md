@@ -19,18 +19,20 @@ O objetivo é permitir que o JARVIS receba comandos em linguagem natural, consul
 
 | Área | Implementação | Estado |
 |---|---|---|
-| API JARVIS | PHP + API REST | Em desenvolvimento |
-| API externa | `/api/v1` com autenticação e escopos | Em desenvolvimento |
-| Banco central | MySQL/MariaDB | Ativo |
+| Control Plane | MySQL/MariaDB, Device Registry, Command/Event Bus, cenas, regras e auditoria | Ativo / em evolução |
+| API v1 | Autenticação, escopos, rate limit, tasks, trace e endpoints de devices | Ativa / em evolução |
+| API JARVIS | PHP + Task Engine + planejador/agentes | Em desenvolvimento |
+| Banco central | MySQL/MariaDB, schema 1.26 | Ativo |
 | IA | Modelos locais e serviços configuráveis | Em desenvolvimento |
-| Planejador | Divisão de demandas em múltiplas tarefas | Experimental |
-| Web Agent | Pesquisa e coleta de conteúdo web | Experimental |
+| Planejador | Perguntas rastreáveis, subtarefas imediatas/agendadas/condicionais | Experimental |
+| Web Agent | Pesquisa e coleta de conteúdo web com task_context | Experimental |
 | TTS | Serviço Python/FastAPI | Experimental |
-| Android | Kotlin / Jetpack Compose | Experimental |
+| JARVIS Mobile | Android Kotlin / Jetpack Compose, versão 2.6.7 | Experimental |
+| JARVIS TV | Android TV, versão 1.0.0 | Experimental |
+| LILYGO Watch | Firmware + BLE de provisionamento + Wi-Fi/HTTPS em operação | Experimental |
 | ESP32-CAM | Captura e envio de imagens | Experimental |
 | ESP8266/ESP-01 | Sensores ambientais | Experimental |
-| LILYGO Watch | Firmware + API + Wi-Fi/HTTPS | Experimental |
-| BLE | Provisionamento e integrações locais | Experimental |
+| BLE | Provisionamento, recuperação e integrações locais específicas | Experimental |
 
 ## Arquitetura
 
@@ -114,7 +116,7 @@ A API utiliza autenticação e foi estruturada para suportar tokens individuais,
 
 ### JARVIS Mobile
 
-O aplicativo Android está em:
+A versão atual na `master` é **2.6.7** (`versionCode 267`). O aplicativo Android está em:
 
 ```text
 android/JarvisMobile/
@@ -137,6 +139,14 @@ APK de desenvolvimento:
 O APK do JARVIS Mobile **não é versionado no Git**. Cada build da branch `master` é gerado pelo GitHub Actions e publicado como artifact e como pre-release no GitHub Releases, com o nome `JarvisMobile-v<VERSAO>-debug.apk`.
 
 Consulte `android/JarvisMobile/VERSIONAMENTO.md` para as regras de versão.
+
+### JARVIS TV
+
+O cliente Android TV está em `android/JarvisTV/` e a versão atual é **1.0.0**. Ele usa a API v1 da CASA, oferece overlay lateral, voz e abertura de aplicativos. Activity Embedding, PiP dependente do app e wake-word local dedicado permanecem planejados/experimentais.
+
+### Watch
+
+O fluxo oficial atual é BLE para provisionamento/recuperação e Wi-Fi/HTTPS para operação normal. O Mobile pode continuar atuando como gateway de recursos próprios do telefone, como câmera, GPS, voz e notificações. O firmware permanece experimental e precisa de validação física de consumo, wake-up e estabilidade de rede.
 
 ### ESP32-CAM
 
@@ -173,9 +183,14 @@ A migration de hardening da API está em:
 database/api_v1_security.sql
 ```
 
-A orientação para instalação automatizada está em:
+Documentos oficiais de arquitetura e operação:
 
 ```text
+docs/CONTROL_PLANE_V1.md
+docs/PROTOCOLO_DISPOSITIVOS.md
+docs/DEVICE_REGISTRY.md
+docs/TASK_CONTEXT.md
+docs/OBSERVABILITY.md
 docs/INSTALACAO_BOT.md
 ```
 
@@ -248,6 +263,7 @@ O `versionCode` deve sempre crescer a cada versão distribuída.
 - diversas integrações ainda dependem de validação no hardware real;
 - firmware e fluxos do relógio continuam experimentais e exigem validação de consumo, wake e conectividade;
 - agentes e planejamento continuam experimentais;
+- o deploy automático do site depende de credencial SSH configurada em GitHub Actions Secrets;
 - builds Android debug não substituem uma distribuição oficial assinada com keystore permanente;
 - disponibilidade do JARVIS depende dos serviços configurados no servidor;
 - comandos físicos enfileirados offline somente podem ser confirmados depois que o servidor responder.
