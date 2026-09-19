@@ -150,6 +150,26 @@ static void dispatchExternal(const String &json,const String &type){
   if(text.isEmpty()) text=jsonString(json,"message","");
   if(title.isEmpty()) title=jsonString(json,"sender","");
   if(type=="jarvis_result"&&text.isEmpty()) text=jsonString(json,"answer","");
+  if(type=="incoming_call"){
+    String callId=jsonString(json,"call_id","");
+    if(callId.isEmpty()){
+      int idPos=json.indexOf("\"call_id\"");
+      if(idPos>=0){
+        int colon=json.indexOf(':',idPos);
+        if(colon>=0){
+          int end=colon+1;
+          while(end<(int)json.length() && (json[end]==' '||json[end]=='\t')) end++;
+          int start=end;
+          while(end<(int)json.length() && json[end]>='0' && json[end]<='9') end++;
+          callId=json.substring(start,end);
+        }
+      }
+    }
+    String mode=jsonString(json,"mode","video");
+    String sender=jsonString(json,"sender",title);
+    text=callId+"|"+mode+"|"+sender;
+    if(title.isEmpty()) title=sender;
+  }
   if(type=="gps_result"&&text.isEmpty()){
     String lat=jsonString(json,"lat","");
     String lon=jsonString(json,"lon","");
