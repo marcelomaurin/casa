@@ -28,6 +28,12 @@ CREATE INDEX IF NOT EXISTS idx_jarvis_acoes_corr ON jarvis_acoes(correlation_id,
 ALTER TABLE device_commands DROP INDEX IF EXISTS uk_device_command_correlation;
 CREATE INDEX IF NOT EXISTS idx_device_commands_corr ON device_commands(correlation_id,id);
 
+ALTER TABLE automation_rule_runs DROP INDEX IF EXISTS uk_rule_run_corr;
+CREATE INDEX IF NOT EXISTS idx_rule_runs_corr ON automation_rule_runs(correlation_id,id);
+
+ALTER TABLE scene_runs DROP INDEX IF EXISTS uk_scene_runs_correlation;
+CREATE INDEX IF NOT EXISTS idx_scene_runs_corr ON scene_runs(correlation_id,id);
+
 UPDATE jarvis_planos
 SET correlation_id=CONCAT('plan_',id)
 WHERE correlation_id IS NULL OR correlation_id='';
