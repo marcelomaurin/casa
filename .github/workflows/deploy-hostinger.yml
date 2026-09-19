@@ -24,12 +24,40 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install SSH password client
+      - name: Install SSH client tools
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update -y
           sudo apt-get install -y sshpass rsync
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+
+      - name: Configure SSH authentication
+        id: sshauth
+        shell: bash
+        env:
+          HOSTINGER_SSH_PASSWORD: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
+          HOSTINGER_SSH_PRIVATE_KEY: ${{ secrets.HOSTINGER_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "${HOSTINGER_SSH_PRIVATE_KEY:-}" ]; then
+            printf '%s\n' "$HOSTINGER_SSH_PRIVATE_KEY" > "$HOME/.ssh/hostinger_deploy"
+            chmod 600 "$HOME/.ssh/hostinger_deploy"
+            echo "mode=key" >> "$GITHUB_OUTPUT"
+            echo "SSH de deploy configurado por chave privada."
+            exit 0
+          fi
+
+          if [ -n "${HOSTINGER_SSH_PASSWORD:-}" ]; then
+            echo "mode=password" >> "$GITHUB_OUTPUT"
+            echo "SSH de deploy configurado por senha."
+            exit 0
+          fi
+
+          echo "::error title=Credencial SSH ausente::Configure HOSTINGER_SSH_PRIVATE_KEY (recomendado) ou HOSTINGER_SSH_PASSWORD em Settings > Secrets and variables > Actions."
+          exit 1
 
       - name: Prepare web package
         shell: bash
@@ -46,10 +74,14 @@ jobs:
         shell: bash
         env:
           SSHPASS: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
+          SSH_AUTH_MODE: ${{ steps.sshauth.outputs.mode }}
         run: |
           set -euo pipefail
-          test -n "$SSHPASS"
-          SSH="sshpass -e ssh -o StrictHostKeyChecking=accept-new -p $HOSTINGER_SSH_PORT"
+          if [ "$SSH_AUTH_MODE" = "key" ]; then
+            SSH="ssh -i $HOME/.ssh/hostinger_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -p $HOSTINGER_SSH_PORT"
+          else
+            SSH="sshpass -e ssh -o StrictHostKeyChecking=accept-new -p $HOSTINGER_SSH_PORT"
+          fi
 
           REMOTE_PATH="$($SSH "$HOSTINGER_SSH_USER@$HOSTINGER_SSH_HOST" 'bash -s' <<'EOS'
           set -e
@@ -87,14 +119,18 @@ jobs:
         shell: bash
         env:
           SSHPASS: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
+          SSH_AUTH_MODE: ${{ steps.sshauth.outputs.mode }}
           REMOTE_PATH: ${{ steps.remote.outputs.path }}
           CASA_DB_PASSWORD: ${{ secrets.CASA_DB_PASSWORD }}
           CASA_SYSTEM_API_TOKEN: ${{ secrets.CASA_SYSTEM_API_TOKEN }}
         run: |
           set -euo pipefail
-          test -n "$SSHPASS"
           test -n "$REMOTE_PATH"
-          SSH="sshpass -e ssh -o StrictHostKeyChecking=accept-new -p $HOSTINGER_SSH_PORT"
+          if [ "$SSH_AUTH_MODE" = "key" ]; then
+            SSH="ssh -i $HOME/.ssh/hostinger_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -p $HOSTINGER_SSH_PORT"
+          else
+            SSH="sshpass -e ssh -o StrictHostKeyChecking=accept-new -p $HOSTINGER_SSH_PORT"
+          fi
 
           if $SSH "$HOSTINGER_SSH_USER@$HOSTINGER_SSH_HOST" "test -s '$REMOTE_PATH/api/config.local.php'"; then
             echo "config.local.php privado encontrado no servidor; sera preservado."
@@ -142,17 +178,23 @@ jobs:
         shell: bash
         env:
           SSHPASS: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
+          SSH_AUTH_MODE: ${{ steps.sshauth.outputs.mode }}
           REMOTE_PATH: ${{ steps.remote.outputs.path }}
         run: |
           set -euo pipefail
-          test -n "$SSHPASS"
           test -n "$REMOTE_PATH"
+
+          if [ "$SSH_AUTH_MODE" = "key" ]; then
+            RSYNC_SSH="ssh -i $HOME/.ssh/hostinger_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -p $HOSTINGER_SSH_PORT"
+          else
+            RSYNC_SSH="sshpass -e ssh -o StrictHostKeyChecking=accept-new -p $HOSTINGER_SSH_PORT"
+          fi
 
           rsync -az --delete \
             --exclude='.git' \
             --exclude='.env' \
             --exclude='api/config.local.php' \
-            -e "sshpass -e ssh -o StrictHostKeyChecking=accept-new -p $HOSTINGER_SSH_PORT" \
+            -e "$RSYNC_SSH" \
             deploy-hostinger/ \
             "$HOSTINGER_SSH_USER@$HOSTINGER_SSH_HOST:$REMOTE_PATH/"
 
@@ -160,11 +202,16 @@ jobs:
         shell: bash
         env:
           SSHPASS: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
+          SSH_AUTH_MODE: ${{ steps.sshauth.outputs.mode }}
           REMOTE_PATH: ${{ steps.remote.outputs.path }}
         run: |
           set -euo pipefail
-          sshpass -e ssh -o StrictHostKeyChecking=accept-new -p "$HOSTINGER_SSH_PORT" \
-            "$HOSTINGER_SSH_USER@$HOSTINGER_SSH_HOST" \
+          if [ "$SSH_AUTH_MODE" = "key" ]; then
+            SSH="ssh -i $HOME/.ssh/hostinger_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -p $HOSTINGER_SSH_PORT"
+          else
+            SSH="sshpass -e ssh -o StrictHostKeyChecking=accept-new -p $HOSTINGER_SSH_PORT"
+          fi
+          $SSH "$HOSTINGER_SSH_USER@$HOSTINGER_SSH_HOST" \
             "test -f '$REMOTE_PATH/index.php' && test -f '$REMOTE_PATH/info.php' && test -d '$REMOTE_PATH/api' && test -s '$REMOTE_PATH/api/config.local.php'"
 
       - name: Smoke test
