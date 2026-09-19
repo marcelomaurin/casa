@@ -103,8 +103,20 @@ object FamilyApi {
         return request(context, "call_start", body).optLong("call_id")
     }
 
-    fun joinCall(context: Context, callId: Long, device: String = "JARVIS Mobile") {
-        request(context, "call_join", JSONObject().put("call_id", callId).put("platform", "mobile").put("device", device))
+    fun joinCall(
+        context: Context,
+        callId: Long,
+        device: String = "JARVIS Mobile",
+        platform: String = "mobile"
+    ) {
+        request(
+            context,
+            "call_join",
+            JSONObject()
+                .put("call_id", callId)
+                .put("platform", platform)
+                .put("device", device)
+        )
     }
 
     fun currentCall(context: Context, platform: String = "mobile"): JSONObject? {
