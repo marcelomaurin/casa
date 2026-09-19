@@ -24,6 +24,7 @@ class FamilyCallActivity : ComponentActivity() {
         const val EXTRA_CALL_ID = "family_call_id"
         const val EXTRA_CALL_MODE = "family_call_mode"
         const val EXTRA_AUTO_JOIN = "family_call_auto_join"
+        const val EXTRA_INITIATOR = "family_call_initiator"
     }
 
     private var webView: WebView? = null
@@ -87,7 +88,8 @@ class FamilyCallActivity : ComponentActivity() {
             }
         }
 
-        val html = buildHtml(cfg.baseUrl.trimEnd('/'), cfg.token, callId, mode)
+        val initiator = intent.getBooleanExtra(EXTRA_INITIATOR, false)
+        val html = buildHtml(cfg.baseUrl.trimEnd('/'), cfg.token, callId, mode, initiator)
         view.loadDataWithBaseURL(
             cfg.baseUrl.trimEnd('/') + "/",
             html,
@@ -97,10 +99,11 @@ class FamilyCallActivity : ComponentActivity() {
         )
     }
 
-    private fun buildHtml(baseUrl: String, token: String, callId: Long, mode: String): String {
+    private fun buildHtml(baseUrl: String, token: String, callId: Long, mode: String, initiator: Boolean): String {
         val base = JSONObject.quote(baseUrl)
         val tok = JSONObject.quote(token)
         val callMode = JSONObject.quote(if (mode == "audio") "audio" else "video")
+        val roleInitiator = if (initiator) "true" else "false"
         return """
 <!doctype html>
 <html lang="pt-BR">
@@ -128,6 +131,7 @@ const BASE=$base;
 const TOKEN=$tok;
 const CALL=$callId;
 const MODE=$callMode;
+const INITIATOR=$roleInitiator;
 let lastSignal=0,localStream=null;
 const peers={};
 
@@ -182,8 +186,8 @@ async function boot(){
   try{
     await media();
     await api('call_join',{call_id:CALL,platform:'mobile',device:'JARVIS Mobile'});
-    await signal('join',{mode:MODE});
-    document.getElementById('status').textContent='Chamada '+MODE+' #'+CALL;
+    if(!INITIATOR) await signal('join',{mode:MODE});
+    document.getElementById('status').textContent=(INITIATOR?'Chamando':'Chamada')+' '+MODE+' #'+CALL;
     setInterval(()=>pollSignals().catch(()=>{}),1000);
   }catch(e){document.getElementById('status').textContent='Falha: '+e.message}
 }
