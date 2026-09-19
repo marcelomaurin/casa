@@ -9,6 +9,7 @@ putenv('JARVIS_AUTO_INIT_DB=1');
 require __DIR__ . '/../../site/var/www/html/api/db.php';
 require __DIR__ . '/../../site/var/www/html/api/v1/rules_scheduler.php';
 require __DIR__ . '/../../site/var/www/html/api/task_engine.php';
+require __DIR__ . '/../../site/var/www/html/api/v1/security_v1.php';
 $pdo = get_db_pdo();
 
 function fail_test(string $msg): void { fwrite(STDERR, $msg . "\n"); exit(10); }
@@ -157,3 +158,44 @@ $attached=te_attach_context(['status'=>'ok'],$ctxRoot,$pdo);
 if((int)($attached['id_plano']??0)!==(int)$ctxRoot['id_plano'] || empty($attached['task_context'])) fail_test('Resposta nao recebeu task_context universal');
 
 echo "Universal Task Context OK: reutilizacao, progresso e falhas validados\n";
+
+
+// End-to-end correlation trace
+$traceCtx=te_begin($pdo,'CI correlation trace','CI_TRACE','trace',null);
+$traceCorr=(string)($traceCtx['correlation_id']??'');
+if($traceCorr==='' || !str_starts_with($traceCorr,'req_')) fail_test('Correlation raiz nao foi criada');
+
+$traceTask=te_add_subtask($pdo,$traceCtx,'Executar duas acoes correlacionadas','ci_trace',['test'=>true],null,'EXECUTANDO');
+$traceA1=te_device_action($pdo,$traceCtx,$traceTask,[
+    'device_id'=>$deviceId,'command'=>'power_on','required_capability'=>'power','risk_level'=>1
+]);
+$traceA2=te_device_action($pdo,$traceCtx,$traceTask,[
+    'device_id'=>$deviceId,'command'=>'power_off','required_capability'=>'power','risk_level'=>1
+]);
+if(($traceA1['correlation_id']??'')!==$traceCorr || ($traceA2['correlation_id']??'')!==$traceCorr) fail_test('Acoes nao herdaram correlation raiz');
+
+$cmdCorrCount=(int)$pdo->query("SELECT COUNT(*) FROM device_commands WHERE correlation_id=".$pdo->quote($traceCorr))->fetchColumn();
+if($cmdCorrCount<2) fail_test('Trace 1:N nao permitiu multiplos comandos no mesmo correlation_id');
+
+$actionCorrCount=(int)$pdo->query("SELECT COUNT(*) FROM jarvis_acoes WHERE correlation_id=".$pdo->quote($traceCorr))->fetchColumn();
+if($actionCorrCount<2) fail_test('Acoes nao foram correlacionadas ao trace raiz');
+
+$planCorr=(string)$pdo->query("SELECT correlation_id FROM jarvis_planos WHERE id=".(int)$traceCtx['id_plano'])->fetchColumn();
+$taskCorr=(string)$pdo->query("SELECT correlation_id FROM jarvis_tarefas WHERE id=".$traceTask)->fetchColumn();
+if($planCorr!==$traceCorr || $taskCorr!==$traceCorr) fail_test('Plano/tarefa perderam correlation raiz');
+
+$pdo->prepare("UPDATE device_commands SET lifecycle_status='EXECUTING',status='executing' WHERE id=:id")
+    ->execute([':id'=>(int)$traceA1['command_id']]);
+$auditCorr=(string)$pdo->query("SELECT correlation_id FROM device_command_audit WHERE command_id=".(int)$traceA1['command_id']." ORDER BY id DESC LIMIT 1")->fetchColumn();
+if($auditCorr!==$traceCorr) fail_test('Auditoria nao herdou correlation_id');
+
+$safe=api_v1_redact([
+    'token'=>'abc123',
+    'wifi_password'=>'segredo',
+    'nested'=>['api_key'=>'xyz','ok'=>'valor'],
+    'text'=>'Authorization: Bearer SUPERSECRET'
+]);
+if(($safe['token']??'')!=='[REDACTED]' || ($safe['wifi_password']??'')!=='[REDACTED]' || ($safe['nested']['api_key']??'')!=='[REDACTED]') fail_test('Redaction nao removeu segredos estruturados');
+if(str_contains((string)($safe['text']??''),'SUPERSECRET')) fail_test('Redaction nao removeu Bearer token textual');
+
+echo "Correlation Trace OK: plan -> task -> action -> commands -> audit com segredo redigido\n";
