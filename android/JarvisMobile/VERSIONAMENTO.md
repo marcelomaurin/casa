@@ -2,8 +2,8 @@
 
 ## Versão atual
 
-- `versionName`: `2.6.7`
-- `versionCode`: `267`
+- `versionName`: `2.6.8`
+- `versionCode`: `268`
 - pacote de desenvolvimento: `br.com.maurinsoft.jarvismobile.debug`
 - pacote de produção: `br.com.maurinsoft.jarvismobile`
 
@@ -48,7 +48,7 @@ Isto permite instalar a build de desenvolvimento mesmo que uma versão anterior 
 O APK gerado recebe nome versionado:
 
 ```text
-JarvisMobile-v2.6.7-debug.apk
+JarvisMobile-v2.6.8-debug.apk
 ```
 
 O APK não é versionado no repositório. O GitHub Actions publica a build como artifact e atualiza a pre-release correspondente em GitHub Releases.
