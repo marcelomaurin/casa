@@ -7,12 +7,13 @@ putenv('JARVIS_DB_PASS=root');
 putenv('JARVIS_AUTO_INIT_DB=1');
 
 require __DIR__ . '/../../site/var/www/html/api/db.php';
+require __DIR__ . '/../../site/var/www/html/api/task_engine.php';
 
 $pdo = get_db_pdo();
 $base = rtrim(getenv('CONTROL_PLANE_BASE_URL') ?: 'http://127.0.0.1:8099/api/v1', '/');
 $suffix = bin2hex(random_bytes(5));
-$deviceId = 'ci_http_' . $suffix;
-$deviceToken = 'devtok_' . bin2hex(random_bytes(16));
+$deviceId = '';
+$deviceToken = '';
 $clientToken = 'client_' . bin2hex(random_bytes(16));
 $ruleSlug = 'ci-http-event-' . $suffix;
 
@@ -65,22 +66,25 @@ $pdo->prepare("INSERT INTO api_client_tokens(nome,token_hash,scopes,ativo)
     ->execute([
         ':n'=>'CI HTTP Controller ' . $suffix,
         ':h'=>hash('sha256',$clientToken),
-        ':s'=>json_encode(['devices.read','devices.write'], JSON_UNESCAPED_SLASHES),
+        ':s'=>json_encode(['devices.read','devices.write','devices.provision','home.read','home.write'], JSON_UNESCAPED_SLASHES),
     ]);
 
-$pdo->prepare("INSERT INTO dispositivos_cluster(device_id,nome,tipo,device_token,status,health,metadata,ultimo_heartbeat)
-    VALUES(:d,:n,'simulator',:t,'offline','unknown',JSON_OBJECT(),NULL)")
-    ->execute([
-        ':d'=>$deviceId,
-        ':n'=>'CI HTTP Device ' . $suffix,
-        ':t'=>$deviceToken,
-    ]);
+echo "1/10 Provisionamento + heartbeat real via API...\n";
+$provision=http_json('POST', "{$base}/provision.php?acao=create", $clientToken, [
+    'type'=>'tv',
+    'name'=>'CI HTTP Device '.$suffix,
+    'location'=>'CI Lab',
+    'mac'=>'02:00:00:'.strtoupper(substr($suffix,0,2)).':'.strtoupper(substr($suffix,2,2)).':'.strtoupper(substr($suffix,4,2)),
+    'capabilities'=>['power'=>true,'dangerous_power'=>true]
+]);
+assert_true($provision['status']===200 && ($provision['json']['status']??'')==='ok', 'Provisionamento do device falhou', $provision);
+$deviceId=(string)($provision['json']['device']['device_id']??'');
+$deviceToken=(string)($provision['json']['device']['token']??'');
+assert_true($deviceId!=='' && $deviceToken!=='', 'Provisionamento nao retornou identidade/token', $provision);
 
-$pdo->prepare("INSERT INTO device_capabilities(device_id,capability,enabled,risk_level)
-    VALUES(:d,'power',1,1),(:d,'dangerous_power',1,4)")
+$pdo->prepare("UPDATE device_capabilities SET risk_level=4 WHERE device_id=:d AND capability='dangerous_power'")
     ->execute([':d'=>$deviceId]);
 
-echo "1/9 Heartbeat real via API...\n";
 $hb = http_json('POST', "{$base}/device.php?acao=heartbeat", $deviceToken, [
     'device_id'=>$deviceId,
     'transport'=>'ci-http',
@@ -103,7 +107,7 @@ $hbCount=$pdo->prepare("SELECT COUNT(*) FROM device_heartbeats WHERE device_id=:
 $hbCount->execute([':d'=>$deviceId]);
 assert_true((int)$hbCount->fetchColumn()>=1, 'Heartbeat nao foi historizado');
 
-echo "2/9 Enqueue + idempotencia...\n";
+echo "2/10 Enqueue + idempotencia...\n";
 $idem='idem_' . $suffix;
 $enqueue = http_json('POST', "{$base}/control.php?acao=enqueue", $clientToken, [
     'device_id'=>$deviceId,
@@ -129,7 +133,7 @@ $duplicate = http_json('POST', "{$base}/control.php?acao=enqueue", $clientToken,
 ]);
 assert_true($duplicate['status']===200 && !empty($duplicate['json']['duplicate']) && (int)$duplicate['json']['id']===$commandId, 'Idempotencia nao reutilizou comando', $duplicate);
 
-echo "3/9 Entrega -> ACK -> START -> RESULT success...\n";
+echo "3/10 Entrega -> ACK -> START -> RESULT success...\n";
 $delivery = http_json('GET', "{$base}/device.php?acao=commands&device_id=".rawurlencode($deviceId)."&limit=10", $deviceToken);
 $ids=array_map(fn($c)=>(int)($c['id']??0), $delivery['json']['commands']??[]);
 assert_true($delivery['status']===200 && in_array($commandId,$ids,true), 'Device nao recebeu comando enfileirado', $delivery);
@@ -147,7 +151,7 @@ $done=http_json('POST', "{$base}/device.php?acao=command_result", $deviceToken, 
 ]);
 assert_true($done['status']===200 && ($done['json']['lifecycle_status']??'')==='DONE' && (int)($done['json']['updated']??0)===1, 'RESULT success falhou', $done);
 
-echo "4/9 RESULT failure...\n";
+echo "4/10 RESULT failure...\n";
 $failEnqueue=http_json('POST', "{$base}/control.php?acao=enqueue", $clientToken, [
     'device_id'=>$deviceId,'command'=>'power_off','required_capability'=>'power','risk_level'=>1,'ttl_seconds'=>120,
 ]);
@@ -165,7 +169,7 @@ assert_true($failed['status']===200 && ($failed['json']['lifecycle_status']??'')
 $failedRow=$pdo->query("SELECT lifecycle_status,status,erro FROM device_commands WHERE id={$failId}")->fetch(PDO::FETCH_ASSOC);
 assert_true(($failedRow['lifecycle_status']??'')==='FAILED' && ($failedRow['status']??'')==='error' && str_contains((string)$failedRow['erro'],'falha controlada'), 'Falha nao foi persistida corretamente', $failedRow);
 
-echo "5/9 TTL expirado...\n";
+echo "5/10 TTL expirado...\n";
 $ttlCorr='ttl_' . $suffix;
 $pdo->prepare("INSERT INTO device_commands(device_id,comando,payload,prioridade,correlation_id,status,lifecycle_status,max_retries,requested_by,risk_level,expira_em)
     VALUES(:d,'expired_test',JSON_OBJECT(),'normal',:c,'pending','QUEUED',3,'ci-http',1,DATE_SUB(NOW(),INTERVAL 2 SECOND))")
@@ -175,13 +179,13 @@ http_json('GET', "{$base}/device.php?acao=commands&device_id=".rawurlencode($dev
 $ttlRow=$pdo->query("SELECT lifecycle_status,status,erro FROM device_commands WHERE id={$ttlId}")->fetch(PDO::FETCH_ASSOC);
 assert_true(($ttlRow['lifecycle_status']??'')==='EXPIRED' && ($ttlRow['status']??'')==='expired', 'TTL nao expirou comando', $ttlRow);
 
-echo "6/9 Capability invalida...\n";
+echo "6/10 Capability invalida...\n";
 $badCap=http_json('POST', "{$base}/control.php?acao=enqueue", $clientToken, [
     'device_id'=>$deviceId,'command'=>'invalid_cap_test','required_capability'=>'capability_inexistente','risk_level'=>1
 ]);
 assert_true($badCap['status']===404 && ($badCap['json']['mensagem']??'')==='Capability nao encontrada', 'Capability invalida nao foi bloqueada', $badCap);
 
-echo "7/9 Risco 3/4 exige confirmacao...\n";
+echo "7/10 Risco 3/4 exige confirmacao...\n";
 $riskBlocked=http_json('POST', "{$base}/control.php?acao=enqueue", $clientToken, [
     'device_id'=>$deviceId,'command'=>'dangerous_test','required_capability'=>'dangerous_power','risk_level'=>4
 ]);
@@ -192,7 +196,7 @@ $riskAllowed=http_json('POST', "{$base}/control.php?acao=enqueue", $clientToken,
 ]);
 assert_true($riskAllowed['status']===201 && (int)($riskAllowed['json']['risk_level']??0)===4, 'Risco alto confirmado nao foi aceito', $riskAllowed);
 
-echo "8/9 Evento dispara regra permitida...\n";
+echo "8/10 Evento dispara regra permitida...\n";
 $trigger=json_encode(['event_type'=>'ci.motion','device_id'=>$deviceId], JSON_UNESCAPED_SLASHES);
 $conditions=json_encode([['field'=>'data.active','op'=>'eq','value'=>true]], JSON_UNESCAPED_SLASHES);
 $pdo->prepare("INSERT INTO automation_rules(slug,nome,descricao,enabled,trigger_type,trigger_config,conditions_json,cooldown_seconds,last_triggered_at)
@@ -223,7 +227,7 @@ $ruleStmt=$pdo->prepare("SELECT COUNT(*) FROM device_commands WHERE requested_by
 $ruleStmt->execute([':r'=>'RULE:'.$ruleSlug]);
 assert_true((int)$ruleStmt->fetchColumn()>=1, 'Regra de evento nao gerou comando no Command Bus');
 
-echo "9/9 Auditoria de lifecycle...\n";
+echo "9/10 Auditoria de lifecycle...\n";
 $audit=$pdo->prepare("SELECT lifecycle_status FROM device_command_audit WHERE command_id=:id ORDER BY id");
 $audit->execute([':id'=>$commandId]);
 $auditStates=$audit->fetchAll(PDO::FETCH_COLUMN);
@@ -232,3 +236,57 @@ foreach(['QUEUED','SENT','ACKNOWLEDGED','EXECUTING','DONE'] as $expected){
 }
 
 echo "HTTP E2E Control Plane OK: heartbeat, enqueue, delivery, ACK, start, success/failure, TTL, idempotency, capability, risk e event-rule validados.\n";
+
+
+echo "10/10 Fluxo completo Task -> Action -> HTTP Device -> Trace...\n";
+$e2eCtx=te_begin($pdo,'CI E2E: ligar TV e confirmar resultado','CI_HTTP','e2e',null,'e2e_'.$suffix);
+$e2eTask=te_add_subtask($pdo,$e2eCtx,'Ligar TV via device real simulado','dispositivo',[
+    'device_id'=>$deviceId,'command'=>'power_on'
+],null,'EXECUTANDO');
+$e2eAction=te_device_action($pdo,$e2eCtx,$e2eTask,[
+    'device_id'=>$deviceId,
+    'command'=>'power_on',
+    'payload'=>['source'=>'http-e2e'],
+    'required_capability'=>'power',
+    'risk_level'=>1,
+    'ttl_seconds'=>120
+]);
+$e2eCommandId=(int)($e2eAction['command_id']??0);
+assert_true($e2eCommandId>0, 'Task Engine nao criou comando E2E', $e2eAction);
+
+$e2eDelivery=http_json('GET', "{$base}/device.php?acao=commands&device_id=".rawurlencode($deviceId)."&limit=20", $deviceToken);
+$e2eIds=array_map(fn($x)=>(int)($x['id']??0),$e2eDelivery['json']['commands']??[]);
+assert_true(in_array($e2eCommandId,$e2eIds,true),'Device nao recebeu comando originado do Task Engine',$e2eDelivery);
+
+$e2eAck=http_json('POST',"{$base}/device.php?acao=command_ack",$deviceToken,['device_id'=>$deviceId,'id'=>$e2eCommandId]);
+$e2eStart=http_json('POST',"{$base}/device.php?acao=command_start",$deviceToken,['device_id'=>$deviceId,'id'=>$e2eCommandId]);
+$e2eDone=http_json('POST',"{$base}/device.php?acao=command_result",$deviceToken,[
+    'device_id'=>$deviceId,
+    'id'=>$e2eCommandId,
+    'status'=>'success',
+    'result'=>['power'=>'on','simulated'=>true,'source'=>'http-e2e']
+]);
+assert_true(($e2eAck['json']['lifecycle_status']??'')==='ACKNOWLEDGED','E2E ACK falhou',$e2eAck);
+assert_true(($e2eStart['json']['lifecycle_status']??'')==='EXECUTING','E2E START falhou',$e2eStart);
+assert_true(($e2eDone['json']['lifecycle_status']??'')==='DONE','E2E RESULT falhou',$e2eDone);
+
+$taskRow=$pdo->query("SELECT status,resultado,erro FROM jarvis_tarefas WHERE id=".$e2eTask)->fetch(PDO::FETCH_ASSOC);
+$actionRow=$pdo->query("SELECT status,resultado,erro FROM jarvis_acoes WHERE id=".(int)$e2eAction['action_id'])->fetch(PDO::FETCH_ASSOC);
+assert_true(($taskRow['status']??'')==='CONCLUIDA','Resultado do device nao concluiu tarefa E2E',$taskRow);
+assert_true(($actionRow['status']??'')==='DONE','Resultado do device nao concluiu action E2E',$actionRow);
+
+te_finish($pdo,$e2eCtx,'TV ligada com sucesso no teste E2E',['command_id'=>$e2eCommandId]);
+
+$taskApi=http_json('GET',"{$base}/tasks.php?acao=status&id_plano=".(int)$e2eCtx['id_plano'],$clientToken);
+assert_true($taskApi['status']===200 && ($taskApi['json']['task_status']['derived_status']??'')==='CONCLUIDO','API de progresso nao refletiu conclusao E2E',$taskApi);
+
+$trace=http_json('GET',"{$base}/trace.php?correlation_id=".rawurlencode((string)$e2eCtx['correlation_id']),$clientToken);
+assert_true($trace['status']===200 && ($trace['json']['correlation_id']??'')===$e2eCtx['correlation_id'],'Trace API nao encontrou fluxo E2E',$trace);
+$summary=$trace['json']['summary']??[];
+assert_true((int)($summary['plans']??0)>=1 && (int)($summary['tasks']??0)>=2 && (int)($summary['actions']??0)>=1 && (int)($summary['commands']??0)>=1,'Trace E2E incompleto',$summary);
+$stages=array_column($trace['json']['timeline']??[],'stage');
+foreach(['plan','task','action','command'] as $stage){
+    assert_true(in_array($stage,$stages,true),"Trace E2E sem stage {$stage}",$trace['json']['timeline']??[]);
+}
+
+echo "HTTP E2E Full Trace OK: request -> plan -> task -> action -> command -> device -> result -> trace validado.\n";
