@@ -12,6 +12,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') { http_response_code(20
 
 require_once(__DIR__ . '/../db.php');
 require_once(__DIR__ . '/device_common.php');
+require_once(__DIR__ . '/device_registry.php');
 require_once(__DIR__ . '/rules_engine.php');
 require_once(__DIR__ . '/rules_scheduler.php');
 require_once(__DIR__ . '/../task_engine.php');
@@ -70,16 +71,7 @@ if ($action==='heartbeat') {
     $pdo->prepare($sql)->execute($params);
 
     if ($caps!==null) {
-        try {
-            foreach ($caps as $k=>$v) {
-                $name=is_int($k)?(string)$v:(string)$k;
-                $enabled=is_int($k)?1:((bool)$v?1:0);
-                $name=substr(trim($name),0,120);
-                if ($name==='') continue;
-                $stmt=$pdo->prepare("INSERT INTO device_capabilities(device_id,capability,enabled,risk_level) VALUES(:d,:c,:e,1) ON DUPLICATE KEY UPDATE enabled=VALUES(enabled),atualizado_em=NOW()");
-                $stmt->execute([':d'=>$deviceId,':c'=>$name,':e'=>$enabled]);
-            }
-        } catch(Throwable $e) {}
+        try { registry_sync_capabilities($pdo,$deviceId,$caps); } catch(Throwable $e) {}
     }
 
     try {
