@@ -170,3 +170,157 @@ function te_list_tasks(PDO $pdo, array $ctx): array {
     $st->execute([':p'=>$ctx['id_plano']]);
     return $st->fetchAll(PDO::FETCH_ASSOC);
 }
+
+
+function te_task_belongs_to_plan(PDO $pdo, int $taskId, int $planId): bool {
+    $st=$pdo->prepare("SELECT COUNT(*) FROM jarvis_tarefas WHERE id=:t AND id_plano=:p");
+    $st->execute([':t'=>$taskId,':p'=>$planId]);
+    return ((int)$st->fetchColumn())>0;
+}
+
+function te_device_action(PDO $pdo, array $ctx, int $taskId, array $action, bool $confirm=false): array {
+    if($taskId<=0 || !te_task_belongs_to_plan($pdo,$taskId,(int)$ctx['id_plano'])){
+        throw new RuntimeException('task_not_in_plan');
+    }
+
+    $deviceId=trim((string)($action['device_id'] ?? ''));
+    $command=substr(trim((string)($action['command'] ?? $action['comando'] ?? '')),0,120);
+    if($deviceId==='' || $command==='') throw new RuntimeException('device_id_and_command_required');
+
+    $priority=strtolower(trim((string)($action['priority'] ?? $action['prioridade'] ?? 'normal')));
+    if(!in_array($priority,['low','normal','high','critical'],true)) $priority='normal';
+    $ttl=max(10,min(86400,(int)($action['ttl_seconds'] ?? 300)));
+    $risk=max(0,min(4,(int)($action['risk_level'] ?? 1)));
+    $required=substr(trim((string)($action['required_capability'] ?? '')),0,120);
+    $payload=is_array($action['payload'] ?? null)?$action['payload']:[];
+
+    $st=$pdo->prepare("SELECT device_id FROM dispositivos_cluster WHERE device_id=:d AND credential_revoked_at IS NULL LIMIT 1");
+    $st->execute([':d'=>$deviceId]);
+    if(!$st->fetchColumn()) throw new RuntimeException('device_not_found');
+
+    if($required!==''){
+        $st=$pdo->prepare("SELECT enabled,risk_level FROM device_capabilities WHERE device_id=:d AND capability=:c LIMIT 1");
+        $st->execute([':d'=>$deviceId,':c'=>$required]);
+        $cap=$st->fetch(PDO::FETCH_ASSOC);
+        if($cap){
+            if(!(bool)$cap['enabled']) throw new RuntimeException('capability_disabled');
+            $risk=max($risk,(int)$cap['risk_level']);
+        }
+    }
+    if($risk>=3 && !$confirm) throw new RuntimeException('confirmation_required');
+
+    $corr='task_'.(int)$ctx['id_plano'].'_'.$taskId.'_'.bin2hex(random_bytes(8));
+    $startedTransaction=!$pdo->inTransaction();
+    if($startedTransaction)$pdo->beginTransaction();
+    try{
+        $st=$pdo->prepare("INSERT INTO jarvis_acoes(id_plano,id_tarefa,tipo,device_id,comando,payload,required_capability,prioridade,risk_level,ttl_seconds,correlation_id,status)
+            VALUES(:p,:t,'DEVICE_COMMAND',:d,:c,:j,:cap,:pr,:risk,:ttl,:corr,'PLANNED')");
+        $st->execute([
+            ':p'=>$ctx['id_plano'],':t'=>$taskId,':d'=>$deviceId,':c'=>$command,
+            ':j'=>te_json($payload),':cap'=>$required!==''?$required:null,':pr'=>$priority,
+            ':risk'=>$risk,':ttl'=>$ttl,':corr'=>$corr
+        ]);
+        $actionId=(int)$pdo->lastInsertId();
+        $idem='task_'.$taskId.'_action_'.$actionId;
+
+        $cmd=$pdo->prepare("INSERT INTO device_commands(device_id,comando,payload,prioridade,correlation_id,idempotency_key,status,lifecycle_status,max_retries,requested_by,risk_level,expira_em)
+            VALUES(:d,:c,:j,:pr,:corr,:idem,'pending','QUEUED',3,:rb,:risk,DATE_ADD(NOW(),INTERVAL :ttl SECOND))");
+        $cmd->bindValue(':d',$deviceId);
+        $cmd->bindValue(':c',$command);
+        $cmd->bindValue(':j',te_json($payload));
+        $cmd->bindValue(':pr',$priority);
+        $cmd->bindValue(':corr',$corr);
+        $cmd->bindValue(':idem',$idem);
+        $cmd->bindValue(':rb','TASK:'.$taskId);
+        $cmd->bindValue(':risk',$risk,PDO::PARAM_INT);
+        $cmd->bindValue(':ttl',$ttl,PDO::PARAM_INT);
+        $cmd->execute();
+        $commandId=(int)$pdo->lastInsertId();
+
+        $pdo->prepare("UPDATE jarvis_acoes SET command_id=:c,status='QUEUED' WHERE id=:a")
+            ->execute([':c'=>$commandId,':a'=>$actionId]);
+        $pdo->prepare("UPDATE jarvis_tarefas SET status='AGUARDANDO', iniciado_em=COALESCE(iniciado_em,NOW()) WHERE id=:t")
+            ->execute([':t'=>$taskId]);
+
+        if($startedTransaction)$pdo->commit();
+        return [
+            'action_id'=>$actionId,'command_id'=>$commandId,'correlation_id'=>$corr,
+            'status'=>'QUEUED','device_id'=>$deviceId,'command'=>$command,'risk_level'=>$risk
+        ];
+    }catch(Throwable $e){
+        if($startedTransaction && $pdo->inTransaction())$pdo->rollBack();
+        throw $e;
+    }
+}
+
+function te_sync_device_command(PDO $pdo, int $commandId): ?array {
+    if($commandId<=0)return null;
+    $st=$pdo->prepare("SELECT a.id action_id,a.id_plano,a.id_tarefa,a.status action_status,
+        c.id command_id,c.lifecycle_status,c.resultado,c.erro
+        FROM jarvis_acoes a JOIN device_commands c ON c.id=a.command_id
+        WHERE c.id=:id LIMIT 1");
+    $st->execute([':id'=>$commandId]);
+    $row=$st->fetch(PDO::FETCH_ASSOC);
+    if(!$row)return null;
+
+    $life=strtoupper((string)$row['lifecycle_status']);
+    $terminal=false;
+    $taskStatus='AGUARDANDO';
+    $actionStatus=$life;
+    $result=null;
+    $error=$row['erro'] ?? null;
+
+    if(!empty($row['resultado'])){
+        $decoded=json_decode((string)$row['resultado'],true);
+        $result=is_array($decoded)?$decoded:$row['resultado'];
+    }
+
+    if($life==='EXECUTING'){
+        $taskStatus='EXECUTANDO';
+    }elseif($life==='DONE'){
+        $terminal=true;$taskStatus='CONCLUIDA';$actionStatus='DONE';
+    }elseif(in_array($life,['FAILED','EXPIRED'],true)){
+        $terminal=true;$taskStatus='ERRO';$actionStatus=$life;
+        if(!$error)$error=$life==='EXPIRED'?'Comando expirado':'Falha no dispositivo';
+    }
+
+    $pdo->prepare("UPDATE jarvis_acoes SET status=:s,resultado=:r,erro=:e,
+        iniciado_em=CASE WHEN :started=1 THEN COALESCE(iniciado_em,NOW()) ELSE iniciado_em END,
+        concluido_em=CASE WHEN :done=1 THEN NOW() ELSE concluido_em END WHERE id=:id")
+        ->execute([
+            ':s'=>$actionStatus,':r'=>te_json($result),':e'=>$error,
+            ':started'=>in_array($life,['EXECUTING','DONE','FAILED'],true)?1:0,
+            ':done'=>$terminal?1:0,':id'=>$row['action_id']
+        ]);
+
+    if($terminal){
+        if($taskStatus==='CONCLUIDA'){
+            te_complete($pdo,(int)$row['id_tarefa'],[
+                'action_id'=>(int)$row['action_id'],'command_id'=>$commandId,
+                'lifecycle_status'=>$life,'result'=>$result
+            ]);
+        }else{
+            te_fail($pdo,(int)$row['id_tarefa'],(string)$error,[
+                'action_id'=>(int)$row['action_id'],'command_id'=>$commandId,
+                'lifecycle_status'=>$life,'result'=>$result
+            ]);
+        }
+    }else{
+        $pdo->prepare("UPDATE jarvis_tarefas SET status=:s,iniciado_em=COALESCE(iniciado_em,NOW()) WHERE id=:id")
+            ->execute([':s'=>$taskStatus,':id'=>$row['id_tarefa']]);
+    }
+
+    return [
+        'action_id'=>(int)$row['action_id'],'task_id'=>(int)$row['id_tarefa'],
+        'plan_id'=>(int)$row['id_plano'],'command_id'=>$commandId,
+        'lifecycle_status'=>$life,'task_status'=>$taskStatus
+    ];
+}
+
+function te_list_actions(PDO $pdo, array $ctx): array {
+    $st=$pdo->prepare("SELECT id,id_tarefa,tipo,device_id,comando,required_capability,prioridade,risk_level,
+        correlation_id,command_id,status,erro,criado_em,iniciado_em,concluido_em
+        FROM jarvis_acoes WHERE id_plano=:p ORDER BY id");
+    $st->execute([':p'=>$ctx['id_plano']]);
+    return $st->fetchAll(PDO::FETCH_ASSOC);
+}
