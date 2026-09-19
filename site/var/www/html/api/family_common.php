@@ -151,6 +151,9 @@ function family_start_call(PDO $pdo, int $channelId, string $startedBy, string $
 
 function family_call_visible_sql(string $clientParam=':me', string $platformParam=':platform'): string {
     return "(iniciado_por={$clientParam}
-        OR (destino_cliente IS NOT NULL AND destino_cliente={$clientParam})
-        OR (destino_cliente IS NULL AND (destino_plataforma IS NULL OR destino_plataforma='' OR destino_plataforma={$platformParam})))";
+        OR atendido_por={$clientParam}
+        OR (status='chamando' AND (
+            (destino_cliente IS NOT NULL AND destino_cliente={$clientParam})
+            OR (destino_cliente IS NULL AND (destino_plataforma IS NULL OR destino_plataforma='' OR destino_plataforma={$platformParam}))
+        )))";
 }
