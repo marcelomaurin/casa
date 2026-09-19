@@ -333,3 +333,69 @@ function te_sync_device_actions_for_device(PDO $pdo, string $deviceId): array {
     }
     return $out;
 }
+
+
+function te_plan_snapshot(PDO $pdo, array $ctx): array {
+    $planId=(int)($ctx['id_plano']??0);
+    if($planId<=0)return [];
+
+    $st=$pdo->prepare("SELECT id,demanda_original,origem,status,resumo,criado_em,concluido_em FROM jarvis_planos WHERE id=:id LIMIT 1");
+    $st->execute([':id'=>$planId]);
+    $plan=$st->fetch(PDO::FETCH_ASSOC);
+    if(!$plan)return [];
+
+    $tasks=te_list_tasks($pdo,$ctx);
+    $actions=te_list_actions($pdo,$ctx);
+    $counts=['total'=>0,'pendentes'=>0,'aguardando'=>0,'executando'=>0,'concluidas'=>0,'erros'=>0,'agendadas'=>0];
+    foreach($tasks as $t){
+        $counts['total']++;
+        $s=strtoupper((string)($t['status']??''));
+        if($s==='PENDENTE')$counts['pendentes']++;
+        elseif($s==='AGUARDANDO')$counts['aguardando']++;
+        elseif($s==='EXECUTANDO')$counts['executando']++;
+        elseif($s==='CONCLUIDA')$counts['concluidas']++;
+        elseif($s==='ERRO')$counts['erros']++;
+        elseif($s==='AGENDADA')$counts['agendadas']++;
+    }
+
+    $terminal=$counts['total']>0 && ($counts['concluidas']+$counts['erros']===$counts['total']);
+    $derived='EM_EXECUCAO';
+    if($terminal)$derived=$counts['erros']>0?'ERRO':'CONCLUIDO';
+    elseif($counts['erros']>0)$derived='DEGRADADO';
+    elseif($counts['executando']===0 && $counts['aguardando']+$counts['agendadas']>0)$derived='AGUARDANDO';
+
+    $progress=$counts['total']>0?(int)round((($counts['concluidas']+$counts['erros'])/$counts['total'])*100):0;
+
+    return [
+        'plan'=>$plan,
+        'derived_status'=>$derived,
+        'progress_pct'=>$progress,
+        'counts'=>$counts,
+        'tasks'=>$tasks,
+        'actions'=>$actions
+    ];
+}
+
+function te_attach_context(array $response, array $ctx, ?PDO $pdo=null): array {
+    $response['id_plano']=(int)$ctx['id_plano'];
+    $response['id_tarefa_raiz']=(int)$ctx['id_tarefa_raiz'];
+    $response['task_context']=te_public_context($ctx);
+    if($pdo)$response['task_status']=te_plan_snapshot($pdo,$ctx);
+    return $response;
+}
+
+function te_fail_with_plan(PDO $pdo, array $ctx, int $taskId, string $erro, $resultado=null): void {
+    te_fail($pdo,$taskId,$erro,$resultado);
+    if($taskId===(int)$ctx['id_tarefa_raiz']){
+        te_finish_error($pdo,$ctx,$erro);
+    }else{
+        try{
+            $snapshot=te_plan_snapshot($pdo,$ctx);
+            $pdo->prepare("UPDATE jarvis_planos SET resumo=:r WHERE id=:id AND status<>'CONCLUIDO'")
+                ->execute([
+                    ':r'=>'Execução com falha em subtarefa: '.mb_substr($erro,0,300,'UTF-8'),
+                    ':id'=>$ctx['id_plano']
+                ]);
+        }catch(Throwable $e){}
+    }
+}

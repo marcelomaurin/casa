@@ -129,3 +129,31 @@ $actionRow=$pdo->query("SELECT status,command_id FROM jarvis_acoes WHERE id=".(i
 if(($actionRow['status']??'')!=='DONE' || (int)($actionRow['command_id']??0)!==$bridgeCmd) fail_test('Action nao sincronizou com command DONE');
 
 echo "Task Action Bridge OK: task -> action -> command -> task validado\n";
+
+
+// Universal task context: nested modules must reuse the same plan/root task.
+$ctxRoot=te_begin($pdo,'CI universal task context','CI','root',null);
+$plansBefore=(int)$pdo->query("SELECT COUNT(*) FROM jarvis_planos")->fetchColumn();
+$ctxNested=te_begin($pdo,'subchamada interna','CI_INTERNAL','nested',te_public_context($ctxRoot));
+$plansAfter=(int)$pdo->query("SELECT COUNT(*) FROM jarvis_planos")->fetchColumn();
+if($plansBefore!==$plansAfter) fail_test('Subchamada interna criou plano duplicado');
+if((int)$ctxNested['id_plano']!==(int)$ctxRoot['id_plano']) fail_test('Contexto interno mudou id_plano');
+if((int)$ctxNested['id_tarefa_raiz']!==(int)$ctxRoot['id_tarefa_raiz']) fail_test('Contexto interno mudou tarefa raiz');
+
+$nestedTask=te_add_subtask($pdo,$ctxNested,'Subtarefa interna de teste','ci',['evidence'=>'ok'],null,'EXECUTANDO');
+te_complete($pdo,$nestedTask,['evidence'=>'ok']);
+$snapshot=te_plan_snapshot($pdo,$ctxRoot);
+if((int)($snapshot['counts']['total']??0)<2) fail_test('Snapshot nao listou raiz/subtarefa');
+if(!isset($snapshot['progress_pct'])) fail_test('Snapshot nao informou progresso');
+
+$failedTask=te_add_subtask($pdo,$ctxNested,'Subtarefa com falha','ci',['test'=>true],$nestedTask,'EXECUTANDO');
+te_fail_with_plan($pdo,$ctxRoot,$failedTask,'falha controlada de CI',['evidence'=>'failure']);
+$snapshot=te_plan_snapshot($pdo,$ctxRoot);
+if(($snapshot['derived_status']??'')!=='DEGRADADO') fail_test('Falha de subtarefa nao degradou status derivado');
+if((int)($snapshot['counts']['erros']??0)<1) fail_test('Falha de subtarefa nao apareceu no snapshot');
+
+te_finish($pdo,$ctxRoot,'CI concluido com evidencias',['nested_task'=>$nestedTask,'failed_task'=>$failedTask]);
+$attached=te_attach_context(['status'=>'ok'],$ctxRoot,$pdo);
+if((int)($attached['id_plano']??0)!==(int)$ctxRoot['id_plano'] || empty($attached['task_context'])) fail_test('Resposta nao recebeu task_context universal');
+
+echo "Universal Task Context OK: reutilizacao, progresso e falhas validados\n";

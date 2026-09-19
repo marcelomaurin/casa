@@ -152,7 +152,11 @@ if ($subpath === 'comando') {
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER=>true,
         CURLOPT_POST=>true,
-        CURLOPT_POSTFIELDS=>json_encode(['comando'=>$cmd,'ia_mode'=>$ia_mode]),
+        CURLOPT_POSTFIELDS=>json_encode([
+            'comando'=>$cmd,
+            'ia_mode'=>$ia_mode,
+            'origem'=>'API_V1'
+        ]),
         CURLOPT_HTTPHEADER=>['Content-Type: application/json','X-API-Key: ' . get_system_api_token()],
         CURLOPT_TIMEOUT=>30
     ]);
@@ -168,7 +172,12 @@ if ($subpath === 'comando') {
         'resposta'=>$data['resposta'] ?? $res,
         'provedor_ia'=>$data['provedor'] ?? 'JARVIS',
         'acao_executada'=>$data['acao'] ?? null,
-        'audio_url'=>$data['audio_url'] ?? null
+        'audio_url'=>$data['audio_url'] ?? null,
+        'id_plano'=>$data['id_plano'] ?? null,
+        'id_tarefa_raiz'=>$data['id_tarefa_raiz'] ?? null,
+        'task_context'=>$data['task_context'] ?? null,
+        'task_status'=>$data['task_status'] ?? null,
+        'tarefas_execucao'=>$data['tarefas_execucao'] ?? []
     ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
     exit;
 }

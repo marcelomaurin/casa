@@ -203,7 +203,8 @@ try{
                 ':d'=>json_encode(['sql'=>$sql],JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES)
             ]);
         }catch(Throwable $ignored){}
-        tia_out(['status'=>'erro','mensagem'=>'Consulta bloqueada: '.$validation],400);
+        te_fail_with_plan($pdo,$taskContext,$taskSql,'Consulta bloqueada: '.$validation,['sql'=>$sql]);
+        tia_out(te_attach_context(['status'=>'erro','mensagem'=>'Consulta bloqueada: '.$validation],$taskContext,$pdo),400);
     }
 
     $sql=tia_force_limit($sql);
@@ -282,7 +283,7 @@ try{
         ]);
     }catch(Throwable $ignored){}
 
-    tia_out([
+    tia_out(te_attach_context([
         'status'=>'sucesso',
         'pergunta'=>$pergunta,
         'resposta'=>$resposta,
@@ -292,10 +293,8 @@ try{
         'inicio'=>$inicio,
         'fim'=>$fim,
         'modo_relatorio_hoje'=>$modoResumoHoje,
-        'id_plano'=>$taskContext['id_plano'],
-        'id_tarefa_raiz'=>$taskContext['id_tarefa_raiz'],
         'tarefas_execucao'=>te_list_tasks($pdo,$taskContext)
-    ]);
+    ],$taskContext,$pdo));
 
 }catch(Throwable $e){
     if($pdo->inTransaction()){
@@ -303,5 +302,9 @@ try{
     }
     try{$pdo->exec("SET SESSION TRANSACTION READ WRITE");}catch(Throwable $ignored){}
     error_log('Telemetria IA: '.$e->getMessage());
+    if(isset($taskContext) && is_array($taskContext)){
+        te_fail_with_plan($pdo,$taskContext,(int)($taskAnalysis??$taskQuery??$taskSql??$taskIntent??$taskContext['id_tarefa_raiz']),$e->getMessage());
+        tia_out(te_attach_context(['status'=>'erro','mensagem'=>'Falha na análise da telemetria.'],$taskContext,$pdo),500);
+    }
     tia_out(['status'=>'erro','mensagem'=>'Falha na análise da telemetria.'],500);
 }
