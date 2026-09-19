@@ -341,18 +341,21 @@ class JarvisConnectionService : Service(), WatchClient.Listener, WatchEventProce
 
     override suspend fun acceptFamilyCall(deviceId: String, callId: Long, mode: String) {
         val accepted = runCatching {
-            FamilyApi.joinCall(this@JarvisConnectionService, callId, "JARVIS Mobile")
+            FamilyApi.joinCall(this@JarvisConnectionService, callId, "JARVIS Mobile", "watch")
             true
         }.getOrDefault(false)
 
         if (accepted) {
+            // Android pode bloquear abertura de Activity em background; a notificação
+            // permanece como fallback para o usuário abrir a mídia manualmente.
+            notifier.showFamilyCall(callId, mode, false)
             val intent = Intent(this@JarvisConnectionService, FamilyCallActivity::class.java)
                 .putExtra(FamilyCallActivity.EXTRA_CALL_ID, callId)
                 .putExtra(FamilyCallActivity.EXTRA_CALL_MODE, mode)
                 .putExtra(FamilyCallActivity.EXTRA_AUTO_JOIN, true)
                 .putExtra(FamilyCallActivity.EXTRA_INITIATOR, false)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            startActivity(intent)
+            runCatching { startActivity(intent) }
         }
 
         sendWatchCommand(
