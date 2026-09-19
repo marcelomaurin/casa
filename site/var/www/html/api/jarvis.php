@@ -23,7 +23,7 @@ if ($comando === '') {
 $pdo = get_db_pdo();
 
 $existingTaskContext=te_context_from_input($input['task_context'] ?? null);
-$taskContext=te_begin($pdo,$comando,$origem,'computer',$existingTaskContext);
+$taskContext=te_begin($pdo,$comando,$origem,'computer',$existingTaskContext,$input['correlation_id'] ?? null);
 $taskInterpret=0;
 if($taskContext['root_created']){
     $taskInterpret=te_add_subtask($pdo,$taskContext,'Interpretar e planejar solicitação','computer',[
