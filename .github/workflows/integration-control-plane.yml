@@ -47,14 +47,14 @@ jobs:
           find site/var/www/html/api -name '*.php' -print0 | xargs -0 -n1 php -l
           php -l site/var/www/html/automacao.php
 
+      - name: Enforce API v1 on external clients
+        run: python3 .github/tests/test_api_v1_clients.py
+
       - name: Test automatic empty-database install
         run: php .github/tests/test_schema_install.php
 
       - name: Test Command Bus and automation
         run: php .github/tests/test_control_plane.php
-
-      - name: Enforce API v1 on external clients
-        run: python3 .github/tests/test_api_v1_clients.py
 
       - name: Validate simulator syntax
         run: python3 -m py_compile servicos/device_simulator.py
