@@ -109,6 +109,7 @@ assert_true((int)$hbCount->fetchColumn()>=1, 'Heartbeat nao foi historizado');
 
 echo "2/10 Enqueue + idempotencia...\n";
 $idem='idem_' . $suffix;
+$rootCorr='http_' . $suffix;
 $enqueue = http_json('POST', "{$base}/control.php?acao=enqueue", $clientToken, [
     'device_id'=>$deviceId,
     'command'=>'power_on',
@@ -117,10 +118,12 @@ $enqueue = http_json('POST', "{$base}/control.php?acao=enqueue", $clientToken, [
     'risk_level'=>1,
     'ttl_seconds'=>120,
     'idempotency_key'=>$idem,
-]);
+    'correlation_id'=>$rootCorr,
+], ['X-Correlation-ID: '.$rootCorr]);
 assert_true($enqueue['status']===201 && ($enqueue['json']['lifecycle_status']??'')==='QUEUED', 'Enqueue falhou', $enqueue);
 $commandId=(int)($enqueue['json']['id']??0);
 assert_true($commandId>0, 'Enqueue nao retornou command id', $enqueue);
+assert_true(($enqueue['json']['correlation_id']??'')===$rootCorr, 'Enqueue nao preservou correlation_id fornecido', $enqueue);
 
 $duplicate = http_json('POST', "{$base}/control.php?acao=enqueue", $clientToken, [
     'device_id'=>$deviceId,
@@ -130,7 +133,8 @@ $duplicate = http_json('POST', "{$base}/control.php?acao=enqueue", $clientToken,
     'risk_level'=>1,
     'ttl_seconds'=>120,
     'idempotency_key'=>$idem,
-]);
+    'correlation_id'=>$rootCorr,
+], ['X-Correlation-ID: '.$rootCorr]);
 assert_true($duplicate['status']===200 && !empty($duplicate['json']['duplicate']) && (int)$duplicate['json']['id']===$commandId, 'Idempotencia nao reutilizou comando', $duplicate);
 
 echo "3/10 Entrega -> ACK -> START -> RESULT success...\n";
@@ -207,13 +211,14 @@ $pdo->prepare("INSERT INTO automation_rule_actions(rule_id,ordem,device_id,coman
     VALUES(:r,10,:d,'power_on',JSON_OBJECT('source','event-rule'),'normal','power',1,120,1)")
     ->execute([':r'=>$ruleId,':d'=>$deviceId]);
 
+$eventCorr='event_' . $suffix;
 $event=http_json('POST', "{$base}/device.php?acao=event", $deviceToken, [
     'device_id'=>$deviceId,
     'type'=>'ci.motion',
     'priority'=>'normal',
-    'correlation_id'=>'event_' . $suffix,
+    'correlation_id'=>$eventCorr,
     'data'=>['active'=>true],
-]);
+], ['X-Correlation-ID: '.$eventCorr]);
 assert_true($event['status']===200 && (int)($event['json']['event_id']??0)>0, 'Evento nao foi registrado', $event);
 $runs=$event['json']['automation_runs']??[];
 $matched=false;
@@ -223,14 +228,30 @@ foreach($runs as $run){
     }
 }
 assert_true($matched, 'Evento nao disparou regra permitida', $event);
-$ruleStmt=$pdo->prepare("SELECT COUNT(*) FROM device_commands WHERE requested_by=:r");
+$ruleStmt=$pdo->prepare("SELECT id,correlation_id FROM device_commands WHERE requested_by=:r ORDER BY id DESC LIMIT 1");
 $ruleStmt->execute([':r'=>'RULE:'.$ruleSlug]);
-assert_true((int)$ruleStmt->fetchColumn()>=1, 'Regra de evento nao gerou comando no Command Bus');
+$ruleCommand=$ruleStmt->fetch(PDO::FETCH_ASSOC);
+assert_true(!empty($ruleCommand), 'Regra de evento nao gerou comando no Command Bus');
+assert_true(($ruleCommand['correlation_id']??'')===$eventCorr, 'Regra quebrou correlation_id do evento', $ruleCommand);
+
+$ruleRunStmt=$pdo->prepare("SELECT correlation_id FROM automation_rule_runs WHERE rule_id=:r ORDER BY id DESC LIMIT 1");
+$ruleRunStmt->execute([':r'=>$ruleId]);
+assert_true((string)$ruleRunStmt->fetchColumn()===$eventCorr, 'automation_rule_run nao preservou correlation_id do evento');
+
+$eventTrace=http_json('GET',"{$base}/trace.php?correlation_id=".rawurlencode($eventCorr),$clientToken);
+assert_true($eventTrace['status']===200, 'Trace do evento falhou', $eventTrace);
+$eventSummary=$eventTrace['json']['summary']??[];
+assert_true((int)($eventSummary['events']??0)>=1 && (int)($eventSummary['rule_runs']??0)>=1 && (int)($eventSummary['commands']??0)>=1,
+    'Trace nao reconstruiu evento -> regra -> comando', $eventSummary);
 
 echo "9/10 Auditoria de lifecycle...\n";
-$audit=$pdo->prepare("SELECT lifecycle_status FROM device_command_audit WHERE command_id=:id ORDER BY id");
+$audit=$pdo->prepare("SELECT lifecycle_status,correlation_id FROM device_command_audit WHERE command_id=:id ORDER BY id");
 $audit->execute([':id'=>$commandId]);
-$auditStates=$audit->fetchAll(PDO::FETCH_COLUMN);
+$auditRows=$audit->fetchAll(PDO::FETCH_ASSOC);
+$auditStates=array_column($auditRows,'lifecycle_status');
+foreach($auditRows as $auditRow){
+    assert_true(($auditRow['correlation_id']??'')===$rootCorr, 'Auditoria perdeu correlation_id do comando', $auditRows);
+}
 foreach(['QUEUED','SENT','ACKNOWLEDGED','EXECUTING','DONE'] as $expected){
     assert_true(in_array($expected,$auditStates,true), "Auditoria sem estado {$expected}", $auditStates);
 }
