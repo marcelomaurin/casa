@@ -97,18 +97,18 @@ if ($action==='event') {
     $type=substr(trim((string)($input['type'] ?? 'device.event')),0,120);
     if ($type==='') api_v1_json_response(400,['status'=>'erro','mensagem'=>'type obrigatorio']);
     $priority=device_v1_priority((string)($input['priority'] ?? 'normal'));
-    $corr=substr(trim((string)($input['correlation_id'] ?? '')),0,80) ?: null;
+    $corr=api_v1_correlation_id($input['correlation_id'] ?? null);
     $data=is_array($input['data'] ?? null)?$input['data']:[];
     $stmt=$pdo->prepare("INSERT INTO device_events(device_id,tipo,prioridade,correlation_id,dados,observado_ip) VALUES(:d,:t,:p,:c,:j,:ip)");
     $stmt->execute([':d'=>$deviceId,':t'=>$type,':p'=>$priority,':c'=>$corr,':j'=>json_encode($data,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES),':ip'=>api_v1_client_ip()]);
     $id=(int)$pdo->lastInsertId();
-    api_v1_log($pdo,'DEVICE_EVENT','INFO',$deviceId,['event_id'=>$id,'type'=>$type,'priority'=>$priority]);
+    api_v1_log($pdo,'DEVICE_EVENT','INFO',$deviceId,['event_id'=>$id,'type'=>$type,'priority'=>$priority],$corr);
     $automationRuns=[];
     try {
-        $automationRuns=rules_engine_process_event($pdo,['id'=>$id,'device_id'=>$deviceId,'type'=>$type,'data'=>$data]);
-        if ($automationRuns) api_v1_log($pdo,'AUTOMATION_TRIGGERED','INFO',$deviceId,['event_id'=>$id,'runs'=>$automationRuns]);
+        $automationRuns=rules_engine_process_event($pdo,['id'=>$id,'device_id'=>$deviceId,'type'=>$type,'data'=>$data,'correlation_id'=>$corr]);
+        if ($automationRuns) api_v1_log($pdo,'AUTOMATION_TRIGGERED','INFO',$deviceId,['event_id'=>$id,'runs'=>$automationRuns],$corr);
     } catch(Throwable $e) {
-        api_v1_log($pdo,'AUTOMATION_ERROR','WARN',$deviceId,['event_id'=>$id,'error'=>substr($e->getMessage(),0,500)]);
+        api_v1_log($pdo,'AUTOMATION_ERROR','WARN',$deviceId,['event_id'=>$id,'error'=>substr($e->getMessage(),0,500)],$corr);
     }
     api_v1_json_response(200,['status'=>'ok','event_id'=>$id,'automation_runs'=>$automationRuns]);
 }

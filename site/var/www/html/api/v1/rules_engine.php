@@ -56,7 +56,7 @@ function rules_trigger_match(array $config, array $event): bool {
     return true;
 }
 
-function rules_enqueue_action(PDO $pdo, array $action, string $requestedBy, int $runId): int {
+function rules_enqueue_action(PDO $pdo, array $action, string $requestedBy, int $runId, string $correlationId): int {
     $priority = strtolower((string)($action['prioridade'] ?? 'normal'));
     if (!in_array($priority, ['low','normal','high','critical'], true)) $priority = 'normal';
     $ttl = max(10, min(86400, (int)($action['ttl_seconds'] ?? 300)));
@@ -73,7 +73,7 @@ function rules_enqueue_action(PDO $pdo, array $action, string $requestedBy, int 
         if ((int)$resolved['risk_level'] >= 3) throw new RuntimeException('automatic_high_risk_blocked');
     }
 
-    $corr = 'cmd_' . bin2hex(random_bytes(12));
+    $corr = $correlationId;
     $idem = 'rule_' . $runId . '_action_' . (int)$action['id'];
     $payload = rules_json($action['payload'] ?? null, []);
     $stmt = $pdo->prepare("INSERT INTO device_commands(device_id,comando,payload,prioridade,correlation_id,idempotency_key,status,lifecycle_status,max_retries,requested_by,risk_level,expira_em) VALUES(:d,:c,:p,:pr,:x,:i,'pending','QUEUED',3,:rb,:risk,DATE_ADD(NOW(),INTERVAL :ttl SECOND))");
@@ -95,7 +95,9 @@ function rules_engine_process_event(PDO $pdo, array $event): array {
     $eventType = (string)($event['type'] ?? '');
     $deviceId = (string)($event['device_id'] ?? '');
     $eventData = is_array($event['data'] ?? null) ? $event['data'] : [];
-    $context = ['event'=>['id'=>$eventId,'type'=>$eventType,'device_id'=>$deviceId], 'data'=>$eventData];
+    $eventCorrelation=trim((string)($event['correlation_id'] ?? ''));
+    if($eventCorrelation==='')$eventCorrelation='evt_'.bin2hex(random_bytes(16));
+    $context = ['event'=>['id'=>$eventId,'type'=>$eventType,'device_id'=>$deviceId,'correlation_id'=>$eventCorrelation], 'data'=>$eventData];
 
     // Evita realimentação da própria regra quando um device devolver metadados de automação.
     $originRule = (int)($eventData['_automation_rule_id'] ?? 0);
@@ -118,7 +120,7 @@ function rules_engine_process_event(PDO $pdo, array $event): array {
             if ($last !== false && time() - $last < $cooldown) continue;
         }
 
-        $corr = 'rule_' . bin2hex(random_bytes(12));
+        $corr = $eventCorrelation;
         $pdo->beginTransaction();
         try {
             $stmtRun = $pdo->prepare("INSERT INTO automation_rule_runs(rule_id,source_event_id,correlation_id,status) VALUES(:r,:e,:c,'QUEUED')");
@@ -130,7 +132,7 @@ function rules_engine_process_event(PDO $pdo, array $event): array {
             $queued = []; $errors = [];
             foreach ($actions as $action) {
                 try {
-                    $commandId = rules_enqueue_action($pdo, $action, 'RULE:' . $rule['slug'], $runId);
+                    $commandId = rules_enqueue_action($pdo, $action, 'RULE:' . $rule['slug'], $runId, $corr);
                     $pdo->prepare("INSERT INTO automation_rule_run_actions(run_id,rule_action_id,command_id,status) VALUES(:r,:a,:c,'QUEUED')")->execute([':r'=>$runId,':a'=>$action['id'],':c'=>$commandId]);
                     $queued[] = $commandId;
                 } catch (Throwable $e) {

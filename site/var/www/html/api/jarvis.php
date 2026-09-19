@@ -23,7 +23,7 @@ if ($comando === '') {
 $pdo = get_db_pdo();
 
 $existingTaskContext=te_context_from_input($input['task_context'] ?? null);
-$taskContext=te_begin($pdo,$comando,$origem,'computer',$existingTaskContext);
+$taskContext=te_begin($pdo,$comando,$origem,'computer',$existingTaskContext,$input['correlation_id'] ?? null);
 $taskInterpret=0;
 if($taskContext['root_created']){
     $taskInterpret=te_add_subtask($pdo,$taskContext,'Interpretar e planejar solicitação','computer',[
@@ -42,15 +42,16 @@ function computer_client_ip(): ?string {
     $ip=$_SERVER['REMOTE_ADDR']??'';
     return filter_var($ip,FILTER_VALIDATE_IP)?$ip:null;
 }
-function computer_telemetry_start(PDO $pdo,string $origem,string $comando): int {
+function computer_telemetry_start(PDO $pdo,string $origem,string $comando,string $correlationId): int {
     try{
         $canal='web';
         if(stripos($origem,'GOOGLE_HOME')!==false)$canal='google_home';
         elseif(stripos($origem,'SCHEDULER')!==false)$canal='scheduler';
         elseif(!empty($_SERVER['HTTP_X_DEVICE_TOKEN']))$canal='hardware';
         elseif(!empty($_SERVER['HTTP_AUTHORIZATION'])||!empty($_SERVER['HTTP_X_API_KEY']))$canal='api';
-        $st=$pdo->prepare("INSERT INTO telemetria_operacional(origem,canal,ip_cliente,operacao,solicitacao,status,detalhes) VALUES(:o,:c,:ip,'COMPUTER_COMMAND',:s,'PROCESSANDO',:d)");
+        $st=$pdo->prepare("INSERT INTO telemetria_operacional(correlation_id,origem,canal,ip_cliente,operacao,solicitacao,status,detalhes) VALUES(:x,:o,:c,:ip,'COMPUTER_COMMAND',:s,'PROCESSANDO',:d)");
         $st->execute([
+            ':x'=>$correlationId,
             ':o'=>$origem?:'COMPUTER',
             ':c'=>$canal,
             ':ip'=>computer_client_ip(),
@@ -69,7 +70,7 @@ function computer_telemetry_finish(PDO $pdo,int $id,string $status,?string $resp
     }catch(Throwable $e){}
 }
 $telemetryStarted=hrtime(true);
-$telemetryId=computer_telemetry_start($pdo,$origem,$comando);
+$telemetryId=computer_telemetry_start($pdo,$origem,$comando,(string)$taskContext['correlation_id']);
 
 $configs = [];
 try {

@@ -194,10 +194,11 @@ try{
         try{
             $st=$pdo->prepare(
                 "INSERT INTO telemetria_operacional ".
-                "(origem,canal,operacao,solicitacao,acao_executada,status,detalhes) ".
-                "VALUES('TELEMETRIA_IA','web','SQL_BLOQUEADO',:q,:a,'BLOQUEADO',:d)"
+                "(correlation_id,origem,canal,operacao,solicitacao,acao_executada,status,detalhes) ".
+                "VALUES(:x,'TELEMETRIA_IA','web','SQL_BLOQUEADO',:q,:a,'BLOQUEADO',:d)"
             );
             $st->execute([
+                ':x'=>$taskContext['correlation_id'],
                 ':q'=>$pergunta,
                 ':a'=>$validation,
                 ':d'=>json_encode(['sql'=>$sql],JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES)
@@ -266,10 +267,11 @@ try{
         $ip=$_SERVER['HTTP_CF_CONNECTING_IP']??($_SERVER['REMOTE_ADDR']??null);
         $st=$pdo->prepare(
             "INSERT INTO telemetria_operacional ".
-            "(origem,canal,ip_cliente,operacao,solicitacao,resposta_ia,acao_executada,status,modelo,duracao_ms,detalhes) ".
-            "VALUES('TELEMETRIA_IA','web',:ip,'ANALISE_SQL',:q,:r,'SELECT SOMENTE LEITURA','SUCESSO','COMPUTER',:ms,:d)"
+            "(correlation_id,origem,canal,ip_cliente,operacao,solicitacao,resposta_ia,acao_executada,status,modelo,duracao_ms,detalhes) ".
+            "VALUES(:x,'TELEMETRIA_IA','web',:ip,'ANALISE_SQL',:q,:r,'SELECT SOMENTE LEITURA','SUCESSO','COMPUTER',:ms,:d)"
         );
         $st->execute([
+            ':x'=>$taskContext['correlation_id'],
             ':ip'=>$ip,
             ':q'=>$pergunta,
             ':r'=>$resposta,

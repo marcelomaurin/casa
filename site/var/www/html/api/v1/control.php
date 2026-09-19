@@ -57,7 +57,7 @@ if($action==='enqueue'){
   }
  }
  if($riskLevel>=3 && empty($in['confirm']))api_v1_json_response(409,['status'=>'confirmacao_necessaria','mensagem'=>'Acao sensivel exige confirm=true','risk_level'=>$riskLevel]);
- $corr='cmd_'.bin2hex(random_bytes(12));
+ $corr=api_v1_correlation_id($in['correlation_id'] ?? null);
  $stmt=$pdo->prepare("INSERT INTO device_commands(device_id,comando,payload,prioridade,correlation_id,idempotency_key,status,lifecycle_status,max_retries,requested_by,risk_level,expira_em) VALUES(:d,:c,:p,:r,:x,:i,'pending','QUEUED',:mr,:rb,:risk,DATE_ADD(NOW(),INTERVAL :ttl SECOND))");
  $stmt->bindValue(':d',$deviceId);$stmt->bindValue(':c',$cmd);$stmt->bindValue(':p',json_encode(is_array($in['payload']??null)?$in['payload']:[],JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES));$stmt->bindValue(':r',$priority);$stmt->bindValue(':x',$corr);$stmt->bindValue(':i',$idem);$stmt->bindValue(':mr',$maxRetries,PDO::PARAM_INT);$stmt->bindValue(':rb',$requestedBy);$stmt->bindValue(':risk',$riskLevel,PDO::PARAM_INT);$stmt->bindValue(':ttl',$ttl,PDO::PARAM_INT);$stmt->execute();
  $id=(int)$pdo->lastInsertId();api_v1_log($pdo,'COMMAND_ENQUEUED','INFO',$requestedBy,['id'=>$id,'device_id'=>$deviceId,'command'=>$cmd,'risk_level'=>$riskLevel,'idempotency_key'=>$idem]);

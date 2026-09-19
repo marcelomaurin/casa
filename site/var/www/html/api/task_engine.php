@@ -30,30 +30,43 @@ function te_context_from_input($value): ?array {
         'id_plano'=>$plan,
         'id_tarefa_raiz'=>$root,
         'current_task_id'=>(int)($value['current_task_id'] ?? 0),
+        'correlation_id'=>substr(trim((string)($value['correlation_id'] ?? '')),0,80),
         'origem'=>(string)($value['origem'] ?? ''),
         'modulo'=>(string)($value['modulo'] ?? '')
     ];
 }
 
-function te_begin(PDO $pdo, string $pergunta, string $origem='COMPUTER', string $modulo='computer', ?array $existing=null): array {
+function te_begin(PDO $pdo, string $pergunta, string $origem='COMPUTER', string $modulo='computer', ?array $existing=null, ?string $requestedCorrelation=null): array {
     if ($existing && !empty($existing['id_plano']) && !empty($existing['id_tarefa_raiz'])) {
+        $corr=trim((string)($existing['correlation_id'] ?? ''));
+        if($corr===''){
+            try{
+                $st=$pdo->prepare("SELECT correlation_id FROM jarvis_planos WHERE id=:id LIMIT 1");
+                $st->execute([':id'=>$existing['id_plano']]);
+                $corr=(string)$st->fetchColumn();
+            }catch(Throwable $e){}
+        }
         return [
             'id_plano'=>(int)$existing['id_plano'],
             'id_tarefa_raiz'=>(int)$existing['id_tarefa_raiz'],
             'current_task_id'=>(int)($existing['current_task_id'] ?? 0),
+            'correlation_id'=>$corr,
             'origem'=>$origem,
             'modulo'=>$modulo,
             'root_created'=>false
         ];
     }
 
+    $corr=trim((string)$requestedCorrelation);
+    if($corr==='' || !preg_match('/^[A-Za-z0-9._:-]{8,80}$/',$corr))$corr='req_'.bin2hex(random_bytes(16));
     $pdo->beginTransaction();
     try {
         $st=$pdo->prepare(
-            "INSERT INTO jarvis_planos(demanda_original,origem,status,resumo,dados_plano) ".
-            "VALUES(:d,:o,'EM_EXECUCAO',:r,:j)"
+            "INSERT INTO jarvis_planos(correlation_id,demanda_original,origem,status,resumo,dados_plano) ".
+            "VALUES(:corr,:d,:o,'EM_EXECUCAO',:r,:j)"
         );
         $st->execute([
+            ':corr'=>$corr,
             ':d'=>$pergunta,
             ':o'=>$origem ?: 'COMPUTER',
             ':r'=>'Solicitação em processamento',
@@ -62,11 +75,12 @@ function te_begin(PDO $pdo, string $pergunta, string $origem='COMPUTER', string 
         $plan=(int)$pdo->lastInsertId();
 
         $root=$pdo->prepare(
-            "INSERT INTO jarvis_tarefas(id_plano,ordem,titulo,descricao,tipo,executor,payload,status,iniciado_em) ".
-            "VALUES(:p,1,:t,:d,'IMEDIATA',:e,:j,'EXECUTANDO',NOW())"
+            "INSERT INTO jarvis_tarefas(id_plano,correlation_id,ordem,titulo,descricao,tipo,executor,payload,status,iniciado_em) ".
+            "VALUES(:p,:corr,1,:t,:d,'IMEDIATA',:e,:j,'EXECUTANDO',NOW())"
         );
         $root->execute([
             ':p'=>$plan,
+            ':corr'=>$corr,
             ':t'=>'Responder solicitação do usuário',
             ':d'=>$pergunta,
             ':e'=>$modulo,
@@ -79,6 +93,7 @@ function te_begin(PDO $pdo, string $pergunta, string $origem='COMPUTER', string 
             'id_plano'=>$plan,
             'id_tarefa_raiz'=>$rootId,
             'current_task_id'=>$rootId,
+            'correlation_id'=>$corr,
             'origem'=>$origem,
             'modulo'=>$modulo,
             'root_created'=>true
@@ -101,19 +116,19 @@ function te_add_subtask(PDO $pdo, array $ctx, string $titulo, string $executor, 
 
     if (te_has_parent_column($pdo)) {
         $sql="INSERT INTO jarvis_tarefas ".
-             "(id_plano,ordem,titulo,descricao,tipo,executor,payload,depende_de,tarefa_pai_id,status,iniciado_em) ".
-             "VALUES(:p,:o,:t,:d,'IMEDIATA',:e,:j,:dep,:pai,:s,CASE WHEN :s2='EXECUTANDO' THEN NOW() ELSE NULL END)";
+             "(id_plano,correlation_id,ordem,titulo,descricao,tipo,executor,payload,depende_de,tarefa_pai_id,status,iniciado_em) ".
+             "VALUES(:p,:corr,:o,:t,:d,'IMEDIATA',:e,:j,:dep,:pai,:s,CASE WHEN :s2='EXECUTANDO' THEN NOW() ELSE NULL END)";
         $params=[
-            ':p'=>$ctx['id_plano'], ':o'=>$order, ':t'=>$titulo, ':d'=>$desc,
+            ':p'=>$ctx['id_plano'], ':corr'=>$ctx['correlation_id'] ?? null, ':o'=>$order, ':t'=>$titulo, ':d'=>$desc,
             ':e'=>$executor, ':j'=>te_json($payload), ':dep'=>$dependeDe,
             ':pai'=>$ctx['id_tarefa_raiz'], ':s'=>$status, ':s2'=>$status
         ];
     } else {
         $sql="INSERT INTO jarvis_tarefas ".
-             "(id_plano,ordem,titulo,descricao,tipo,executor,payload,depende_de,status,iniciado_em) ".
-             "VALUES(:p,:o,:t,:d,'IMEDIATA',:e,:j,:dep,:s,CASE WHEN :s2='EXECUTANDO' THEN NOW() ELSE NULL END)";
+             "(id_plano,correlation_id,ordem,titulo,descricao,tipo,executor,payload,depende_de,status,iniciado_em) ".
+             "VALUES(:p,:corr,:o,:t,:d,'IMEDIATA',:e,:j,:dep,:s,CASE WHEN :s2='EXECUTANDO' THEN NOW() ELSE NULL END)";
         $params=[
-            ':p'=>$ctx['id_plano'], ':o'=>$order, ':t'=>$titulo, ':d'=>$desc,
+            ':p'=>$ctx['id_plano'], ':corr'=>$ctx['correlation_id'] ?? null, ':o'=>$order, ':t'=>$titulo, ':d'=>$desc,
             ':e'=>$executor, ':j'=>te_json($payload), ':dep'=>$dependeDe,
             ':s'=>$status, ':s2'=>$status
         ];
@@ -160,6 +175,7 @@ function te_public_context(array $ctx): array {
     return [
         'id_plano'=>(int)$ctx['id_plano'],
         'id_tarefa_raiz'=>(int)$ctx['id_tarefa_raiz'],
+        'correlation_id'=>$ctx['correlation_id'] ?? '',
         'origem'=>$ctx['origem'] ?? '',
         'modulo'=>$ctx['modulo'] ?? ''
     ];
@@ -203,7 +219,8 @@ function te_device_action(PDO $pdo, array $ctx, int $taskId, array $action, bool
     }
     if($risk>=3 && !$confirm) throw new RuntimeException('confirmation_required');
 
-    $corr='task_'.(int)$ctx['id_plano'].'_'.$taskId.'_'.bin2hex(random_bytes(8));
+    $corr=trim((string)($ctx['correlation_id'] ?? ''));
+    if($corr==='')$corr='req_'.bin2hex(random_bytes(16));
     $startedTransaction=!$pdo->inTransaction();
     if($startedTransaction)$pdo->beginTransaction();
     try{
@@ -339,7 +356,7 @@ function te_plan_snapshot(PDO $pdo, array $ctx): array {
     $planId=(int)($ctx['id_plano']??0);
     if($planId<=0)return [];
 
-    $st=$pdo->prepare("SELECT id,demanda_original,origem,status,resumo,criado_em,concluido_em FROM jarvis_planos WHERE id=:id LIMIT 1");
+    $st=$pdo->prepare("SELECT id,correlation_id,demanda_original,origem,status,resumo,criado_em,concluido_em FROM jarvis_planos WHERE id=:id LIMIT 1");
     $st->execute([':id'=>$planId]);
     $plan=$st->fetch(PDO::FETCH_ASSOC);
     if(!$plan)return [];
