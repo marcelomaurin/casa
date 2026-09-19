@@ -5,10 +5,6 @@ import android.content.Context
 import android.content.Intent
 import android.location.Location
 import android.location.LocationManager
-import android.net.ConnectivityManager
-import android.net.Network
-import android.net.NetworkCapabilities
-import android.net.wifi.WifiManager
 import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.os.Build
@@ -26,15 +22,15 @@ import org.json.JSONObject
  */
 class JarvisConnectionService : Service(), WatchClient.Listener {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var connectivity: ConnectivityManager? = null
-    private var lastWifiState = false
     private var jarvisOnline = false
     private var familyLastId = 0L
     private var watchEventAfter = 0L
     private var watchOnlineCount = 0
-    private var networkCallbackRegistered = false
     private lateinit var localWatchClient: WatchClient
+    private lateinit var watchCommands: WatchCommandDispatcher
+    private lateinit var networkMonitor: JarvisNetworkMonitor
     private var localWatchConnected = false
+    private var reportedWifiState = false
 
     companion object {
         const val CHANNEL_SERVICE = "jarvis_service"
@@ -75,13 +71,42 @@ class JarvisConnectionService : Service(), WatchClient.Listener {
         localWatchClient = WatchClient(this)
         localWatchClient.addListener(this)
         localWatchClient.connectLanSaved()
+        watchCommands = WatchCommandDispatcher(this, localWatchClient) { localWatchConnected }
 
-        runCatching {
-            connectivity = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-            connectivity?.registerDefaultNetworkCallback(networkCallback)
-            networkCallbackRegistered = true
-        }.onFailure {
-            networkCallbackRegistered = false
+        networkMonitor = JarvisNetworkMonitor(
+            this,
+            object : JarvisNetworkMonitor.Listener {
+                override fun onNetworkChanged(snapshot: JarvisNetworkMonitor.Snapshot) {
+                    if (localWatchConnected) {
+                        localWatchClient.sendPhoneState(
+                            wifi = snapshot.wifi,
+                            ssid = snapshot.ssid,
+                            internet = snapshot.internet
+                        )
+                    }
+                    if (snapshot.wifi != reportedWifiState) {
+                        reportedWifiState = snapshot.wifi
+                        scope.launch {
+                            runCatching {
+                                JarvisApi.sendNetworkEvent(
+                                    this@JarvisConnectionService,
+                                    if (snapshot.wifi) "WIFI_CONNECTED" else "WIFI_DISCONNECTED",
+                                    if (snapshot.wifi) "Celular conectado por Wi-Fi" else "Celular saiu do Wi-Fi",
+                                    JSONObject().put("ssid", snapshot.ssid ?: JSONObject.NULL)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                override fun onNetworkLost() {
+                    reportedWifiState = false
+                    jarvisOnline = false
+                    updateServiceNotification(withWatch("Offline — aguardando reconexão"))
+                }
+            }
+        )
+        if (!networkMonitor.start()) {
             updateServiceNotification("Rede indisponível — JARVIS continua em modo local")
         }
 
@@ -141,10 +166,7 @@ class JarvisConnectionService : Service(), WatchClient.Listener {
             runCatching { localWatchClient.removeListener(this) }
             runCatching { localWatchClient.disconnect(false) }
         }
-        if (networkCallbackRegistered) {
-            runCatching { connectivity?.unregisterNetworkCallback(networkCallback) }
-        }
-        connectivity = null
+        if (::networkMonitor.isInitialized) networkMonitor.stop()
         scope.cancel()
         super.onDestroy()
     }
@@ -154,13 +176,11 @@ class JarvisConnectionService : Service(), WatchClient.Listener {
     override fun onConnectionChanged(connected: Boolean, name: String, address: String) {
         localWatchConnected = connected
         if (connected) {
-            val caps = runCatching {
-                connectivity?.getNetworkCapabilities(connectivity?.activeNetwork)
-            }.getOrNull()
+            val net = networkMonitor.snapshot
             localWatchClient.sendPhoneState(
-                wifi = caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true,
-                ssid = currentSsid(),
-                internet = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+                wifi = net.wifi,
+                ssid = net.ssid,
+                internet = net.internet
             )
         }
         updateServiceNotification(
@@ -289,13 +309,6 @@ class JarvisConnectionService : Service(), WatchClient.Listener {
         else if (watchOnlineCount > 0) "$text • $watchOnlineCount Watch online"
         else "$text • Watch offline"
 
-    private fun currentSsid(): String? = runCatching {
-        val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-        @Suppress("DEPRECATION")
-        val s = wm.connectionInfo?.ssid?.trim('"')
-        s?.takeUnless { it.isBlank() || it == "<unknown ssid>" }
-    }.getOrNull()
-
     private fun canLocation(): Boolean =
         ActivityCompat.checkSelfPermission(
             this,
@@ -353,23 +366,7 @@ class JarvisConnectionService : Service(), WatchClient.Listener {
         priority: String = "normal",
         ttlSeconds: Int = 300
     ) {
-        val localDeviceId = WatchClient.savedDeviceId(this)
-        if (localWatchConnected && localDeviceId.isNotBlank() && localDeviceId == deviceId) {
-            val directPayload = JSONObject(payload.toString())
-            if (directPayload.optString("type").isBlank()) directPayload.put("type", command)
-            if (localWatchClient.send(directPayload)) return
-        }
-
-        runCatching {
-            WatchApi.enqueue(
-                this@JarvisConnectionService,
-                deviceId,
-                command,
-                payload,
-                priority,
-                ttlSeconds
-            )
-        }
+        watchCommands.send(deviceId, command, payload, priority, ttlSeconds)
     }
 
     private suspend fun handleWatchEvent(event: WatchApi.WatchEvent) {
@@ -463,21 +460,15 @@ class JarvisConnectionService : Service(), WatchClient.Listener {
             "camera_capture" -> showCameraRequest(event.deviceId)
 
             "phone_state", "phone_state_request" -> {
-                val caps = runCatching {
-                    connectivity?.getNetworkCapabilities(connectivity?.activeNetwork)
-                }.getOrNull()
-                val wifi = caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
-                val internet =
-                    caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
-
+                val net = networkMonitor.snapshot
                 sendWatchCommand(
                     event.deviceId,
                     "phone_state",
                     JSONObject()
                         .put("type", "phone_state")
-                        .put("wifi", wifi)
-                        .put("wifi_ssid", if (wifi) currentSsid() else JSONObject.NULL)
-                        .put("internet", internet)
+                        .put("wifi", net.wifi)
+                        .put("wifi_ssid", net.ssid ?: JSONObject.NULL)
+                        .put("internet", net.internet)
                         .put("jarvis_online", jarvisOnline),
                     "low",
                     120
@@ -762,49 +753,6 @@ class JarvisConnectionService : Service(), WatchClient.Listener {
         }
     }
 
-    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) {
-            runCatching {
-                connectivity?.getNetworkCapabilities(network)?.let { evaluateCaps(it) }
-            }
-        }
-
-        override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
-            runCatching { evaluateCaps(caps) }
-        }
-
-        override fun onLost(network: Network) {
-            jarvisOnline = false
-            lastWifiState = false
-            updateServiceNotification(withWatch("Offline — aguardando reconexão"))
-        }
-    }
-
-    private fun evaluateCaps(caps: NetworkCapabilities) {
-        val wifi = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
-        if (wifi != lastWifiState) {
-            lastWifiState = wifi
-            if (localWatchConnected) {
-                localWatchClient.sendPhoneState(
-                    wifi = wifi,
-                    ssid = if (wifi) currentSsid() else null,
-                    internet = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-                )
-            }
-            scope.launch {
-                runCatching {
-                    JarvisApi.sendNetworkEvent(
-                        this@JarvisConnectionService,
-                        if (wifi) "WIFI_CONNECTED" else "WIFI_DISCONNECTED",
-                        if (wifi) "Celular conectado por Wi-Fi" else "Celular saiu do Wi-Fi",
-                        JSONObject()
-                            .put("ssid", if (wifi) currentSsid() else JSONObject.NULL)
-                    )
-                }
-            }
-        }
-    }
-
     private fun saveWatchEventCursor(value: Long) {
         if (value <= watchEventAfter) return
         watchEventAfter = value
@@ -820,7 +768,7 @@ class JarvisConnectionService : Service(), WatchClient.Listener {
 
             while (isActive) {
                 try {
-                    if (!localWatchClient.isSocketConnected() && lastWifiState) {
+                    if (!localWatchClient.isSocketConnected() && networkMonitor.snapshot.wifi) {
                         localWatchClient.connectLanSaved()
                     }
                     if (!JarvisApi.isConfigured(this@JarvisConnectionService)) {
@@ -854,7 +802,7 @@ class JarvisConnectionService : Service(), WatchClient.Listener {
                                 JSONObject()
                                     .put("watch_online_count", watchOnlineCount)
                                     .put("watch_registered_count", watches.size)
-                                    .put("wifi", lastWifiState)
+                                    .put("wifi", networkMonitor.snapshot.wifi)
                             )
                         }
 
