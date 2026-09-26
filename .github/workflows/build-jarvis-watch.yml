@@ -35,6 +35,9 @@ jobs:
           mkdir -p "$HOME/Arduino/libraries"
           git clone --depth 1 https://github.com/Xinyuan-LilyGO/TTGO_TWatch_Library.git             "$HOME/Arduino/libraries/TTGO_TWatch_Library"
 
+      - name: Install JSON parser
+        run: arduino-cli lib install "ArduinoJson@6.21.5"
+
       - name: Compile JARVIS Watch
         shell: bash
         run: |

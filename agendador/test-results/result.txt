@@ -1,0 +1,5 @@
+PASS: validacao de texto, QR, IP e criptografia DPAPI
+PASS: SQLite CRUD, hora programada, exclusao mutua, retries e recuperacao apos reinicio
+PASS: construcao da interface Lazarus sem exibir janelas ou mudar Wi-Fi
+PASS: TCP fragmentado, envio autenticado de quatro linhas/QR e bloqueio de identidade errada
+ALL TESTS PASSED

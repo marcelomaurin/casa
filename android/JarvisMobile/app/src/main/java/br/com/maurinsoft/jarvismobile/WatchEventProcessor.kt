@@ -126,7 +126,9 @@ class WatchEventProcessor(
             "gps_request" -> actions.sendWatchCommand(
                 event.deviceId,
                 "gps_result",
-                PhoneSensorProvider.gpsPayload(context),
+                (if (event.data.optBoolean("fresh")) PhoneSensorProvider.freshGpsPayload(context)
+                else PhoneSensorProvider.gpsPayload(context))
+                    .put("request_id", event.data.optString("request_id")),
                 "normal",
                 120
             )

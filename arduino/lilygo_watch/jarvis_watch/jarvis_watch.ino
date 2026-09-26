@@ -3,6 +3,7 @@
 #include "jarvis_wifi.h"
 #include "jarvis_controller.h"
 #include "jarvis_audio.h"
+#include "jarvis_emergency.h"
 #include "jarvis_ir.h"
 #include <Preferences.h>
 #include <driver/i2s.h>
@@ -18,7 +19,7 @@ JarvisController controller;
 enum ScreenId {
   SCREEN_HOME, SCREEN_APPS, SCREEN_VOICE, SCREEN_ALARM, SCREEN_CAMERA,
   SCREEN_GPS, SCREEN_CONTROLS, SCREEN_HEALTH, SCREEN_STATUS,
-  SCREEN_SETTINGS, SCREEN_CLOCK, SCREEN_WIFI, SCREEN_KEYBOARD, SCREEN_NOTIFICATION
+  SCREEN_SETTINGS, SCREEN_CLOCK, SCREEN_WIFI, SCREEN_KEYBOARD, SCREEN_NOTIFICATION, SCREEN_EMERGENCY
 };
 enum PowerMode { POWER_NORMAL, POWER_ECO, POWER_ULTRA };
 enum VoiceOutput { VOICE_PHONE, VOICE_TEXT, VOICE_BOTH };
@@ -99,7 +100,7 @@ String voiceOutputLabel(){return voiceOutput==VOICE_PHONE?"CELULAR":voiceOutput=
 String alarmToneLabel(){return alarmTone==ALARM_SHORT?"CURTO":alarmTone==ALARM_DOUBLE?"DUPLO":alarmTone==ALARM_URGENT?"URGENTE":"CELULAR";}
 
 void syncControllerConfig(){
-  controller.power().setConfig(screenTimeoutSec,(uint8_t)powerMode);
+  controller.power().setConfig(jarvisEmergencyBusy()?0:screenTimeoutSec,jarvisEmergencyBusy()?0:(uint8_t)powerMode);
   controller.alarm().setConfig(alarmEnabled,alarmHour,alarmMinute,(JarvisAlarmTone)alarmTone);
 }
 
@@ -124,6 +125,7 @@ void vibrateShort(){if(vibrationEnabled&&watch&&watch->motor)watch->motor->onec(
 void alarmVibrateHook(){vibrateShort();}
 
 void alarmLocalSoundHook(JarvisAlarmTone tone,uint8_t pulse){
+  if(jarvisEmergencyState()!=EMERGENCY_GREEN)return;
   uint16_t freq=1000;
   uint16_t duration=110;
   uint8_t volume=42;
@@ -285,7 +287,7 @@ bool sendCasaTelemetry(){
     ",\"wifi_ssid\":\""+jsonEscapeValue(jarvisWifiSsid())+
     "\",\"transport\":\"wifi\""+
     ",\"power_mode\":\""+jsonEscapeValue(powerLabel())+
-    "\",\"alert_active\":"+(controller.alarm().ringing()?String("true"):String("false"))+
+    "\",\"alert_active\":"+((controller.alarm().ringing()||jarvisEmergencyState()==EMERGENCY_RED)?String("true"):String("false"))+
     ",\"data\":{\"device_id\":\""+jsonEscapeValue(jarvisWifiDeviceId())+
     "\",\"source\":\"watch-direct\"}}";
 
@@ -352,7 +354,7 @@ bool alarmDueNow(){
 }
 
 void enterDeepSleep(){
-  if(!watch)return;
+  if(!watch||jarvisEmergencyBusy())return;
 
   // Não dorme enquanto o touch ainda estiver assertado. O FT6336 usa IRQ
   // ativo em nivel baixo e o GPIO38 será fonte de wake.
@@ -661,7 +663,19 @@ void drawNotificationScreen(){
   drawFooter();
 }
 
-void drawScreen(){if(!screenAwake||!tft)return;if(currentScreen!=SCREEN_HOME)tft->fillScreen(C_BG);switch(currentScreen){case SCREEN_HOME:drawWatchFace();break;case SCREEN_APPS:drawApps();break;case SCREEN_VOICE:drawVoice();break;case SCREEN_ALARM:drawAlarm();break;case SCREEN_CAMERA:drawCamera();break;case SCREEN_GPS:drawGps();break;case SCREEN_CONTROLS:drawControls();break;case SCREEN_HEALTH:drawHealth();break;case SCREEN_STATUS:drawStatus();break;case SCREEN_SETTINGS:drawSettings();break;case SCREEN_CLOCK:drawClock();break;case SCREEN_WIFI:drawWifi();break;case SCREEN_KEYBOARD:drawKeyboard();break;case SCREEN_NOTIFICATION:drawNotificationScreen();break;}}
+void drawEmergency(){
+  drawHeader("EMERGENCIA");
+  JarvisEmergencyState state=jarvisEmergencyState();
+  uint16_t color=state==EMERGENCY_GREEN?C_GREEN:state==EMERGENCY_YELLOW?C_GOLD:C_RED;
+  lcarsButton(12,66,216,76,color,"EMERGENCIA");
+  tft->setTextColor(C_TEXT,C_BG);
+  drawWrappedText(jarvisEmergencyStatus(),8,153,29,2);
+  if(jarvisEmergencyConfirming())drawWrappedText("Voce quer realmente desarmar o alarme?",8,185,29,2);
+  else tft->drawCentreString("Deslize para baixo: voltar",120,218,1);
+}
+
+void drawScreen(){if(!screenAwake||!tft)return;
+if(jarvisEmergencyState()!=EMERGENCY_GREEN)currentScreen=SCREEN_EMERGENCY;if(currentScreen!=SCREEN_HOME)tft->fillScreen(C_BG);switch(currentScreen){case SCREEN_EMERGENCY:drawEmergency();break;case SCREEN_HOME:drawWatchFace();break;case SCREEN_APPS:drawApps();break;case SCREEN_VOICE:drawVoice();break;case SCREEN_ALARM:drawAlarm();break;case SCREEN_CAMERA:drawCamera();break;case SCREEN_GPS:drawGps();break;case SCREEN_CONTROLS:drawControls();break;case SCREEN_HEALTH:drawHealth();break;case SCREEN_STATUS:drawStatus();break;case SCREEN_SETTINGS:drawSettings();break;case SCREEN_CLOCK:drawClock();break;case SCREEN_WIFI:drawWifi();break;case SCREEN_KEYBOARD:drawKeyboard();break;case SCREEN_NOTIFICATION:drawNotificationScreen();break;}}
 void navigate(ScreenId s){previousScreen=currentScreen;currentScreen=s;lastMessage="";drawScreen();}
 void goHome(){previousScreen=currentScreen;currentScreen=SCREEN_HOME;drawScreen();}
 void sendCommand(const String&cmd){
@@ -746,6 +760,11 @@ void sendIncomingCallDecision(bool accept){
 
 void handleTap(int x,int y){
   controller.emit(jarvisEvent(EVT_TOUCH_TAP,JARVIS_PRI_NORMAL,x,y));vibrateShort();
+  if(currentScreen==SCREEN_EMERGENCY){
+    jarvisEmergencyCancelConfirmation();
+    if(x>=12&&x<228&&y>=66&&y<142)jarvisEmergencyTap();
+    drawScreen();return;
+  }
   if(currentScreen==SCREEN_NOTIFICATION){
     if(pendingCallId>0&&controller.callState()==JARVIS_CALL_RINGING){
       if(y>=140&&y<=190){sendIncomingCallDecision(x<120);return;}
@@ -810,12 +829,22 @@ void handleGestureRelease(){
   int dx=touchLastX-touchStartX,dy=touchLastY-touchStartY;unsigned long dt=millis()-touchStartMs;int adx=abs(dx),ady=abs(dy);
   if(adx>=SWIPE_MIN||ady>=SWIPE_MIN){
     JarvisEventType evt=adx>ady?(dx>0?EVT_SWIPE_RIGHT:EVT_SWIPE_LEFT):(dy>0?EVT_SWIPE_DOWN:EVT_SWIPE_UP);controller.emit(jarvisEvent(evt));
+    if(currentScreen==SCREEN_EMERGENCY){
+      if(ady>=adx&&dy>0){
+        if(jarvisEmergencySwipeDown())goHome();else drawScreen();
+      }else{
+        jarvisEmergencyCancelConfirmation();
+        if(ady>=adx&&dy<0&&jarvisEmergencyState()==EMERGENCY_GREEN)navigate(SCREEN_APPS);
+        else drawScreen();
+      }
+      return;
+    }
     if(adx>ady){
       // Nao ha mais troca de skin: o mostrador unico e JARVIS AVIATION.
       if(currentScreen==SCREEN_HOME)drawScreen();
     }
     else if(currentScreen==SCREEN_WIFI&&controller.network().state()!=JARVIS_NET_SCANNING&&wifiNetworkCount>4){int pages=(wifiNetworkCount+3)/4;if(dy<0&&wifiPage<pages-1)wifiPage++;if(dy>0&&wifiPage>0)wifiPage--;drawScreen();}
-    else if(dy<0){if(currentScreen==SCREEN_HOME)navigate(SCREEN_APPS);else if(currentScreen==SCREEN_APPS)navigate(SCREEN_SETTINGS);}
+    else if(dy<0){if(currentScreen==SCREEN_HOME)navigate(SCREEN_EMERGENCY);else if(currentScreen==SCREEN_APPS)navigate(SCREEN_SETTINGS);}
     else{if(currentScreen==SCREEN_APPS||currentScreen==SCREEN_SETTINGS)goHome();else if(currentScreen!=SCREEN_HOME){ScreenId s=previousScreen;previousScreen=SCREEN_HOME;currentScreen=s;drawScreen();}}
     return;
   }
@@ -922,6 +951,7 @@ void bleEventHandler(const String &type,const String &title,const String &text){
   }
 
   if(type=="gps_result"){
+    jarvisEmergencyReceiveGps(text);
     gpsText=text.isEmpty()?"GPS RECEBIDO":text;
     if(screenAwake&&currentScreen==SCREEN_GPS)drawScreen();
     return;
@@ -1004,7 +1034,7 @@ bool processCasaDeviceCommandOnce(){
   }else if(command=="jarvis_result"||eventType=="jarvis_result"){
     bleEventHandler("jarvis_result","JARVIS",jsonStringField(payload,"text"));
   }else if(command=="gps_result"||eventType=="gps_result"){
-    bleEventHandler("gps_result","","GPS RECEBIDO");
+    bleEventHandler("gps_result","",payload);
   }else if(command=="camera_result"||eventType=="camera_result"){
     bleEventHandler("camera_result","",jsonStringField(payload,"path"));
   }else if(command=="phone_state"||eventType=="phone_state"){
@@ -1128,6 +1158,8 @@ void setup(){
 
   loadSettings();
   jarvisWifiBegin();
+  jarvisEmergencyBegin();
+  if(jarvisEmergencyBusy())backgroundTimerWake=false;
 
   bool wakeForAlarm=backgroundTimerWake&&alarmDueNow();
   bool wakeForCasa=false;
@@ -1203,10 +1235,11 @@ void loop(){
   jarvisAudioLoop();
   jarvisIrLoop();
   jarvisBleLoop();
-  jarvisWifiLoop();
-  serviceCasaUplink();
+  jarvisEmergencyLoop();
+  if(!jarvisEmergencySpeaking())jarvisWifiLoop();
+  if(!jarvisEmergencyBusy())serviceCasaUplink();
 
-  if(jarvisWifiIsConnected()&&millis()-lastCasaCommandPoll>=5000UL){
+  if(!jarvisEmergencySpeaking()&&jarvisWifiIsConnected()&&millis()-lastCasaCommandPoll>=5000UL){
     lastCasaCommandPoll=millis();
     processCasaDeviceCommandOnce();
   }
@@ -1229,7 +1262,7 @@ void loop(){
 
   if(millis()-lastClockRefresh>=1000){
     lastClockRefresh=millis();emitRtcTick();
-    if(screenAwake&&(currentScreen==SCREEN_HOME||currentScreen==SCREEN_STATUS||currentScreen==SCREEN_ALARM||currentScreen==SCREEN_VOICE))drawScreen();
+    if(screenAwake&&(currentScreen==SCREEN_EMERGENCY||currentScreen==SCREEN_HOME||currentScreen==SCREEN_STATUS||currentScreen==SCREEN_ALARM||currentScreen==SCREEN_VOICE))drawScreen();
   }
 
   // Enquanto o ESP32 esta acordado, o touch continua sendo consultado normalmente.

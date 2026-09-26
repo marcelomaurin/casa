@@ -176,6 +176,7 @@ static void dispatchExternal(const String &json,const String &type){
     text=callId+"|"+mode+"|"+sender;
     if(title.isEmpty()) title=sender;
   }
+  if(type=="gps_result"){eventHandler(type,title,json);return;}
   if(type=="gps_result"&&text.isEmpty()){
     String lat=jsonString(json,"lat","");
     String lon=jsonString(json,"lon","");

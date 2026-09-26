@@ -1,0 +1,9 @@
+{
+  "additionalFiles": "..\\..,..\\..",
+  "compiler.optimization_flags": "-Os",
+  "customBuildProperties": "",
+  "fqbn": "esp32:esp32:esp32:PartitionScheme=huge_app,PSRAM=disabled",
+  "hardwareFolders": "C:\\Users\\mmaurin\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\2.0.14,C:\\Users\\mmaurin\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\2.0.14",
+  "otherLibrariesFolders": "C:\\Users\\mmaurin\\Documents\\Arduino\\libraries",
+  "sketchLocation": "C:\\Users\\mmaurin\\Documents\\Lazwebcam\\.agendador-work\\firmware\\lilygo_T5"
+}

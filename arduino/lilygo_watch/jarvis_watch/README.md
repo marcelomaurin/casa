@@ -236,7 +236,7 @@ O firmware usa `AXP202_PEK_SHORTPRESS_IRQ`, conforme o mecanismo oficial da bibl
 
 ```text
 esquerda / direita  -> sem troca de mostrador
-para cima            -> abre aplicativos
+para cima            -> abre emergencia; subir novamente (verde) abre aplicativos
 para baixo           -> retorna
 botão físico          -> tela ON/OFF
 ```
@@ -519,3 +519,52 @@ acordado, mas levantar o pulso não é fonte de wake em deep sleep.
 ## Validação automática
 
 O firmware é compilado no GitHub Actions com ESP32 core 2.0.14 e partição Huge APP. O workflow `.github/workflows/build-jarvis-watch.yml` é acionado quando arquivos desta pasta são alterados.
+
+
+## Emergência por gesto
+
+Subir no mostrador abre EMERGENCIA verde. Primeiro toque: amarelo e alarme
+local repetido. Segundo toque: vermelho, fala local em português e SOS via
+HTTPS autenticado (`watch.php?acao=assist_event`). Descer no verde/amarelo
+retorna ao relógio e silencia. No vermelho, a primeira descida fala a pergunta
+de confirmação; a segunda descida consecutiva desarma e retorna ao relógio.
+Outro gesto ou toque cancela a confirmação. Tocar no mostrador ainda abre os apps.
+
+As falas estão em flash (`jarvis_emergency_voice.h`), PCM unsigned 8-bit/16 kHz,
+geradas com Microsoft Maria pt-BR; não dependem de internet. O SOS vermelho se
+repete a cada 15 segundos após a fala. O botão físico pode apagar a tela, mas
+deep sleep fica bloqueado durante o alarme e enquanto houver envio pendente.
+Ativação/desarme e eventos pendentes são persistidos em NVS, inclusive após reset.
+
+O T-Watch 2020 V3 NÃO possui receptor GPS. Instale também a atualização do
+JARVIS Mobile: o relógio solicita uma posição nova via Command Bus
+(`device.php?acao=event`, `gps_request`, `fresh=true`, `request_id` da sessão).
+O Android precisa estar vinculado, executando seu serviço e com permissão de
+localização. Aguarda até 20 s por uma posição; aceita fallback com até 2 minutos.
+O relógio rejeita respostas de outra sessão, coordenadas inválidas e posições
+mais antigas que 2 minutos. A posição é a do CELULAR, que deve acompanhar o usuário.
+
+O SOS inicial não espera pelo GPS. Sem posição, envia `location_status=unavailable`;
+quando ela chega, envia `SOS_LOCATION` com lat/lon, precisão, horário e idade.
+`SOS_CANCELLED` registra o desarme local; não apaga alertas já recebidos.
+O endpoint existente registra o evento e publica no canal Família/notificações.
+“Aviso enviado” significa aceite do servidor, não confirmação de leitura da família.
+
+O envio roda em tarefa separada, com repetição a cada 10 s e identificação
+`session_id`/`event_key`. O protocolo é at-least-once: perda da resposta HTTP pode
+duplicar um evento no servidor. Uma nova ativação aguarda a entrega dos eventos
+da sessão anterior para não sobrescrever o SOS pendente. Sem rede/credenciais,
+o alarme local funciona, mas o aviso permanece pendente e consome mais bateria.
+
+Dependência adicional: ArduinoJson 6.21.5 (também compatível com 7.x).
+
+### Validação no dispositivo
+
+1. Subir, tocar, descer: verde -> amarelo com som -> relógio sem som.
+2. Subir, tocar duas vezes: vermelho e fala. Confirmar SOS no canal Família.
+3. Confirmar GPS do celular no evento SOS_LOCATION, com horário e precisão.
+4. Descer uma vez: pergunta sem desarmar. Descer novamente: silêncio e relógio.
+5. Repetir sem Wi-Fi, sem permissão de GPS e com celular offline: nenhum falso
+   sucesso ou coordenada inventada; reenvio quando a conexão retorna.
+6. Reiniciar no vermelho e com desarme pendente: recuperar estado/entrega.
+7. Apagar/acender a tela com botão físico: emergência continua ativa.
