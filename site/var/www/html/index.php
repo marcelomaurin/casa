@@ -10,6 +10,7 @@ $authName = !empty($_SESSION['auth_name']) ? $_SESSION['auth_name'] : ($_SESSION
   <title>CASA / COMPUTER</title>
   <link rel="stylesheet" href="/casa/lcars-framework.css?v=1.2.0">
   <link rel="stylesheet" href="/casa/lcars-site.css?v=1.4.5">
+  <link rel="stylesheet" href="/casa/lcars-iot.css?v=1.0.0">
 </head>
 <body>
   <div class="ja-admin-template" id="ja-admin-template" aria-hidden="true">
