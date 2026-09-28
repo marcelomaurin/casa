@@ -1224,6 +1224,7 @@ async async function renderJarvis(){
     }finally{
       if(clearBtn){clearBtn.disabled=false;clearBtn.textContent='LIMPAR HISTÓRICO';}
     }
+    }
   };
   scheduleAdminMount();
 }
