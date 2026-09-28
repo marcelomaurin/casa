@@ -1075,6 +1075,16 @@ function splitComputerSpeech(text,maxChars=220){
   pushCurrent();
   return chunks;
 }
+function stopComputerSpeech(){
+  computerSpeechGeneration++;
+  if('speechSynthesis' in window)window.speechSynthesis.cancel();
+  const btn=document.getElementById('ja-command-stop');
+  if(btn){btn.disabled=true;btn.textContent='STOP';}
+}
+function setComputerSpeaking(active){
+  const btn=document.getElementById('ja-command-stop');
+  if(btn)btn.disabled=!active;
+}
 function speakComputer(text){
   const speech=String(text||'').trim();
   if(!speech || !('speechSynthesis' in window)) return false;
@@ -1083,10 +1093,12 @@ function speakComputer(text){
   if(!chunks.length)return false;
   const generation=++computerSpeechGeneration;
   synth.cancel();
+  setComputerSpeaking(true);
   let index=0;
   const voice=computerVoice();
   const speakNext=()=>{
-    if(generation!==computerSpeechGeneration || index>=chunks.length)return;
+    if(generation!==computerSpeechGeneration)return;
+    if(index>=chunks.length){setComputerSpeaking(false);return;}
     const u=new SpeechSynthesisUtterance(chunks[index++]);
     u.lang='pt-BR';
     u.rate=1;
@@ -1097,7 +1109,8 @@ function speakComputer(text){
     u.onerror=(event)=>{
       if(generation!==computerSpeechGeneration)return;
       const err=String(event?.error||'');
-      if(err==='canceled'||err==='interrupted')return;
+      if(err==='canceled'||err==='interrupted'){setComputerSpeaking(false);return;}
+      if(index>=chunks.length){setComputerSpeaking(false);return;}
       setTimeout(speakNext,60);
     };
     synth.speak(u);
@@ -1114,7 +1127,7 @@ async function loadComputerHistory(){
   }
 }
 async function renderJarvis(){
-  moduleShell('Núcleo COMPUTER','<div class="ja-jarvis"><div class="ja-voice-status" id="ja-voice-status"><span id="ja-mic-state" class="ja-state off">VERIFICANDO MIC</span><span id="ja-mic-devices">Entradas: —</span><span id="ja-stt-state">STT: verificando</span><span id="ja-tts-state">TTS: verificando</span></div><div id="ja-chat-log" class="ja-chat-log"><div class="ja-chat-line ai">Carregando histórico...</div></div><div class="ja-command"><input id="ja-command-input" placeholder="Digite um comando para o COMPUTER"><button id="ja-command-send">ENVIAR</button><button id="ja-command-mic">VOZ</button><button id="ja-command-clear" class="danger">LIMPAR HISTÓRICO</button></div></div>');
+  moduleShell('Núcleo COMPUTER','<div class="ja-jarvis"><div class="ja-voice-status" id="ja-voice-status"><span id="ja-mic-state" class="ja-state off">VERIFICANDO MIC</span><span id="ja-mic-devices">Entradas: —</span><span id="ja-stt-state">STT: verificando</span><span id="ja-tts-state">TTS: verificando</span></div><div id="ja-chat-log" class="ja-chat-log"><div class="ja-chat-line ai">Carregando histórico...</div></div><div class="ja-command"><input id="ja-command-input" placeholder="Digite um comando para o COMPUTER"><button id="ja-command-send">ENVIAR</button><button id="ja-command-mic">VOZ</button><button id="ja-command-stop" class="danger" disabled>STOP</button><button id="ja-command-clear" class="danger">LIMPAR HISTÓRICO</button></div></div>');
   const input=document.getElementById('ja-command-input');
   const log=document.getElementById('ja-chat-log');
   await diagnoseVoiceCore();
@@ -1158,6 +1171,7 @@ async function renderJarvis(){
   document.getElementById('ja-command-send').onclick=send;
   input.onkeydown=e=>{if(e.key==='Enter')send();};
   document.getElementById('ja-command-mic').onclick=()=>startVoice(input,send);
+  document.getElementById('ja-command-stop').onclick=stopComputerSpeech;
   document.getElementById('ja-command-clear').onclick=async()=>{
     if(!confirm('Deseja apagar todo o histórico de conversas do COMPUTER? Esta ação não pode ser desfeita.')) return;
     const clearBtn=document.getElementById('ja-command-clear');
@@ -1227,6 +1241,7 @@ async function startVoice(input,done){
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
   if(!SR){voiceStatus('error','STT NÃO SUPORTADO');appendChat('Sistema','Este navegador não oferece SpeechRecognition. Use a digitação ou um navegador compatível.','error');return;}
   if(activeRecognition)return;
+  stopComputerSpeech();
   if(!(await diagnoseVoiceCore())){appendChat('Sistema','Não foi possível acessar uma entrada de áudio. Verifique a permissão do microfone no navegador.','error');return;}
   const btn=document.getElementById('ja-command-mic');
   const r=new SR(); activeRecognition=r;
