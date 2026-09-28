@@ -21,17 +21,24 @@ function device_v1_token_hash(string $token): string {
 
 function device_v1_load(PDO $pdo, string $deviceId, bool $write = false): array {
     $deviceId = device_v1_safe_id($deviceId);
-    if ($deviceId === '') api_v1_json_response(400, ['status'=>'erro','mensagem'=>'device_id invalido']);
-
     $token = api_v1_token_from_request();
     if ($token === '') api_v1_json_response(401, ['status'=>'erro','mensagem'=>'Bearer token obrigatorio']);
     api_v1_rate_limit($pdo, $token, $write ? 120 : 180, 60);
 
     $hash = device_v1_token_hash($token);
-    $stmt = $pdo->prepare("SELECT id,device_id,nome,tipo,device_token,device_token_hash,credential_revoked_at,capabilities,status,config_version
-        FROM dispositivos_cluster WHERE device_id=:d LIMIT 1");
-    $stmt->execute([':d'=>$deviceId]);
+    if ($deviceId !== '') {
+        $stmt = $pdo->prepare("SELECT id,device_id,nome,tipo,device_token,device_token_hash,credential_revoked_at,capabilities,status,config_version
+            FROM dispositivos_cluster WHERE device_id=:d LIMIT 1");
+        $stmt->execute([':d'=>$deviceId]);
+    } else {
+        // O token permanente e exclusivo do device tambem pode resolver sua identidade.
+        // Isso evita duplicar device_id em clientes que ja armazenam a credencial com seguranca.
+        $stmt = $pdo->prepare("SELECT id,device_id,nome,tipo,device_token,device_token_hash,credential_revoked_at,capabilities,status,config_version
+            FROM dispositivos_cluster WHERE device_token_hash=:h OR (device_token_hash IS NULL AND device_token=:t) LIMIT 1");
+        $stmt->execute([':h'=>$hash, ':t'=>$token]);
+    }
     $dev = $stmt->fetch(PDO::FETCH_ASSOC);
+    $resolvedId = trim((string)($dev['device_id'] ?? $deviceId));
     if (!$dev || !empty($dev['credential_revoked_at'])) {
         api_v1_log($pdo,'DEVICE_AUTH_DENIED','ALTO',$deviceId,['reason'=>'missing_or_revoked']);
         api_v1_json_response(401,['status'=>'erro','mensagem'=>'Device inexistente ou credencial revogada']);
@@ -41,7 +48,7 @@ function device_v1_load(PDO $pdo, string $deviceId, bool $write = false): array 
     $legacy = (string)($dev['device_token'] ?? '');
     $ok = $storedHash !== '' ? hash_equals($storedHash, $hash) : ($legacy !== '' && hash_equals($legacy, $token));
     if (!$ok) {
-        api_v1_log($pdo,'DEVICE_AUTH_DENIED','ALTO',$deviceId,['reason'=>'token_mismatch']);
+        api_v1_log($pdo,'DEVICE_AUTH_DENIED','ALTO',$resolvedId,['reason'=>'token_mismatch']);
         api_v1_json_response(401,['status'=>'erro','mensagem'=>'Credencial do device invalida']);
     }
 
@@ -52,7 +59,7 @@ function device_v1_load(PDO $pdo, string $deviceId, bool $write = false): array 
     }
 
     $dev['capabilities'] = api_v1_decode_scopes($dev['capabilities'] ?? null);
-    api_v1_log($pdo,'DEVICE_AUTH_OK','INFO',$deviceId,['write'=>$write]);
+    api_v1_log($pdo,'DEVICE_AUTH_OK','INFO',$resolvedId,['write'=>$write]);
     return $dev;
 }
 
