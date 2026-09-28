@@ -1,4 +1,74 @@
+# Base RAG detalhada — MNote2
+
+## Identificacao
+Repositorio: marcelomaurin/MNote2
+Documento construido a partir do README e da estrutura real do repositorio.
+Use este material para responder perguntas tecnicas, funcionais e arquiteturais sobre o projeto.
+
+## Conteudo tecnico do projeto
+
 # MNote2
-Palavras-chave: MNote2, IDE, Lazarus, Free Pascal, editor, IA, programacao.
-IDE desktop leve em Lazarus/Free Pascal com editor em abas, busca, autocomplete, tarefas, banco de dados, build e assistencia multi-IA por texto ou voz. Inclui Solution Explorer, Search/Replace, Gantt, Timeline, Risk Matrix, AI Monitor, diff/confirmacao/rollback de propostas, Data Dictionary PostgreSQL/SQLite, SQL, Problems, Output e Terminal.
-Repositorio: marcelomaurin/MNote2.
+
+MNote2 é uma IDE desktop leve, escrita em Lazarus/Free Pascal, com editor em
+abas, busca de projeto, autocomplete local, gestão de tarefas, banco de dados,
+build e assistência multi-IA por texto ou voz.
+
+Versão desta entrega: **2.68**.
+
+![MNote2 IDE com IA](screenshots/MNote2_IDE_IA_2_63.png)
+
+## Destaques
+
+- shell no estilo Visual Studio com painéis persistentes e paleta de comandos;
+- Search/Replace UTF-8, regex, filtros, preview, backup e rollback;
+- perfis de linguagem, temas, snippets, símbolos, F12 e referências;
+- Solution Explorer no estilo Visual Studio, com projeto, arquivos e a conexão
+  ativa do MQuery2 organizada por banco e tabelas;
+- projetos, Tasks, Task List, Gantt, Timeline e Risk Matrix;
+- seis papéis de IA, router determinístico, limites, cancelamento e AI Monitor;
+- entrada digitada responde por texto; voz ativada por “OK MNote” responde por
+  fala e também preserva o texto;
+- propostas de fonte em JSON, diff por hunk, confirmação, Apply atômico, testes
+  e rollback;
+- Data Dictionary PostgreSQL/SQLite, autocomplete SQL e geração sem execução;
+- Problems, Output por canal, Build/Rebuild e Terminal;
+- núcleo portátil validado em CI Windows e Linux x64.
+- na inicialização, verifica a pasta `neural-api` e, quando ausente, procura o
+  instalador mais recente na pasta `bin` do repositório oficial, valida sua
+  integridade e pede confirmação antes de executá-lo.
+
+## Documentação
+
+- [Manual do usuário](docs/manual_usuario.md)
+- [Arquitetura](docs/arquitetura_ide_ia.md)
+- [Matriz de capacidades](docs/capability_matrix.md)
+- [Testes e CI](docs/ci.md)
+- [Calibração real do estimador](docs/tokenest_calibracao.md)
+
+## Desenvolvimento e validação
+
+O projeto de referência usa Lazarus 4.4 e FPC 3.2.2. No Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tests/run_tests.ps1
+powershell -ExecutionPolicy Bypass -File tests/run_smoke.ps1
+powershell -ExecutionPolicy Bypass -File tests/run_close_tab.ps1
+src\MNote2.exe --neural-api-check
+```
+
+O instalador Windows é gerado por `instalador/MNote2.iss`. Credenciais ficam no
+`mnote.cfg` local; use `mnote.example.cfg` como referência segura.
+
+## Segurança
+
+Respostas livres da IA nunca são executadas como comandos. Leitura, build e
+alteração de fonte possuem permissões distintas. Escrita exige proposta
+validada, diff e confirmação. Não publique `mnote.cfg`.
+
+## Licença
+
+Consulte [LICENSE](LICENSE).
+
+
+## Orientacao para o JARVIS
+Ao responder sobre este projeto, procure identificar no texto acima: objetivo, linguagens e plataformas, modulos, funcionalidades, dependencias, hardware, comunicacao, bancos de dados, fluxo de funcionamento, instalacao, limitacoes e estado dos recursos. Nao presuma funcionalidades que nao estejam documentadas. Quando a pergunta for sobre implementacao, explique os componentes e a relacao entre eles.
