@@ -10,258 +10,84 @@ Todos os clientes e nós distribuídos que precisam do sistema central devem usa
 
 ## CASA/1.0
 
-O protocolo lógico dos nós é identificado como:
+O protocolo lógico dos nós é identificado como `CASA/1.0`.
 
-```text
-CASA/1.0
-```
-
-O Control Plane usa a API v1, com dois fluxos principais:
-
-```text
-COMMANDS -> device_commands
-EVENTS   -> device_events
-```
-
-Comandos representam solicitações de execução. Eventos representam fatos observados pelo nó.
+O Control Plane usa a API v1, com `COMMANDS -> device_commands` e `EVENTS -> device_events`. Comandos representam solicitações de execução. Eventos representam fatos observados pelo nó.
 
 ## Identidade mínima
 
-Cada nó possui:
+Cada nó possui `device_id` único, `device_token` exclusivo e revogável, capacidades, estado/heartbeat e versão de firmware/software. Tokens reais não pertencem ao Git.
 
-- `device_id` único;
-- `device_token` exclusivo e revogável;
-- lista de `capabilities`;
-- estado/heartbeat;
-- versão de firmware/software;
-- versão de protocolo quando disponível;
-- gateway responsável, quando aplicável.
+## Provisionamento Wi-Fi de ESP32 e ESP-01
 
-Cabeçalhos recomendados:
+Esta regra é específica para **ESP32 e ESP-01**. Ela não deve ser aplicada automaticamente ao Watch ou a outros tipos de dispositivo.
 
-```http
-Authorization: Bearer <TOKEN_INDIVIDUAL>
-X-Device-Token: <TOKEN_INDIVIDUAL>
-X-Device-Id: <DEVICE_ID>
+Um ESP32 ou ESP-01 novo, sem rede válida ou que não consiga mais conectar à rede configurada deve entrar em **modo Access Point (AP)** e disponibilizar sua própria rede Wi-Fi temporária de configuração.
+
+Fluxo obrigatório:
+
+```text
+ESP32 / ESP-01
+      |
+      | cria Wi-Fi próprio (AP de configuração)
+      v
+JARVIS Mobile conecta ao AP
+      |
+      | envia SSID + senha da rede definitiva + URL CASA
+      v
+ESP salva configuração e muda para STA
+      |
+      +-- conexão falhou --> volta ao AP de configuração
+      |
+      +-- conexão OK ------> inicia pareamento com CASA
+                                  |
+                                  v
+                         Mobile autoriza o device
+                                  |
+                                  v
+                         CASA gera device_id/token
+                                  |
+                                  v
+                         device passa a operar
 ```
 
-Tokens reais não pertencem ao Git.
+Regras de recuperação:
+
+1. O AP de configuração existe para garantir que o equipamento possa sempre ser reconfigurado localmente.
+2. Credenciais Wi-Fi inválidas não podem deixar o ESP inacessível: após falha de conexão ele retorna ao AP.
+3. O celular fornece no AP somente os parâmetros necessários para o ESP alcançar a rede e o CASA; ele não deve fabricar `device_id` nem `device_token` operacional.
+4. Depois de alcançar a rede, o próprio ESP solicita pareamento ao CASA e aguarda autorização no Mobile.
+5. O servidor CASA é responsável por gerar a identidade e a credencial permanente do device após a aprovação.
+6. O Watch fica explicitamente fora deste mecanismo de AP: ele usa sua própria interface/fluxo de configuração.
 
 ## API universal de device
 
-### Heartbeat
+- `POST /api/v1/device.php?acao=heartbeat`
+- `GET /api/v1/device.php?acao=commands&device_id=<DEVICE_ID>`
+- `POST /api/v1/device.php?acao=command_ack`
+- `POST /api/v1/device.php?acao=command_start`
+- `POST /api/v1/device.php?acao=command_result`
+- `POST /api/v1/device.php?acao=event`
 
-```text
-POST /api/v1/device.php?acao=heartbeat
-```
-
-### Buscar comandos
-
-```text
-GET /api/v1/device.php?acao=commands&device_id=<DEVICE_ID>
-```
-
-### Confirmar recebimento
-
-```text
-POST /api/v1/device.php?acao=command_ack
-```
-
-### Publicar resultado
-
-```text
-POST /api/v1/device.php?acao=command_result
-```
-
-### Publicar evento
-
-```text
-POST /api/v1/device.php?acao=event
-```
-
-Controladores como Mobile, Site e JARVIS enfileiram operações através de:
-
-```text
-POST /api/v1/control.php?acao=enqueue
-```
-
-## Envelope lógico de comando
-
-A persistência atual usa as colunas de `device_commands`, mas o significado lógico é:
-
-```json
-{
-  "protocol": "CASA/1.0",
-  "id": 123,
-  "correlation_id": "cmd_xxx",
-  "target": "tv-sala",
-  "command": "media.play",
-  "payload": {},
-  "priority": "normal",
-  "ttl_seconds": 300
-}
-```
-
-Os nomes de comandos devem preferencialmente ser qualificados por domínio:
-
-- `ble.scan`
-- `wifi.http_request`
-- `media.play`
-- `media.pause`
-- `media.cast`
-- `light.power`
-- `relay.set`
-- `mqtt.publish`
-- `modbus.write`
-- `mobile.notify`
-- `mobile.camera`
-- `mobile.gps`
-
-## Eventos
-
-Eventos devem usar nomes descritivos e não representar solicitações de ação.
-
-Exemplos:
-
-- `device.discovery`
-- `device.online`
-- `device.offline`
-- `sensor.temperature`
-- `light.state_changed`
-- `watch.sos`
-- `watch.inactivity`
-- `family.message`
-
-Exemplo:
-
-```json
-{
-  "device_id": "gateway-sala",
-  "type": "device.discovery",
-  "priority": "normal",
-  "data": {
-    "protocol": "ble",
-    "devices": []
-  }
-}
-```
+Controladores enfileiram operações através de `POST /api/v1/control.php?acao=enqueue`.
 
 ## Capacidades
 
-Exemplos padronizados:
-
-- `gateway`
-- `gpio`
-- `relay`
-- `mqtt`
-- `serial`
-- `rs485`
-- `modbus`
-- `ble`
-- `wifi`
-- `http`
-- `camera`
-- `vision`
-- `microphone`
-- `speaker`
-- `voice`
-- `tts`
-- `stt`
-- `llm`
-- `scheduler`
-- `temperature`
-- `humidity`
-- `gps`
-- `telemetry`
-- `notification`
-- `discovery`
-- `media.cast`
+Exemplos: `gateway`, `gpio`, `relay`, `mqtt`, `serial`, `rs485`, `modbus`, `ble`, `wifi`, `http`, `camera`, `vision`, `microphone`, `speaker`, `voice`, `tts`, `stt`, `llm`, `scheduler`, `temperature`, `humidity`, `gps`, `telemetry`, `notification`, `discovery`, `media.cast`.
 
 A IA pode interpretar a intenção do usuário, mas a execução física deve ser resolvida deterministicamente pelo registro de dispositivos, suas capacidades e adapters autorizados.
 
-## Topologia
+## Watch
 
-```text
-                         casa.maurinsoft.com.br
-                      API v1 + Command/Event Bus
-                                |
-             +------------------+------------------+
-             |                  |                  |
-        Raspberry/ARM      Servidor IA        Android/TV
-        adapters locais    LLM/TTS/STT          clientes
-             |
-        ESP32/ESP8266
-        sensores/gateways
-```
-
-O domínio coordena identidade, persistência, comandos, eventos, descoberta lógica e roteamento. O processamento pesado e o controle físico permanecem distribuídos.
+O Watch não usa o AP de configuração definido para ESP32/ESP-01. O relógio mantém seu fluxo próprio de configuração e, depois de provisionado/autorizado, possui identidade própria e comunica-se diretamente com a CASA quando há Wi-Fi disponível.
 
 ## Control Plane x Data Plane
 
-A CASA deve transportar comandos, estados e metadados. Fluxos grandes de mídia devem preferencialmente permanecer na rede local.
-
-Exemplo:
-
-```text
-CASA -> "media.cast URL X" -> gateway
-                               |
-                               +---- controle
-Servidor local ---------------------> TV
-                  stream de mídia
-```
-
-Vídeo, áudio e transcodificação não devem atravessar a API central sem necessidade.
-
-## Adapters
-
-Protocolos específicos devem ficar em adapters/drivers, não dentro do núcleo de IA.
-
-Exemplos:
-
-```text
-adapters/
-  ble
-  http
-  mqtt
-  cast
-  dlna
-  matter
-  modbus
-  gpio
-  ir
-```
-
-Um adapter só deve executar operações explicitamente suportadas pelo dispositivo.
-
-## Watch
-
-O fluxo oficial atual é:
-
-```text
-Provisionamento:
-Watch -> BLE -> JARVIS Mobile -> CASA
-
-Operação:
-Watch -> Wi-Fi/HTTPS -> CASA
-```
-
-Depois do provisionamento, o relógio possui identidade própria e comunica-se diretamente com a CASA quando há Wi-Fi disponível.
-
-O Mobile continua podendo fornecer capacidades que pertencem ao telefone, por exemplo:
-
-```text
-watch -> CASA -> mobile.gps
-watch -> CASA -> mobile.camera
-watch -> CASA -> mobile.notification
-```
-
-BLE permanece como mecanismo de provisionamento, recuperação e integrações locais específicas, não como caminho obrigatório para toda comunicação do relógio.
+A CASA transporta comandos, estados e metadados. Fluxos grandes de mídia devem preferencialmente permanecer na rede local.
 
 ## Resiliência
 
-Nós podem manter automações essenciais localmente quando a Internet estiver indisponível e sincronizar eventos e estados quando a conexão retornar.
-
-Comandos devem possuir TTL e nunca ser executados indefinidamente depois de expirados.
+Nós podem manter automações essenciais localmente quando a Internet estiver indisponível e sincronizar eventos e estados quando a conexão retornar. Comandos devem possuir TTL e nunca ser executados indefinidamente depois de expirados.
 
 ## Regras de segurança
 
@@ -274,24 +100,13 @@ Comandos devem possuir TTL e nunca ser executados indefinidamente depois de expi
 7. Certificados TLS devem ser validados pelos clientes.
 8. Comandos físicos devem ser limitados a adapters conhecidos.
 9. Serviços de IA e credenciais de provedores não devem ficar expostos em Mobile, TV, Watch ou firmware.
-10. Comandos críticos devem produzir ACK, resultado e trilha de auditoria.
-
-## Provisionamento e passagem de chaves pelo celular
-
-O JARVIS Mobile é o instrumento de autorização e passagem de credenciais para novos dispositivos. Dispositivos novos não devem depender de chaves estáticas gravadas no firmware.
-
-Detalhamento:
-
-`docs/PROTOCOLO_PASSAGEM_CHAVES_CELULAR.md`
+10. Comandos críticos devem produzir ACK, START, resultado e trilha de auditoria.
 
 ## Estado atual da migração
 
-- Android Mobile: usa CASA API v1 e domínio central.
-- Android TV: usa CASA API v1; não depende mais diretamente de RunPod.
+- Android Mobile: CASA API v1 e autorização de novos devices.
+- Android TV: CASA API v1.
 - Raspberry/ARM Agent: identidade, token e capacidades configuráveis.
-- ESP32 Bridge: migrado para `device_commands` / `device_events`.
-- ESP-01 DHT: domínio CASA, identidade e token individual.
-- ESP32 Voice: domínio CASA, identidade e capacidades.
-- ESP8266 Cadeira/Piscina: comunicação pelo domínio CASA.
-- LilyGo Watch: BLE no provisionamento e Wi-Fi/HTTPS na operação normal.
-- ESP32-CAM: deve convergir para a mesma identidade e API universal de devices.
+- ESP32/ESP-01: devem usar AP local para configuração de rede e depois pareamento CASA.
+- LilyGo Watch: fluxo próprio; fora do AP ESP32/ESP-01.
+- ESP32-CAM: como membro da família ESP32, deve usar o fluxo de AP local e depois identidade/API universal de devices.
