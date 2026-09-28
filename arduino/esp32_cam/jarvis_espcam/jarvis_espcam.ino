@@ -1,14 +1,14 @@
 /**
  * JARVIS CASA - ESP32-CAM AI Thinker
  *
- * Arquitetura:
- *   1. Device novo -> BLE JARVIS-CAM-xxxxxx.
- *   2. JARVIS Mobile envia SSID/senha + URL CASA + token individual + nome/local.
- *   3. ESP32-CAM testa o Wi-Fi, grava em NVS e reinicia.
- *   4. Operacao normal -> somente Wi-Fi/HTTP(S). BLE nao e necessario no uso diario.
- *   5. Se a rede salva falhar no boot, BLE volta automaticamente para reconfiguracao.
- *
- * Nenhum token mestre, senha de banco ou chave RunPod fica no firmware-fonte.
+ * Provisionamento oficial para ESP32/ESP-01:
+ *  1. Sem rede valida, o ESP cria seu proprio Access Point.
+ *  2. O celular conecta ao AP e abre http://192.168.4.1.
+ *  3. O ESP recebe SSID/senha + URL CASA + nome/local e testa a rede.
+ *  4. Se falhar, volta ao AP. Nenhum token e recebido do celular.
+ *  5. Com rede, o proprio ESP solicita pareamento ao CASA.
+ *  6. O Mobile autoriza; o ESP consulta o CASA e recebe device_id/token.
+ *  7. Credencial permanente fica em NVS. Em falha persistente de Wi-Fi, AP volta.
  */
 
 #include "esp_camera.h"
@@ -18,374 +18,176 @@
 #include <WebServer.h>
 #include <HTTPClient.h>
 #include <Preferences.h>
-#include <BLEDevice.h>
-#include <BLEServer.h>
-#include <BLEUtils.h>
-#include <BLE2902.h>
 
-// ================= NVS / CONFIGURACAO =================
 Preferences preferences;
-static const char* NVS_NAMESPACE = "jarviscam";
-
-String wifi_ssid;
-String wifi_password;
-String casa_url;
-String device_token;
-String device_id;
-String device_name;
-String device_location;
-bool provisioned = false;
-
-// ================= BLE PROVISIONAMENTO =================
-#define BLE_SERVICE_UUID        "7a5b0001-78fc-4b97-9f0f-9e9f5a31b401"
-#define BLE_CHAR_SSID_UUID      "7a5b0002-78fc-4b97-9f0f-9e9f5a31b401"
-#define BLE_CHAR_WIFI_UUID      "7a5b0003-78fc-4b97-9f0f-9e9f5a31b401"
-#define BLE_CHAR_APPLY_UUID     "7a5b0006-78fc-4b97-9f0f-9e9f5a31b401"
-#define BLE_CHAR_STATUS_UUID    "7a5b0007-78fc-4b97-9f0f-9e9f5a31b401"
-#define BLE_CHAR_CASA_URL_UUID  "7a5b0008-78fc-4b97-9f0f-9e9f5a31b401"
-#define BLE_CHAR_TOKEN_UUID     "7a5b0009-78fc-4b97-9f0f-9e9f5a31b401"
-#define BLE_CHAR_DEVICE_ID_UUID "7a5b000c-78fc-4b97-9f0f-9e9f5a31b401"
-#define BLE_CHAR_NAME_UUID      "7a5b000a-78fc-4b97-9f0f-9e9f5a31b401"
-#define BLE_CHAR_LOCATION_UUID  "7a5b000b-78fc-4b97-9f0f-9e9f5a31b401"
-
-BLEServer* bleServer = nullptr;
-BLECharacteristic* bleStatus = nullptr;
-bool bleStarted = false;
-bool bleClientConnected = false;
-volatile bool applyRequested = false;
-
-String pending_ssid;
-String pending_wifi_password;
-String pending_casa_url;
-String pending_device_token;
-String pending_device_id;
-String pending_device_name;
-String pending_location;
-
-// ================= CAMERA AI-THINKER =================
-#define PWDN_GPIO_NUM     32
-#define RESET_GPIO_NUM    -1
-#define XCLK_GPIO_NUM      0
-#define SIOD_GPIO_NUM     26
-#define SIOC_GPIO_NUM     27
-#define Y9_GPIO_NUM       35
-#define Y8_GPIO_NUM       34
-#define Y7_GPIO_NUM       39
-#define Y6_GPIO_NUM       36
-#define Y5_GPIO_NUM       21
-#define Y4_GPIO_NUM       19
-#define Y3_GPIO_NUM       18
-#define Y2_GPIO_NUM        5
-#define VSYNC_GPIO_NUM    25
-#define HREF_GPIO_NUM     23
-#define PCLK_GPIO_NUM     22
-#define FLASH_LED_PIN      4
-
 WebServer server(80);
-unsigned long lastHeartbeat = 0;
-const unsigned long HEARTBEAT_INTERVAL = 15000UL;
+static const char* NVS_NAMESPACE = "jarviscam";
+static const char* FW_VERSION = "1.1.0";
 
-String jsonEscape(const String& value) {
-  String out;
-  out.reserve(value.length() + 8);
-  for (size_t i = 0; i < value.length(); i++) {
-    char c = value.charAt(i);
-    switch (c) {
-      case '\\': out += "\\\\"; break;
-      case '"': out += "\\\""; break;
-      case '\n': out += "\\n"; break;
-      case '\r': out += "\\r"; break;
-      case '\t': out += "\\t"; break;
-      default: out += c; break;
-    }
+String wifi_ssid, wifi_password, casa_url;
+String device_token, device_id, device_name, device_location;
+String pairing_request_id, pairing_code;
+bool operational = false;
+bool configPortal = false;
+bool httpStarted = false;
+unsigned long lastHeartbeat = 0;
+unsigned long lastPairingPoll = 0;
+const unsigned long HEARTBEAT_INTERVAL = 15000UL;
+const unsigned long PAIRING_POLL_INTERVAL = 5000UL;
+
+#define PWDN_GPIO_NUM 32
+#define RESET_GPIO_NUM -1
+#define XCLK_GPIO_NUM 0
+#define SIOD_GPIO_NUM 26
+#define SIOC_GPIO_NUM 27
+#define Y9_GPIO_NUM 35
+#define Y8_GPIO_NUM 34
+#define Y7_GPIO_NUM 39
+#define Y6_GPIO_NUM 36
+#define Y5_GPIO_NUM 21
+#define Y4_GPIO_NUM 19
+#define Y3_GPIO_NUM 18
+#define Y2_GPIO_NUM 5
+#define VSYNC_GPIO_NUM 25
+#define HREF_GPIO_NUM 23
+#define PCLK_GPIO_NUM 22
+#define FLASH_LED_PIN 4
+
+String jsonEscape(const String& v) {
+  String o; o.reserve(v.length()+8);
+  for (size_t i=0;i<v.length();i++) {
+    char c=v.charAt(i);
+    if(c=='\\') o+="\\\\"; else if(c=='\"') o+="\\\"";
+    else if(c=='\n') o+="\\n"; else if(c=='\r') o+="\\r"; else if(c=='\t') o+="\\t"; else o+=c;
   }
+  return o;
+}
+
+String jsonValue(const String& json, const String& key) {
+  String marker="\""+key+"\""; int p=json.indexOf(marker); if(p<0) return "";
+  p=json.indexOf(':',p+marker.length()); if(p<0) return ""; p++;
+  while(p<(int)json.length() && (json[p]==' '||json[p]=='\t')) p++;
+  if(p>=(int)json.length() || json[p]!='\"') return ""; p++;
+  String out; bool esc=false;
+  for(;p<(int)json.length();p++) { char c=json[p]; if(esc){out+=c;esc=false;} else if(c=='\\')esc=true; else if(c=='\"')break; else out+=c; }
   return out;
 }
 
-String boolJson(bool v) { return v ? "true" : "false"; }
-
-void bleStatusUpdate(const String& code, const String& message) {
-  if (!bleStatus) return;
-  String json = "{\"status\":\"" + jsonEscape(code) + "\",\"mensagem\":\"" + jsonEscape(message) + "\",\"configurado\":" + boolJson(provisioned) + ",\"wifi_conectado\":" + boolJson(WiFi.status() == WL_CONNECTED) + "}";
-  bleStatus->setValue(json.c_str());
-  if (bleClientConnected) bleStatus->notify();
-  Serial.println("[BLE] " + json);
-}
-
 void loadConfig() {
-  preferences.begin(NVS_NAMESPACE, true);
-  provisioned = preferences.getBool("configured", false);
-  wifi_ssid = preferences.getString("ssid", "");
-  wifi_password = preferences.getString("wifi_pass", "");
-  casa_url = preferences.getString("casa_url", "https://maurinsoft.com.br/casa");
-  device_token = preferences.getString("token", "");
-  device_id = preferences.getString("device_id", "");
-  device_name = preferences.getString("name", "ESP32-CAM");
-  device_location = preferences.getString("location", "Residencia");
+  preferences.begin(NVS_NAMESPACE,true);
+  wifi_ssid=preferences.getString("ssid",""); wifi_password=preferences.getString("wifi_pass","");
+  casa_url=preferences.getString("casa_url","https://maurinsoft.com.br/casa");
+  device_token=preferences.getString("token",""); device_id=preferences.getString("device_id","");
+  device_name=preferences.getString("name","ESP32-CAM"); device_location=preferences.getString("location","Residencia");
+  pairing_request_id=preferences.getString("pair_req",""); pairing_code=preferences.getString("pair_code","");
   preferences.end();
-
-  if (wifi_ssid.isEmpty() || casa_url.isEmpty() || device_token.isEmpty() || device_id.isEmpty()) provisioned = false;
+  operational=!wifi_ssid.isEmpty()&&!casa_url.isEmpty()&&!device_token.isEmpty()&&!device_id.isEmpty();
 }
 
-bool saveConfig(
-  const String& ssid,
-  const String& wifiPass,
-  const String& casaUrl,
-  const String& token,
-  const String& deviceId,
-  const String& name,
-  const String& location
-) {
-  if (ssid.isEmpty() || casaUrl.isEmpty() || token.isEmpty() || deviceId.isEmpty()) return false;
-  preferences.begin(NVS_NAMESPACE, false);
-  bool ok = true;
-  ok &= preferences.putString("ssid", ssid) > 0;
-  preferences.putString("wifi_pass", wifiPass);
-  ok &= preferences.putString("casa_url", casaUrl) > 0;
-  ok &= preferences.putString("token", token) > 0;
-  ok &= preferences.putString("device_id", deviceId) > 0;
-  preferences.putString("name", name.isEmpty() ? "ESP32-CAM" : name);
-  preferences.putString("location", location.isEmpty() ? "Residencia" : location);
-  preferences.putBool("configured", ok);
-  preferences.end();
-  if (ok) loadConfig();
-  return ok;
+void saveNetwork(const String& ssid,const String& pass,const String& base,const String& name,const String& location) {
+  preferences.begin(NVS_NAMESPACE,false);
+  preferences.putString("ssid",ssid); preferences.putString("wifi_pass",pass); preferences.putString("casa_url",base);
+  preferences.putString("name",name.isEmpty()?"ESP32-CAM":name); preferences.putString("location",location.isEmpty()?"Residencia":location);
+  preferences.remove("token"); preferences.remove("device_id"); preferences.remove("pair_req"); preferences.remove("pair_code");
+  preferences.end(); loadConfig();
 }
 
-bool connectWifi(const String& ssid, const String& pass, unsigned long timeoutMs = 15000UL) {
-  if (ssid.isEmpty()) return false;
-  WiFi.mode(WIFI_STA);
-  WiFi.persistent(false);
-  WiFi.disconnect(false, false);
-  delay(100);
-  WiFi.begin(ssid.c_str(), pass.c_str());
-  const unsigned long start = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - start < timeoutMs) {
-    delay(50);
-    yield();
-  }
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.printf("[WIFI] %s -> %s RSSI=%d\n", ssid.c_str(), WiFi.localIP().toString().c_str(), WiFi.RSSI());
-    return true;
-  }
-  WiFi.disconnect(false, false);
-  return false;
+void savePairing(const String& req,const String& code) {
+  preferences.begin(NVS_NAMESPACE,false); preferences.putString("pair_req",req); preferences.putString("pair_code",code); preferences.end();
+  pairing_request_id=req; pairing_code=code;
 }
 
-void clearPending() {
-  pending_ssid = "";
-  pending_wifi_password = "";
-  pending_casa_url = "";
-  pending_device_token = "";
-  pending_device_id = "";
-  pending_device_name = "";
-  pending_location = "";
+void saveCredential(const String& id,const String& token) {
+  preferences.begin(NVS_NAMESPACE,false); preferences.putString("device_id",id); preferences.putString("token",token);
+  preferences.remove("pair_req"); preferences.remove("pair_code"); preferences.end(); loadConfig();
 }
 
-class ServerCallbacks : public BLEServerCallbacks {
-  void onConnect(BLEServer*) override {
-    bleClientConnected = true;
-    bleStatusUpdate("CONECTADO", "Celular conectado. Envie a configuracao.");
-  }
-  void onDisconnect(BLEServer*) override {
-    bleClientConnected = false;
-    clearPending();
-    if (bleStarted) BLEDevice::startAdvertising();
-  }
-};
-
-class TextWriteCallback : public BLECharacteristicCallbacks {
-public:
-  explicit TextWriteCallback(String* target) : target_(target) {}
-  void onWrite(BLECharacteristic* c) override {
-    if (!target_) return;
-    std::string v = c->getValue();
-    if (v.size() > 256) return;
-    *target_ = String(v.c_str());
-  }
-private:
-  String* target_;
-};
-
-class ApplyCallback : public BLECharacteristicCallbacks {
-  void onWrite(BLECharacteristic* c) override {
-    String v(c->getValue().c_str());
-    v.trim(); v.toUpperCase();
-    if (v == "APPLY" || v == "SALVAR" || v == "1") applyRequested = true;
-  }
-};
-
-void startBleProvisioning() {
-  if (bleStarted) return;
-  String mac = WiFi.macAddress();
-  mac.replace(":", "");
-  String bleName = "JARVIS-CAM-" + mac.substring(mac.length() - 6);
-
-  BLEDevice::init(bleName.c_str());
-  bleServer = BLEDevice::createServer();
-  bleServer->setCallbacks(new ServerCallbacks());
-  BLEService* service = bleServer->createService(BLE_SERVICE_UUID);
-
-  auto addWrite = [&](const char* uuid, String* target) {
-    BLECharacteristic* c = service->createCharacteristic(uuid, BLECharacteristic::PROPERTY_WRITE);
-    c->setCallbacks(new TextWriteCallback(target));
-  };
-  addWrite(BLE_CHAR_SSID_UUID, &pending_ssid);
-  addWrite(BLE_CHAR_WIFI_UUID, &pending_wifi_password);
-  addWrite(BLE_CHAR_CASA_URL_UUID, &pending_casa_url);
-  addWrite(BLE_CHAR_TOKEN_UUID, &pending_device_token);
-  addWrite(BLE_CHAR_DEVICE_ID_UUID, &pending_device_id);
-  addWrite(BLE_CHAR_NAME_UUID, &pending_device_name);
-  addWrite(BLE_CHAR_LOCATION_UUID, &pending_location);
-
-  BLECharacteristic* apply = service->createCharacteristic(BLE_CHAR_APPLY_UUID, BLECharacteristic::PROPERTY_WRITE);
-  apply->setCallbacks(new ApplyCallback());
-
-  bleStatus = service->createCharacteristic(BLE_CHAR_STATUS_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
-  bleStatus->addDescriptor(new BLE2902());
-
-  service->start();
-  BLEAdvertising* adv = BLEDevice::getAdvertising();
-  adv->addServiceUUID(BLE_SERVICE_UUID);
-  adv->setScanResponse(true);
-  adv->start();
-  bleStarted = true;
-  bleStatusUpdate("AGUARDANDO_CONFIGURACAO", "Abra JARVIS Mobile > Novos Devices.");
-  Serial.println("[BLE] Provisionamento ativo: " + bleName);
+bool connectWifi(unsigned long timeoutMs=15000UL) {
+  if(wifi_ssid.isEmpty()) return false;
+  WiFi.mode(WIFI_STA); WiFi.persistent(false); WiFi.disconnect(false,false); delay(100);
+  WiFi.begin(wifi_ssid.c_str(),wifi_password.c_str()); unsigned long start=millis();
+  while(WiFi.status()!=WL_CONNECTED && millis()-start<timeoutMs){delay(100);yield();}
+  if(WiFi.status()==WL_CONNECTED){Serial.printf("[WIFI] IP=%s RSSI=%d\n",WiFi.localIP().toString().c_str(),WiFi.RSSI());return true;}
+  WiFi.disconnect(false,false); return false;
 }
 
-void processProvisioning() {
-  applyRequested = false;
-  if (pending_ssid.isEmpty()) { bleStatusUpdate("ERRO", "SSID nao informado"); return; }
-  if (pending_wifi_password.length() > 0 && pending_wifi_password.length() < 8) { bleStatusUpdate("ERRO", "Senha Wi-Fi invalida"); return; }
-  if (!pending_casa_url.startsWith("https://")) { bleStatusUpdate("ERRO", "URL CASA deve usar HTTPS"); return; }
-  if (pending_device_token.isEmpty()) { bleStatusUpdate("ERRO", "Token individual nao informado"); return; }
-  if (pending_device_id.isEmpty()) { bleStatusUpdate("ERRO", "Device ID nao informado"); return; }
-
-  bleStatusUpdate("TESTANDO_WIFI", "Conectando a rede informada...");
-  if (!connectWifi(pending_ssid, pending_wifi_password, 15000UL)) {
-    bleStatusUpdate("WIFI_INVALIDO", "Nao foi possivel conectar ao Wi-Fi");
-    return;
-  }
-
-  if (!saveConfig(pending_ssid, pending_wifi_password, pending_casa_url, pending_device_token, pending_device_id, pending_device_name, pending_location)) {
-    bleStatusUpdate("ERRO_NVS", "Falha ao gravar configuracao");
-    return;
-  }
-
-  bleStatusUpdate("CONFIGURADO", "Configuracao salva. Reiniciando para modo Wi-Fi.");
-  delay(700);
-  ESP.restart();
+String apName() {
+  uint64_t chip=ESP.getEfuseMac(); char suffix[7]; snprintf(suffix,sizeof(suffix),"%06X",(uint32_t)(chip&0xFFFFFF));
+  return String("CASA-ESP32-")+suffix;
 }
 
-// ================= HTTP LOCAL DA CAMERA =================
-void handleStream() {
-  WiFiClient client = server.client();
-  server.sendContent("HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=frame\r\n\r\n");
-  while (client.connected()) {
-    camera_fb_t* fb = esp_camera_fb_get();
-    if (!fb) break;
-    client.print("--frame\r\nContent-Type: image/jpeg\r\nContent-Length: " + String(fb->len) + "\r\n\r\n");
-    client.write(fb->buf, fb->len);
-    client.print("\r\n");
-    esp_camera_fb_return(fb);
-    yield();
-  }
+String configPage(const String& message="") {
+  String h="<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'><title>CASA ESP32</title></head><body>";
+  h+="<h2>Configurar ESP32-CAM</h2>"; if(!message.isEmpty())h+="<p><b>"+message+"</b></p>";
+  h+="<form method='POST' action='/configure'><label>Wi-Fi SSID</label><br><input name='ssid' required><br><label>Senha Wi-Fi</label><br><input name='password' type='password'><br>";
+  h+="<label>Servidor CASA</label><br><input name='casa' value='"+casa_url+"' required><br><label>Nome</label><br><input name='name' value='"+device_name+"'><br>";
+  h+="<label>Local</label><br><input name='location' value='"+device_location+"'><br><br><button type='submit'>SALVAR E CONECTAR</button></form>";
+  h+="<p>Se a conexao falhar, este ponto de acesso sera disponibilizado novamente.</p></body></html>"; return h;
 }
 
-void handleCapture() {
-  camera_fb_t* fb = esp_camera_fb_get();
-  if (!fb) { server.send(500, "text/plain", "Falha na captura"); return; }
-  server.sendHeader("Content-Type", "image/jpeg");
-  server.sendHeader("Content-Length", String(fb->len));
-  server.sendHeader("Access-Control-Allow-Origin", "*");
-  server.client().write(fb->buf, fb->len);
-  esp_camera_fb_return(fb);
+void startConfigPortal() {
+  configPortal=true; httpStarted=true; operational=false;
+  WiFi.mode(WIFI_AP); String name=apName(); WiFi.softAP(name.c_str());
+  server.stop(); server.on("/",HTTP_GET,[]{server.send(200,"text/html",configPage());});
+  server.on("/status",HTTP_GET,[]{server.send(200,"application/json","{\"mode\":\"config_ap\",\"ap\":\""+jsonEscape(apName())+"\",\"ip\":\""+WiFi.softAPIP().toString()+"\"}");});
+  server.on("/configure",HTTP_POST,[]{
+    String ssid=server.arg("ssid"),pass=server.arg("password"),base=server.arg("casa"),name=server.arg("name"),loc=server.arg("location");
+    ssid.trim(); base.trim(); base.replace("/api/v1",""); while(base.endsWith("/"))base.remove(base.length()-1);
+    if(ssid.isEmpty()||(!base.startsWith("https://")&&!base.startsWith("http://"))){server.send(400,"text/html",configPage("SSID ou URL CASA invalida."));return;}
+    server.send(200,"text/html","<html><body><h3>Configuracao recebida.</h3><p>O ESP vai testar a rede. Se falhar, conecte novamente ao AP "+apName()+".</p></body></html>");
+    delay(500); saveNetwork(ssid,pass,base,name,loc); ESP.restart();
+  });
+  server.begin(); Serial.printf("[CONFIG] AP %s em http://%s\n",name.c_str(),WiFi.softAPIP().toString().c_str());
 }
 
-void handleStatus() {
-  String json = "{\"dispositivo\":\"" + jsonEscape(device_name) + "\",\"local\":\"" + jsonEscape(device_location) + "\",\"tipo\":\"esp32cam\",\"ip\":\"" + WiFi.localIP().toString() + "\",\"rssi\":" + String(WiFi.RSSI()) + ",\"free_heap\":" + String(ESP.getFreeHeap()) + "}";
-  server.send(200, "application/json", json);
+bool beginHttp(HTTPClient& http,WiFiClientSecure& tls,const String& url) {
+  tls.setInsecure(); // TODO: instalar CA da implantacao.
+  tls.setTimeout(5); http.setConnectTimeout(3000); http.setTimeout(5000); return http.begin(tls,url);
 }
 
-void startHttpServer() {
-  server.on("/stream", handleStream);
-  server.on("/capture", handleCapture);
-  server.on("/flash/on", [](){ digitalWrite(FLASH_LED_PIN, HIGH); server.send(200,"application/json","{\"flash\":1}"); });
-  server.on("/flash/off", [](){ digitalWrite(FLASH_LED_PIN, LOW); server.send(200,"application/json","{\"flash\":0}"); });
-  server.on("/status", handleStatus);
-  server.begin();
+String physicalMac(){ String m=WiFi.macAddress(); m.toUpperCase(); return m; }
+
+bool requestPairing() {
+  if(WiFi.status()!=WL_CONNECTED||casa_url.isEmpty())return false;
+  WiFiClientSecure tls; HTTPClient http; if(!beginHttp(http,tls,casa_url+"/api/v1/provision.php?acao=solicitar_pareamento"))return false;
+  http.addHeader("Content-Type","application/json");
+  String payload="{\"mac\":\""+jsonEscape(physicalMac())+"\",\"type\":\"esp32cam\",\"model\":\"ESP32-CAM AI Thinker\",\"firmware_version\":\""+String(FW_VERSION)+"\",\"capabilities\":[\"camera\",\"snapshot\",\"mjpeg\",\"flash\",\"telemetry\",\"wifi\"]}";
+  int code=http.POST(payload); String body=http.getString(); http.end();
+  if(code<200||code>=300){Serial.printf("[PAIR] solicitacao HTTP %d\n",code);return false;}
+  String req=jsonValue(body,"request_id"),pc=jsonValue(body,"pairing_code"); if(req.isEmpty())return false;
+  savePairing(req,pc); Serial.printf("[PAIR] pedido=%s codigo=%s\n",req.c_str(),pc.c_str()); return true;
 }
 
-bool beginSecureHttp(HTTPClient& http, WiFiClientSecure& tls, const String& url) {
-  tls.setInsecure(); // TODO: instalar CA da implantacao antes de producao.
-  tls.setTimeout(5);
-  http.setConnectTimeout(3000);
-  http.setTimeout(5000);
-  return http.begin(tls, url);
+void pollPairing() {
+  if(pairing_request_id.isEmpty()||WiFi.status()!=WL_CONNECTED)return;
+  WiFiClientSecure tls; HTTPClient http; if(!beginHttp(http,tls,casa_url+"/api/v1/provision.php?acao=consultar_pareamento"))return;
+  http.addHeader("Content-Type","application/json");
+  String payload="{\"request_id\":\""+jsonEscape(pairing_request_id)+"\",\"mac\":\""+jsonEscape(physicalMac())+"\",\"pairing_code\":\""+jsonEscape(pairing_code)+"\"}";
+  int code=http.POST(payload); String body=http.getString(); http.end(); if(code<200||code>=300)return;
+  String state=jsonValue(body,"status_pareamento"); if(state.isEmpty())state=jsonValue(body,"status");
+  if(state=="authorized") { String id=jsonValue(body,"device_id"),token=jsonValue(body,"device_token"); if(!id.isEmpty()&&!token.isEmpty()){saveCredential(id,token);Serial.println("[PAIR] autorizado. Credencial gravada em NVS.");ESP.restart();} }
+  else if(state=="expired"||state=="rejected") { savePairing("",""); Serial.println("[PAIR] pedido expirou/rejeitado; novo pedido sera criado."); }
 }
 
-void sendHeartbeat() {
-  if (WiFi.status() != WL_CONNECTED || device_token.isEmpty() || casa_url.isEmpty()) return;
-  WiFiClientSecure tls;
-  HTTPClient http;
-  String url = casa_url + "/api/v1/device.php?acao=heartbeat";
-  if (!beginSecureHttp(http, tls, url)) return;
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("X-Device-Token", device_token);
-  http.addHeader("Authorization", "Bearer " + device_token);
-  String payload = "{\"device_id\":\"" + jsonEscape(device_id) + "\",\"transport\":\"wifi\",\"health\":\"ok\",\"protocol_version\":\"CASA/1.0\",\"model\":\"ESP32-CAM\",\"rssi\":" + String(WiFi.RSSI()) + ",\"local_ip\":\"" + WiFi.localIP().toString() + "\",\"capabilities\":[\"camera\",\"snapshot\",\"mjpeg\",\"flash\",\"telemetry\",\"wifi\"],\"data\":{\"free_heap\":" + String(ESP.getFreeHeap()) + ",\"location\":\"" + jsonEscape(device_location) + "\"}}";
-  int code = http.POST(payload);
-  Serial.printf("[CASA] Heartbeat HTTP %d\n", code);
-  http.end();
+void handleStream(){WiFiClient client=server.client();server.sendContent("HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=frame\r\n\r\n");while(client.connected()){camera_fb_t*fb=esp_camera_fb_get();if(!fb)break;client.print("--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "+String(fb->len)+"\r\n\r\n");client.write(fb->buf,fb->len);client.print("\r\n");esp_camera_fb_return(fb);yield();}}
+void handleCapture(){camera_fb_t*fb=esp_camera_fb_get();if(!fb){server.send(500,"text/plain","Falha na captura");return;}server.sendHeader("Content-Type","image/jpeg");server.sendHeader("Content-Length",String(fb->len));server.client().write(fb->buf,fb->len);esp_camera_fb_return(fb);}
+void handleStatus(){server.send(200,"application/json","{\"device_id\":\""+jsonEscape(device_id)+"\",\"name\":\""+jsonEscape(device_name)+"\",\"location\":\""+jsonEscape(device_location)+"\",\"type\":\"esp32cam\",\"ip\":\""+WiFi.localIP().toString()+"\",\"rssi\":"+String(WiFi.RSSI())+"}");}
+void startCameraHttp(){server.stop();server.on("/stream",handleStream);server.on("/capture",handleCapture);server.on("/status",handleStatus);server.on("/flash/on",[]{digitalWrite(FLASH_LED_PIN,HIGH);server.send(200,"application/json","{\"flash\":1}");});server.on("/flash/off",[]{digitalWrite(FLASH_LED_PIN,LOW);server.send(200,"application/json","{\"flash\":0}");});server.begin();httpStarted=true;}
+
+void sendHeartbeat(){if(!operational||WiFi.status()!=WL_CONNECTED)return;WiFiClientSecure tls;HTTPClient http;if(!beginHttp(http,tls,casa_url+"/api/v1/device.php?acao=heartbeat"))return;http.addHeader("Content-Type","application/json");http.addHeader("X-Device-Token",device_token);http.addHeader("Authorization","Bearer "+device_token);String p="{\"device_id\":\""+jsonEscape(device_id)+"\",\"transport\":\"wifi\",\"health\":\"ok\",\"protocol_version\":\"CASA/1.0\",\"model\":\"ESP32-CAM\",\"rssi\":"+String(WiFi.RSSI())+",\"local_ip\":\""+WiFi.localIP().toString()+"\",\"capabilities\":[\"camera\",\"snapshot\",\"mjpeg\",\"flash\",\"telemetry\",\"wifi\"]}";int c=http.POST(p);Serial.printf("[CASA] heartbeat HTTP %d\n",c);http.end();}
+
+void startCamera(){camera_config_t c={};c.ledc_channel=LEDC_CHANNEL_0;c.ledc_timer=LEDC_TIMER_0;c.pin_d0=Y2_GPIO_NUM;c.pin_d1=Y3_GPIO_NUM;c.pin_d2=Y4_GPIO_NUM;c.pin_d3=Y5_GPIO_NUM;c.pin_d4=Y6_GPIO_NUM;c.pin_d5=Y7_GPIO_NUM;c.pin_d6=Y8_GPIO_NUM;c.pin_d7=Y9_GPIO_NUM;c.pin_xclk=XCLK_GPIO_NUM;c.pin_pclk=PCLK_GPIO_NUM;c.pin_vsync=VSYNC_GPIO_NUM;c.pin_href=HREF_GPIO_NUM;c.pin_sscb_sda=SIOD_GPIO_NUM;c.pin_sscb_scl=SIOC_GPIO_NUM;c.pin_pwdn=PWDN_GPIO_NUM;c.pin_reset=RESET_GPIO_NUM;c.xclk_freq_hz=20000000;c.pixel_format=PIXFORMAT_JPEG;if(psramFound()){c.frame_size=FRAMESIZE_VGA;c.jpeg_quality=12;c.fb_count=2;}else{c.frame_size=FRAMESIZE_QVGA;c.jpeg_quality=15;c.fb_count=1;}esp_err_t e=esp_camera_init(&c);if(e!=ESP_OK)Serial.printf("[CAM] init 0x%x\n",e);}
+
+void setup(){Serial.begin(115200);pinMode(FLASH_LED_PIN,OUTPUT);digitalWrite(FLASH_LED_PIN,LOW);loadConfig();startCamera();
+  if(wifi_ssid.isEmpty()){startConfigPortal();return;}
+  if(!connectWifi()){Serial.println("[SETUP] Rede salva falhou; retornando ao AP.");startConfigPortal();return;}
+  if(!operational){Serial.println("[SETUP] Rede OK; aguardando autorizacao CASA.");if(pairing_request_id.isEmpty())requestPairing();return;}
+  startCameraHttp();sendHeartbeat();
 }
 
-void startCamera() {
-  camera_config_t config = {};
-  config.ledc_channel = LEDC_CHANNEL_0;
-  config.ledc_timer = LEDC_TIMER_0;
-  config.pin_d0 = Y2_GPIO_NUM; config.pin_d1 = Y3_GPIO_NUM; config.pin_d2 = Y4_GPIO_NUM; config.pin_d3 = Y5_GPIO_NUM;
-  config.pin_d4 = Y6_GPIO_NUM; config.pin_d5 = Y7_GPIO_NUM; config.pin_d6 = Y8_GPIO_NUM; config.pin_d7 = Y9_GPIO_NUM;
-  config.pin_xclk = XCLK_GPIO_NUM; config.pin_pclk = PCLK_GPIO_NUM; config.pin_vsync = VSYNC_GPIO_NUM; config.pin_href = HREF_GPIO_NUM;
-  config.pin_sscb_sda = SIOD_GPIO_NUM; config.pin_sscb_scl = SIOC_GPIO_NUM; config.pin_pwdn = PWDN_GPIO_NUM; config.pin_reset = RESET_GPIO_NUM;
-  config.xclk_freq_hz = 20000000; config.pixel_format = PIXFORMAT_JPEG;
-  if (psramFound()) { config.frame_size = FRAMESIZE_VGA; config.jpeg_quality = 12; config.fb_count = 2; }
-  else { config.frame_size = FRAMESIZE_QVGA; config.jpeg_quality = 15; config.fb_count = 1; }
-  esp_err_t err = esp_camera_init(&config);
-  if (err != ESP_OK) Serial.printf("[CAM] Falha init: 0x%x\n", err);
-}
-
-void setup() {
-  Serial.begin(115200);
-  pinMode(FLASH_LED_PIN, OUTPUT);
-  digitalWrite(FLASH_LED_PIN, LOW);
-  loadConfig();
-  startCamera();
-
-  if (!provisioned) {
-    Serial.println("[SETUP] Sem configuracao. Entrando em modo BLE.");
-    startBleProvisioning();
-    return;
-  }
-
-  Serial.println("[SETUP] Configurado. Tentando operacao normal por Wi-Fi.");
-  if (connectWifi(wifi_ssid, wifi_password, 15000UL)) {
-    startHttpServer();
-    sendHeartbeat();
-  } else {
-    Serial.println("[SETUP] Wi-Fi salvo falhou. Reabrindo BLE para reconfiguracao.");
-    startBleProvisioning();
-  }
-}
-
-void loop() {
-  if (applyRequested) processProvisioning();
-  if (WiFi.status() == WL_CONNECTED) {
-    server.handleClient();
-    if (millis() - lastHeartbeat >= HEARTBEAT_INTERVAL) {
-      lastHeartbeat = millis();
-      sendHeartbeat();
-    }
-  }
-  delay(2);
+void loop(){
+  if(configPortal){server.handleClient();delay(2);return;}
+  if(WiFi.status()!=WL_CONNECTED){Serial.println("[WIFI] Conexao perdida; retornando ao AP de configuracao.");startConfigPortal();return;}
+  if(!operational){if(pairing_request_id.isEmpty())requestPairing();if(millis()-lastPairingPoll>=PAIRING_POLL_INTERVAL){lastPairingPoll=millis();pollPairing();}delay(10);return;}
+  if(httpStarted)server.handleClient();if(millis()-lastHeartbeat>=HEARTBEAT_INTERVAL){lastHeartbeat=millis();sendHeartbeat();}delay(2);
 }
