@@ -58,6 +58,19 @@ $origem = trim($input['origem'] ?? 'JARVIS');
 $skipPlanner = !empty($input['skip_planner']);
 $forcarPlanejamento = !empty($input['planejar']);
 
+// Historico da conversa atual enviado pela interface. Somente papeis conversacionais sao aceitos.
+$historicoConversa=[];
+$historicoInput=$input['historico'] ?? [];
+if(is_array($historicoInput)){
+    foreach($historicoInput as $msg){
+        if(!is_array($msg)) continue;
+        $role=strtolower(trim((string)($msg['role']??'')));
+        $content=trim((string)($msg['content']??''));
+        if(!in_array($role,['user','assistant'],true)||$content==='') continue;
+        $historicoConversa[]=['role'=>$role,'content'=>$content];
+    }
+}
+
 if ($comando === '') {
     http_response_code(400);
     echo json_encode(['status'=>'erro','mensagem'=>'Nenhum comando fornecido'], JSON_UNESCAPED_UNICODE);
@@ -447,7 +460,7 @@ function chamar_llm_runpod_native($apiKey, $endpointId, $model, $systemPrompt, $
     return ['ok'=>false,'erro'=>$err ?: ($detail ?: ('HTTP '.$http)),'http'=>$http];
 }
 
-function jarvis_chamar_modelo(array $m, string $systemPrompt, string $userMsg): array {
+function jarvis_chamar_modelo(array $m, string $systemPrompt, string $userMsg, array $historico=[]): array {
     $provedor = strtolower((string)($m['provedor'] ?? 'openai_compatible'));
     $timeout = max(5, (int)($m['timeout_segundos'] ?? 45));
     $maxTokens = max(32, (int)($m['max_tokens'] ?? 600));
