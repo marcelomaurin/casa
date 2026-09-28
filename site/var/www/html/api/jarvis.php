@@ -470,7 +470,9 @@ function jarvis_chamar_modelo(array $m, string $systemPrompt, string $userMsg, a
     $model = trim((string)($m['modelo'] ?? ''));
 
     if ($provedor === 'ollama' || $provedor === 'local') {
-        return chamar_llm_local($baseUrl, $model, $systemPrompt, $userMsg);
+        $contexto='';
+        foreach($historico as $h) $contexto.=($h['role']==='assistant'?'JARVIS':'Usuario').': '.$h['content']."\n";
+        return chamar_llm_local($baseUrl, $model, $systemPrompt, $contexto.$userMsg);
     }
     if ($provedor === 'runpod_native') {
         return chamar_llm_runpod_native($apiKey, $m['endpoint_id'] ?? '', $model, $systemPrompt, $userMsg, $timeout, $maxTokens, $temperature);
@@ -483,7 +485,7 @@ function jarvis_chamar_modelo(array $m, string $systemPrompt, string $userMsg, a
         $url=$baseUrl.'/models/'.rawurlencode($model).':generateContent?key='.rawurlencode($apiKey);
         $payload=[
             'system_instruction'=>['parts'=>[['text'=>$systemPrompt]]],
-            'contents'=>[['role'=>'user','parts'=>[['text'=>$userMsg]]]],
+            'contents'=>array_merge(array_map(function($h){return ['role'=>$h['role']==='assistant'?'model':'user','parts'=>[['text'=>$h['content']]]];},$historico),[['role'=>'user','parts'=>[['text'=>$userMsg]]]]),
             'generationConfig'=>['temperature'=>$temperature,'maxOutputTokens'=>$maxTokens]
         ];
         $headers=['Content-Type: application/json'];
@@ -491,12 +493,16 @@ function jarvis_chamar_modelo(array $m, string $systemPrompt, string $userMsg, a
         if ($baseUrl === '') $baseUrl='https://api.anthropic.com/v1';
         if ($apiKey === '') return ['ok'=>false,'erro'=>'API key Anthropic ausente','http'=>0];
         $url=$baseUrl.'/messages';
-        $payload=['model'=>$model,'system'=>$systemPrompt,'messages'=>[['role'=>'user','content'=>$userMsg]],'temperature'=>$temperature,'max_tokens'=>$maxTokens];
+        $messages=array_values($historico); $messages[]=['role'=>'user','content'=>$userMsg];
+        $payload=['model'=>$model,'system'=>$systemPrompt,'messages'=>$messages,'temperature'=>$temperature,'max_tokens'=>$maxTokens];
         $headers=['Content-Type: application/json','x-api-key: '.$apiKey,'anthropic-version: 2023-06-01'];
     } else {
         if ($baseUrl === '') return ['ok'=>false,'erro'=>'URL do provedor ausente','http'=>0];
         $url = preg_match('#/chat/completions$#i', $baseUrl) ? $baseUrl : $baseUrl . '/chat/completions';
-        $payload=['model'=>$model,'messages'=>[['role'=>'system','content'=>$systemPrompt],['role'=>'user','content'=>$userMsg]],'temperature'=>$temperature,'max_tokens'=>$maxTokens,'stream'=>false];
+        $messages=[['role'=>'system','content'=>$systemPrompt]];
+        foreach($historico as $h)$messages[]=$h;
+        $messages[]=['role'=>'user','content'=>$userMsg];
+        $payload=['model'=>$model,'messages'=>$messages,'temperature'=>$temperature,'max_tokens'=>$maxTokens,'stream'=>false];
         $headers=['Content-Type: application/json'];
         if ($apiKey !== '') $headers[]='Authorization: Bearer '.$apiKey;
     }
