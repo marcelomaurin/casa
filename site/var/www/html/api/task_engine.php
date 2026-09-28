@@ -115,13 +115,14 @@ function te_add_subtask(PDO $pdo, array $ctx, string $titulo, string $executor, 
     $desc=is_array($payload) ? (string)($payload['descricao'] ?? '') : '';
 
     if (te_has_parent_column($pdo)) {
+        $startedSql = ($status === 'EXECUTANDO') ? 'NOW()' : 'NULL';
         $sql="INSERT INTO jarvis_tarefas ".
              "(id_plano,correlation_id,ordem,titulo,descricao,tipo,executor,payload,depende_de,tarefa_pai_id,status,iniciado_em) ".
-             "VALUES(:p,:corr,:o,:t,:d,'IMEDIATA',:e,:j,:dep,:pai,:s,CASE WHEN :s2='EXECUTANDO' THEN NOW() ELSE NULL END)";
+             "VALUES(:p,:corr,:o,:t,:d,'IMEDIATA',:e,:j,:dep,:pai,:s,".$startedSql.")";
         $params=[
             ':p'=>$ctx['id_plano'], ':corr'=>$ctx['correlation_id'] ?? null, ':o'=>$order, ':t'=>$titulo, ':d'=>$desc,
             ':e'=>$executor, ':j'=>te_json($payload), ':dep'=>$dependeDe,
-            ':pai'=>$ctx['id_tarefa_raiz'], ':s'=>$status, ':s2'=>$status
+            ':pai'=>$ctx['id_tarefa_raiz'], ':s'=>$status
         ];
     } else {
         $startedSql = ($status === 'EXECUTANDO') ? 'NOW()' : 'NULL';
