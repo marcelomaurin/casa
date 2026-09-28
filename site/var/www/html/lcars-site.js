@@ -1068,9 +1068,10 @@ async function loadComputerHistory(){
   }
 }
 async function renderJarvis(){
-  moduleShell('Núcleo COMPUTER','<div class="ja-jarvis"><div id="ja-chat-log" class="ja-chat-log"><div class="ja-chat-line ai">Carregando histórico...</div></div><div class="ja-command"><input id="ja-command-input" placeholder="Digite um comando para o COMPUTER"><button id="ja-command-send">ENVIAR</button><button id="ja-command-mic">VOZ</button><button id="ja-command-clear" class="danger">LIMPAR HISTÓRICO</button></div></div>');
+  moduleShell('Núcleo COMPUTER','<div class="ja-jarvis"><div class="ja-voice-status" id="ja-voice-status"><span id="ja-mic-state" class="ja-state off">VERIFICANDO MIC</span><span id="ja-mic-devices">Entradas: —</span><span id="ja-stt-state">STT: verificando</span><span id="ja-tts-state">TTS: verificando</span></div><div id="ja-chat-log" class="ja-chat-log"><div class="ja-chat-line ai">Carregando histórico...</div></div><div class="ja-command"><input id="ja-command-input" placeholder="Digite um comando para o COMPUTER"><button id="ja-command-send">ENVIAR</button><button id="ja-command-mic">VOZ</button><button id="ja-command-clear" class="danger">LIMPAR HISTÓRICO</button></div></div>');
   const input=document.getElementById('ja-command-input');
   const log=document.getElementById('ja-chat-log');
+  await diagnoseVoiceCore();
 
   const history=await loadComputerHistory();
   if(log){
@@ -1143,13 +1144,54 @@ function appendChat(who,text,cls,scroll=true){
   while(l.children.length>100) l.removeChild(l.firstChild);
   if(scroll) l.scrollTop=l.scrollHeight;
 }
-function startVoice(input,done){
+let activeRecognition=null;
+function voiceStatus(state,text,ok=false){
+  const el=document.getElementById('ja-mic-state'); if(!el)return;
+  el.textContent=text; el.className='ja-state '+(ok?'ok':state==='listening'?'warn':'off');
+}
+async function diagnoseVoiceCore(){
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-  if(!SR){alert('Reconhecimento de voz não disponível neste navegador.');return;}
-  const r=new SR();
-  r.lang='pt-BR';
-  r.onresult=e=>{input.value=e.results[0][0].transcript;done();};
-  r.start();
+  const stt=document.getElementById('ja-stt-state'),tts=document.getElementById('ja-tts-state'),dev=document.getElementById('ja-mic-devices');
+  if(stt)stt.textContent='STT: '+(SR?'disponível':'não suportado');
+  if(tts)tts.textContent='TTS: '+(('speechSynthesis' in window)?'disponível':'não suportado');
+  if(!navigator.mediaDevices?.getUserMedia){voiceStatus('error','MIC NÃO SUPORTADO');return false;}
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+    stream.getTracks().forEach(t=>t.stop());
+    const devices=await navigator.mediaDevices.enumerateDevices();
+    const inputs=devices.filter(d=>d.kind==='audioinput');
+    if(dev)dev.textContent='Entradas: '+inputs.length+(inputs.length?' · '+inputs.map((d,i)=>d.label||('Microfone '+(i+1))).join(' / '):'');
+    if(!inputs.length){voiceStatus('error','SEM MICROFONE');return false;}
+    voiceStatus('ready','MIC OK',true);return true;
+  }catch(e){
+    const denied=e?.name==='NotAllowedError'||e?.name==='SecurityError';
+    voiceStatus('error',denied?'MIC SEM PERMISSÃO':'MIC INDISPONÍVEL');
+    if(dev)dev.textContent='Entradas: não acessíveis';
+    return false;
+  }
+}
+async function startVoice(input,done){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){voiceStatus('error','STT NÃO SUPORTADO');appendChat('Sistema','Este navegador não oferece SpeechRecognition. Use a digitação ou um navegador compatível.','error');return;}
+  if(activeRecognition)return;
+  if(!(await diagnoseVoiceCore())){appendChat('Sistema','Não foi possível acessar uma entrada de áudio. Verifique a permissão do microfone no navegador.','error');return;}
+  const btn=document.getElementById('ja-command-mic');
+  const r=new SR(); activeRecognition=r;
+  r.lang='pt-BR'; r.continuous=false; r.interimResults=false; r.maxAlternatives=1;
+  if(btn){btn.disabled=true;btn.textContent='OUVINDO...';}
+  voiceStatus('listening','OUVINDO');
+  r.onresult=e=>{
+    const transcript=Array.from(e.results).map(x=>x[0]?.transcript||'').join(' ').trim();
+    if(transcript){input.value=transcript;voiceStatus('ready','RECONHECIDO',true);done();}
+    else{voiceStatus('error','SEM RESULTADO');appendChat('Sistema','O microfone foi ouvido, mas nenhuma fala foi reconhecida.','error');}
+  };
+  r.onnomatch=()=>{voiceStatus('error','NÃO RECONHECIDO');appendChat('Sistema','Não consegui reconhecer a fala. Tente novamente mais próximo do microfone.','error');};
+  r.onerror=e=>{
+    const map={'not-allowed':'Permissão de microfone negada.','service-not-allowed':'Serviço de reconhecimento bloqueado pelo navegador.','audio-capture':'Nenhum áudio pôde ser capturado.','no-speech':'Nenhuma fala foi detectada.','network':'O serviço de reconhecimento de voz não respondeu pela rede.','aborted':'Reconhecimento interrompido.'};
+    voiceStatus('error','ERRO DE VOZ');appendChat('Sistema',map[e.error]||('Erro no reconhecimento de voz: '+e.error),'error');
+  };
+  r.onend=()=>{activeRecognition=null;if(btn){btn.disabled=false;btn.textContent='VOZ';}const s=document.getElementById('ja-mic-state');if(s&&s.textContent==='OUVINDO')voiceStatus('ready','MIC OK',true);};
+  try{r.start();}catch(e){activeRecognition=null;if(btn){btn.disabled=false;btn.textContent='VOZ';}voiceStatus('error','FALHA AO INICIAR');appendChat('Sistema',e.message||'Falha ao iniciar reconhecimento de voz.','error');}
 }
 
 // Carrega a lista de vozes assim que o navegador disponibilizá-la.
