@@ -776,6 +776,7 @@ computer_telemetry_finish(
 );
 echo json_encode(te_attach_context([
     'status'=>'sucesso','comando'=>$comando,'resposta'=>$respostaLimpa,
+    'historico'=>$historicoTexto,'historico_chars'=>strlen($historicoTexto),'historico_mensagens'=>count($historicoConversa),
     'provedor'=>$provedor,'target_ia'=>$target_ia,'tipo_tarefa'=>$tipo_tarefa,
     'modo_roteamento'=>$routing_mode,'acao'=>$acao,'audio_url'=>$audioUrl,
     'speaker'=>$jarvis_voice,'modelo_usado'=>$modelo_usado,'ia_diagnostico'=>$ia_diagnostico,
