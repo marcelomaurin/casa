@@ -30,24 +30,24 @@ String jarvisWifiDeviceId();
 bool jarvisWifiHasCasaCredentials();
 bool jarvisWifiHasProfiles();
 
+// Pareamento CASA controlado pelo JARVIS Mobile. O Watch pode ser descoberto
+// sem credencial, mas so recebe device_id/token depois da autorizacao no celular.
+bool jarvisWifiPairingPending();
+String jarvisWifiPairingCode();
+String jarvisWifiPairingStatus();
+void jarvisWifiRequestPairing();
+
 // Estado da conexao HTTP/HTTPS com o servidor CASA configurado.
-// Por padrao: https://casa.maurinsoft.com.br
 bool jarvisWifiCasaOnline();
 bool jarvisWifiCasaChecked();
 void jarvisWifiRequestCasaCheck();
 String jarvisWifiCasaBase();
 
-// Inicia associação e retorna imediatamente. A UI pode acompanhar jarvisWifiIsConnected().
 bool jarvisWifiStartProfile(uint8_t slot);
 bool jarvisWifiConnectProfile(uint8_t slot, uint32_t timeoutMs = 8000);
 bool jarvisWifiConnectBestKnown(uint32_t timeoutMs = 8000);
-
-// Caminho rapido para wake periodico: tenta primeiro o ultimo perfil que
-// conectou com sucesso, sem fazer scan completo.
 bool jarvisWifiStartPreferred();
 bool jarvisWifiConnectPreferred(uint32_t timeoutMs = 3500);
-
-// Desliga o radio antes de deep sleep.
 void jarvisWifiPrepareSleep();
 
 bool jarvisWifiGetJson(const String &path, String *response = nullptr);
