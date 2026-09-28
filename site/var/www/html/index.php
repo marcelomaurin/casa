@@ -1,6 +1,8 @@
 <?php
 if (session_status() === PHP_SESSION_NONE) session_start();
 if (empty($_SESSION['auth_user'])) { header('Location: /casa/login.php'); exit; }
+if (empty($_SESSION['jarvis_session_token'])) $_SESSION['jarvis_session_token'] = bin2hex(random_bytes(32));
+$jarvisSessionToken = (string)$_SESSION['jarvis_session_token'];
 $authName = !empty($_SESSION['auth_name']) ? $_SESSION['auth_name'] : ($_SESSION['auth_user'] ?? 'Usuário');
 ?><!doctype html>
 <html lang="pt-BR">
@@ -18,10 +20,10 @@ $authName = !empty($_SESSION['auth_name']) ? $_SESSION['auth_name'] : ($_SESSION
     <button class="password" type="button">ALTERAR SENHA</button>
     <a class="logout" href="/casa/login.php?logout=1">SAIR · <?= htmlspecialchars($authName, ENT_QUOTES, 'UTF-8') ?></a>
   </div>
-  <div id="app"></div>
+  <script>window.CASA_SESSION_TOKEN = <?= json_encode($jarvisSessionToken, JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT) ?>;</script>\n  <div id="app"></div>
   <noscript>O CASA/COMPUTER precisa de JavaScript habilitado para a interface adaptativa.</noscript>
   <script src="/casa/lcars-framework.js?v=1.3.0"></script>
-  <script src="/casa/lcars-site.js?v=1.4.6"></script>
+  <script src="/casa/lcars-site.js?v=1.4.7"></script>
   <script src="/casa/lcars-iot.js?v=1.0.0"></script>
 </body>
 </html>
