@@ -9,18 +9,22 @@ if (empty($_SESSION['auth_user'])) { header('Location: /casa/login.php'); exit; 
 <link rel="stylesheet" href="/casa/lcars-framework.css?v=1.0.0">
 <link rel="stylesheet" href="/casa/lcars-site.css?v=1.0.0">
 <style>
-body{padding:18px;background:#f2eadc;color:#221f22;font-family:Arial,sans-serif}
-.wrap{max-width:1400px;margin:auto}
-.card{background:#fffaf0;border:1px solid #cdbfae;border-radius:14px;padding:16px;margin-bottom:16px}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px}
+html,body{width:100%;max-width:100%;min-width:0;min-height:100%;margin:0;overflow-x:hidden}
+body{padding:clamp(8px,1.4vw,18px);background:#f2eadc;color:#221f22;font-family:Arial,sans-serif;box-sizing:border-box}
+*,*:before,*:after{box-sizing:border-box}
+.wrap{width:100%;max-width:1400px;min-width:0;margin:auto;overflow-x:hidden}
+.card{width:100%;max-width:100%;min-width:0;background:#fffaf0;border:1px solid #cdbfae;border-radius:14px;padding:clamp(9px,1.2vw,16px);margin-bottom:12px;overflow:hidden}
+.grid{width:100%;min-width:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(210px,100%),1fr));gap:10px}
 label{font-size:12px;font-weight:700;display:block;margin-bottom:4px}
 input,select,textarea{width:100%;box-sizing:border-box;padding:9px;border:1px solid #b8aa99;border-radius:8px;background:#fff}
 button{padding:8px 12px;border:0;border-radius:8px;cursor:pointer;font-weight:700}
 .primary{background:#e58a55}.secondary{background:#d3a04d}.danger{background:#d96f78}.ok{background:#6f987e;color:#fff}
-table{width:100%;border-collapse:collapse} th,td{padding:8px;border-bottom:1px solid #ddd;text-align:left;font-size:13px;vertical-align:top}
+table{width:100%;max-width:100%;table-layout:fixed;border-collapse:collapse} th,td{min-width:0;padding:8px;border-bottom:1px solid #ddd;text-align:left;font-size:13px;vertical-align:top;overflow-wrap:anywhere;word-break:break-word}th:nth-child(1){width:10%}th:nth-child(2){width:29%}th:nth-child(3){width:17%}th:nth-child(4){width:24%}th:nth-child(5){width:20%}td button{margin:2px 2px 2px 0;white-space:normal}
 .badge{display:inline-block;padding:3px 7px;border-radius:12px;background:#ddd;margin-right:4px;font-size:11px}
 .default{background:#d3a04d}.cpu{background:#9b83ad;color:#fff}.gpu{background:#6f8ca8;color:#fff}
-.status{font-size:12px;white-space:pre-wrap}
+.status{font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}
+@media(max-width:900px){th,td{font-size:11px;padding:6px}button{padding:7px 8px}.card h2,.card h3{margin-top:4px}}
+@media(max-width:650px){table,thead,tbody,tr,th,td{display:block;width:100%!important}thead{display:none}tr{border-bottom:2px solid #cdbfae;padding:6px 0}td{border:0;padding:5px 2px}.grid{grid-template-columns:1fr}}
 </style>
 </head>
 <body><div class="wrap">
