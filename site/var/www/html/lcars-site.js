@@ -1160,7 +1160,7 @@ async function loadComputerHistory(){
     return [];
   }
 }
-async async function renderJarvis(){
+async function renderJarvis(){
   moduleShell('Núcleo COMPUTER','<div class="ja-jarvis"><div id="ja-chat-log" class="ja-chat-log"><div class="ja-chat-line ai">Carregando histórico...</div></div><div class="ja-command"><input id="ja-command-input" placeholder="Digite um comando para o COMPUTER"><button id="ja-command-send">ENVIAR</button><button id="ja-command-stop" class="danger" hidden>STOP</button></div></div>');
   const input=document.getElementById('ja-command-input');
   const log=document.getElementById('ja-chat-log');
