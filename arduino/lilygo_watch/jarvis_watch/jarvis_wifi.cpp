@@ -8,379 +8,52 @@ static Preferences wifiPrefs;
 static String casaBase;
 static String casaToken;
 static String casaDeviceId;
-static int preferredSlot = -1;
-static unsigned long lastRetry = 0;
-static bool reconnectInProgress = false;
-static const unsigned long WIFI_RETRY_INTERVAL_MS = 10000UL;
-static bool scanRunning = false;
-static bool casaOnline = false;
-static bool casaChecked = false;
-static bool casaCheckRequested = true;
-static unsigned long lastCasaCheck = 0;
-static const unsigned long CASA_CHECK_INTERVAL_MS = 30000UL;
+static int preferredSlot=-1;
+static unsigned long lastRetry=0,lastCasaCheck=0,lastPairingPoll=0;
+static bool reconnectInProgress=false,scanRunning=false,casaOnline=false,casaChecked=false,casaCheckRequested=true;
+static const unsigned long WIFI_RETRY_INTERVAL_MS=10000UL,CASA_CHECK_INTERVAL_MS=30000UL,PAIRING_POLL_INTERVAL_MS=5000UL;
+static String pairingRequestId,pairingCode,pairingStatus="idle";
 
-static String keySsid(uint8_t slot){ return "ssid" + String(slot); }
-static String keyPass(uint8_t slot){ return "pass" + String(slot); }
+static String keySsid(uint8_t slot){return "ssid"+String(slot);} static String keyPass(uint8_t slot){return "pass"+String(slot);}
+static bool isKnownSsid(const String&s){for(uint8_t i=0;i<5;i++)if(wifiPrefs.getString(keySsid(i).c_str(),"")==s)return true;return false;}
+static String jsonString(const String&j,const char*k){String n="\""+String(k)+"\"";int p=j.indexOf(n);if(p<0)return String();p=j.indexOf(':',p+n.length());if(p<0)return String();p++;while(p<(int)j.length()&&(j[p]==' '||j[p]=='\t'))p++;if(p>=(int)j.length()||j[p]!='\"')return String();p++;String o;bool e=false;for(;p<(int)j.length();p++){char c=j[p];if(e){o+=c;e=false;continue;}if(c=='\\'){e=true;continue;}if(c=='\"')break;o+=c;}return o;}
+static bool publicPost(const String&path,const String&payload,String&response){if(WiFi.status()!=WL_CONNECTED)return false;WiFiClientSecure tls;tls.setInsecure();tls.setTimeout(5);HTTPClient http;http.setConnectTimeout(3000);http.setTimeout(5000);String url=casaBase+(path.startsWith("/")?path:"/"+path);if(!http.begin(tls,url))return false;http.addHeader("Content-Type","application/json");http.addHeader("Accept","application/json");int code=http.POST(payload);if(code>0)response=http.getString();http.end();return code>=200&&code<300;}
+static bool publicGet(const String&path,String&response){if(WiFi.status()!=WL_CONNECTED)return false;WiFiClientSecure tls;tls.setInsecure();tls.setTimeout(5);HTTPClient http;http.setConnectTimeout(3000);http.setTimeout(5000);String url=casaBase+(path.startsWith("/")?path:"/"+path);if(!http.begin(tls,url))return false;http.addHeader("Accept","application/json");int code=http.GET();if(code>0)response=http.getString();http.end();return code>=200&&code<300;}
 
-static bool isKnownSsid(const String &ssid){
-  for(uint8_t i=0;i<5;i++) if(wifiPrefs.getString(keySsid(i).c_str(), "") == ssid) return true;
-  return false;
-}
+void jarvisWifiBegin(){wifiPrefs.begin("jarviswifi",false);casaBase=wifiPrefs.getString("base","https://maurinsoft.com.br/casa");casaBase.trim();while(casaBase.endsWith("/"))casaBase.remove(casaBase.length()-1);if(casaBase=="https://casa.maurinsoft.com.br"||casaBase=="https://maurinsoft.com.br"){casaBase="https://maurinsoft.com.br/casa";wifiPrefs.putString("base",casaBase);}casaToken=wifiPrefs.getString("token","");casaDeviceId=wifiPrefs.getString("deviceid","");pairingRequestId=wifiPrefs.getString("pairreq","");pairingCode=wifiPrefs.getString("paircode","");if(!casaToken.isEmpty()&&!casaDeviceId.isEmpty())pairingStatus="authorized";else if(!pairingRequestId.isEmpty())pairingStatus="pending";preferredSlot=wifiPrefs.getInt("lastslot",-1);if(preferredSlot<0||preferredSlot>4)preferredSlot=-1;WiFi.mode(WIFI_STA);WiFi.setSleep(true);WiFi.setAutoReconnect(true);WiFi.persistent(false);}
 
-void jarvisWifiBegin(){
-  wifiPrefs.begin("jarviswifi", false);
-  casaBase = wifiPrefs.getString("base", "https://maurinsoft.com.br/casa");
-  casaBase.trim();
-  while(casaBase.endsWith("/")) casaBase.remove(casaBase.length()-1);
-  // Endereco canonico atual do projeto. Corrige automaticamente instalacoes
-  // antigas que ainda apontavam para o subdominio legado.
-  if(casaBase == "https://casa.maurinsoft.com.br" ||
-     casaBase == "https://maurinsoft.com.br"){
-    casaBase = "https://maurinsoft.com.br/casa";
-    wifiPrefs.putString("base", casaBase);
-  }
-  casaToken = wifiPrefs.getString("token", "");
-  casaDeviceId = wifiPrefs.getString("deviceid", "");
-  preferredSlot = wifiPrefs.getInt("lastslot", -1);
-  if(preferredSlot < 0 || preferredSlot > 4) preferredSlot = -1;
-  WiFi.mode(WIFI_STA);
-  // Modem-sleep reduz fortemente o consumo quando a interface STA esta ociosa.
-  // O radio acorda automaticamente quando precisa transmitir/receber.
-  WiFi.setSleep(true);
-  WiFi.setAutoReconnect(true);
-  WiFi.persistent(false);
-  lastRetry = 0;
-  reconnectInProgress = false;
-}
+static bool checkCasaReachability(){if(WiFi.status()!=WL_CONNECTED||casaBase.isEmpty())return false;WiFiClientSecure tls;tls.setInsecure();tls.setTimeout(2);HTTPClient http;http.setConnectTimeout(1200);http.setTimeout(1500);if(!http.begin(tls,casaBase))return false;int code=http.GET();http.end();return code>=200&&code<400;}
 
-static bool checkCasaReachability(){
-  if(WiFi.status()!=WL_CONNECTED || casaBase.isEmpty()) return false;
+void jarvisWifiRequestPairing(){if(!jarvisWifiIsConnected()||jarvisWifiHasCasaCredentials())return;String mac=WiFi.macAddress();String payload="{\"mac\":\""+mac+"\",\"type\":\"watch\",\"model\":\"JARVIS Watch\",\"firmware_version\":\"watch-1.0\",\"capabilities\":[\"heartbeat\",\"commands\",\"telemetry\",\"notifications\",\"family_calls\"]}";String r;if(!publicPost("/api/v1/provision.php?acao=solicitar_pareamento",payload,r)){pairingStatus="error";return;}String rid=jsonString(r,"request_id"),code=jsonString(r,"pairing_code");if(rid.isEmpty()){pairingStatus="error";return;}pairingRequestId=rid;pairingCode=code;pairingStatus="pending";wifiPrefs.putString("pairreq",pairingRequestId);wifiPrefs.putString("paircode",pairingCode);lastPairingPoll=millis();}
 
-  WiFiClientSecure tls;
-  tls.setInsecure();
-  tls.setTimeout(2);
+static void pollPairing(){if(pairingRequestId.isEmpty()||jarvisWifiHasCasaCredentials())return;String path="/api/v1/provision.php?acao=consultar_pareamento&request_id="+pairingRequestId;if(!pairingCode.isEmpty())path+="&pairing_code="+pairingCode;String r;if(!publicGet(path,r))return;String s=jsonString(r,"status_pareamento");if(s.isEmpty())s=jsonString(r,"status");if(s=="authorized"||s=="ok"){String did=jsonString(r,"device_id"),tok=jsonString(r,"device_token"),base=jsonString(r,"base_url");if(!did.isEmpty()&&!tok.isEmpty()){if(base.isEmpty())base="https://maurinsoft.com.br/casa";jarvisWifiSetCasa(base,tok);jarvisWifiSetDeviceId(did);pairingStatus="authorized";pairingRequestId="";pairingCode="";wifiPrefs.remove("pairreq");wifiPrefs.remove("paircode");casaCheckRequested=true;}}else if(s=="rejected"||s=="expired"||s=="cancelled"){pairingStatus=s;pairingRequestId="";pairingCode="";wifiPrefs.remove("pairreq");wifiPrefs.remove("paircode");}}
 
-  HTTPClient http;
-  http.setConnectTimeout(1200);
-  http.setTimeout(1500);
+bool jarvisWifiPairingPending(){return pairingStatus=="pending";} String jarvisWifiPairingCode(){return pairingCode;} String jarvisWifiPairingStatus(){return pairingStatus;}
 
-  if(!http.begin(tls, casaBase)) return false;
-  http.addHeader("Accept", "text/html,application/json;q=0.9,*/*;q=0.8");
-  int code=http.GET();
-  http.end();
+void jarvisWifiLoop(){if(WiFi.status()!=WL_CONNECTED){casaOnline=false;casaChecked=false;casaCheckRequested=true;if(scanRunning)return;unsigned long now=millis();if(lastRetry==0||now-lastRetry>=WIFI_RETRY_INTERVAL_MS){lastRetry=now;reconnectInProgress=jarvisWifiStartPreferred();}return;}reconnectInProgress=false;lastRetry=millis();if(scanRunning)return;String connectedSsid=WiFi.SSID();for(uint8_t slot=0;slot<5;slot++)if(wifiPrefs.getString(keySsid(slot).c_str(),"")==connectedSsid){if(preferredSlot!=slot){preferredSlot=slot;wifiPrefs.putInt("lastslot",preferredSlot);}break;}unsigned long now=millis();if(!jarvisWifiHasCasaCredentials()){if(pairingRequestId.isEmpty()){if(lastPairingPoll==0||now-lastPairingPoll>=PAIRING_POLL_INTERVAL_MS){lastPairingPoll=now;jarvisWifiRequestPairing();}}else if(lastPairingPoll==0||now-lastPairingPoll>=PAIRING_POLL_INTERVAL_MS){lastPairingPoll=now;pollPairing();}}if(!casaCheckRequested&&now-lastCasaCheck<CASA_CHECK_INTERVAL_MS)return;casaCheckRequested=false;lastCasaCheck=now;casaOnline=checkCasaReachability();casaChecked=true;}
 
-  // Qualquer resposta HTTP normal 2xx/3xx confirma que o servidor CASA
-  // foi alcancado por HTTPS.
-  return code>=200 && code<400;
-}
+bool jarvisWifiIsConnected(){return WiFi.status()==WL_CONNECTED;} String jarvisWifiSsid(){return jarvisWifiIsConnected()?WiFi.SSID():String();} int jarvisWifiRssi(){return jarvisWifiIsConnected()?WiFi.RSSI():-127;} bool jarvisWifiCasaOnline(){return jarvisWifiIsConnected()&&casaOnline;} bool jarvisWifiCasaChecked(){return jarvisWifiIsConnected()&&casaChecked;} void jarvisWifiRequestCasaCheck(){casaChecked=false;casaCheckRequested=true;} String jarvisWifiCasaBase(){return casaBase;}
 
-void jarvisWifiLoop(){
-  if(WiFi.status()!=WL_CONNECTED){
-    casaOnline=false;
-    casaChecked=false;
-    casaCheckRequested=true;
+bool jarvisWifiSetProfile(uint8_t slot,const String&ssid,const String&password){if(slot>4||ssid.length()==0||ssid.length()>32||password.length()>63)return false;if(password.length()>0&&password.length()<8)return false;wifiPrefs.putString(keySsid(slot).c_str(),ssid);wifiPrefs.putString(keyPass(slot).c_str(),password);casaOnline=false;casaChecked=false;casaCheckRequested=true;return true;}
+bool jarvisWifiGetProfile(uint8_t slot,String&ssid,String&password){if(slot>4)return false;ssid=wifiPrefs.getString(keySsid(slot).c_str(),"");password=wifiPrefs.getString(keyPass(slot).c_str(),"");return !ssid.isEmpty();}
+int jarvisWifiFindFreeSlot(){for(uint8_t i=0;i<5;i++)if(wifiPrefs.getString(keySsid(i).c_str(),"").isEmpty())return i;return 0;}
+void jarvisWifiClearProfiles(){for(uint8_t i=0;i<5;i++){wifiPrefs.remove(keySsid(i).c_str());wifiPrefs.remove(keyPass(i).c_str());}}
 
-    if(scanRunning) return;
+bool jarvisWifiScanStart(){if(scanRunning)return true;wifi_mode_t mode=WiFi.getMode();if(mode==WIFI_OFF){WiFi.mode(WIFI_STA);delay(30);}else if(mode==WIFI_AP){WiFi.mode(WIFI_AP_STA);delay(20);}WiFi.scanDelete();int rc=WiFi.scanNetworks(true,true);if(rc==WIFI_SCAN_FAILED){WiFi.mode(WIFI_OFF);delay(20);WiFi.mode(WIFI_STA);delay(50);rc=WiFi.scanNetworks(true,true);}if(rc==WIFI_SCAN_FAILED)return false;scanRunning=true;return true;}
+int jarvisWifiScanPoll(JarvisWifiNetwork*out,int maxItems){if(!out||maxItems<=0)return-2;int n=WiFi.scanComplete();if(n==WIFI_SCAN_RUNNING){scanRunning=true;return-1;}if(n<0){scanRunning=false;WiFi.scanDelete();return-2;}scanRunning=false;int copied=0;for(int i=0;i<n&&copied<maxItems;i++){String ssid=WiFi.SSID(i);if(ssid.isEmpty())continue;bool dup=false;for(int j=0;j<copied;j++)if(out[j].ssid==ssid){dup=true;if(WiFi.RSSI(i)>out[j].rssi)out[j].rssi=WiFi.RSSI(i);break;}if(dup)continue;out[copied].ssid=ssid;out[copied].rssi=WiFi.RSSI(i);out[copied].secure=WiFi.encryptionType(i)!=WIFI_AUTH_OPEN;out[copied].known=isKnownSsid(ssid);copied++;}for(int i=0;i<copied-1;i++)for(int j=i+1;j<copied;j++)if(out[j].rssi>out[i].rssi){JarvisWifiNetwork t=out[i];out[i]=out[j];out[j]=t;}WiFi.scanDelete();return copied;}
+bool jarvisWifiScanRunning(){return scanRunning;}
 
-    // WiFi.setAutoReconnect() nao e suficiente apos deep sleep/WIFI_OFF.
-    // Se a associacao cair, reinicia explicitamente o ultimo perfil conhecido.
-    unsigned long now = millis();
-    if(lastRetry == 0 || now-lastRetry >= WIFI_RETRY_INTERVAL_MS){
-      lastRetry = now;
-      reconnectInProgress = jarvisWifiStartPreferred();
-    }
-    return;
-  }
+void jarvisWifiSetCasa(const String&baseUrl,const String&deviceToken){casaBase=baseUrl;casaBase.trim();while(casaBase.endsWith("/"))casaBase.remove(casaBase.length()-1);if(casaBase=="https://casa.maurinsoft.com.br"||casaBase=="https://maurinsoft.com.br")casaBase="https://maurinsoft.com.br/casa";casaToken=deviceToken;wifiPrefs.putString("base",casaBase);wifiPrefs.putString("token",casaToken);casaOnline=false;casaChecked=false;casaCheckRequested=true;}
+void jarvisWifiSetDeviceId(const String&deviceId){casaDeviceId=deviceId;casaDeviceId.trim();wifiPrefs.putString("deviceid",casaDeviceId);} String jarvisWifiDeviceId(){return casaDeviceId;} bool jarvisWifiHasCasaCredentials(){return !casaBase.isEmpty()&&!casaToken.isEmpty()&&!casaDeviceId.isEmpty();}
+bool jarvisWifiHasProfiles(){for(uint8_t slot=0;slot<5;slot++)if(!wifiPrefs.getString(keySsid(slot).c_str(),"").isEmpty())return true;return false;}
 
-  reconnectInProgress=false;
-  lastRetry=millis();
+bool jarvisWifiStartProfile(uint8_t slot){String ssid,pass;if(!jarvisWifiGetProfile(slot,ssid,pass))return false;if(WiFi.status()==WL_CONNECTED&&WiFi.SSID()==ssid)return true;casaOnline=false;casaChecked=false;casaCheckRequested=true;wifi_mode_t mode=WiFi.getMode();if(mode==WIFI_OFF){WiFi.mode(WIFI_STA);delay(30);}else if(mode==WIFI_AP){WiFi.mode(WIFI_AP_STA);delay(20);}WiFi.disconnect(false,false);delay(10);WiFi.begin(ssid.c_str(),pass.c_str());reconnectInProgress=true;return true;}
+static bool waitConnected(uint32_t timeoutMs){unsigned long start=millis();while(WiFi.status()!=WL_CONNECTED&&millis()-start<timeoutMs){delay(20);yield();}return WiFi.status()==WL_CONNECTED;}
+bool jarvisWifiConnectProfile(uint8_t slot,uint32_t timeoutMs){if(!jarvisWifiStartProfile(slot))return false;bool ok=waitConnected(timeoutMs);if(ok){preferredSlot=slot;wifiPrefs.putInt("lastslot",preferredSlot);}return ok;}
+bool jarvisWifiConnectBestKnown(uint32_t timeoutMs){JarvisWifiNetwork nets[12];if(!jarvisWifiScanStart())return false;unsigned long start=millis();int count=-1;while(count==-1&&millis()-start<5000UL){count=jarvisWifiScanPoll(nets,12);delay(20);yield();}if(count<=0)return false;for(int i=0;i<count;i++)if(nets[i].known)for(uint8_t slot=0;slot<5;slot++){String ssid,pass;if(jarvisWifiGetProfile(slot,ssid,pass)&&ssid==nets[i].ssid)return jarvisWifiConnectProfile(slot,timeoutMs);}return false;}
+bool jarvisWifiStartPreferred(){if(preferredSlot>=0&&preferredSlot<=4&&jarvisWifiStartProfile((uint8_t)preferredSlot))return true;for(uint8_t slot=0;slot<5;slot++){String ssid,pass;if(jarvisWifiGetProfile(slot,ssid,pass)){preferredSlot=slot;wifiPrefs.putInt("lastslot",preferredSlot);return jarvisWifiStartProfile(slot);}}return false;}
+bool jarvisWifiConnectPreferred(uint32_t timeoutMs){if(jarvisWifiIsConnected())return true;if(!jarvisWifiStartPreferred())return false;bool ok=waitConnected(timeoutMs);if(ok&&preferredSlot>=0)wifiPrefs.putInt("lastslot",preferredSlot);return ok;}
+void jarvisWifiPrepareSleep(){scanRunning=false;reconnectInProgress=false;WiFi.scanDelete();WiFi.disconnect(false,false);delay(10);WiFi.mode(WIFI_OFF);casaOnline=false;casaChecked=false;casaCheckRequested=true;lastRetry=0;}
 
-  if(scanRunning) return;
-
-  String connectedSsid = WiFi.SSID();
-  for(uint8_t slot=0; slot<5; slot++){
-    if(wifiPrefs.getString(keySsid(slot).c_str(), "") == connectedSsid){
-      if(preferredSlot != slot){
-        preferredSlot = slot;
-        wifiPrefs.putInt("lastslot", preferredSlot);
-      }
-      break;
-    }
-  }
-
-  unsigned long now=millis();
-  if(!casaCheckRequested && now-lastCasaCheck < CASA_CHECK_INTERVAL_MS) return;
-
-  casaCheckRequested=false;
-  lastCasaCheck=now;
-  casaOnline=checkCasaReachability();
-  casaChecked=true;
-}
-
-bool jarvisWifiIsConnected(){ return WiFi.status()==WL_CONNECTED; }
-String jarvisWifiSsid(){ return jarvisWifiIsConnected() ? WiFi.SSID() : String(); }
-int jarvisWifiRssi(){ return jarvisWifiIsConnected() ? WiFi.RSSI() : -127; }
-bool jarvisWifiCasaOnline(){ return jarvisWifiIsConnected() && casaOnline; }
-bool jarvisWifiCasaChecked(){ return jarvisWifiIsConnected() && casaChecked; }
-void jarvisWifiRequestCasaCheck(){ casaChecked=false; casaCheckRequested=true; }
-String jarvisWifiCasaBase(){ return casaBase; }
-
-bool jarvisWifiSetProfile(uint8_t slot, const String &ssid, const String &password){
-  if(slot>4 || ssid.length()==0 || ssid.length()>32 || password.length()>63) return false;
-  if(password.length()>0 && password.length()<8) return false;
-  wifiPrefs.putString(keySsid(slot).c_str(), ssid);
-  wifiPrefs.putString(keyPass(slot).c_str(), password);
-
-  // Provisionamento BLE pode enviar varios perfis em sequencia. Aqui apenas
-  // persistimos as credenciais; a associacao e iniciada explicitamente por
-  // jarvisWifiStartProfile()/wifi_connect depois que o lote terminar.
-  casaOnline=false;
-  casaChecked=false;
-  casaCheckRequested=true;
-  return true;
-}
-
-bool jarvisWifiGetProfile(uint8_t slot, String &ssid, String &password){
-  if(slot>4) return false;
-  ssid = wifiPrefs.getString(keySsid(slot).c_str(), "");
-  password = wifiPrefs.getString(keyPass(slot).c_str(), "");
-  return !ssid.isEmpty();
-}
-
-int jarvisWifiFindFreeSlot(){
-  for(uint8_t i=0;i<5;i++) if(wifiPrefs.getString(keySsid(i).c_str(), "").isEmpty()) return i;
-  return 0;
-}
-
-void jarvisWifiClearProfiles(){
-  for(uint8_t i=0;i<5;i++){
-    wifiPrefs.remove(keySsid(i).c_str());
-    wifiPrefs.remove(keyPass(i).c_str());
-  }
-}
-
-bool jarvisWifiScanStart(){
-  if(scanRunning) return true;
-
-  // Depois de deep sleep o radio pode estar em WIFI_OFF. Reativa e estabiliza
-  // a interface antes de iniciar o scan assincrono.
-  wifi_mode_t mode = WiFi.getMode();
-  if(mode == WIFI_OFF){
-    WiFi.mode(WIFI_STA);
-    delay(30);
-  }else if(mode == WIFI_AP){
-    // Preserva o AP de provisionamento e adiciona a interface STA.
-    WiFi.mode(WIFI_AP_STA);
-    delay(20);
-  }
-  // WIFI_AP_STA permanece ativo para nao derrubar o socket do celular.
-
-  WiFi.scanDelete();
-
-  int rc = WiFi.scanNetworks(true, true);
-  if(rc == WIFI_SCAN_FAILED){
-    // Uma segunda inicializacao curta recupera estados residuais do driver
-    // observados apos wake/deep sleep.
-    WiFi.mode(WIFI_OFF);
-    delay(20);
-    WiFi.mode(WIFI_STA);
-    delay(50);
-    rc = WiFi.scanNetworks(true, true);
-  }
-
-  if(rc == WIFI_SCAN_FAILED) return false;
-  scanRunning = true;
-  return true;
-}
-
-int jarvisWifiScanPoll(JarvisWifiNetwork *out, int maxItems){
-  if(!out || maxItems<=0) return -2;
-  int n = WiFi.scanComplete();
-  if(n == WIFI_SCAN_RUNNING){ scanRunning = true; return -1; }
-  if(n < 0){ scanRunning = false; WiFi.scanDelete(); return -2; }
-  scanRunning = false;
-  int copied = 0;
-  for(int i=0;i<n && copied<maxItems;i++){
-    String ssid = WiFi.SSID(i);
-    if(ssid.isEmpty()) continue;
-    bool duplicate = false;
-    for(int j=0;j<copied;j++) if(out[j].ssid == ssid){ duplicate=true; if(WiFi.RSSI(i)>out[j].rssi) out[j].rssi=WiFi.RSSI(i); break; }
-    if(duplicate) continue;
-    out[copied].ssid = ssid;
-    out[copied].rssi = WiFi.RSSI(i);
-    out[copied].secure = WiFi.encryptionType(i) != WIFI_AUTH_OPEN;
-    out[copied].known = isKnownSsid(ssid);
-    copied++;
-  }
-  for(int i=0;i<copied-1;i++) for(int j=i+1;j<copied;j++) if(out[j].rssi > out[i].rssi){ JarvisWifiNetwork t=out[i]; out[i]=out[j]; out[j]=t; }
-  WiFi.scanDelete();
-  return copied;
-}
-
-bool jarvisWifiScanRunning(){ return scanRunning; }
-
-void jarvisWifiSetCasa(const String &baseUrl, const String &deviceToken){
-  casaBase = baseUrl;
-  casaBase.trim();
-  while(casaBase.endsWith("/")) casaBase.remove(casaBase.length()-1);
-  if(casaBase == "https://casa.maurinsoft.com.br" ||
-     casaBase == "https://maurinsoft.com.br"){
-    casaBase = "https://maurinsoft.com.br/casa";
-  }
-  casaToken = deviceToken;
-  wifiPrefs.putString("base", casaBase);
-  wifiPrefs.putString("token", casaToken);
-  casaOnline=false;
-  casaChecked=false;
-  casaCheckRequested=true;
-}
-
-void jarvisWifiSetDeviceId(const String &deviceId){
-  casaDeviceId = deviceId;
-  casaDeviceId.trim();
-  wifiPrefs.putString("deviceid", casaDeviceId);
-}
-
-String jarvisWifiDeviceId(){ return casaDeviceId; }
-bool jarvisWifiHasCasaCredentials(){ return !casaBase.isEmpty() && !casaToken.isEmpty(); }
-
-bool jarvisWifiHasProfiles(){
-  for(uint8_t slot=0;slot<5;slot++){
-    if(!wifiPrefs.getString(keySsid(slot).c_str(), "").isEmpty()) return true;
-  }
-  return false;
-}
-
-bool jarvisWifiStartProfile(uint8_t slot){
-  String ssid, pass;
-  if(!jarvisWifiGetProfile(slot, ssid, pass)) return false;
-  if(WiFi.status()==WL_CONNECTED && WiFi.SSID()==ssid) return true;
-
-  casaOnline=false;
-  casaChecked=false;
-  casaCheckRequested=true;
-
-  wifi_mode_t mode = WiFi.getMode();
-  if(mode == WIFI_OFF){
-    WiFi.mode(WIFI_STA);
-    delay(30);
-  }else if(mode == WIFI_AP){
-    WiFi.mode(WIFI_AP_STA);
-    delay(20);
-  }
-  // Se ja estiver em WIFI_AP_STA, mantem o SoftAP durante a associacao.
-
-  WiFi.disconnect(false, false);
-  delay(10);
-  WiFi.begin(ssid.c_str(), pass.c_str());
-  reconnectInProgress=true;
-  return true;
-}
-
-static bool waitConnected(uint32_t timeoutMs){
-  unsigned long start=millis();
-  while(WiFi.status()!=WL_CONNECTED && millis()-start<timeoutMs){ delay(20); yield(); }
-  return WiFi.status()==WL_CONNECTED;
-}
-
-bool jarvisWifiConnectProfile(uint8_t slot, uint32_t timeoutMs){
-  if(!jarvisWifiStartProfile(slot)) return false;
-  bool ok = waitConnected(timeoutMs);
-  if(ok){
-    preferredSlot = slot;
-    wifiPrefs.putInt("lastslot", preferredSlot);
-  }
-  return ok;
-}
-
-bool jarvisWifiConnectBestKnown(uint32_t timeoutMs){
-  JarvisWifiNetwork nets[12];
-  if(!jarvisWifiScanStart()) return false;
-  unsigned long start=millis();
-  int count=-1;
-  while(count==-1 && millis()-start<5000UL){ count=jarvisWifiScanPoll(nets,12); delay(20); yield(); }
-  if(count<=0) return false;
-  for(int i=0;i<count;i++){
-    if(!nets[i].known) continue;
-    for(uint8_t slot=0;slot<5;slot++){
-      String ssid, pass;
-      if(jarvisWifiGetProfile(slot, ssid, pass) && ssid==nets[i].ssid) return jarvisWifiConnectProfile(slot, timeoutMs);
-    }
-  }
-  return false;
-}
-
-bool jarvisWifiStartPreferred(){
-  if(preferredSlot >= 0 && preferredSlot <= 4){
-    if(jarvisWifiStartProfile((uint8_t)preferredSlot)) return true;
-  }
-  // Primeira inicializacao apos cadastrar perfis: usa o primeiro existente.
-  for(uint8_t slot=0;slot<5;slot++){
-    String ssid, pass;
-    if(jarvisWifiGetProfile(slot, ssid, pass)){
-      preferredSlot = slot;
-      wifiPrefs.putInt("lastslot", preferredSlot);
-      return jarvisWifiStartProfile(slot);
-    }
-  }
-  return false;
-}
-
-bool jarvisWifiConnectPreferred(uint32_t timeoutMs){
-  if(jarvisWifiIsConnected()) return true;
-  if(!jarvisWifiStartPreferred()) return false;
-  bool ok = waitConnected(timeoutMs);
-  if(ok && preferredSlot >= 0) wifiPrefs.putInt("lastslot", preferredSlot);
-  return ok;
-}
-
-void jarvisWifiPrepareSleep(){
-  scanRunning=false;
-  reconnectInProgress=false;
-  WiFi.scanDelete();
-  WiFi.disconnect(false, false);
-  delay(10);
-  WiFi.mode(WIFI_OFF);
-  casaOnline=false;
-  casaChecked=false;
-  casaCheckRequested=true;
-  lastRetry=0;
-}
-
-bool jarvisWifiGetJson(const String &path, String *response){
-  if(!jarvisWifiIsConnected() || casaToken.isEmpty()) return false;
-  WiFiClientSecure tls;
-  tls.setInsecure();
-  tls.setTimeout(4);
-  HTTPClient http;
-  http.setConnectTimeout(2500);
-  http.setTimeout(4000);
-  String url = casaBase + (path.startsWith("/") ? path : "/" + path);
-  if(!http.begin(tls, url)) return false;
-  http.addHeader("Accept", "application/json");
-  http.addHeader("Authorization", "Bearer " + casaToken);
-  http.addHeader("X-Device-Token", casaToken);
-  int code=http.GET();
-  if(response && code>0) *response=http.getString();
-  http.end();
-  return code>=200 && code<300;
-}
-
-bool jarvisWifiPostJson(const String &path, const String &jsonPayload, String *response){
-  if(!jarvisWifiIsConnected() || casaToken.isEmpty()) return false;
-  WiFiClientSecure tls;
-  tls.setInsecure();
-  tls.setTimeout(5);
-  HTTPClient http;
-  http.setConnectTimeout(3000);
-  http.setTimeout(5000);
-  String url = casaBase + (path.startsWith("/") ? path : "/" + path);
-  if(!http.begin(tls, url)) return false;
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("Authorization", "Bearer " + casaToken);
-  http.addHeader("X-Device-Token", casaToken);
-  int code=http.POST(jsonPayload);
-  if(response && code>0) *response=http.getString();
-  http.end();
-  return code>=200 && code<300;
-}
+bool jarvisWifiGetJson(const String&path,String*response){if(!jarvisWifiIsConnected()||casaToken.isEmpty())return false;WiFiClientSecure tls;tls.setInsecure();tls.setTimeout(4);HTTPClient http;http.setConnectTimeout(2500);http.setTimeout(4000);String url=casaBase+(path.startsWith("/")?path:"/"+path);if(!http.begin(tls,url))return false;http.addHeader("Accept","application/json");http.addHeader("Authorization","Bearer "+casaToken);http.addHeader("X-Device-Token",casaToken);int code=http.GET();if(response&&code>0)*response=http.getString();http.end();return code>=200&&code<300;}
+bool jarvisWifiPostJson(const String&path,const String&jsonPayload,String*response){if(!jarvisWifiIsConnected()||casaToken.isEmpty())return false;WiFiClientSecure tls;tls.setInsecure();tls.setTimeout(5);HTTPClient http;http.setConnectTimeout(3000);http.setTimeout(5000);String url=casaBase+(path.startsWith("/")?path:"/"+path);if(!http.begin(tls,url))return false;http.addHeader("Content-Type","application/json");http.addHeader("Authorization","Bearer "+casaToken);http.addHeader("X-Device-Token",casaToken);int code=http.POST(jsonPayload);if(response&&code>0)*response=http.getString();http.end();return code>=200&&code<300;}
