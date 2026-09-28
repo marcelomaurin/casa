@@ -1,8 +1,10 @@
 package br.com.maurinsoft.jarvismobile
 
+import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Typeface
 import android.os.Bundle
+import android.provider.Settings
 import android.view.ViewGroup
 import android.widget.*
 import androidx.activity.ComponentActivity
@@ -16,12 +18,7 @@ class NewDevicesActivity : ComponentActivity() {
     private lateinit var locationEdit: EditText
     private var selected: DeviceProvisionApi.PairingRequest? = null
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        buildUi()
-        refreshPending()
-    }
-
+    override fun onCreate(savedInstanceState: Bundle?) { super.onCreate(savedInstanceState); buildUi(); refreshPending() }
     override fun onDestroy() { scope.cancel(); super.onDestroy() }
 
     private fun buildUi() {
@@ -29,31 +26,41 @@ class NewDevicesActivity : ComponentActivity() {
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(18), dp(20), dp(30)) }
         scroll.addView(root)
         root.addView(TextView(this).apply { text = "NOVOS DEVICES"; textSize = 28f; setTypeface(Typeface.DEFAULT_BOLD) })
+
+        root.addView(section("1. CONFIGURAR REDE DO ESP"))
         root.addView(TextView(this).apply {
-            text = "Autorize somente depois de conferir tipo, modelo, endereço físico e funcionalidades solicitadas pelo equipamento."
-            textSize = 15f; setPadding(0, dp(4), 0, dp(14))
+            text = "Somente ESP32 e ESP-01: conecte o celular ao Wi-Fi temporário criado pelo próprio ESP. Depois abra a configuração local do equipamento e informe SSID, senha da rede definitiva e URL do CASA. Se a conexão falhar, o ESP volta a criar o AP para permitir nova configuração."
+            textSize = 15f; setPadding(0, dp(4), 0, dp(8))
+        })
+        root.addView(Button(this).apply {
+            text = "CONECTAR AO WI-FI DO ESP"
+            setOnClickListener {
+                runCatching { startActivity(Intent(Settings.ACTION_WIFI_SETTINGS)) }
+                    .onFailure { status.text = "Não foi possível abrir as configurações de Wi-Fi: ${it.message}" }
+            }
+        }, fullWidth())
+        root.addView(TextView(this).apply {
+            text = "O Watch não usa este modo AP; ele mantém sua própria interface de configuração."
+            textSize = 13f; setPadding(0, 0, 0, dp(10))
         })
 
-        root.addView(section("PEDIDOS DE PAREAMENTO"))
+        root.addView(section("2. PEDIDOS DE PAREAMENTO"))
         status = TextView(this).apply { text = "Carregando pedidos..."; textSize = 15f; setPadding(dp(12), dp(10), dp(12), dp(10)) }
         root.addView(status, fullWidth())
         pendingList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(pendingList, fullWidth())
         root.addView(Button(this).apply { text = "ATUALIZAR PEDIDOS"; setOnClickListener { refreshPending() } }, fullWidth())
 
-        root.addView(section("IDENTIFICAÇÃO APÓS APROVAÇÃO"))
+        root.addView(section("3. AUTORIZAÇÃO"))
         nameEdit = edit("Nome do equipamento", "")
         locationEdit = edit("Local", "Residencia")
         root.addView(nameEdit, fullWidth()); root.addView(locationEdit, fullWidth())
         root.addView(Button(this).apply { text = "AUTORIZAR DEVICE SELECIONADO"; setOnClickListener { authorizeSelected() } }, fullWidth())
 
-        root.addView(section("CONFIGURAÇÃO LOCAL"))
-        root.addView(Button(this).apply {
-            text = "CONFIGURAR WATCH"
-            setOnClickListener { startActivity(Intent(this@NewDevicesActivity, WatchSetupActivity::class.java)) }
-        }, fullWidth())
+        root.addView(section("WATCH"))
+        root.addView(Button(this).apply { text = "CONFIGURAR WATCH"; setOnClickListener { startActivity(Intent(this@NewDevicesActivity, WatchSetupActivity::class.java)) } }, fullWidth())
         root.addView(TextView(this).apply {
-            text = "A identidade e o token são gerados pelo site somente depois da autorização. O Mobile não cria mais uma identidade silenciosamente para o equipamento."
+            text = "O Mobile configura a rede do ESP, mas não cria identidade nem injeta token. Depois que o ESP alcança a rede, ele solicita pareamento. Somente após sua autorização o CASA gera device_id e token permanentes."
             textSize = 13f; setPadding(0, dp(12), 0, 0)
         })
         setContentView(scroll)
@@ -65,16 +72,14 @@ class NewDevicesActivity : ComponentActivity() {
             val result = withContext(Dispatchers.IO) { runCatching { DeviceProvisionApi.pendingPairingRequests(this@NewDevicesActivity) } }
             result.onSuccess { requests ->
                 pendingList.removeAllViews()
-                if (requests.isEmpty()) status.text = "Nenhum device aguardando autorização."
-                else status.text = "${requests.size} device(s) aguardando. Selecione um para conferir antes de autorizar."
+                status.text = if (requests.isEmpty()) "Nenhum device aguardando autorização." else "${requests.size} device(s) aguardando. Confira a identidade antes de autorizar."
                 requests.forEach { request ->
                     pendingList.addView(Button(this@NewDevicesActivity).apply {
-                        text = deviceDescription(request)
-                        isAllCaps = false
+                        text = deviceDescription(request); isAllCaps = false
                         setOnClickListener {
                             selected = request
                             if (nameEdit.text.isBlank()) nameEdit.setText(request.model.ifBlank { request.type })
-                            status.text = "Selecionado: ${request.model}. Confira as funcionalidades abaixo antes de autorizar."
+                            status.text = "Selecionado: ${request.model}. Confira as funcionalidades antes de autorizar."
                             Toast.makeText(this@NewDevicesActivity, deviceDescription(request), Toast.LENGTH_LONG).show()
                         }
                     }, fullWidth())
@@ -97,14 +102,9 @@ class NewDevicesActivity : ComponentActivity() {
     private fun performAuthorization(request: DeviceProvisionApi.PairingRequest) {
         status.text = "Autorizando ${request.model}..."
         scope.launch {
-            val result = withContext(Dispatchers.IO) {
-                runCatching { DeviceProvisionApi.authorizePairing(this@NewDevicesActivity, request, nameEdit.text.toString().trim(), locationEdit.text.toString().trim()) }
-            }
-            result.onSuccess {
-                selected = null
-                status.text = "${request.model} autorizado. O equipamento já pode consultar o servidor e receber sua credencial individual."
-                refreshPending()
-            }.onFailure { status.text = "Falha ao autorizar: ${it.message ?: it.javaClass.simpleName}" }
+            val result = withContext(Dispatchers.IO) { runCatching { DeviceProvisionApi.authorizePairing(this@NewDevicesActivity, request, nameEdit.text.toString().trim(), locationEdit.text.toString().trim()) } }
+            result.onSuccess { selected = null; status.text = "${request.model} autorizado. O equipamento pode buscar sua credencial no CASA."; refreshPending() }
+                .onFailure { status.text = "Falha ao autorizar: ${it.message ?: it.javaClass.simpleName}" }
         }
     }
 
