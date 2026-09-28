@@ -31,9 +31,13 @@ table{width:100%;border-collapse:collapse} th,td{padding:8px;border-bottom:1px s
 <input type="hidden" id="id" value="0">
 <div class="grid">
 <div><label>Nome</label><input id="nome" placeholder="Ex.: GPT principal"></div>
-<div><label>Provedor</label><select id="provedor"><option value="openai_compatible">OpenAI-compatible</option><option value="ollama">Ollama</option><option value="runpod">RunPod/OpenAI</option></select></div>
-<div><label>URL base</label><input id="base_url" placeholder="https://api.openai.com/v1"></div>
-<div><label>Modelo</label><input id="modelo" placeholder="modelo exposto pelo endpoint"></div>
+<div><label>Provedor</label><select id="provedor">
+<option value="openai">OpenAI</option><option value="gemini">Google Gemini</option><option value="anthropic">Anthropic Claude</option>
+<option value="runpod">RunPod / OpenAI-compatible</option><option value="ollama">Ollama local</option>
+<option value="openrouter">OpenRouter</option><option value="cerebras">Cerebras</option><option value="deepseek">DeepSeek</option>
+<option value="openai_compatible">OpenAI-compatible</option><option value="custom">Personalizado</option></select></div>
+<div><label>URL base</label><input id="base_url" placeholder="URL do endpoint / API"></div>
+<div><label>Modelo</label><input id="modelo" list="modelos_sugeridos" placeholder="selecione ou digite qualquer modelo"><datalist id="modelos_sugeridos"></datalist></div>
 <div><label>API Key</label><input id="api_key" type="password" placeholder="deixe vazio ao editar para manter"></div>
 <div><label>Prioridade</label><input id="prioridade" type="number" value="100" min="1"></div>
 <div><label>Hardware</label><select id="classe_hardware"><option>CPU</option><option>GPU_LOW</option><option>GPU_HIGH</option></select></div>
@@ -55,6 +59,21 @@ table{width:100%;border-collapse:collapse} th,td{padding:8px;border-bottom:1px s
 </div>
 <script>
 let modelos=[];
+const providerDefaults={
+ openai:{url:'https://api.openai.com/v1',models:['gpt-4.1','gpt-4.1-mini','gpt-4o','gpt-4o-mini']},
+ gemini:{url:'https://generativelanguage.googleapis.com/v1beta',models:['gemini-2.5-flash','gemini-2.5-pro']},
+ anthropic:{url:'https://api.anthropic.com/v1',models:['claude-sonnet-4-5','claude-haiku-4-5']},
+ openrouter:{url:'https://openrouter.ai/api/v1',models:[]},cerebras:{url:'https://api.cerebras.ai/v1',models:[]},
+ deepseek:{url:'https://api.deepseek.com/v1',models:['deepseek-chat','deepseek-reasoner']},
+ ollama:{url:'http://127.0.0.1:11434',models:[]},runpod:{url:'',models:[]},openai_compatible:{url:'',models:[]},custom:{url:'',models:[]}
+};
+function atualizarProvedor(force=false){
+ const p=document.getElementById('provedor').value,d=providerDefaults[p]||providerDefaults.custom,u=document.getElementById('base_url'),list=document.getElementById('modelos_sugeridos');
+ list.innerHTML=(d.models||[]).map(x=>'<option value="'+esc(x)+'"></option>').join('');
+ if(force||!u.value.trim())u.value=d.url||'';
+}
+document.getElementById('provedor').addEventListener('change',()=>atualizarProvedor(true));
+
 function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 async function api(acao,data){
  const r=await fetch('/casa/api/ia_modelos.php?acao='+encodeURIComponent(acao),{method:data?'POST':'GET',headers:data?{'Content-Type':'application/json'}:{},body:data?JSON.stringify(data):undefined});
@@ -74,11 +93,11 @@ async function carregar(){
   tb.appendChild(tr);
  });
 }
-function editar(id){const m=modelos.find(x=>Number(x.id)===Number(id)); if(!m)return; ['id','nome','provedor','base_url','modelo','prioridade','classe_hardware','nivel_capacidade','timeout_segundos','max_tokens','temperatura','ativo','padrao','observacoes'].forEach(k=>{const e=document.getElementById(k); if(e)e.value=m[k]??''}); document.getElementById('api_key').value=''; window.scrollTo({top:0,behavior:'smooth'});}
-function limpar(){document.getElementById('id').value=0;document.getElementById('nome').value='';document.getElementById('base_url').value='';document.getElementById('modelo').value='';document.getElementById('api_key').value='';document.getElementById('prioridade').value=100;document.getElementById('classe_hardware').value='CPU';document.getElementById('nivel_capacidade').value='ESTUDANTE';document.getElementById('timeout_segundos').value=45;document.getElementById('max_tokens').value=600;document.getElementById('temperatura').value=0.35;document.getElementById('ativo').value=1;document.getElementById('padrao').value=0;document.getElementById('observacoes').value='';}
+function editar(id){const m=modelos.find(x=>Number(x.id)===Number(id)); if(!m)return; ['id','nome','provedor','base_url','modelo','prioridade','classe_hardware','nivel_capacidade','timeout_segundos','max_tokens','temperatura','ativo','padrao','observacoes'].forEach(k=>{const e=document.getElementById(k); if(e)e.value=m[k]??''}); document.getElementById('api_key').value=''; atualizarProvedor(false); window.scrollTo({top:0,behavior:'smooth'});}
+function limpar(){document.getElementById('id').value=0;document.getElementById('nome').value='';document.getElementById('provedor').value='openai';document.getElementById('base_url').value='';document.getElementById('modelo').value='';document.getElementById('api_key').value='';document.getElementById('prioridade').value=100;document.getElementById('classe_hardware').value='CPU';document.getElementById('nivel_capacidade').value='ESTUDANTE';document.getElementById('timeout_segundos').value=45;document.getElementById('max_tokens').value=600;document.getElementById('temperatura').value=0.35;document.getElementById('ativo').value=1;document.getElementById('padrao').value=0;document.getElementById('observacoes').value='';atualizarProvedor(true);}
 async function salvar(){const p={};['id','nome','provedor','base_url','api_key','modelo','prioridade','classe_hardware','nivel_capacidade','timeout_segundos','max_tokens','temperatura','observacoes'].forEach(k=>p[k]=document.getElementById(k).value);p.ativo=document.getElementById('ativo').value==='1';p.padrao=document.getElementById('padrao').value==='1';try{await api('salvar',p);limpar();await carregar();alert('Modelo salvo.');}catch(e){alert(e.message)}}
 async function testar(id){try{const j=await api('testar',{id});alert('OK: '+(j.teste?.resposta||'integração válida'));await carregar();}catch(e){alert('Falha: '+e.message);await carregar();}}
 async function padrao(id){try{await api('padrao',{id});await carregar();}catch(e){alert(e.message)}}
 async function excluir(id){if(!confirm('Excluir este modelo?'))return;try{await api('excluir',{id});await carregar();}catch(e){alert(e.message)}}
-carregar();
+atualizarProvedor(true);carregar();
 </script></body></html>
