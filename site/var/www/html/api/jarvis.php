@@ -475,7 +475,9 @@ function jarvis_chamar_modelo(array $m, string $systemPrompt, string $userMsg, a
         return chamar_llm_local($baseUrl, $model, $systemPrompt, $contexto.$userMsg);
     }
     if ($provedor === 'runpod_native') {
-        return chamar_llm_runpod_native($apiKey, $m['endpoint_id'] ?? '', $model, $systemPrompt, $userMsg, $timeout, $maxTokens, $temperature);
+        $contexto='';
+        foreach($historico as $h) $contexto.=($h['role']==='assistant'?'JARVIS':'Usuario').': '.$h['content']."\n";
+        return chamar_llm_runpod_native($apiKey, $m['endpoint_id'] ?? '', $model, $systemPrompt, $contexto.$userMsg, $timeout, $maxTokens, $temperature);
     }
     if ($model === '') return ['ok'=>false,'erro'=>'Modelo ausente','http'=>0];
 
@@ -668,7 +670,7 @@ $taskIA=te_add_subtask($pdo,$taskContext,'Consultar modelo de IA','ia',[
 foreach ($modelosIA as $modeloIA) {
     $promptSistema = (($modeloIA['nivel_capacidade'] ?? '') === 'PROFESSOR' || ($modeloIA['nivel_capacidade'] ?? '') === 'PROFISSIONAL')
         ? $systemCloud : $systemLocal;
-    $r = jarvis_chamar_modelo($modeloIA, $promptSistema, $comando);
+    $r = jarvis_chamar_modelo($modeloIA, $promptSistema, $comando, $historicoConversa);
 
     if ((int)($modeloIA['id'] ?? 0) > 0) {
         jarvis_registrar_saude_modelo($pdo, (int)$modeloIA['id'], $r);
