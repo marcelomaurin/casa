@@ -12,7 +12,6 @@ const GROUP_ICONS={
 };
 
 const STATUS=[
-  {label:'RUNPOD',value:'CONFIG.'},
   {label:'WATCH',value:'OK'},
   {label:'SISTEMA',value:'ONLINE'}
 ];
@@ -1113,11 +1112,11 @@ function stopComputerSpeech(){
   stopComputerBargeIn();
   if('speechSynthesis' in window)window.speechSynthesis.cancel();
   const btn=document.getElementById('ja-command-stop');
-  if(btn){btn.disabled=true;btn.textContent='STOP';}
+  if(btn){btn.hidden=true;btn.disabled=true;btn.textContent='STOP';}
 }
 function setComputerSpeaking(active){
   const btn=document.getElementById('ja-command-stop');
-  if(btn)btn.disabled=!active;
+  if(btn){btn.hidden=!active;btn.disabled=!active;}
 }
 function speakComputer(text){
   const speech=String(text||'').trim();
@@ -1162,7 +1161,7 @@ async function loadComputerHistory(){
   }
 }
 async function renderJarvis(){
-  moduleShell('Núcleo COMPUTER','<div class="ja-jarvis"><div class="ja-voice-status" id="ja-voice-status"><span id="ja-mic-state" class="ja-state off">VERIFICANDO MIC</span><span id="ja-mic-devices">Entradas: —</span><span id="ja-stt-state">STT: verificando</span><span id="ja-tts-state">TTS: verificando</span></div><div id="ja-chat-log" class="ja-chat-log"><div class="ja-chat-line ai">Carregando histórico...</div></div><div class="ja-command"><input id="ja-command-input" placeholder="Digite um comando para o COMPUTER"><button id="ja-command-send">ENVIAR</button><button id="ja-command-mic">VOZ</button><button id="ja-command-stop" class="danger" disabled>STOP</button><button id="ja-command-clear" class="danger">LIMPAR HISTÓRICO</button></div></div>');
+  moduleShell('Núcleo COMPUTER','<div class="ja-jarvis"><div class="ja-voice-status" id="ja-voice-status"><span id="ja-mic-state" class="ja-state off">VERIFICANDO MIC</span><span id="ja-mic-devices">Entradas: —</span><span id="ja-stt-state">STT: verificando</span><span id="ja-tts-state">TTS: verificando</span></div><div id="ja-chat-log" class="ja-chat-log"><div class="ja-chat-line ai">Carregando histórico...</div></div><div class="ja-command"><input id="ja-command-input" placeholder="Digite um comando para o COMPUTER"><button id="ja-command-send">ENVIAR</button><button id="ja-command-stop" class="danger" hidden>STOP</button></div></div>');
   const input=document.getElementById('ja-command-input');
   const log=document.getElementById('ja-chat-log');
   await diagnoseVoiceCore();
@@ -1205,13 +1204,14 @@ async function renderJarvis(){
   };
   document.getElementById('ja-command-send').onclick=send;
   input.onkeydown=e=>{if(e.key==='Enter')send();};
-  document.getElementById('ja-command-mic').onclick=()=>startVoice(input,send);
-  document.getElementById('ja-command-stop').onclick=stopComputerSpeech;
-  document.getElementById('ja-command-clear').onclick=async()=>{
+  const stopBtn=document.getElementById('ja-command-stop');
+  if(stopBtn)stopBtn.onclick=stopComputerSpeech;
+  window.CASAComputerActions={
+    voice:()=>startVoice(input,send),
+    clear:async()=>{
     if(!confirm('Deseja apagar todo o histórico de conversas do COMPUTER? Esta ação não pode ser desfeita.')) return;
-    const clearBtn=document.getElementById('ja-command-clear');
-    clearBtn.disabled=true;
-    clearBtn.textContent='LIMPANDO...';
+    const clearBtn=document.getElementById('ja-left-clear');
+    if(clearBtn){clearBtn.disabled=true;clearBtn.textContent='LIMPANDO...';}
     try{
       const r=await postJson('/casa/api/computer_historico.php',{acao:'limpar'});
       if(log){
@@ -1222,10 +1222,10 @@ async function renderJarvis(){
     }catch(e){
       appendChat('Sistema',e.message||'Falha ao limpar histórico.','error');
     }finally{
-      clearBtn.disabled=false;
-      clearBtn.textContent='LIMPAR HISTÓRICO';
+      if(clearBtn){clearBtn.disabled=false;clearBtn.textContent='LIMPAR HISTÓRICO';}
     }
   };
+  scheduleAdminMount();
 }
 function appendChat(who,text,cls,scroll=true){
   const l=document.getElementById('ja-chat-log');
@@ -1449,6 +1449,25 @@ function mountAdminTools(){
     passBtn.onclick=()=>changePassword();
     box.appendChild(passBtn);
   }
+
+  if(currentGroup==='IA & VOZ' && currentItem==='jarvis'){
+    const voiceBtn=document.createElement('button');
+    voiceBtn.id='ja-left-voice';
+    voiceBtn.type='button';
+    voiceBtn.className='voice';
+    voiceBtn.textContent='VOZ';
+    voiceBtn.onclick=()=>window.CASAComputerActions?.voice?.();
+    box.appendChild(voiceBtn);
+
+    const clearBtn=document.createElement('button');
+    clearBtn.id='ja-left-clear';
+    clearBtn.type='button';
+    clearBtn.className='clear-history';
+    clearBtn.textContent='LIMPAR HISTÓRICO';
+    clearBtn.onclick=()=>window.CASAComputerActions?.clear?.();
+    box.appendChild(clearBtn);
+  }
+
   if(logout) box.appendChild(logout);
 
   status.appendChild(box);
