@@ -7,7 +7,7 @@ if (empty($_SESSION['auth_user'])) { header('Location: /casa/login.php'); exit; 
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Modelos de IA - CASA/JARVIS</title>
 <link rel="stylesheet" href="/casa/lcars-framework.css?v=1.0.0">
-<link rel="stylesheet" href="/casa/lcars-site.css?v=1.0.0">
+<link rel="stylesheet" href="/casa/lcars-site.css?v=1.4.9">
 <style>
 html,body{width:100%;max-width:100%;min-width:0;min-height:100%;margin:0;overflow-x:hidden}
 body{padding:clamp(8px,1.4vw,18px);background:#f2eadc;color:#221f22;font-family:Arial,sans-serif;box-sizing:border-box}
