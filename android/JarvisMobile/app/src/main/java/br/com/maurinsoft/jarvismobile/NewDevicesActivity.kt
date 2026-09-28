@@ -3,6 +3,7 @@ package br.com.maurinsoft.jarvismobile
 import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Typeface
+import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import android.view.ViewGroup
@@ -29,15 +30,16 @@ class NewDevicesActivity : ComponentActivity() {
 
         root.addView(section("1. CONFIGURAR REDE DO ESP"))
         root.addView(TextView(this).apply {
-            text = "Somente ESP32 e ESP-01: conecte o celular ao Wi-Fi temporário criado pelo próprio ESP. Depois abra a configuração local do equipamento e informe SSID, senha da rede definitiva e URL do CASA. Se a conexão falhar, o ESP volta a criar o AP para permitir nova configuração."
+            text = "Somente ESP32 e ESP-01: conecte o celular ao Wi-Fi temporário criado pelo próprio ESP. Depois abra o portal local e informe SSID, senha da rede definitiva e URL do CASA. Se a conexão falhar, o ESP volta a criar o AP para permitir nova configuração."
             textSize = 15f; setPadding(0, dp(4), 0, dp(8))
         })
         root.addView(Button(this).apply {
-            text = "CONECTAR AO WI-FI DO ESP"
-            setOnClickListener {
-                runCatching { startActivity(Intent(Settings.ACTION_WIFI_SETTINGS)) }
-                    .onFailure { status.text = "Não foi possível abrir as configurações de Wi-Fi: ${it.message}" }
-            }
+            text = "1. CONECTAR AO WI-FI DO ESP"
+            setOnClickListener { runCatching { startActivity(Intent(Settings.ACTION_WIFI_SETTINGS)) }.onFailure { status.text = "Não foi possível abrir o Wi-Fi: ${it.message}" } }
+        }, fullWidth())
+        root.addView(Button(this).apply {
+            text = "2. ABRIR CONFIGURAÇÃO DO ESP"
+            setOnClickListener { runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("http://192.168.4.1/"))) }.onFailure { status.text = "Não foi possível abrir o portal do ESP: ${it.message}" } }
         }, fullWidth())
         root.addView(TextView(this).apply {
             text = "O Watch não usa este modo AP; ele mantém sua própria interface de configuração."
