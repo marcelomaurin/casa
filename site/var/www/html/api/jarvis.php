@@ -35,7 +35,21 @@ require_once(__DIR__ . '/db.php');
 require_once(__DIR__ . '/seguranca.php');
 require_once(__DIR__ . '/agente_externo.php');
 require_once(__DIR__ . '/task_engine.php');
-verify_api_auth();
+
+// A interface web usa cookie de sessao + token aleatorio da propria sessao.
+// Integracoes externas continuam autenticando por Bearer/X-API-Key em verify_api_auth().
+$hasExternalAuth = !empty($_SERVER['HTTP_AUTHORIZATION']) || !empty($_SERVER['HTTP_X_API_KEY']);
+if (!$hasExternalAuth && !empty($_SESSION['auth_user'])) {
+    $sentToken = (string)($_SERVER['HTTP_X_CASA_SESSION_TOKEN'] ?? '');
+    $sessionToken = (string)($_SESSION['jarvis_session_token'] ?? '');
+    if ($sentToken === '' || $sessionToken === '' || !hash_equals($sessionToken, $sentToken)) {
+        http_response_code(403);
+        echo json_encode(['status'=>'erro','mensagem'=>'Token da sessao JARVIS ausente ou invalido. Recarregue a pagina.'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+} else {
+    verify_api_auth();
+}
 
 $input = json_decode(file_get_contents('php://input'), true);
 if (!is_array($input)) $input = [];
