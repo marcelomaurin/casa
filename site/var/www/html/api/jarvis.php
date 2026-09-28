@@ -35,6 +35,7 @@ require_once(__DIR__ . '/db.php');
 require_once(__DIR__ . '/seguranca.php');
 require_once(__DIR__ . '/agente_externo.php');
 require_once(__DIR__ . '/task_engine.php');
+require_once(__DIR__ . '/rag.php');
 
 // A interface web usa cookie de sessao + token aleatorio da propria sessao.
 // Integracoes externas continuam autenticando por Bearer/X-API-Key em verify_api_auth().
@@ -677,6 +678,10 @@ foreach ($modelosFallback as $fallback) {
     if(!$duplicado) $modelosIA[]=$fallback;
 }
 
+$rag=rag_prompt($comando);
+$ragContexto=$rag['prompt']??'';
+$ragFontes=$rag['sources']??[];
+
 if($taskInterpret>0) te_complete($pdo,$taskInterpret,['roteamento'=>'ia']);
 $taskIA=te_add_subtask($pdo,$taskContext,'Consultar modelo de IA','ia',[
     'preferencia'=>$preferenciaModelos
@@ -685,6 +690,7 @@ $taskIA=te_add_subtask($pdo,$taskContext,'Consultar modelo de IA','ia',[
 foreach ($modelosIA as $modeloIA) {
     $promptSistema = (($modeloIA['nivel_capacidade'] ?? '') === 'PROFESSOR' || ($modeloIA['nivel_capacidade'] ?? '') === 'PROFISSIONAL')
         ? $systemCloud : $systemLocal;
+    if($ragContexto!=='') $promptSistema.=$ragContexto;
     $r = jarvis_chamar_modelo($modeloIA, $promptSistema, $comando, $historicoConversa);
 
     if ((int)($modeloIA['id'] ?? 0) > 0) {
@@ -777,6 +783,7 @@ computer_telemetry_finish(
 echo json_encode(te_attach_context([
     'status'=>'sucesso','comando'=>$comando,'resposta'=>$respostaLimpa,
     'historico'=>$historicoTexto,'historico_chars'=>strlen($historicoTexto),'historico_mensagens'=>count($historicoConversa),
+    'rag_fontes'=>$ragFontes,'rag_matches'=>count($ragFontes),
     'provedor'=>$provedor,'target_ia'=>$target_ia,'tipo_tarefa'=>$tipo_tarefa,
     'modo_roteamento'=>$routing_mode,'acao'=>$acao,'audio_url'=>$audioUrl,
     'speaker'=>$jarvis_voice,'modelo_usado'=>$modelo_usado,'ia_diagnostico'=>$ia_diagnostico,
