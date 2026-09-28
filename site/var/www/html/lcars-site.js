@@ -1048,17 +1048,61 @@ function computerVoice(){
   const femaleHints=['francisca','maria','luciana','fernanda','vitoria','vitória','camila','leticia','letícia','female','feminina','woman'];
   return br.find(v=>femaleHints.some(h=>(String(v.name||'')+' '+String(v.voiceURI||'')).toLowerCase().includes(h))) || br[0];
 }
+let computerSpeechGeneration=0;
+function splitComputerSpeech(text,maxChars=220){
+  const clean=String(text||'').replace(/\s+/g,' ').trim();
+  if(!clean)return [];
+  const sentences=clean.match(/[^.!?;:]+[.!?;:]*(?:\s+|$)/g)||[clean];
+  const chunks=[];
+  let current='';
+  const pushCurrent=()=>{if(current.trim())chunks.push(current.trim());current='';};
+  for(const raw of sentences){
+    let part=raw.trim();
+    if(!part)continue;
+    if((current+' '+part).trim().length<=maxChars){
+      current=(current+' '+part).trim();
+      continue;
+    }
+    pushCurrent();
+    while(part.length>maxChars){
+      let cut=part.lastIndexOf(' ',maxChars);
+      if(cut<Math.floor(maxChars*.55))cut=maxChars;
+      chunks.push(part.slice(0,cut).trim());
+      part=part.slice(cut).trim();
+    }
+    current=part;
+  }
+  pushCurrent();
+  return chunks;
+}
 function speakComputer(text){
   const speech=String(text||'').trim();
   if(!speech || !('speechSynthesis' in window)) return false;
-  window.speechSynthesis.cancel();
-  const u=new SpeechSynthesisUtterance(speech);
-  u.lang='pt-BR';
-  u.rate=1;
-  u.pitch=1;
-  const v=computerVoice();
-  if(v) u.voice=v;
-  window.speechSynthesis.speak(u);
+  const synth=window.speechSynthesis;
+  const chunks=splitComputerSpeech(speech);
+  if(!chunks.length)return false;
+  const generation=++computerSpeechGeneration;
+  synth.cancel();
+  let index=0;
+  const voice=computerVoice();
+  const speakNext=()=>{
+    if(generation!==computerSpeechGeneration || index>=chunks.length)return;
+    const u=new SpeechSynthesisUtterance(chunks[index++]);
+    u.lang='pt-BR';
+    u.rate=1;
+    u.pitch=1;
+    u.volume=1;
+    if(voice)u.voice=voice;
+    u.onend=()=>{if(generation===computerSpeechGeneration)setTimeout(speakNext,35);};
+    u.onerror=(event)=>{
+      if(generation!==computerSpeechGeneration)return;
+      const err=String(event?.error||'');
+      if(err==='canceled'||err==='interrupted')return;
+      setTimeout(speakNext,60);
+    };
+    synth.speak(u);
+  };
+  speakNext();
   return true;
 }
 async function loadComputerHistory(){
