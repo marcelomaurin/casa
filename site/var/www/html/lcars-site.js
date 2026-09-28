@@ -212,7 +212,9 @@ async function getJson(url,opt){
   return j;
 }
 async function postJson(url,data){
-  return getJson(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data||{})});
+  const headers={'Content-Type':'application/json'};
+  if(window.CASA_SESSION_TOKEN) headers['X-CASA-Session-Token']=window.CASA_SESSION_TOKEN;
+  return getJson(url,{method:'POST',headers,body:JSON.stringify(data||{})});
 }
 function crud(table,action='listar',extra=''){
   return getJson('/casa/api/crud.php?tabela='+encodeURIComponent(table)+'&acao='+encodeURIComponent(action)+(extra||''));
