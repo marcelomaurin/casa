@@ -1230,20 +1230,13 @@ function fitFrame(frame){
   try{
     const doc=frame.contentDocument;if(!doc)return;
     const st=doc.createElement('style');
-    st.textContent='html,body{margin:0!important;width:100%!important;height:100%!important;overflow:hidden!important}';
+    st.textContent='html{margin:0!important;width:100%!important;max-width:100%!important;height:100%!important;overflow:hidden!important}body{margin:0!important;width:100%!important;max-width:100%!important;min-width:0!important;height:100%!important;box-sizing:border-box!important;overflow-x:hidden!important;overflow-y:auto!important}*,*:before,*:after{box-sizing:border-box;max-width:100%}';
     doc.head.appendChild(st);
     const body=doc.body;
-    body.style.transform='none';body.style.width='100%';body.style.height='auto';
-    requestAnimationFrame(()=>{
-      const sw=Math.max(body.scrollWidth,doc.documentElement.scrollWidth,1);
-      const sh=Math.max(body.scrollHeight,doc.documentElement.scrollHeight,1);
-      const vw=Math.max(frame.clientWidth,1),vh=Math.max(frame.clientHeight,1);
-      const scale=Math.min(1,vw/sw,vh/sh);
-      body.style.transformOrigin='top left';
-      body.style.transform='scale('+scale+')';
-      body.style.width=(100/scale)+'%';
-      body.style.height=(100/scale)+'%';
-    });
+    body.style.transform='none';
+    body.style.transformOrigin='';
+    body.style.width='100%';
+    body.style.height='100%';
   }catch(e){console.warn('CASA módulo:',e);}
 }
 
