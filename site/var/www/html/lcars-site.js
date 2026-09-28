@@ -1099,7 +1099,8 @@ async function renderJarvis(){
     input.value='';
     appendChat('Você',cmd,'user');
     try{
-      const r=await postJson('/casa/api/jarvis.php',{comando:cmd,ia_mode:'auto',historico:conversationHistory});
+      const historicoTexto=conversationHistory.map(m=>(m.role==='assistant'?'ASSISTANT':'USER')+': '+m.content).join('\n\n');
+      const r=await postJson('/casa/api/jarvis.php',{comando:cmd,ia_mode:'auto',historico:historicoTexto,historico_mensagens:conversationHistory});
       const resposta=r.resposta||r.mensagem||'Sem resposta.';
       appendChat('COMPUTER',resposta,'ai');
       conversationHistory.push({role:'user',content:cmd},{role:'assistant',content:String(resposta)});
