@@ -69,16 +69,16 @@ void say(bool confirmation){
 
 String eventPayload(uint8_t kind){
   StaticJsonDocument<2300> doc;
-  doc["type"] = kind==1?"SOS":kind==2?"SOS_LOCATION":"SOS_CANCELLED";
-  doc["severity"] = kind==3?"info":"critica";
-  doc["message"] = kind==1?"Sistema de emergencia ativado no JARVIS Watch":
-    kind==2?"Localizacao da emergencia recebida":"Alarme desarmado pelo usuario no JARVIS Watch";
-  doc["device"] = jarvisWifiDeviceId();
+  doc["device_id"] = jarvisWifiDeviceId();
+  doc["type"] = kind==1?"emergency.sos":kind==2?"emergency.location":"emergency.cancelled";
+  doc["priority"] = kind==3?"normal":"critical";
   JsonObject data=doc.createNestedObject("data");
   data["source"]="watch_emergency";
   data["session_id"]=session;
   data["event_key"]=session+"-"+String(kind);
   data["active"]=kind!=3;
+  data["message"] = kind==1?"Sistema de emergencia ativado no JARVIS Watch":
+    kind==2?"Localizacao da emergencia recebida":"Alarme desarmado pelo usuario no JARVIS Watch";
   data["location_status"]=location.isEmpty()?"unavailable":"available";
   if(!location.isEmpty()){
     StaticJsonDocument<768> gps;
@@ -210,7 +210,7 @@ void jarvisEmergencyLoop(){
   lastAttempt=now;
   // Initial alert does not wait for GPS. A separate event adds the fix later.
   uint8_t kind=activationPending?1:locationPending?2:cancelPending?3:0;
-  if(kind){enqueue("/api/v1/watch.php?acao=assist_event",eventPayload(kind),kind);return;}
+  if(kind){enqueue("/api/v1/device.php?acao=event",eventPayload(kind),kind);return;}
   if(state==EMERGENCY_RED&&location.isEmpty()&&(!gpsRequested||now-lastGps>=30000UL)){
     StaticJsonDocument<768> doc;
     doc["device_id"]=jarvisWifiDeviceId();doc["type"]="gps_request";doc["priority"]="high";
