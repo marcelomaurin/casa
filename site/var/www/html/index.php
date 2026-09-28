@@ -23,7 +23,7 @@ $authName = !empty($_SESSION['auth_name']) ? $_SESSION['auth_name'] : ($_SESSION
   <script>window.CASA_SESSION_TOKEN = <?= json_encode($jarvisSessionToken, JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT) ?>;</script>\n  <div id="app"></div>
   <noscript>O CASA/COMPUTER precisa de JavaScript habilitado para a interface adaptativa.</noscript>
   <script src="/casa/lcars-framework.js?v=1.3.0"></script>
-  <script src="/casa/lcars-site.js?v=1.5.4"></script>
+  <script src="/casa/lcars-site.js?v=1.5.5"></script>
   <script src="/casa/lcars-iot.js?v=1.0.0"></script>
 </body>
 </html>
