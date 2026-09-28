@@ -1161,7 +1161,7 @@ async function loadComputerHistory(){
   }
 }
 async function renderJarvis(){
-  moduleShell('Núcleo COMPUTER','<div class="ja-jarvis"><div class="ja-voice-status" id="ja-voice-status"><span id="ja-mic-state" class="ja-state off">VERIFICANDO MIC</span><span id="ja-mic-devices">Entradas: —</span><span id="ja-stt-state">STT: verificando</span><span id="ja-tts-state">TTS: verificando</span></div><div id="ja-chat-log" class="ja-chat-log"><div class="ja-chat-line ai">Carregando histórico...</div></div><div class="ja-command"><input id="ja-command-input" placeholder="Digite um comando para o COMPUTER"><button id="ja-command-send">ENVIAR</button><button id="ja-command-stop" class="danger" hidden>STOP</button></div></div>');
+  moduleShell('Núcleo COMPUTER','<div class="ja-jarvis"><div id="ja-chat-log" class="ja-chat-log"><div class="ja-chat-line ai">Carregando histórico...</div></div><div class="ja-command"><input id="ja-command-input" placeholder="Digite um comando para o COMPUTER"><button id="ja-command-send">ENVIAR</button><button id="ja-command-stop" class="danger" hidden>STOP</button></div></div>');
   const input=document.getElementById('ja-command-input');
   const log=document.getElementById('ja-chat-log');
   await diagnoseVoiceCore();
@@ -1248,27 +1248,38 @@ function appendChat(who,text,cls,scroll=true){
 }
 let activeRecognition=null;
 function voiceStatus(state,text,ok=false){
-  const el=document.getElementById('ja-mic-state'); if(!el)return;
-  el.textContent=text; el.className='ja-state '+(ok?'ok':state==='listening'?'warn':'off');
+  const el=document.getElementById('ja-mic-state');
+  if(el){el.textContent=text;el.className='ja-state '+(ok?'ok':state==='listening'?'warn':'off');}
+  window.CASAVoiceStatus=Object.assign({},window.CASAVoiceStatus||{},{mic:{text,kind:ok?'ok':state==='listening'?'warn':'off'}});
+  refreshLeftVoiceStatus();
 }
 async function diagnoseVoiceCore(){
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
   const stt=document.getElementById('ja-stt-state'),tts=document.getElementById('ja-tts-state'),dev=document.getElementById('ja-mic-devices');
-  if(stt)stt.textContent='STT: '+(SR?'disponível':'não suportado');
-  if(tts)tts.textContent='TTS: '+(('speechSynthesis' in window)?'disponível':'não suportado');
+  const sttText='STT: '+(SR?'disponível':'não suportado');
+  const ttsText='TTS: '+(('speechSynthesis' in window)?'disponível':'não suportado');
+  if(stt)stt.textContent=sttText;
+  if(tts)tts.textContent=ttsText;
+  window.CASAVoiceStatus=Object.assign({},window.CASAVoiceStatus||{},{stt:{text:sttText,kind:SR?'ok':'off'},tts:{text:ttsText,kind:('speechSynthesis' in window)?'ok':'off'}});
+  refreshLeftVoiceStatus();
   if(!navigator.mediaDevices?.getUserMedia){voiceStatus('error','MIC NÃO SUPORTADO');return false;}
   try{
     const stream=await navigator.mediaDevices.getUserMedia({audio:true});
     stream.getTracks().forEach(t=>t.stop());
     const devices=await navigator.mediaDevices.enumerateDevices();
     const inputs=devices.filter(d=>d.kind==='audioinput');
-    if(dev)dev.textContent='Entradas: '+inputs.length+(inputs.length?' · '+inputs.map((d,i)=>d.label||('Microfone '+(i+1))).join(' / '):'');
+    const deviceText='Entradas: '+inputs.length+(inputs.length?' · '+inputs.map((d,i)=>d.label||('Microfone '+(i+1))).join(' / '):'');
+    if(dev)dev.textContent=deviceText;
+    window.CASAVoiceStatus=Object.assign({},window.CASAVoiceStatus||{},{devices:{text:'ENTRADAS: '+inputs.length,detail:deviceText,kind:inputs.length?'ok':'off'}});
+    refreshLeftVoiceStatus();
     if(!inputs.length){voiceStatus('error','SEM MICROFONE');return false;}
     voiceStatus('ready','MIC OK',true);return true;
   }catch(e){
     const denied=e?.name==='NotAllowedError'||e?.name==='SecurityError';
     voiceStatus('error',denied?'MIC SEM PERMISSÃO':'MIC INDISPONÍVEL');
     if(dev)dev.textContent='Entradas: não acessíveis';
+    window.CASAVoiceStatus=Object.assign({},window.CASAVoiceStatus||{},{devices:{text:'ENTRADAS: INDISP.',detail:'Entradas: não acessíveis',kind:'off'}});
+    refreshLeftVoiceStatus();
     return false;
   }
 }
@@ -1424,6 +1435,19 @@ function handleAction(detail){
   if(action==='select' || action==='navigate'){const it=findItem(currentGroup,detail.id);if(it)openItem(it);}
 }
 
+function refreshLeftVoiceStatus(){
+  const host=document.getElementById('ja-left-voice-status');
+  if(!host)return;
+  const st=window.CASAVoiceStatus||{};
+  const items=[
+    st.mic||{text:'MIC: verificando',kind:'off'},
+    st.devices||{text:'ENTRADAS: —',detail:'Entradas de áudio ainda não verificadas',kind:'off'},
+    st.stt||{text:'STT: verificando',kind:'off'},
+    st.tts||{text:'TTS: verificando',kind:'off'}
+  ];
+  host.innerHTML=items.map(x=>'<button type="button" class="ja-left-status '+attr(x.kind||'off')+'" title="'+attr(x.detail||x.text||'')+'" disabled>'+esc(x.text||'—')+'</button>').join('');
+}
+
 function mountAdminTools(){
   const status=document.querySelector('#app .ja-status');
   const template=document.getElementById('ja-admin-template');
@@ -1451,6 +1475,12 @@ function mountAdminTools(){
   }
 
   if(currentGroup==='IA & VOZ' && currentItem==='jarvis'){
+    const voiceStatusBox=document.createElement('div');
+    voiceStatusBox.id='ja-left-voice-status';
+    voiceStatusBox.className='ja-left-voice-status';
+    box.appendChild(voiceStatusBox);
+    refreshLeftVoiceStatus();
+
     const voiceBtn=document.createElement('button');
     voiceBtn.id='ja-left-voice';
     voiceBtn.type='button';
