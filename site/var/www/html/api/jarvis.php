@@ -58,9 +58,14 @@ $origem = trim($input['origem'] ?? 'JARVIS');
 $skipPlanner = !empty($input['skip_planner']);
 $forcarPlanejamento = !empty($input['planejar']);
 
-// Historico da conversa atual enviado pela interface. Somente papeis conversacionais sao aceitos.
+// Historico da conversa atual.
+// "historico" e o contrato textual longo; "historico_mensagens" preserva papeis para APIs de chat.
+$historicoTexto='';
+$historicoRaw=$input['historico'] ?? '';
+if(is_string($historicoRaw)) $historicoTexto=trim($historicoRaw);
+
 $historicoConversa=[];
-$historicoInput=$input['historico'] ?? [];
+$historicoInput=$input['historico_mensagens'] ?? (is_array($historicoRaw)?$historicoRaw:[]);
 if(is_array($historicoInput)){
     foreach($historicoInput as $msg){
         if(!is_array($msg)) continue;
@@ -69,6 +74,16 @@ if(is_array($historicoInput)){
         if(!in_array($role,['user','assistant'],true)||$content==='') continue;
         $historicoConversa[]=['role'=>$role,'content'=>$content];
     }
+}
+// Chamadas externas podem enviar somente a string longa. Nesse caso ela ainda entra no contexto.
+if(empty($historicoConversa) && $historicoTexto!==''){
+    $historicoConversa[]=['role'=>'user','content'=>"HISTORICO DA CONVERSA:\n".$historicoTexto];
+}
+// Compatibilidade: se vier apenas o array antigo, tambem produzimos a representacao textual.
+if($historicoTexto==='' && !empty($historicoConversa)){
+    $linhas=[];
+    foreach($historicoConversa as $h) $linhas[]=strtoupper($h['role']).': '.$h['content'];
+    $historicoTexto=implode("\n\n",$linhas);
 }
 
 if ($comando === '') {
