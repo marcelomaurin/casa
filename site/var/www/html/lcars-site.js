@@ -1049,6 +1049,39 @@ function computerVoice(){
   return br.find(v=>femaleHints.some(h=>(String(v.name||'')+' '+String(v.voiceURI||'')).toLowerCase().includes(h))) || br[0];
 }
 let computerSpeechGeneration=0;
+let computerBargeIn=null;
+async function startComputerBargeIn(generation){
+  stopComputerBargeIn();
+  if(!navigator.mediaDevices?.getUserMedia)return;
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+    const Ctx=window.AudioContext||window.webkitAudioContext;
+    if(!Ctx){stream.getTracks().forEach(t=>t.stop());return;}
+    const ctx=new Ctx(),src=ctx.createMediaStreamSource(stream),analyser=ctx.createAnalyser();
+    analyser.fftSize=1024; analyser.smoothingTimeConstant=.35; src.connect(analyser);
+    const data=new Uint8Array(analyser.fftSize);
+    let loudFrames=0,raf=0;
+    const state={stream,ctx,raf:0}; computerBargeIn=state;
+    const tick=()=>{
+      if(computerBargeIn!==state||generation!==computerSpeechGeneration){stopComputerBargeIn();return;}
+      analyser.getByteTimeDomainData(data);
+      let sum=0;
+      for(let i=0;i<data.length;i++){const v=(data[i]-128)/128;sum+=v*v;}
+      const rms=Math.sqrt(sum/data.length);
+      loudFrames=rms>.075?loudFrames+1:Math.max(0,loudFrames-1);
+      if(loudFrames>=7){stopComputerSpeech();return;}
+      state.raf=requestAnimationFrame(tick);
+    };
+    state.raf=requestAnimationFrame(tick);
+  }catch(e){}
+}
+function stopComputerBargeIn(){
+  const state=computerBargeIn; computerBargeIn=null;
+  if(!state)return;
+  if(state.raf)cancelAnimationFrame(state.raf);
+  state.stream?.getTracks().forEach(t=>t.stop());
+  state.ctx?.close?.().catch?.(()=>{});
+}
 function splitComputerSpeech(text,maxChars=220){
   const clean=String(text||'').replace(/\s+/g,' ').trim();
   if(!clean)return [];
@@ -1077,6 +1110,7 @@ function splitComputerSpeech(text,maxChars=220){
 }
 function stopComputerSpeech(){
   computerSpeechGeneration++;
+  stopComputerBargeIn();
   if('speechSynthesis' in window)window.speechSynthesis.cancel();
   const btn=document.getElementById('ja-command-stop');
   if(btn){btn.disabled=true;btn.textContent='STOP';}
@@ -1094,11 +1128,12 @@ function speakComputer(text){
   const generation=++computerSpeechGeneration;
   synth.cancel();
   setComputerSpeaking(true);
+  startComputerBargeIn(generation);
   let index=0;
   const voice=computerVoice();
   const speakNext=()=>{
     if(generation!==computerSpeechGeneration)return;
-    if(index>=chunks.length){setComputerSpeaking(false);return;}
+    if(index>=chunks.length){setComputerSpeaking(false);stopComputerBargeIn();return;}
     const u=new SpeechSynthesisUtterance(chunks[index++]);
     u.lang='pt-BR';
     u.rate=1;
