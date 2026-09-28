@@ -6,5 +6,6 @@ class JarvisApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         UpdateManager.checkAndDownloadAsync(this)
+        DeviceCommandApi.startLoop(this)
     }
 }
