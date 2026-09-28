@@ -18,13 +18,17 @@ object DeviceProvisionApi {
         .retryOnConnectionFailure(true)
         .build()
 
-    data class ProvisionedDevice(
-        val id: Long,
-        val deviceId: String,
-        val name: String,
+    data class ProvisionedDevice(val id: Long, val deviceId: String, val name: String, val type: String, val location: String, val token: String)
+    data class PairingRequest(
+        val requestId: String,
+        val mac: String,
         val type: String,
-        val location: String,
-        val token: String
+        val model: String,
+        val firmwareVersion: String,
+        val capabilities: List<String>,
+        val pairingCode: String,
+        val createdAt: String,
+        val expiresAt: String
     )
 
     private fun request(context: Context, action: String, body: JSONObject? = null): JSONObject {
@@ -44,68 +48,62 @@ object DeviceProvisionApi {
         }
     }
 
-    fun createEspCam(
-        context: Context,
-        name: String,
-        location: String,
-        mac: String? = null
-    ): ProvisionedDevice {
+    fun pendingPairingRequests(context: Context): List<PairingRequest> {
+        val rows = request(context, "solicitacoes_pendentes").optJSONArray("solicitacoes") ?: JSONArray()
+        return buildList {
+            for (i in 0 until rows.length()) {
+                val r = rows.optJSONObject(i) ?: continue
+                val capsJson = r.optJSONArray("capabilities") ?: JSONArray()
+                val caps = buildList { for (j in 0 until capsJson.length()) add(capsJson.optString(j)) }.filter { it.isNotBlank() }
+                add(PairingRequest(
+                    requestId = r.optString("request_id"),
+                    mac = r.optString("mac_address"),
+                    type = r.optString("device_type", "device"),
+                    model = r.optString("model", r.optString("device_type", "device")),
+                    firmwareVersion = r.optString("firmware_version"),
+                    capabilities = caps,
+                    pairingCode = r.optString("pairing_code"),
+                    createdAt = r.optString("criado_em"),
+                    expiresAt = r.optString("expira_em")
+                ))
+            }
+        }
+    }
+
+    fun authorizePairing(context: Context, request: PairingRequest, name: String, location: String): ProvisionedDevice {
+        require(request.requestId.isNotBlank()) { "Solicitação de pareamento inválida" }
         val body = JSONObject()
-            .put("type", "esp32cam")
-            .put("name", name)
-            .put("location", location)
-            .put("capabilities", JSONArray(listOf("camera", "snapshot", "mjpeg", "flash", "telemetry", "wifi")))
-        if (!mac.isNullOrBlank()) body.put("mac", mac)
-        val d = request(context, "create", body).getJSONObject("device")
+            .put("request_id", request.requestId)
+            .put("pairing_code", request.pairingCode)
+            .put("name", name.ifBlank { request.model.ifBlank { request.type } })
+            .put("location", location.ifBlank { "Residencia" })
+        val response = request(context, "autorizar_pareamento", body)
+        val d = response.optJSONObject("device") ?: response
         return ProvisionedDevice(
             id = d.optLong("id"),
             deviceId = d.optString("device_id"),
-            name = d.optString("name"),
-            type = d.optString("type"),
-            location = d.optString("location"),
-            token = d.optString("token")
+            name = d.optString("name", name),
+            type = d.optString("type", request.type),
+            location = d.optString("location", location),
+            token = d.optString("token", d.optString("device_token"))
         )
     }
 
-    fun createWatch(
-        context: Context,
-        name: String,
-        location: String,
-        mac: String? = null
-    ): ProvisionedDevice {
-        val body = JSONObject()
-            .put("type", "watch")
-            .put("name", name)
-            .put("location", location)
-            .put(
-                "capabilities",
-                JSONArray(
-                    listOf(
-                        "watch",
-                        "display",
-                        "wifi",
-                        "microphone",
-                        "speaker",
-                        "vibration",
-                        "accelerometer",
-                        "steps",
-                        "infrared",
-                        "notifications",
-                        "telemetry"
-                    )
-                )
-            )
+    // Compatibilidade com telas antigas. Novos devices devem usar solicitar_pareamento -> autorizar_pareamento.
+    fun createEspCam(context: Context, name: String, location: String, mac: String? = null): ProvisionedDevice {
+        val body = JSONObject().put("type", "esp32cam").put("name", name).put("location", location)
+            .put("capabilities", JSONArray(listOf("camera", "snapshot", "mjpeg", "flash", "telemetry", "wifi")))
         if (!mac.isNullOrBlank()) body.put("mac", mac)
-
         val d = request(context, "create", body).getJSONObject("device")
-        return ProvisionedDevice(
-            id = d.optLong("id"),
-            deviceId = d.optString("device_id"),
-            name = d.optString("name"),
-            type = d.optString("type"),
-            location = d.optString("location"),
-            token = d.optString("token")
-        )
+        return ProvisionedDevice(d.optLong("id"), d.optString("device_id"), d.optString("name"), d.optString("type"), d.optString("location"), d.optString("token"))
+    }
+
+    fun createWatch(context: Context, name: String, location: String, mac: String? = null): ProvisionedDevice {
+        val body = JSONObject().put("type", "watch").put("name", name).put("location", location)
+            .put("capabilities", JSONArray(listOf("watch", "display", "wifi", "microphone", "speaker", "vibration", "accelerometer", "steps", "infrared", "notifications", "telemetry")))
+        if (!mac.isNullOrBlank()) body.put("mac", mac)
+        val d = request(context, "create", body).getJSONObject("device")
+        return ProvisionedDevice(d.optLong("id"), d.optString("device_id"), d.optString("name"), d.optString("type"), d.optString("location"), d.optString("token"))
     }
 
     fun list(context: Context): JSONArray = request(context, "list").optJSONArray("devices") ?: JSONArray()
