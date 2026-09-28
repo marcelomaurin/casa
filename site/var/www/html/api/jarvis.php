@@ -1,6 +1,36 @@
 <?php
 // JARVIS RESIDENCIAL - Gateway unificado de IA, planejamento, web, automacao e voz
 header('Content-Type: application/json; charset=utf-8');
+// Nunca deixe uma falha PHP virar HTTP 500 sem diagnostico para o COMPUTER.
+set_exception_handler(function(Throwable $e): void {
+    if (!headers_sent()) {
+        header('Content-Type: application/json; charset=utf-8');
+        http_response_code(500);
+    }
+    echo json_encode([
+        'status'=>'erro',
+        'mensagem'=>'Falha interna do JARVIS: '.$e->getMessage(),
+        'etapa'=>'bootstrap_or_pipeline',
+        'arquivo'=>basename($e->getFile()),
+        'linha'=>$e->getLine()
+    ], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+    exit;
+});
+register_shutdown_function(function(): void {
+    $e=error_get_last();
+    if(!$e || !in_array($e['type'],[E_ERROR,E_PARSE,E_CORE_ERROR,E_COMPILE_ERROR,E_USER_ERROR],true)) return;
+    if (!headers_sent()) {
+        header('Content-Type: application/json; charset=utf-8');
+        http_response_code(500);
+    }
+    echo json_encode([
+        'status'=>'erro',
+        'mensagem'=>'Falha fatal do JARVIS: '.($e['message']??'erro PHP'),
+        'etapa'=>'fatal_php',
+        'arquivo'=>basename((string)($e['file']??'')),
+        'linha'=>(int)($e['line']??0)
+    ], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+});
 require_once(__DIR__ . '/db.php');
 require_once(__DIR__ . '/seguranca.php');
 require_once(__DIR__ . '/agente_externo.php');
