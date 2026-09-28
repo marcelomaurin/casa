@@ -1068,7 +1068,11 @@ async function startComputerBargeIn(generation){
       for(let i=0;i<data.length;i++){const v=(data[i]-128)/128;sum+=v*v;}
       const rms=Math.sqrt(sum/data.length);
       loudFrames=rms>.075?loudFrames+1:Math.max(0,loudFrames-1);
-      if(loudFrames>=7){stopComputerSpeech();return;}
+      if(loudFrames>=7){
+        stopComputerSpeech();
+        setTimeout(()=>window.CASAComputerActions?.voice?.(),120);
+        return;
+      }
       state.raf=requestAnimationFrame(tick);
     };
     state.raf=requestAnimationFrame(tick);
@@ -1081,30 +1085,22 @@ function stopComputerBargeIn(){
   state.stream?.getTracks().forEach(t=>t.stop());
   state.ctx?.close?.().catch?.(()=>{});
 }
-function splitComputerSpeech(text,maxChars=220){
+function splitComputerSpeech(text,maxChars=140){
   const clean=String(text||'').replace(/\s+/g,' ').trim();
   if(!clean)return [];
-  const sentences=clean.match(/[^.!?;:]+[.!?;:]*(?:\s+|$)/g)||[clean];
+  const sentences=clean.match(/[^.!?;:]+[.!?;:]*/g)||[clean];
   const chunks=[];
-  let current='';
-  const pushCurrent=()=>{if(current.trim())chunks.push(current.trim());current='';};
   for(const raw of sentences){
     let part=raw.trim();
     if(!part)continue;
-    if((current+' '+part).trim().length<=maxChars){
-      current=(current+' '+part).trim();
-      continue;
-    }
-    pushCurrent();
     while(part.length>maxChars){
       let cut=part.lastIndexOf(' ',maxChars);
       if(cut<Math.floor(maxChars*.55))cut=maxChars;
       chunks.push(part.slice(0,cut).trim());
       part=part.slice(cut).trim();
     }
-    current=part;
+    if(part)chunks.push(part);
   }
-  pushCurrent();
   return chunks;
 }
 function stopComputerSpeech(){
@@ -1139,13 +1135,13 @@ function speakComputer(text){
     u.pitch=1;
     u.volume=1;
     if(voice)u.voice=voice;
-    u.onend=()=>{if(generation===computerSpeechGeneration)setTimeout(speakNext,35);};
+    u.onend=()=>{if(generation===computerSpeechGeneration)setTimeout(speakNext,90);};
     u.onerror=(event)=>{
       if(generation!==computerSpeechGeneration)return;
       const err=String(event?.error||'');
       if(err==='canceled'||err==='interrupted'){setComputerSpeaking(false);return;}
       if(index>=chunks.length){setComputerSpeaking(false);return;}
-      setTimeout(speakNext,60);
+      setTimeout(speakNext,120);
     };
     synth.speak(u);
   };
@@ -1290,7 +1286,7 @@ async function startVoice(input,done){
   if(activeRecognition)return;
   stopComputerSpeech();
   if(!(await diagnoseVoiceCore())){appendChat('Sistema','Não foi possível acessar uma entrada de áudio. Verifique a permissão do microfone no navegador.','error');return;}
-  const btn=document.getElementById('ja-command-mic');
+  const btn=document.getElementById('ja-left-voice');
   const r=new SR(); activeRecognition=r;
   r.lang='pt-BR'; r.continuous=false; r.interimResults=false; r.maxAlternatives=1;
   if(btn){btn.disabled=true;btn.textContent='OUVINDO...';}
