@@ -14,7 +14,7 @@ function ia_json($data, $code=200) {
     exit;
 }
 function ia_valid_provider($v) {
-    return in_array($v, ['openai_compatible','ollama','runpod'], true);
+    return in_array($v, ['openai_compatible','custom','ollama','runpod','openai','gemini','anthropic','openrouter','cerebras','deepseek'], true);
 }
 function ia_valid_hw($v) {
     return in_array($v, ['CPU','GPU_LOW','GPU_HIGH'], true);
@@ -66,9 +66,30 @@ function ia_ollama_call($baseUrl,$model,$prompt,$timeout=30) {
     }
     return ['ok'=>false,'http'=>$http,'erro'=>$err ?: 'HTTP '.$http];
 }
+function ia_gemini_call($baseUrl,$apiKey,$model,$prompt,$timeout=45,$maxTokens=120,$temperature=0.2) {
+    $base=rtrim(trim((string)$baseUrl),'/'); if($base==='') $base='https://generativelanguage.googleapis.com/v1beta';
+    if(trim((string)$apiKey)===''||trim((string)$model)==='') return ['ok'=>false,'http'=>0,'erro'=>'API Key/modelo ausentes'];
+    $url=$base.'/models/'.rawurlencode($model).':generateContent?key='.rawurlencode($apiKey);
+    $payload=['contents'=>[['role'=>'user','parts'=>[['text'=>$prompt]]]],'generationConfig'=>['maxOutputTokens'=>(int)$maxTokens,'temperature'=>(float)$temperature]];
+    $ch=curl_init($url); curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_POST=>true,CURLOPT_POSTFIELDS=>json_encode($payload,JSON_UNESCAPED_UNICODE),CURLOPT_HTTPHEADER=>['Content-Type: application/json'],CURLOPT_CONNECTTIMEOUT=>5,CURLOPT_TIMEOUT=>(int)$timeout]);
+    $res=curl_exec($ch);$http=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);$err=curl_error($ch);curl_close($ch);$j=$res!==false?json_decode((string)$res,true):null;$txt=$j['candidates'][0]['content']['parts'][0]['text']??'';
+    if($http>=200&&$http<300&&trim((string)$txt)!=='') return ['ok'=>true,'http'=>$http,'resposta'=>trim((string)$txt)];
+    return ['ok'=>false,'http'=>$http,'erro'=>$err?:($j['error']['message']??('HTTP '.$http))];
+}
+function ia_anthropic_call($baseUrl,$apiKey,$model,$prompt,$timeout=45,$maxTokens=120,$temperature=0.2) {
+    $base=rtrim(trim((string)$baseUrl),'/');if($base==='')$base='https://api.anthropic.com/v1';
+    if(trim((string)$apiKey)===''||trim((string)$model)==='') return ['ok'=>false,'http'=>0,'erro'=>'API Key/modelo ausentes'];
+    $payload=['model'=>$model,'max_tokens'=>(int)$maxTokens,'temperature'=>(float)$temperature,'messages'=>[['role'=>'user','content'=>$prompt]]];
+    $ch=curl_init($base.'/messages');curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_POST=>true,CURLOPT_POSTFIELDS=>json_encode($payload,JSON_UNESCAPED_UNICODE),CURLOPT_HTTPHEADER=>['Content-Type: application/json','x-api-key: '.$apiKey,'anthropic-version: 2023-06-01'],CURLOPT_CONNECTTIMEOUT=>5,CURLOPT_TIMEOUT=>(int)$timeout]);
+    $res=curl_exec($ch);$http=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);$err=curl_error($ch);curl_close($ch);$j=$res!==false?json_decode((string)$res,true):null;$txt=$j['content'][0]['text']??'';
+    if($http>=200&&$http<300&&trim((string)$txt)!=='') return ['ok'=>true,'http'=>$http,'resposta'=>trim((string)$txt)];
+    return ['ok'=>false,'http'=>$http,'erro'=>$err?:($j['error']['message']??('HTTP '.$http))];
+}
 function ia_test_row($row) {
-    $prompt='Responda apenas: OK INTEGRACAO IA';
-    if (($row['provedor']??'')==='ollama') return ia_ollama_call($row['base_url'],$row['modelo'],$prompt,(int)$row['timeout_segundos']);
+    $prompt='Responda apenas: OK INTEGRACAO IA';$p=strtolower((string)($row['provedor']??'openai_compatible'));
+    if($p==='ollama') return ia_ollama_call($row['base_url'],$row['modelo'],$prompt,(int)$row['timeout_segundos']);
+    if($p==='gemini') return ia_gemini_call($row['base_url'],$row['api_key']??'',$row['modelo'],$prompt,(int)$row['timeout_segundos'],80,0.1);
+    if($p==='anthropic') return ia_anthropic_call($row['base_url'],$row['api_key']??'',$row['modelo'],$prompt,(int)$row['timeout_segundos'],80,0.1);
     return ia_openai_call($row['base_url'],$row['api_key']??'',$row['modelo'],$prompt,(int)$row['timeout_segundos'],80,0.1);
 }
 
