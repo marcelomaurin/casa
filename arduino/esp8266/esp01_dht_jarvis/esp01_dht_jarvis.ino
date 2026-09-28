@@ -1,186 +1,84 @@
-/*
- * JARVIS RESIDENCIAL - ESP-01 SENSOR DE TEMPERATURA E UMIDADE
- * Hardware: ESP-01 / ESP8266 + DHT22 (padrao) ou DHT11
- *
- * Runtime distribuido e Seguranca:
- *   Telemetria -> https://maurinsoft.com.br/casa
- *   Nenhum token gravado no fonte. O dispositivo gera um codigo de 6 digitos
- *   e solicita entrada na rede. O celular (JARVIS Mobile) autoriza e passa
- *   a chave criptografica individual, salva na EEPROM do ESP.
+/* JARVIS CASA - ESP-01 / ESP8266 + DHT
+ * Rede: sem configuracao ou apos falha, cria AP CASA-ESP01-xxxxxx.
+ * Celular conecta ao AP, abre http://192.168.4.1 e informa Wi-Fi/CASA.
+ * Pareamento e credencial continuam sendo feitos diretamente com o CASA.
  */
-
 #include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
 #include <ESP8266HTTPClient.h>
 #include <WiFiClientSecureBearSSL.h>
+#include <LittleFS.h>
 #include <DHT.h>
 #include "../../common/CasaDeviceProvisioning.h"
 
-// ========================= CONFIGURACAO WIFI =========================
-const char* WIFI_SSID = "SUA_REDE_WIFI";
-const char* WIFI_PASSWORD = "SUA_SENHA_WIFI";
-const char* CASA_BASE_URL = "https://maurinsoft.com.br/casa";
-
 #define DHT_PIN 2
 #define DHT_TYPE DHT22
+const unsigned long INTERVALO_ENVIO_MS=60000UL;
+const unsigned long INTERVALO_POLL_PAREAMENTO_MS=3000UL;
 
-const unsigned long INTERVALO_ENVIO_MS = 60000UL;
-const unsigned long INTERVALO_POLL_PAREAMENTO_MS = 3000UL;
-
-DHT dht(DHT_PIN, DHT_TYPE);
+DHT dht(DHT_PIN,DHT_TYPE);
 CasaDeviceProvisioning prov;
+ESP8266WebServer portal(80);
+String wifiSsid,wifiPass,casaBase="https://maurinsoft.com.br/casa";
+bool portalAtivo=false;
+unsigned long ultimoEnvio=0,ultimoPollPareamento=0;
 
-unsigned long ultimoEnvio = 0;
-unsigned long ultimoPollPareamento = 0;
+String esc(const String&s){String o;for(size_t i=0;i<s.length();i++){char c=s[i];if(c=='&')o+="&amp;";else if(c=='<')o+="&lt;";else if(c=='>')o+="&gt;";else if(c=='\"')o+="&quot;";else o+=c;}return o;}
+String apName(){char b[7];snprintf(b,sizeof(b),"%06X",ESP.getChipId());return String("CASA-ESP01-")+b;}
 
-String tipoSensor() {
-#if DHT_TYPE == DHT11
-  return "dht11";
-#else
-  return "dht22";
-#endif
+bool loadNetwork(){
+  if(!LittleFS.begin())return false;if(!LittleFS.exists("/network.cfg"))return false;
+  File f=LittleFS.open("/network.cfg","r");if(!f)return false;
+  wifiSsid=f.readStringUntil('\n');wifiPass=f.readStringUntil('\n');casaBase=f.readStringUntil('\n');f.close();
+  wifiSsid.trim();wifiPass.trim();casaBase.trim();return !wifiSsid.isEmpty()&&!casaBase.isEmpty();
 }
-
-void conectarWiFi() {
-  if (WiFi.status() == WL_CONNECTED) return;
-
-  Serial.printf("[WIFI] Conectando em %s", WIFI_SSID);
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-  unsigned long inicio = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - inicio < 15000UL) {
-    delay(500);
-    Serial.print('.');
-    yield();
-  }
-
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println();
-    Serial.printf("[WIFI] Conectado. IP=%s RSSI=%d dBm\n",
-                  WiFi.localIP().toString().c_str(), WiFi.RSSI());
-  } else {
-    Serial.println("\n[WIFI] Falha ao conectar.");
-  }
+bool saveNetwork(const String&ssid,const String&pass,const String&base){
+  if(!LittleFS.begin())return false;File f=LittleFS.open("/network.cfg","w");if(!f)return false;
+  f.println(ssid);f.println(pass);f.println(base);f.close();wifiSsid=ssid;wifiPass=pass;casaBase=base;return true;
 }
-
-bool enviarLeitura(float temperatura, float umidade) {
-  if (WiFi.status() != WL_CONNECTED || !prov.isProvisioned()) return false;
-
-  std::unique_ptr<BearSSL::WiFiClientSecure> client(new BearSSL::WiFiClientSecure);
-  client->setInsecure();
-
-  HTTPClient http;
-  String url = prov.getBaseUrl() + "/api/v1/device.php?acao=heartbeat";
-  if (!http.begin(*client, url)) {
-    Serial.println("[HTTPS] Falha ao iniciar cliente.");
-    return false;
-  }
-
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("Authorization", String("Bearer ") + prov.getDeviceToken());
-  http.addHeader("X-Device-Token", prov.getDeviceToken());
-  http.addHeader("X-Device-Id", prov.getDeviceId());
-  http.addHeader("X-Device-Capabilities", "temperature,humidity,rssi,telemetry");
-  http.setTimeout(8000);
-
-  String payload = "{";
-  payload += "\"device_id\":\"" + prov.getDeviceId() + "\",";
-  payload += "\"transport\":\"wifi\",";
-  payload += "\"health\":\"ok\",";
-  payload += "\"protocol_version\":\"CASA/1.0\",";
-  payload += "\"capabilities\":[\"temperature\",\"humidity\",\"rssi\",\"telemetry\"],";
-  payload += "\"rssi\":" + String(WiFi.RSSI()) + ",";
-  payload += "\"uptime_sec\":" + String(millis() / 1000UL) + ",";
-  payload += "\"data\":{";
-  payload += "\"sensor_type\":\"" + tipoSensor() + "\",";
-  payload += "\"temperature_c\":" + String(temperatura, 2) + ",";
-  payload += "\"humidity_pct\":" + String(umidade, 2) + ",";
-  payload += "\"free_heap\":" + String(ESP.getFreeHeap()) + "}}";
-
-  Serial.println("[HTTPS] POST " + payload);
-  int code = http.POST(payload);
-
-  if (code > 0) {
-    String resposta = http.getString();
-    Serial.printf("[HTTPS] Codigo=%d Resposta=%s\n", code, resposta.c_str());
-    http.end();
-    return code >= 200 && code < 300;
-  }
-
-  Serial.printf("[HTTPS] Erro: %s\n", http.errorToString(code).c_str());
-  http.end();
-  return false;
+String page(const String&msg=""){
+  String h="<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'><title>CASA ESP-01</title></head><body><h2>Configurar ESP-01</h2>";
+  if(!msg.isEmpty())h+="<p><b>"+esc(msg)+"</b></p>";
+  h+="<form method='POST' action='/configure'>Wi-Fi SSID<br><input name='ssid' required><br>Senha<br><input type='password' name='password'><br>Servidor CASA<br><input name='casa' value='"+esc(casaBase)+"' required><br><br><button>Salvar e conectar</button></form>";
+  h+="<p>Se a rede falhar, o ESP-01 volta automaticamente a este modo.</p></body></html>";return h;
 }
-
-void lerEEnviar() {
-  float umidade = dht.readHumidity();
-  float temperatura = dht.readTemperature();
-
-  if (isnan(temperatura) || isnan(umidade)) {
-    Serial.println("[DHT] Falha na leitura do sensor.");
-    return;
-  }
-
-  Serial.printf("[DHT] Temp=%.2f C Umid=%.2f %%\n", temperatura, umidade);
-  enviarLeitura(temperatura, umidade);
+void startPortal(){
+  portalAtivo=true;WiFi.mode(WIFI_AP);String n=apName();WiFi.softAP(n.c_str());
+  portal.on("/",HTTP_GET,[]{portal.send(200,"text/html",page());});
+  portal.on("/configure",HTTP_POST,[]{String s=portal.arg("ssid"),p=portal.arg("password"),b=portal.arg("casa");s.trim();b.trim();while(b.endsWith("/"))b.remove(b.length()-1);if(s.isEmpty()||(!b.startsWith("https://")&&!b.startsWith("http://"))){portal.send(400,"text/html",page("Configuracao invalida"));return;}if(!saveNetwork(s,p,b)){portal.send(500,"text/html",page("Falha ao salvar"));return;}portal.send(200,"text/html","<h3>Configuracao salva.</h3><p>O ESP-01 vai testar a rede. Se falhar, conecte novamente ao AP.</p>");delay(500);ESP.restart();});
+  portal.begin();Serial.printf("[CONFIG] AP %s em http://%s\n",n.c_str(),WiFi.softAPIP().toString().c_str());
 }
-
-void verificarPareamento() {
-  if (prov.isProvisioned()) return;
-
-  if (prov.getState() == CASA_STATE_UNPROVISIONED) {
-    Serial.println("[PAREAMENTO] Solicitando registro na API central CASA...");
-    if (prov.requestPairing("sensor", "ESP01-DHT", "["temperature","humidity","telemetry"]")) {
-      Serial.println("==========================================================");
-      Serial.printf(" [PAREAMENTO PENDENTE] CODIGO: %s\n", prov.getPairingCode().c_str());
-      Serial.println(" Abra o aplicativo JARVIS Mobile no celular e autorize.");
-      Serial.println("==========================================================");
-    } else {
-      Serial.println("[PAREAMENTO] Falha ao enviar solicitacao. Tentando em 10s...");
-    }
-  } else if (prov.getState() == CASA_STATE_PAIRING_REQUESTED) {
-    if (millis() - ultimoPollPareamento > INTERVALO_POLL_PAREAMENTO_MS) {
-      ultimoPollPareamento = millis();
-      Serial.print(".");
-      if (prov.pollPairingStatus()) {
-        Serial.println("\n==========================================================");
-        Serial.println(" [PAREAMENTO APROVADO!]");
-        Serial.printf(" Device ID: %s\n", prov.getDeviceId().c_str());
-        Serial.println(" Chave individual gravada na EEPROM com sucesso.");
-        Serial.println("==========================================================");
-      }
-    }
-  }
+bool conectarWiFi(){
+  if(wifiSsid.isEmpty())return false;WiFi.mode(WIFI_STA);WiFi.begin(wifiSsid.c_str(),wifiPass.c_str());unsigned long ini=millis();
+  while(WiFi.status()!=WL_CONNECTED&&millis()-ini<15000UL){delay(250);yield();}
+  if(WiFi.status()==WL_CONNECTED){Serial.printf("[WIFI] IP=%s RSSI=%d\n",WiFi.localIP().toString().c_str(),WiFi.RSSI());return true;}WiFi.disconnect();return false;
 }
+String tipoSensor(){return DHT_TYPE==DHT11?"dht11":"dht22";}
 
-void setup() {
-  Serial.begin(115200);
-  delay(100);
-  Serial.println("\n=== ESP-01 DHT JARVIS RESIDENCIAL INICIADO ===");
-
-  dht.begin();
-  prov.begin(CASA_BASE_URL);
-
-  if (prov.isProvisioned()) {
-    Serial.printf("[AUTH] Dispositivo provisionado. ID=%s\n", prov.getDeviceId().c_str());
-  } else {
-    Serial.println("[AUTH] Dispositivo NAO provisionado. Aguardando pareamento pelo celular.");
-  }
+bool enviarLeitura(float temperatura,float umidade){
+  if(WiFi.status()!=WL_CONNECTED||!prov.isProvisioned())return false;
+  std::unique_ptr<BearSSL::WiFiClientSecure> client(new BearSSL::WiFiClientSecure);client->setInsecure();HTTPClient http;
+  String url=prov.getBaseUrl()+"/api/v1/device.php?acao=heartbeat";if(!http.begin(*client,url))return false;
+  http.addHeader("Content-Type","application/json");http.addHeader("Authorization",String("Bearer ")+prov.getDeviceToken());http.addHeader("X-Device-Token",prov.getDeviceToken());http.addHeader("X-Device-Id",prov.getDeviceId());http.setTimeout(8000);
+  String payload="{\"device_id\":\""+prov.getDeviceId()+"\",\"transport\":\"wifi\",\"health\":\"ok\",\"protocol_version\":\"CASA/1.0\",\"capabilities\":[\"temperature\",\"humidity\",\"telemetry\"],\"rssi\":"+String(WiFi.RSSI())+",\"data\":{\"sensor_type\":\""+tipoSensor()+"\",\"temperature_c\":"+String(temperatura,2)+",\"humidity_pct\":"+String(umidade,2)+"}}";
+  int code=http.POST(payload);http.end();return code>=200&&code<300;
 }
-
-void loop() {
-  conectarWiFi();
-
-  if (WiFi.status() == WL_CONNECTED) {
-    if (!prov.isProvisioned()) {
-      verificarPareamento();
-    } else {
-      if (millis() - ultimoEnvio >= INTERVALO_ENVIO_MS || ultimoEnvio == 0) {
-        ultimoEnvio = millis();
-        lerEEnviar();
-      }
-    }
-  }
-
+void lerEEnviar(){float u=dht.readHumidity(),t=dht.readTemperature();if(isnan(t)||isnan(u)){Serial.println("[DHT] Falha na leitura");return;}enviarLeitura(t,u);}
+void verificarPareamento(){
+  if(prov.isProvisioned())return;
+  if(prov.getState()==CASA_STATE_UNPROVISIONED){if(prov.requestPairing("sensor","ESP01-DHT","[\"temperature\",\"humidity\",\"telemetry\",\"wifi\"]"))Serial.printf("[PAIR] Aguardando Mobile. Codigo=%s\n",prov.getPairingCode().c_str());}
+  else if(prov.getState()==CASA_STATE_PAIRING_REQUESTED&&millis()-ultimoPollPareamento>INTERVALO_POLL_PAREAMENTO_MS){ultimoPollPareamento=millis();if(prov.pollPairingStatus())Serial.printf("[PAIR] Autorizado ID=%s\n",prov.getDeviceId().c_str());}
+}
+void setup(){
+  Serial.begin(115200);delay(100);dht.begin();
+  if(!loadNetwork()){startPortal();return;}
+  if(!conectarWiFi()){Serial.println("[WIFI] Rede salva falhou; retornando ao AP.");startPortal();return;}
+  prov.begin(casaBase);
+}
+void loop(){
+  if(portalAtivo){portal.handleClient();delay(2);return;}
+  if(WiFi.status()!=WL_CONNECTED){Serial.println("[WIFI] Conexao perdida; abrindo AP para reconfiguracao.");startPortal();return;}
+  if(!prov.isProvisioned())verificarPareamento();
+  else if(millis()-ultimoEnvio>=INTERVALO_ENVIO_MS||ultimoEnvio==0){ultimoEnvio=millis();lerEEnviar();}
   delay(100);
 }
