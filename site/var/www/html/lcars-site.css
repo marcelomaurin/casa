@@ -201,6 +201,8 @@ body{overscroll-behavior:none}
 .ja-module-title small{color:#a7d6fb;font-size:clamp(9px,.8vw,12px)}
 .ja-module-frame{
   width:100%;
+  max-width:100%;
+  min-width:0;
   height:100%;
   min-height:0;
   border:0;
