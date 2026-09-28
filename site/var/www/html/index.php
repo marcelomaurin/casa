@@ -11,7 +11,7 @@ $authName = !empty($_SESSION['auth_name']) ? $_SESSION['auth_name'] : ($_SESSION
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
   <title>CASA / COMPUTER</title>
   <link rel="stylesheet" href="/casa/lcars-framework.css?v=1.2.0">
-  <link rel="stylesheet" href="/casa/lcars-site.css?v=1.4.5">
+  <link rel="stylesheet" href="/casa/lcars-site.css?v=1.4.9">
   <link rel="stylesheet" href="/casa/lcars-iot.css?v=1.0.0">
 </head>
 <body>
@@ -23,7 +23,7 @@ $authName = !empty($_SESSION['auth_name']) ? $_SESSION['auth_name'] : ($_SESSION
   <script>window.CASA_SESSION_TOKEN = <?= json_encode($jarvisSessionToken, JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT) ?>;</script>\n  <div id="app"></div>
   <noscript>O CASA/COMPUTER precisa de JavaScript habilitado para a interface adaptativa.</noscript>
   <script src="/casa/lcars-framework.js?v=1.3.0"></script>
-  <script src="/casa/lcars-site.js?v=1.4.8"></script>
+  <script src="/casa/lcars-site.js?v=1.4.9"></script>
   <script src="/casa/lcars-iot.js?v=1.0.0"></script>
 </body>
 </html>
