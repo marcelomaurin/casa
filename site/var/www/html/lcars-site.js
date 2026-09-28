@@ -1076,14 +1076,18 @@ async function renderJarvis(){
   await diagnoseVoiceCore();
 
   const history=await loadComputerHistory();
+  let conversationHistory=[];
   if(log){
     log.innerHTML='';
     if(!history.length){
       appendChat('COMPUTER','Pronto.','ai');
     }else{
       history.forEach(h=>{
-        appendChat('Você',h.user_msg||'','user',false);
-        appendChat('COMPUTER',h.bot_msg||'','ai',false);
+        const userMsg=String(h.user_msg||'').trim(), botMsg=String(h.bot_msg||'').trim();
+        appendChat('Você',userMsg,'user',false);
+        appendChat('COMPUTER',botMsg,'ai',false);
+        if(userMsg) conversationHistory.push({role:'user',content:userMsg});
+        if(botMsg) conversationHistory.push({role:'assistant',content:botMsg});
       });
       log.scrollTop=log.scrollHeight;
     }
@@ -1095,9 +1099,10 @@ async function renderJarvis(){
     input.value='';
     appendChat('Você',cmd,'user');
     try{
-      const r=await postJson('/casa/api/jarvis.php',{comando:cmd,ia_mode:'auto'});
+      const r=await postJson('/casa/api/jarvis.php',{comando:cmd,ia_mode:'auto',historico:conversationHistory});
       const resposta=r.resposta||r.mensagem||'Sem resposta.';
       appendChat('COMPUTER',resposta,'ai');
+      conversationHistory.push({role:'user',content:cmd},{role:'assistant',content:String(resposta)});
       if(!speakComputer(resposta)){
         appendChat('Sistema','Voz pt-BR não disponível neste navegador.','error');
       }
@@ -1118,6 +1123,7 @@ async function renderJarvis(){
       if(log){
         log.innerHTML='';
         appendChat('COMPUTER',r.mensagem||'Histórico limpo.','ai');
+        conversationHistory=[];
       }
     }catch(e){
       appendChat('Sistema',e.message||'Falha ao limpar histórico.','error');
