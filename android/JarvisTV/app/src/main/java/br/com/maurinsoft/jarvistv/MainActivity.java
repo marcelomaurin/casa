@@ -88,9 +88,36 @@ public class MainActivity extends Activity {
             control.ack(id); control.start(id); JSONObject result=new JSONObject();
             if(name.equals("refresh")||name.equals("dashboard.refresh")||name.equals("tv.refresh")){ runOnUiThread(this::refreshDashboard); result.put("action","dashboard_refreshed"); }
             else if(name.equals("camera.next")||name.equals("tv.camera.next")){ runOnUiThread(this::nextCamera); result.put("action","camera_next"); }
+            else if(name.equals("emergency.sos")||name.equals("emergency.location")||name.equals("emergency.cancelled")||name.equals("tv.emergency")){
+                JSONObject payload=cmd.optJSONObject("payload");
+                if(payload==null) payload=new JSONObject();
+                final JSONObject emergencyPayload=payload;
+                final String emergencyName=name;
+                runOnUiThread(()->showEmergencyCommand(emergencyName,emergencyPayload));
+                result.put("action","emergency_displayed").put("event",name);
+            }
             else { control.result(id,false,result,"Comando nao suportado pela TV: "+name); return; }
             control.result(id,true,result,null);
         } catch(Throwable t){ try { control.result(id,false,new JSONObject(),t.getMessage()); } catch(Throwable ignored){} }
+    }
+
+    private void showEmergencyCommand(String name,JSONObject payload){
+        String message=payload.optString("message",payload.optString("mensagem",""));
+        JSONObject data=payload.optJSONObject("data");
+        if(data==null) data=payload;
+        String session=data.optString("session_id","");
+        if(name.equals("emergency.cancelled")){
+            alertText.setText("[EMERGÊNCIA ENCERRADA]"+(message.isEmpty()?"":" "+message));
+            status.setText("Emergência encerrada"+(session.isEmpty()?"":" • "+session));
+            return;
+        }
+        StringBuilder text=new StringBuilder(name.equals("emergency.location")?"[EMERGÊNCIA • LOCALIZAÇÃO]":"[EMERGÊNCIA • SOS]");
+        if(!message.isEmpty()) text.append("\n").append(message);
+        JSONObject loc=data.optJSONObject("location");
+        if(loc!=null && loc.has("lat") && loc.has("lon")) text.append("\nGPS: ").append(loc.optDouble("lat")).append(", ").append(loc.optDouble("lon"));
+        if(!session.isEmpty()) text.append("\nSessão: ").append(session);
+        alertText.setText(text.toString());
+        status.setText("EMERGÊNCIA ATIVA");
     }
 
     private void refreshDashboard(){
