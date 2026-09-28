@@ -82,6 +82,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['auth_name'] = $user['nome'];
                 $_SESSION['auth_perfil'] = $user['perfil'] ?? 'admin';
                 $_SESSION['auth_time'] = time();
+                $_SESSION['jarvis_session_token'] = bin2hex(random_bytes(32));
                 login_log('LOGIN_OK', 'usuario=' . $user['login'] . '; destino=' . $basePath . '/index.php');
                 try {
                     $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
