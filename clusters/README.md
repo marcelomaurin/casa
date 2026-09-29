@@ -57,3 +57,9 @@ anteriormente deve ser substituído pela versão atual antes de ser executado.
 
 O simulador de desenvolvimento permanece em `servicos/device_simulator.py`.
 Aplicativos Android, firmware Arduino e código do site continuam em suas pastas.
+
+## Guias técnicos
+
+- [Operação e configuração](OPERACAO.md): instalação ARM, presença no site, atualização e diagnóstico.
+- [Inventário dos nove programas](INVENTARIO.md): funções, entradas, dependências, configuração e unidades.
+- [Migração dos caminhos](MIGRACAO.md): origem/destino e orientação para instalações existentes.
