@@ -13,7 +13,7 @@ import androidx.core.content.ContextCompat
 import org.json.JSONObject
 
 /**
- * Terminal WebRTC do JARVIS Mobile.
+ * Terminal WebRTC do Casa Mobile.
  *
  * O Watch apenas inicia/controla a chamada. O fluxo de mídia usa câmera,
  * microfone e WebRTC do Android através do WebView, compartilhando a mesma
@@ -185,7 +185,7 @@ async function pollSignals(){
 async function boot(){
   try{
     await media();
-    await api('call_join',{call_id:CALL,platform:'mobile',device:'JARVIS Mobile'});
+    await api('call_join',{call_id:CALL,platform:'mobile',device:'Casa Mobile'});
     if(!INITIATOR) await signal('join',{mode:MODE});
     document.getElementById('status').textContent=(INITIATOR?'Chamando':'Chamada')+' '+MODE+' #'+CALL;
     setInterval(()=>pollSignals().catch(()=>{}),1000);

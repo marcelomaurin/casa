@@ -36,8 +36,8 @@ object UpdateManager {
                 if (pendingVersion == release.version && pendingId > 0) return@runCatching
                 val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
                 val req = DownloadManager.Request(android.net.Uri.parse(release.apkUrl))
-                    .setTitle("JARVIS Mobile ${release.version}")
-                    .setDescription("Atualização do JARVIS Mobile")
+                    .setTitle("Casa Mobile ${release.version}")
+                    .setDescription("Atualização do Casa Mobile")
                     .setMimeType("application/vnd.android.package-archive")
                     .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                     .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, release.fileName)
@@ -88,7 +88,7 @@ object UpdateManager {
     private fun notify(context: Context, title: String, text: String) {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            nm.createNotificationChannel(NotificationChannel(CHANNEL, "Atualizações JARVIS", NotificationManager.IMPORTANCE_DEFAULT))
+            nm.createNotificationChannel(NotificationChannel(CHANNEL, "Atualizações Casa Mobile", NotificationManager.IMPORTANCE_DEFAULT))
         }
         if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) return
         nm.notify(2606, NotificationCompat.Builder(context, CHANNEL)

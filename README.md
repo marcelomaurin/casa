@@ -27,7 +27,7 @@ O objetivo é permitir que o JARVIS receba comandos em linguagem natural, consul
 | Planejador | Perguntas rastreáveis, subtarefas imediatas/agendadas/condicionais | Experimental |
 | Web Agent | Pesquisa e coleta de conteúdo web com task_context | Experimental |
 | TTS | Serviço Python/FastAPI | Experimental |
-| JARVIS Mobile | Android Kotlin / Jetpack Compose, versão 2.6.7 | Experimental |
+| Casa Mobile | Android Kotlin / Jetpack Compose, versão 2.6.9 | Experimental |
 | JARVIS TV | Android TV, versão 1.0.0 | Experimental |
 | LILYGO Watch | Firmware + BLE de provisionamento + Wi-Fi/HTTPS em operação | Experimental |
 | ESP32-CAM | Captura e envio de imagens | Experimental |
@@ -77,7 +77,7 @@ O objetivo é permitir que o JARVIS receba comandos em linguagem natural, consul
 
 | Diretório | Finalidade |
 |---|---|
-| `android/` | Aplicativos Android, incluindo JARVIS Mobile |
+| `android/` | Aplicativos Android, incluindo Casa Mobile |
 | `apis/` | Integrações e recursos relacionados a APIs |
 | `arduino/` | Firmwares ESP32, ESP8266 e outros microcontroladores |
 | `bin/` | Recursos binários deliberadamente mantidos; builds gerados são publicados por CI/Releases |
@@ -114,9 +114,9 @@ A API utiliza autenticação e foi estruturada para suportar tokens individuais,
 > [!IMPORTANT]
 > Nunca grave tokens reais, senhas, credenciais Wi-Fi, chaves privadas ou credenciais de serviços externos no repositório.
 
-### JARVIS Mobile
+### Casa Mobile
 
-A versão atual na `master` é **2.6.7** (`versionCode 267`). O aplicativo Android está em:
+A versão atual na `master` é **2.6.9** (`versionCode 269`). O aplicativo Android está em:
 
 ```text
 android/JarvisMobile/
@@ -136,7 +136,7 @@ Principais objetivos:
 
 APK de desenvolvimento:
 
-O APK do JARVIS Mobile **não é versionado no Git**. Cada build da branch `master` é gerado pelo GitHub Actions e publicado como artifact e como pre-release no GitHub Releases, com o nome `JarvisMobile-v<VERSAO>-debug.apk`.
+O APK do Casa Mobile **não é versionado no Git**. Cada build da branch `master` é gerado pelo GitHub Actions e publicado como artifact e como pre-release no GitHub Releases, com o nome `CasaMobile-v<VERSAO>-debug.apk`.
 
 Consulte `android/JarvisMobile/VERSIONAMENTO.md` para as regras de versão.
 

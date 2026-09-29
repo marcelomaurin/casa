@@ -45,7 +45,7 @@ object FamilyApi {
         }
     }
 
-    fun presence(context: Context, device: String = "JARVIS Mobile", metadata: JSONObject = JSONObject()): JSONObject =
+    fun presence(context: Context, device: String = "Casa Mobile", metadata: JSONObject = JSONObject()): JSONObject =
         request(context, "presence", JSONObject()
             .put("platform", "mobile")
             .put("device", device)
@@ -106,7 +106,7 @@ object FamilyApi {
     fun joinCall(
         context: Context,
         callId: Long,
-        device: String = "JARVIS Mobile",
+        device: String = "Casa Mobile",
         platform: String = "mobile"
     ) {
         request(

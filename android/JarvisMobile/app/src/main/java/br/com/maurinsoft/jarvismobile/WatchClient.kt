@@ -234,7 +234,7 @@ class WatchClient(private val context: Context) {
                 send(JSONObject()
                     .put("type", "hello")
                     .put("protocol", "TCP-1.0")
-                    .put("client", "JARVIS Mobile"))
+                    .put("client", "Casa Mobile"))
                 requestStatus()
             } catch (t: Throwable) {
                 connectingHost = null

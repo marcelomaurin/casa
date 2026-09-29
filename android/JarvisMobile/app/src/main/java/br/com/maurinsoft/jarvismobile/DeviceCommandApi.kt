@@ -11,7 +11,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
-/** Cliente/consumidor do Control Plane para o proprio JARVIS Mobile. */
+/** Cliente/consumidor do Control Plane para o proprio Casa Mobile. */
 object DeviceCommandApi {
     data class Command(val id:Long,val name:String,val payload:JSONObject,val priority:String,val correlationId:String?)
     private val jsonType="application/json; charset=utf-8".toMediaType()
@@ -22,7 +22,7 @@ object DeviceCommandApi {
     private fun request(context:Context,action:String,body:JSONObject?=null):JSONObject{
         val cfg=JarvisApi.loadConfig(context)
         require(cfg.baseUrl.startsWith("https://")){"Use uma URL HTTPS do JARVIS"}
-        require(cfg.token.isNotBlank()){"Token do JARVIS Mobile nao configurado"}
+        require(cfg.token.isNotBlank()){"Token do Casa Mobile nao configurado"}
         val b=Request.Builder().url(cfg.baseUrl.trimEnd('/')+"/api/v1/device.php?acao=$action").header("Authorization","Bearer ${cfg.token}").header("X-Device-Token",cfg.token).header("Accept","application/json")
         if(body==null)b.get() else b.post(body.toString().toRequestBody(jsonType))
         client.newCall(b.build()).execute().use{r->val raw=r.body?.string().orEmpty();if(!r.isSuccessful)throw IllegalStateException("HTTP ${r.code}: ${raw.take(300)}");return JSONObject(raw)}
@@ -35,7 +35,7 @@ object DeviceCommandApi {
     }
     fun ack(context:Context,id:Long){request(context,"command_ack",JSONObject().put("id",id))}
     fun start(context:Context,id:Long){request(context,"command_start",JSONObject().put("id",id))}
-    fun result(context:Context,id:Long,ok:Boolean,result:JSONObject=JSONObject(),error:String?=null){request(context,"command_result",JSONObject().put("id",id).put("status",if(ok)"success" else "error").put("result",result).apply{if(!ok)put("error",error?:"Falha no JARVIS Mobile")})}
+    fun result(context:Context,id:Long,ok:Boolean,result:JSONObject=JSONObject(),error:String?=null){request(context,"command_result",JSONObject().put("id",id).put("status",if(ok)"success" else "error").put("result",result).apply{if(!ok)put("error",error?:"Falha no Casa Mobile")})}
 
     fun startLoop(context:Context){
         if(!running.compareAndSet(false,true))return

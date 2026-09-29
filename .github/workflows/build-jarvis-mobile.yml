@@ -1,4 +1,4 @@
-name: Build Jarvis Mobile APK
+name: Build Casa Mobile APK
 # build-trigger: 2.6.3-clean-ci
 
 on:
@@ -90,13 +90,13 @@ jobs:
       - name: Rename APK
         shell: bash
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk "${{ github.workspace }}/JarvisMobile-v${{ steps.version.outputs.name }}-debug.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "${{ github.workspace }}/CasaMobile-v${{ steps.version.outputs.name }}-debug.apk"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: JarvisMobile-v${{ steps.version.outputs.name }}-debug-apk
-          path: JarvisMobile-v${{ steps.version.outputs.name }}-debug.apk
+          name: CasaMobile-v${{ steps.version.outputs.name }}-debug-apk
+          path: CasaMobile-v${{ steps.version.outputs.name }}-debug.apk
           if-no-files-found: error
 
       - name: Publish or update debug GitHub Release
@@ -108,14 +108,14 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.name }}"
           TAG="jarvis-mobile-v${VERSION}-debug"
-          ASSET="JarvisMobile-v${VERSION}-debug.apk"
+          ASSET="CasaMobile-v${VERSION}-debug.apk"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$ASSET" --clobber
           else
             gh release create "$TAG" "$ASSET" \
               --target "$GITHUB_SHA" \
-              --title "Jarvis Mobile v${VERSION} Debug" \
-              --notes "Build automatizado de desenvolvimento do Jarvis Mobile v${VERSION}." \
+              --title "Casa Mobile v${VERSION} Debug" \
+              --notes "Build automatizado de desenvolvimento do Casa Mobile v${VERSION}." \
               --prerelease
           fi

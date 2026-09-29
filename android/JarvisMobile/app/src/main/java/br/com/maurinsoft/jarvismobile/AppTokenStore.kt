@@ -11,7 +11,7 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 /**
- * Armazena o token do próprio JARVIS Mobile protegido pelo Android Keystore.
+ * Armazena o token do próprio Casa Mobile protegido pelo Android Keystore.
  * O app é o ponto focal de provisionamento dos hardwares e, por isso, a
  * credencial do celular não deve permanecer em SharedPreferences em texto claro.
  */

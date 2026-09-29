@@ -1,9 +1,9 @@
-# Versionamento — JARVIS Mobile
+# Versionamento — Casa Mobile
 
 ## Versão atual
 
-- `versionName`: `2.6.8`
-- `versionCode`: `268`
+- `versionName`: `2.6.9`
+- `versionCode`: `269`
 - pacote de desenvolvimento: `br.com.maurinsoft.jarvismobile.debug`
 - pacote de produção: `br.com.maurinsoft.jarvismobile`
 
@@ -43,12 +43,12 @@ As builds automáticas atuais são `debug` e usam:
 applicationId = br.com.maurinsoft.jarvismobile.debug
 ```
 
-Isto permite instalar a build de desenvolvimento mesmo que uma versão anterior do JARVIS Mobile tenha sido assinada por outra chave debug.
+Isto permite instalar a build de desenvolvimento mesmo que uma versão anterior do Casa Mobile tenha sido assinada por outra chave debug.
 
 O APK gerado recebe nome versionado:
 
 ```text
-JarvisMobile-v2.6.8-debug.apk
+CasaMobile-v2.6.9-debug.apk
 ```
 
 O APK não é versionado no repositório. O GitHub Actions publica a build como artifact e atualiza a pre-release correspondente em GitHub Releases.
@@ -82,3 +82,10 @@ Se ainda houver conflito com uma instalação debug anterior, desinstale apenas 
 5. Confirmar que o APK foi gerado.
 6. Confirmar o nome/versionamento do APK.
 7. Testar instalação limpa e atualização a partir da versão anterior usando a mesma assinatura.
+
+## Histórico — 2.6.9
+
+- Incremento de versão para nova distribuição do aplicativo Android.
+- Documentação da versão atual sincronizada com o projeto Gradle.
+- Nome exibido atualizado para Casa Mobile no Android, navegação, notificações e identificação do cliente.
+- Identificador do pacote e prefixo das tags de atualização preservados para compatibilidade com instalações existentes.

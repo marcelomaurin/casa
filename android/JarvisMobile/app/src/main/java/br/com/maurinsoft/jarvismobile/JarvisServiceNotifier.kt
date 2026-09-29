@@ -32,7 +32,7 @@ class JarvisServiceNotifier(private val context: Context) {
     fun serviceNotification(text:String):Notification {
         val open=PendingIntent.getActivity(context,0,Intent(context,MainActivity::class.java),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val setup=PendingIntent.getActivity(context,1,Intent(context,WatchSetupActivity::class.java),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        return NotificationCompat.Builder(context,JarvisConnectionService.CHANNEL_SERVICE).setSmallIcon(R.drawable.ic_jarvis_launcher).setContentTitle("JARVIS Mobile").setContentText(text).setOngoing(true).setContentIntent(open).addAction(0,"Relogio",setup).build()
+        return NotificationCompat.Builder(context,JarvisConnectionService.CHANNEL_SERVICE).setSmallIcon(R.drawable.ic_jarvis_launcher).setContentTitle("Casa Mobile").setContentText(text).setOngoing(true).setContentIntent(open).addAction(0,"Relogio",setup).build()
     }
     fun updateService(text:String){manager.notify(JarvisConnectionService.NOTIFICATION_ID,serviceNotification(text))}
     fun canNotify():Boolean=Build.VERSION.SDK_INT<33||ActivityCompat.checkSelfPermission(context,Manifest.permission.POST_NOTIFICATIONS)==PackageManager.PERMISSION_GRANTED

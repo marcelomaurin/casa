@@ -16,7 +16,7 @@ import javax.crypto.spec.GCMParameterSpec
  * Perfis Wi-Fi conhecidos pelo usuário e destinados ao JARVIS Watch.
  *
  * O Android não entrega a senha da rede Wi-Fi atual para aplicativos comuns.
- * Por isso o usuário informa a senha uma vez no JARVIS Mobile. Ela fica
+ * Por isso o usuário informa a senha uma vez no Casa Mobile. Ela fica
  * criptografada com uma chave não exportável do Android Keystore e pode ser
  * reenviada ao relógio quando necessário.
  */

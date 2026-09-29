@@ -13,7 +13,7 @@ import kotlinx.coroutines.*
 import org.json.JSONObject
 
 /**
- * Serviço central do JARVIS Mobile.
+ * Serviço central do Casa Mobile.
  *
  * O Watch usa socket TCP local quando celular e relógio estão na mesma LAN.
  * A CASA continua como fallback remoto para comandos e eventos.
@@ -341,7 +341,7 @@ class JarvisConnectionService : Service(), WatchClient.Listener, WatchEventProce
 
     override suspend fun acceptFamilyCall(deviceId: String, callId: Long, mode: String) {
         val accepted = runCatching {
-            FamilyApi.joinCall(this@JarvisConnectionService, callId, "JARVIS Mobile", "watch")
+            FamilyApi.joinCall(this@JarvisConnectionService, callId, "Casa Mobile", "watch")
             true
         }.getOrDefault(false)
 
@@ -439,7 +439,7 @@ class JarvisConnectionService : Service(), WatchClient.Listener, WatchEventProce
                         runCatching {
                             FamilyApi.presence(
                                 this@JarvisConnectionService,
-                                "JARVIS Mobile",
+                                "Casa Mobile",
                                 JSONObject()
                                     .put("watch_online_count", watchOnlineCount)
                                     .put("watch_registered_count", watches.size)
