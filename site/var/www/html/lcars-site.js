@@ -1049,6 +1049,8 @@ function computerVoice(){
 }
 let computerSpeechGeneration=0;
 let computerBargeIn=null;
+let computerRequestInFlight=false;
+let lastComputerSubmission={text:'',at:0};
 async function startComputerBargeIn(generation){
   stopComputerBargeIn();
   if(!navigator.mediaDevices?.getUserMedia)return;
@@ -1183,8 +1185,17 @@ async function renderJarvis(){
   const send=async()=>{
     const cmd=input.value.trim();
     if(!cmd)return;
+
+    const now=Date.now();
+    if(computerRequestInFlight)return;
+    if(lastComputerSubmission.text===cmd && (now-lastComputerSubmission.at)<1500)return;
+    computerRequestInFlight=true;
+    lastComputerSubmission={text:cmd,at:now};
+
     input.value='';
     appendChat('Você',cmd,'user');
+    const sendBtn=document.getElementById('ja-command-send');
+    if(sendBtn)sendBtn.disabled=true;
     try{
       const historicoTexto=conversationHistory.map(m=>(m.role==='assistant'?'ASSISTANT':'USER')+': '+m.content).join('\n\n');
       const r=await postJson('/casa/api/jarvis.php',{comando:cmd,ia_mode:'auto',historico:historicoTexto,historico_mensagens:conversationHistory});
@@ -1196,6 +1207,9 @@ async function renderJarvis(){
       }
     }catch(e){
       appendChat('Sistema',e.message,'error');
+    }finally{
+      computerRequestInFlight=false;
+      if(sendBtn)sendBtn.disabled=false;
     }
   };
   document.getElementById('ja-command-send').onclick=send;
@@ -1289,12 +1303,24 @@ async function startVoice(input,done){
   const btn=document.getElementById('ja-left-voice');
   const r=new SR(); activeRecognition=r;
   r.lang='pt-BR'; r.continuous=false; r.interimResults=false; r.maxAlternatives=1;
+  let resultConsumed=false;
   if(btn){btn.disabled=true;btn.textContent='OUVINDO...';}
   voiceStatus('listening','OUVINDO');
   r.onresult=e=>{
-    const transcript=Array.from(e.results).map(x=>x[0]?.transcript||'').join(' ').trim();
-    if(transcript){input.value=transcript;voiceStatus('ready','RECONHECIDO',true);done();}
-    else{voiceStatus('error','SEM RESULTADO');appendChat('Sistema','O microfone foi ouvido, mas nenhuma fala foi reconhecida.','error');}
+    if(resultConsumed)return;
+    const finals=Array.from(e.results).filter(x=>x.isFinal!==false);
+    const transcript=finals.map(x=>x[0]?.transcript||'').join(' ').trim();
+    if(transcript){
+      resultConsumed=true;
+      input.value=transcript;
+      voiceStatus('ready','RECONHECIDO',true);
+      try{r.stop();}catch(_){}
+      done();
+    }else if(e.results.length){
+      voiceStatus('listening','OUVINDO');
+    }else{
+      voiceStatus('error','SEM RESULTADO');
+    }
   };
   r.onnomatch=()=>{voiceStatus('error','NÃO RECONHECIDO');appendChat('Sistema','Não consegui reconhecer a fala. Tente novamente mais próximo do microfone.','error');};
   r.onerror=e=>{
