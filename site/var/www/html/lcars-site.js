@@ -498,11 +498,35 @@ async function renderOperationalTelemetry(page=1){
 }
 
 async function renderNodes(){
-  loading('Cluster ARM');
-  const j=await crud('arm_nodes'); const all=j.dados||[]; const p=paginate('nodes',all,6);
-  moduleShell('Cluster ARM',cards(p.slice,n=>'<article class="ja-native-card"><h3>'+esc(n.nome||n.hostname||('Nó '+n.id))+'</h3><dl><dt>IP</dt><dd>'+esc(n.ip_address||n.ip||'—')+'</dd><dt>CPU</dt><dd>'+esc(n.cpu_uso||n.cpu||'—')+'</dd><dt>RAM</dt><dd>'+esc(n.ram_uso||n.ram||'—')+'</dd></dl><span class="ja-state '+((n.status||'').toLowerCase()==='online'?'ok':'')+'">'+esc(n.status||'REGISTRADO')+'</span></article>')+pager('nodes',p));
-  bindPager('nodes',p,renderNodes);
+  loading('Clusters e agentes Linux ARM');
+  try{
+    const j=await getJson('/casa/api/arm_nodes.php');
+    const all=j.nodes||[];
+    const p=paginate('nodes',all,12);
+    const states={online:'ONLINE',offline:'SEM CONTATO RECENTE',registered:'AGUARDANDO CONTATO',revoked:'REVOGADO'};
+    const summary='<p>'+esc(all.length)+' agente(s) registrado(s) · '+esc(all.filter(n=>n.online).length)+' online. Inclui registros atuais e legados. Online: contato nos últimos 120 segundos.</p>';
+    const body=all.length?cards(p.slice,n=>'<article class="ja-native-card"><h3>'+esc(n.nome)+'</h3><dl>'+
+      '<dt>Identificador</dt><dd>'+esc(n.device_id||'Legado sem identificador')+'</dd>'+
+      '<dt>Hostname</dt><dd>'+esc(n.hostname||'—')+'</dd>'+
+      '<dt>Programa / função</dt><dd>'+esc(n.papel||'—')+'</dd>'+
+      '<dt>Plataforma</dt><dd>'+esc(n.platform||'—')+'</dd>'+
+      '<dt>IP</dt><dd>'+esc(n.ip_address||'—')+'</dd>'+
+      '<dt>Versão</dt><dd>'+esc(n.version||'Não informada')+'</dd>'+
+      '<dt>CPU</dt><dd>'+esc(n.cpu||'Não informada')+'</dd>'+
+      '<dt>RAM</dt><dd>'+esc(n.ram||'Não informada')+'</dd>'+
+      '<dt>Capacidades</dt><dd>'+esc((n.capabilities||[]).join(', ')||'Não informadas')+'</dd>'+
+      '<dt>Último contato (servidor)</dt><dd>'+esc(n.last_seen||'Ainda não recebido')+'</dd>'+
+      '</dl><span class="ja-state '+(n.online?'ok':'')+'">'+esc(states[n.status]||n.status)+'</span></article>')+pager('nodes',p):
+      '<div class="ja-empty">Nenhum agente Linux ARM registrado. Os agentes conectados pela API de dispositivos aparecem aqui ao informar a plataforma linux-arm ou a capacidade arm-agent.</div>';
+    moduleShell('Clusters e agentes Linux ARM',summary+body,'<button id="nodes-refresh" class="ja-mini">Atualizar lista</button>');
+    bindPager('nodes',p,renderNodes);
+    document.getElementById('nodes-refresh').onclick=renderNodes;
+  }catch(e){
+    moduleShell('Clusters e agentes Linux ARM','<div class="ja-empty">'+esc(e.message||'Falha ao carregar agentes.')+'</div>','<button id="nodes-retry" class="ja-mini">Tentar novamente</button>');
+    document.getElementById('nodes-retry').onclick=renderNodes;
+  }
 }
+
 
 function scheduleCronLabel(t){
   if(t.cron_expr) return t.cron_expr;

@@ -73,6 +73,11 @@ jobs:
       - name: Test automatic empty-database install
         run: php .github/tests/test_schema_install.php
 
+      - name: Test ARM agent registry and UI
+        run: |
+          php .github/tests/test_arm_nodes.php
+          node .github/tests/test_arm_nodes_ui.js
+
       - name: Test Command Bus and automation internals
         run: php .github/tests/test_control_plane.php
 
