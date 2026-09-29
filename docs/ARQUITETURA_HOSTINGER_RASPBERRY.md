@@ -95,7 +95,7 @@ Os Raspberry Pi são nós de execução física e gateways de hardware.
 Serviço-base:
 
 ```text
-servicos/arm-agent/
+clusters/comunicacao/arm-agent/
 ```
 
 Responsabilidades:
@@ -114,12 +114,12 @@ Serviços que podem rodar nos Raspberry:
 
 | Serviço | Uso |
 |---|---|
-| `servicos/arm-agent/` | agente principal do nó |
-| `servicos/casa-scheduler/` | execução distribuída de agendamentos |
-| `servicos/espcam/` | câmera/visão local |
-| `servicos/tts/` | síntese local |
-| `servicos/web-agent/` | agente de pesquisa/navegação |
-| `servicos/casa-tunnel/` | conectividade auxiliar quando necessária |
+| `clusters/comunicacao/arm-agent/` | agente principal do nó |
+| `clusters/automacao/casa-scheduler/` | execução distribuída de agendamentos |
+| `clusters/visao/espcam/` | câmera/visão local |
+| `clusters/voz/tts/` | síntese local |
+| `clusters/pesquisa/web-agent/` | agente de pesquisa/navegação |
+| `clusters/infraestrutura/casa-tunnel/` | conectividade auxiliar quando necessária |
 
 ## SERVIDOR DE IA
 

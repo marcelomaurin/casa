@@ -9,8 +9,8 @@ ROOT = Path(__file__).resolve().parents[2]
 TARGETS = [
     ROOT / "android",
     ROOT / "arduino",
-    ROOT / "yocto",
-    ROOT / "servicos" / "arm-agent",
+    ROOT / "clusters" / "visao" / "raspberrypi-avatar-agent",
+    ROOT / "clusters" / "comunicacao" / "arm-agent",
 ]
 EXTENSIONS = {".kt", ".java", ".ino", ".cpp", ".h", ".hpp", ".py", ".c"}
 

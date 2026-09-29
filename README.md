@@ -85,7 +85,8 @@ O objetivo é permitir que o JARVIS receba comandos em linguagem natural, consul
 | `docs/` | Documentação técnica e instalação |
 | `mysql/` | Estruturas legadas/auxiliares MySQL |
 | `nextion/` | Interfaces e recursos Nextion |
-| `servicos/` | Serviços Python e processos auxiliares |
+| [`clusters/`](clusters/README.md) | Agentes e serviços Linux organizados por funcionalidade |
+| `servicos/` | Simulador de dispositivos para desenvolvimento |
 | `site/` | Aplicação web e APIs PHP |
 | `srv/` | Recursos de servidor |
 

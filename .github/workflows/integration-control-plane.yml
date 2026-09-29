@@ -8,10 +8,9 @@ on:
       - 'mysql/**'
       - 'site/var/www/html/automacao.php'
       - 'servicos/device_simulator.py'
-      - 'servicos/arm-agent/**'
+      - 'clusters/**'
       - 'android/**'
       - 'arduino/**'
-      - 'yocto/**'
       - '.github/tests/**'
       - '.github/workflows/integration-control-plane.yml'
   workflow_dispatch:
@@ -57,6 +56,9 @@ jobs:
           find site/var/www/html/api -name '*.php' -print0 | xargs -0 -n1 php -l
           find .github/tests -name '*.php' -print0 | xargs -0 -n1 php -l
           php -l site/var/www/html/automacao.php
+
+      - name: Validate cluster organization
+        run: python3 .github/tests/test_clusters_layout.py
 
       - name: Enforce API v1 on external clients
         run: python3 .github/tests/test_api_v1_clients.py

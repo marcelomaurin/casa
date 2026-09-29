@@ -47,7 +47,7 @@ Para outro Raspberry altere `MACHINE` no `conf/local.conf`.
 A configuração usa a série Yocto LTS `scarthgap`.
 
 ```bash
-cd yocto/raspberrypi-avatar-agent
+cd clusters/visao/raspberrypi-avatar-agent
 sh ./setup-env.sh
 source build-env
 bitbake casa-avatar-image

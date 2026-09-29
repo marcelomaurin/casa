@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-REPO_RAW="https://raw.githubusercontent.com/marcelomaurin/casa/master/servicos/arm-agent"
+REPO_RAW="https://raw.githubusercontent.com/marcelomaurin/casa/master/clusters/comunicacao/arm-agent"
 INSTALL_DIR="/opt/casa-node-agent"
 ENV_FILE="/etc/casa-node-agent.env"
 
