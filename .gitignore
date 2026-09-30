@@ -30,3 +30,8 @@ __pycache__/
 # Configuracoes privadas de producao
 config.local.php
 *.secret.php
+
+# Permitir artefatos explicitamente mantidos na pasta bin/
+!bin/**
+
+!site/var/www/html/bin/**

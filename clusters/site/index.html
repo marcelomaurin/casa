@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <title>CASA / CLUSTER ARM — Nó Local</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    :root {
+      --bg: #03080e;
+      --surface: #06131d;
+      --card: #091a27;
+      --card-hover: #0d2334;
+      --border: #143046;
+      --orange: #ff9900;
+      --amber: #f2a000;
+      --blue: #3f82ad;
+      --cyan: #00e5ff;
+      --green: #22c55e;
+      --red: #ef4444;
+      --text: #e0f2fe;
+      --muted: #8fc7ef;
+      --font-mono: "SF Mono", Consolas, "Courier New", monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: var(--bg); color: var(--text); padding: 16px; min-height: 100vh; }
+    
+    /* LCARS Top Elbow Bar */
+    .lcars-header {
+      display: flex;
+      gap: 12px;
+      align-items: stretch;
+      margin-bottom: 20px;
+    }
+    .lcars-elbow {
+      background: var(--orange);
+      width: 140px;
+      min-width: 140px;
+      border-radius: 28px 0 0 0;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      color: #000;
+      font-weight: 900;
+    }
+    .lcars-elbow .title { font-size: 14px; letter-spacing: 1px; }
+    .lcars-elbow .sub { font-size: 10px; opacity: 0.85; }
+    
+    .lcars-banner {
+      flex: 1;
+      background: var(--surface);
+      border: 2px solid var(--orange);
+      border-left: 0;
+      border-radius: 0 18px 18px 0;
+      padding: 12px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .lcars-banner h1 { font-size: 18px; color: #fff; display: flex; align-items: center; gap: 10px; }
+    .lcars-banner .node-tag {
+      background: var(--blue);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 800;
+      padding: 3px 8px;
+      border-radius: 6px;
+      letter-spacing: 0.5px;
+    }
+    .lcars-banner .nav-links { display: flex; gap: 8px; align-items: center; }
+    .btn-link {
+      background: #142838;
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 12px;
+      font-weight: 700;
+      border: 1px solid var(--blue);
+      padding: 6px 12px;
+      border-radius: 10px;
+      transition: all 0.2s;
+    }
+    .btn-link:hover { background: var(--blue); color: #fff; }
+    .btn-link.primary { background: var(--orange); color: #000; border-color: var(--orange); }
+    .btn-link.primary:hover { filter: brightness(1.15); }
+
+    /* Summary Bar */
+    .summary-bar {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .summary-item {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--blue);
+      border-radius: 8px;
+      padding: 10px 14px;
+    }
+    .summary-item span { font-size: 11px; color: var(--muted); text-transform: uppercase; font-weight: 700; display: block; margin-bottom: 2px; }
+    .summary-item strong { font-size: 15px; color: #fff; font-family: var(--font-mono); }
+    .summary-item.active { border-left-color: var(--green); }
+    .summary-item.warn { border-left-color: var(--amber); }
+
+    /* Main Grid */
+    .section-title {
+      font-size: 14px;
+      color: var(--amber);
+      font-weight: 900;
+      letter-spacing: 1px;
+      margin: 24px 0 12px 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .section-title::after {
+      content: "";
+      flex: 1;
+      height: 2px;
+      background: var(--border);
+    }
+    
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+    
+    .card {
+      background: var(--surface);
+      border: 2px solid var(--border);
+      border-radius: 14px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 12px;
+      transition: all 0.2s;
+    }
+    .card:hover { border-color: var(--blue); background: var(--card-hover); }
+    .card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+    .card-title { font-size: 15px; font-weight: 800; color: #fff; }
+    .card-desc { font-size: 12px; color: var(--muted); line-height: 1.4; margin-top: 4px; }
+    
+    .status-badge {
+      font-size: 10px;
+      font-weight: 900;
+      padding: 3px 8px;
+      border-radius: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      white-space: nowrap;
+    }
+    .status-badge.ok { background: rgba(34, 197, 94, 0.2); color: var(--green); border: 1px solid var(--green); }
+    .status-badge.off { background: rgba(239, 68, 68, 0.2); color: var(--red); border: 1px solid var(--red); }
+    .status-badge.info { background: rgba(63, 130, 173, 0.2); color: var(--cyan); border: 1px solid var(--cyan); }
+    .status-badge.warn { background: rgba(242, 160, 0, 0.2); color: var(--amber); border: 1px solid var(--amber); }
+
+    .meta-list {
+      font-size: 12px;
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      background: #02070c;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-family: var(--font-mono);
+    }
+    .meta-row { display: flex; justify-content: space-between; gap: 8px; }
+    .meta-row span { color: var(--muted); }
+
+    /* Progress bar */
+    .progress-bar-bg {
+      background: #142838;
+      border-radius: 6px;
+      height: 8px;
+      overflow: hidden;
+      margin-top: 4px;
+    }
+    .progress-bar-fill {
+      background: var(--cyan);
+      height: 100%;
+      width: 0%;
+      transition: width 0.4s ease;
+    }
+    .progress-bar-fill.warn { background: var(--amber); }
+    .progress-bar-fill.danger { background: var(--red); }
+
+    /* Interactive controls */
+    .card-actions { display: flex; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
+    .action-btn {
+      background: #162b3d;
+      color: var(--text);
+      border: 1px solid var(--blue);
+      border-radius: 8px;
+      padding: 6px 10px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .action-btn:hover { background: var(--blue); color: #fff; }
+    .action-btn.primary { background: var(--orange); color: #000; border-color: var(--orange); }
+    .action-btn.primary:hover { filter: brightness(1.2); }
+
+    .test-box {
+      background: #02070c;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      margin-top: 8px;
+      display: flex;
+      gap: 6px;
+    }
+    .test-box input {
+      flex: 1;
+      background: #091a27;
+      border: 1px solid var(--border);
+      color: #fff;
+      padding: 6px 8px;
+      border-radius: 6px;
+      font-size: 12px;
+    }
+    .test-box input:focus { outline: none; border-color: var(--cyan); }
+
+    /* Log Output Modal/Box */
+    .log-box {
+      background: #02060a;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--cyan);
+      max-height: 180px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      margin-top: 10px;
+      display: none;
+    }
+
+    footer {
+      margin-top: 32px;
+      padding: 16px 0;
+      border-top: 1px solid var(--border);
+      font-size: 11px;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top LCARS Header -->
+  <div class="lcars-header">
+    <div class="lcars-elbow">
+      <span class="title">LCARS NÓ</span>
+      <span class="sub" id="header-arch">ARM CLUSTER</span>
+    </div>
+    <div class="lcars-banner">
+      <div>
+        <h1>
+          <span id="node-hostname">Carregando nó...</span>
+          <span class="node-tag" id="node-id">CLUSTER</span>
+        </h1>
+        <small style="color:var(--muted); font-size:12px;" id="node-platform">Sistema Distribuído CASA / JARVIS</small>
+      </div>
+      <div class="nav-links">
+        <a href="javascript:void(0)" class="btn-link" id="btn-refresh">↻ ATUALIZAR</a>
+        <a href="/casa/bin/" class="btn-link" target="_blank">PASTA /BIN/</a>
+        <a href="https://maurinsoft.com.br/casa/" class="btn-link primary" target="_blank">SITE CENTRAL CASA ↗</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Summary Status Bar -->
+  <div class="summary-bar">
+    <div class="summary-item active" id="sum-status-card">
+      <span>Estado do Nó</span>
+      <strong id="sum-status">ONLINE</strong>
+    </div>
+    <div class="summary-item">
+      <span>Endereço IP</span>
+      <strong id="sum-ip">—</strong>
+    </div>
+    <div class="summary-item">
+      <span>CPU / Carga</span>
+      <strong id="sum-cpu">—</strong>
+    </div>
+    <div class="summary-item">
+      <span>Temperatura</span>
+      <strong id="sum-temp">— °C</strong>
+    </div>
+    <div class="summary-item">
+      <span>Memória RAM</span>
+      <strong id="sum-ram">— MB</strong>
+    </div>
+    <div class="summary-item">
+      <span>Uptime</span>
+      <strong id="sum-uptime">—</strong>
+    </div>
+  </div>
+
+  <!-- Hardware Telemetry Section -->
+  <div class="section-title">TELEMETRIA DE RECURSOS EM TEMPO REAL</div>
+  <div class="grid">
+    <!-- CPU Card -->
+    <div class="card">
+      <div>
+        <div class="card-header">
+          <div class="card-title">Processador & Carga</div>
+          <span class="status-badge ok" id="cpu-badge">OPERACIONAL</span>
+        </div>
+        <p class="card-desc">Carga do sistema e monitoramento térmico dos núcleos ARM.</p>
+      </div>
+      <div>
+        <div class="meta-list">
+          <div class="meta-row"><span>Núcleos ARM:</span> <b id="cpu-cores">—</b></div>
+          <div class="meta-row"><span>Carga (1m / 5m / 15m):</span> <b id="cpu-loads">—</b></div>
+          <div class="meta-row"><span>Temperatura Térmica:</span> <b id="cpu-temp-val">—</b></div>
+        </div>
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill" id="cpu-progress" style="width: 20%;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RAM Card -->
+    <div class="card">
+      <div>
+        <div class="card-header">
+          <div class="card-title">Memória RAM</div>
+          <span class="status-badge ok" id="ram-badge">OK</span>
+        </div>
+        <p class="card-desc">Uso de memória física disponível para processos do nó.</p>
+      </div>
+      <div>
+        <div class="meta-list">
+          <div class="meta-row"><span>Em Uso:</span> <b id="ram-used">— MB</b></div>
+          <div class="meta-row"><span>Livre / Buffer:</span> <b id="ram-free">— MB</b></div>
+          <div class="meta-row"><span>Total:</span> <b id="ram-total">— MB</b></div>
+        </div>
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill" id="ram-progress" style="width: 30%;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Storage Card -->
+    <div class="card">
+      <div>
+        <div class="card-header">
+          <div class="card-title">Armazenamento em Disco</div>
+          <span class="status-badge ok">ROOT FS</span>
+        </div>
+        <p class="card-desc">Espaço em disco na partição raiz para logs e binários.</p>
+      </div>
+      <div>
+        <div class="meta-list">
+          <div class="meta-row"><span>Usado:</span> <b id="disk-used">— GB</b></div>
+          <div class="meta-row"><span>Disponível:</span> <b id="disk-free">— GB</b></div>
+          <div class="meta-row"><span>Tamanho Total:</span> <b id="disk-total">— GB</b></div>
+        </div>
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill" id="disk-progress" style="width: 40%;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cluster Services Section -->
+  <div class="section-title">SERVIÇOS DISTRIBUÍDOS DO CLUSTER (NÓ LOCAL)</div>
+  <div class="grid" id="services-grid">
+    <!-- Node Agent Service -->
+    <div class="card">
+      <div>
+        <div class="card-header">
+          <div class="card-title">⚡ Agente ARM (Control Plane)</div>
+          <span class="status-badge ok" id="srv-agent-badge">PORTA 8098</span>
+        </div>
+        <p class="card-desc">Sincronização de presença, telemetria contínua com a nuvem e fila de comandos.</p>
+        <div class="meta-list" style="margin-top:8px;">
+          <div class="meta-row"><span>Serviço:</span> <b>casa-node-agent</b></div>
+          <div class="meta-row"><span>Heartbeat:</span> <b id="agent-hb-status">CONECTADO</b></div>
+          <div class="meta-row"><span>Endpoint:</span> <b>/status · /falar</b></div>
+        </div>
+      </div>
+      <div class="card-actions">
+        <button type="button" class="action-btn primary" onclick="sendTestHeartbeat()">FORÇAR HEARTBEAT</button>
+        <button type="button" class="action-btn" onclick="checkAgentLocal()">VER /STATUS LOCAL</button>
+      </div>
+    </div>
+
+    <!-- TTS Voice Service -->
+    <div class="card">
+      <div>
+        <div class="card-header">
+          <div class="card-title">🔊 Síntese Neural de Voz (TTS)</div>
+          <span class="status-badge info" id="srv-tts-badge">PORTA 8097</span>
+        </div>
+        <p class="card-desc">Voz neural Piper pt-BR de alta fidelidade e reprodução local via alto-falante.</p>
+        <div class="meta-list" style="margin-top:8px;">
+          <div class="meta-row"><span>Serviço:</span> <b>casa-tts.service</b></div>
+          <div class="meta-row"><span>Modelo:</span> <b>Piper Neural TTS pt-BR</b></div>
+        </div>
+      </div>
+      <div>
+        <div class="test-box">
+          <input type="text" id="tts-input" value="Nó do cluster operacional e conectado." placeholder="Texto para falar no alto-falante">
+          <button type="button" class="action-btn primary" onclick="speakText()">FALAR</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scheduler Service -->
+    <div class="card">
+      <div>
+        <div class="card-header">
+          <div class="card-title">📅 Agendador Local (Scheduler)</div>
+          <span class="status-badge ok">ATIVO</span>
+        </div>
+        <p class="card-desc">Monitoramento e disparo local de rotinas programadas, cron e automações.</p>
+        <div class="meta-list" style="margin-top:8px;">
+          <div class="meta-row"><span>Serviço:</span> <b>casa-scheduler.service</b></div>
+          <div class="meta-row"><span>Execução:</span> <b>Local contínua</b></div>
+        </div>
+      </div>
+      <div class="card-actions">
+        <a href="https://maurinsoft.com.br/casa/index.php?grupo=OPERA%C3%87%C3%95ES&item=agendamentos" target="_blank" class="action-btn primary" style="text-decoration:none;">VER AGENDAMENTOS ↗</a>
+      </div>
+    </div>
+
+    <!-- Vision / ESPCam -->
+    <div class="card">
+      <div>
+        <div class="card-header">
+          <div class="card-title">👁 Visão & ESPCam</div>
+          <span class="status-badge info">MÓDULO LOCAL</span>
+        </div>
+        <p class="card-desc">Processamento de frames de câmeras ESP32, detecção de presença e análise visual.</p>
+        <div class="meta-list" style="margin-top:8px;">
+          <div class="meta-row"><span>Scripts:</span> <b>processa_imagem.py</b></div>
+          <div class="meta-row"><span>Câmeras:</span> <b>ESP32-CAM / USB</b></div>
+        </div>
+      </div>
+      <div class="card-actions">
+        <a href="https://maurinsoft.com.br/casa/index.php?grupo=SEGURAN%C3%87A&item=cameras" target="_blank" class="action-btn" style="text-decoration:none;">CÂMERAS NA NUVEM ↗</a>
+      </div>
+    </div>
+
+    <!-- Tunnel / Connectivity -->
+    <div class="card">
+      <div>
+        <div class="card-header">
+          <div class="card-title">🌐 Conectividade & Túnel</div>
+          <span class="status-badge ok">HABILITADO</span>
+        </div>
+        <p class="card-desc">Túnel reverso e canais auxiliares para conexão segura entre a nuvem e o nó ARM.</p>
+        <div class="meta-list" style="margin-top:8px;">
+          <div class="meta-row"><span>Serviço:</span> <b>casa-tunnel.service</b></div>
+          <div class="meta-row"><span>Nuvem:</span> <b>maurinsoft.com.br/casa</b></div>
+        </div>
+      </div>
+      <div class="card-actions">
+        <button type="button" class="action-btn" onclick="testCloudConnection()">TESTAR PING CENTRAL</button>
+      </div>
+    </div>
+
+    <!-- Web Search Agent -->
+    <div class="card">
+      <div>
+        <div class="card-header">
+          <div class="card-title">🔍 Agente de Pesquisa Web</div>
+          <span class="status-badge info">MÓDULO IA</span>
+        </div>
+        <p class="card-desc">Pesquisa autônoma na web, síntese de conteúdo e extração para respostas do JARVIS.</p>
+        <div class="meta-list" style="margin-top:8px;">
+          <div class="meta-row"><span>Serviço:</span> <b>jarvis-web-agent</b></div>
+          <div class="meta-row"><span>Porta:</span> <b>8092 (FastAPI)</b></div>
+        </div>
+      </div>
+      <div class="card-actions">
+        <button type="button" class="action-btn" onclick="viewLogBox('Web Agent disponível para pesquisas sob demanda do COMPUTER.')">INFORMAÇÕES</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Live Output Console Box -->
+  <div class="log-box" id="log-console"></div>
+
+  <!-- Footer -->
+  <footer>
+    <div>CASA INTELIGENTE / JARVIS — Plataforma de Clusters ARM Distribuídos</div>
+    <div>Central Nuvem: <a href="https://maurinsoft.com.br/casa/" target="_blank" style="color:var(--cyan); text-decoration:none;">maurinsoft.com.br/casa</a></div>
+  </footer>
+
+  <script>
+    let nodeData = {};
+
+    function log(msg) {
+      const box = document.getElementById('log-console');
+      box.style.display = 'block';
+      box.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg + '\n' + box.textContent;
+    }
+    function viewLogBox(msg) { log(msg); }
+
+    async function fetchTelemetry() {
+      try {
+        const res = await fetch('/api/telemetry');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        nodeData = data;
+        updateUI(data);
+      } catch (err) {
+        log('Falha ao obter telemetria local: ' + err.message);
+      }
+    }
+
+    function updateUI(d) {
+      if (d.hostname) document.getElementById('node-hostname').textContent = d.hostname.toUpperCase();
+      if (d.device_id) document.getElementById('node-id').textContent = d.device_id;
+      if (d.platform) document.getElementById('node-platform').textContent = d.platform + ' · ' + (d.arch || 'ARM');
+      if (d.arch) document.getElementById('header-arch').textContent = d.arch.toUpperCase();
+      
+      if (d.ip) document.getElementById('sum-ip').textContent = d.ip;
+      
+      // CPU
+      if (d.cpu) {
+        document.getElementById('cpu-cores').textContent = d.cpu.cores + ' núcleos';
+        document.getElementById('cpu-loads').textContent = (d.cpu.load_1m || '0.1') + ' / ' + (d.cpu.load_5m || '0.1') + ' / ' + (d.cpu.load_15m || '0.1');
+        document.getElementById('sum-cpu').textContent = 'Carga ' + (d.cpu.load_1m || '0.1');
+        
+        const temp = d.cpu.temp_c || 'N/A';
+        document.getElementById('cpu-temp-val').textContent = temp + (temp !== 'N/A' ? ' °C' : '');
+        document.getElementById('sum-temp').textContent = temp + (temp !== 'N/A' ? ' °C' : '');
+
+        const loadPct = Math.min(100, Math.round(((d.cpu.load_1m || 0.2) / (d.cpu.cores || 4)) * 100));
+        const prog = document.getElementById('cpu-progress');
+        prog.style.width = Math.max(5, loadPct) + '%';
+        prog.className = 'progress-bar-fill' + (loadPct > 80 ? ' danger' : (loadPct > 50 ? ' warn' : ''));
+      }
+
+      // RAM
+      if (d.ram && d.ram.total_mb) {
+        document.getElementById('ram-used').textContent = d.ram.used_mb + ' MB';
+        document.getElementById('ram-free').textContent = (d.ram.total_mb - d.ram.used_mb) + ' MB';
+        document.getElementById('ram-total').textContent = d.ram.total_mb + ' MB';
+        document.getElementById('sum-ram').textContent = d.ram.used_mb + ' / ' + d.ram.total_mb + ' MB';
+        
+        const ramPct = Math.round((d.ram.used_mb / d.ram.total_mb) * 100);
+        const prog = document.getElementById('ram-progress');
+        prog.style.width = ramPct + '%';
+        prog.className = 'progress-bar-fill' + (ramPct > 85 ? ' danger' : (ramPct > 65 ? ' warn' : ''));
+      }
+
+      // Disk
+      if (d.disk) {
+        document.getElementById('disk-used').textContent = d.disk.used_gb + ' GB';
+        document.getElementById('disk-free').textContent = d.disk.free_gb + ' GB';
+        document.getElementById('disk-total').textContent = d.disk.total_gb + ' GB';
+        const diskPct = d.disk.used_pct || 30;
+        document.getElementById('disk-progress').style.width = diskPct + '%';
+      }
+
+      // Uptime
+      if (d.uptime) {
+        document.getElementById('sum-uptime').textContent = d.uptime;
+      }
+    }
+
+    async function speakText() {
+      const txt = document.getElementById('tts-input').value.trim();
+      if (!txt) return;
+      log('Enviando comando de voz: "' + txt + '"...');
+      try {
+        const res = await fetch('/api/falar', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({texto: txt})
+        });
+        const ret = await res.json();
+        log('Resposta de voz: ' + JSON.stringify(ret));
+      } catch (e) {
+        log('Erro ao sintetizar voz: ' + e.message);
+      }
+    }
+
+    async function sendTestHeartbeat() {
+      log('Enviando heartbeat manual para https://maurinsoft.com.br/casa...');
+      try {
+        const res = await fetch('/api/heartbeat', {method: 'POST'});
+        const ret = await res.json();
+        log('Heartbeat enviado com sucesso: ' + JSON.stringify(ret));
+      } catch (e) {
+        log('Erro ao enviar heartbeat: ' + e.message);
+      }
+    }
+
+    async function checkAgentLocal() {
+      try {
+        const res = await fetch('http://' + location.hostname + ':8098/status');
+        const ret = await res.json();
+        log('Status HTTP :8098 do Agente: ' + JSON.stringify(ret, null, 2));
+      } catch (e) {
+        log('Falha na porta 8098 direta: ' + e.message + ' (Verificando proxy...)');
+      }
+    }
+
+    async function testCloudConnection() {
+      log('Testando resposta do servidor central em maurinsoft.com.br...');
+      try {
+        const res = await fetch('https://maurinsoft.com.br/casa/info.php', {mode: 'no-cors'});
+        log('Conexão com a nuvem CASA ativa e acessível!');
+      } catch (e) {
+        log('Aviso de conectividade: ' + e.message);
+      }
+    }
+
+    document.getElementById('btn-refresh').onclick = fetchTelemetry;
+
+    // Inicialização e polling automático
+    fetchTelemetry();
+    setInterval(fetchTelemetry, 3000);
+  </script>
+</body>
+</html>

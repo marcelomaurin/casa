@@ -2,6 +2,9 @@
 // CASA/JARVIS - núcleo compartilhado de assistência familiar, presença e broadcast.
 
 function family_ensure_schema(PDO $pdo): void {
+    static $done = false;
+    if ($done) return;
+    try {
     $sql = [
         "CREATE TABLE IF NOT EXISTS family_channels (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -90,6 +93,8 @@ function family_ensure_schema(PDO $pdo): void {
     if (!in_array('atendido_por',$cols,true)) $pdo->exec("ALTER TABLE family_calls ADD COLUMN atendido_por VARCHAR(120) NULL AFTER destino_plataforma");
 
     $pdo->exec("INSERT IGNORE INTO family_channels (nome, slug, tipo) VALUES ('Família CASA', 'familia', 'familia')");
+        $done = true;
+    } catch (Throwable $e) {}
 }
 
 function family_channel(PDO $pdo, string $slug = 'familia'): array {
@@ -149,11 +154,11 @@ function family_start_call(PDO $pdo, int $channelId, string $startedBy, string $
     return (int)$pdo->lastInsertId();
 }
 
-function family_call_visible_sql(string $clientParam=':me', string $platformParam=':platform'): string {
-    return "(iniciado_por={$clientParam}
-        OR atendido_por={$clientParam}
+function family_call_visible_sql(string $initParam=':me1', string $ansParam=':me2', string $destParam=':me3', string $platformParam=':platform'): string {
+    return "(iniciado_por={$initParam}
+        OR atendido_por={$ansParam}
         OR (status='chamando' AND (
-            (destino_cliente IS NOT NULL AND destino_cliente={$clientParam})
+            (destino_cliente IS NOT NULL AND destino_cliente={$destParam})
             OR (destino_cliente IS NULL AND (destino_plataforma IS NULL OR destino_plataforma='' OR destino_plataforma={$platformParam}))
         )))";
 }

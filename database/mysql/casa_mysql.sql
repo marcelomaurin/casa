@@ -108,6 +108,7 @@ CREATE TABLE IF NOT EXISTS sensores_telemetria (
 CREATE TABLE IF NOT EXISTS arm_nodes (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     device_id VARCHAR(120) NULL,
+    token VARCHAR(255) NULL,
     hostname VARCHAR(120) NOT NULL,
     ip_address VARCHAR(45) NULL,
     papel VARCHAR(100) NOT NULL DEFAULT 'No Distribuido',
@@ -130,6 +131,7 @@ CREATE TABLE IF NOT EXISTS arm_nodes (
 CREATE TABLE IF NOT EXISTS dispositivos_cluster (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     device_id VARCHAR(120) NULL,
+    token VARCHAR(255) NULL,
     nome VARCHAR(120) NOT NULL,
     tipo VARCHAR(50) NOT NULL,
     ip_address VARCHAR(45) NULL,
@@ -315,16 +317,21 @@ CREATE TABLE IF NOT EXISTS agentes_externos (
 CREATE TABLE IF NOT EXISTS api_client_tokens (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     nome VARCHAR(120) NOT NULL,
+    device_id VARCHAR(120) NULL,
+    token VARCHAR(255) NULL,
     token_hash CHAR(64) NOT NULL,
+    token_prefix VARCHAR(24) NULL,
     scopes JSON NOT NULL,
     ativo TINYINT(1) NOT NULL DEFAULT 1,
     expira_em DATETIME NULL,
+    revogado_em DATETIME NULL,
     ultimo_uso DATETIME NULL,
     ultimo_ip VARCHAR(45) NULL,
     criado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     UNIQUE KEY uk_api_token_hash (token_hash),
-    KEY idx_api_tokens_ativo (ativo)
+    KEY idx_api_tokens_ativo (ativo),
+    KEY idx_api_tokens_device (device_id, ativo)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS api_v1_rate_limit (

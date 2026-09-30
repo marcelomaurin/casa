@@ -38,6 +38,45 @@ function device_v1_load(PDO $pdo, string $deviceId, bool $write = false): array 
         $stmt->execute([':h'=>$hash, ':t'=>$token]);
     }
     $dev = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    // Se o device não existe em dispositivos_cluster, verifica se o token é uma API Key válida ou Chave Mestre
+    if (!$dev) {
+        $isMaster = false;
+        $stmtMaster = $pdo->prepare("SELECT valor FROM configuracoes_sistema WHERE chave='external_api_key' LIMIT 1");
+        $stmtMaster->execute();
+        $masterVal = $stmtMaster->fetchColumn();
+        if ($masterVal && hash_equals($masterVal, $token)) {
+            $isMaster = true;
+        }
+
+        $isValidApiKey = false;
+        $keyName = '';
+        if (!$isMaster) {
+            $stmtKey = $pdo->prepare("SELECT nome, scopes FROM api_client_tokens WHERE token_hash=:h AND ativo=1 AND (expira_em IS NULL OR expira_em > NOW()) AND revogado_em IS NULL LIMIT 1");
+            $stmtKey->execute([':h' => $hash]);
+            $kRow = $stmtKey->fetch(PDO::FETCH_ASSOC);
+            if ($kRow) {
+                $isValidApiKey = true;
+                $keyName = $kRow['nome'];
+            }
+        }
+
+        if ($isMaster || $isValidApiKey) {
+            $targetId = $deviceId !== '' ? $deviceId : ('cluster-' . substr($hash, 0, 8));
+            $targetNome = $keyName !== '' ? $keyName : ("Cluster ARM " . $targetId);
+            $defaultCaps = json_encode(["gpio","mqtt","serial","rs485","ble","scheduler","audio","arm-agent","hardware-gateway","linux-arm"]);
+            $ins = $pdo->prepare("INSERT INTO dispositivos_cluster (device_id, nome, tipo, device_token, device_token_hash, status, capabilities, ultimo_heartbeat)
+                VALUES (:d, :n, 'linux-arm', :t, :h, 'online', :caps, NOW())
+                ON DUPLICATE KEY UPDATE device_token_hash=:h, device_token=:t, status='online', ultimo_heartbeat=NOW()");
+            $ins->execute([':d'=>$targetId, ':n'=>$targetNome, ':t'=>$token, ':h'=>$hash, ':caps'=>$defaultCaps]);
+
+            $stmt = $pdo->prepare("SELECT id,device_id,nome,tipo,device_token,device_token_hash,credential_revoked_at,capabilities,status,config_version
+                FROM dispositivos_cluster WHERE device_id=:d LIMIT 1");
+            $stmt->execute([':d'=>$targetId]);
+            $dev = $stmt->fetch(PDO::FETCH_ASSOC);
+        }
+    }
+
     $resolvedId = trim((string)($dev['device_id'] ?? $deviceId));
     if (!$dev || !empty($dev['credential_revoked_at'])) {
         api_v1_log($pdo,'DEVICE_AUTH_DENIED','ALTO',$deviceId,['reason'=>'missing_or_revoked']);

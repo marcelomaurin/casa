@@ -1,0 +1,17 @@
+{
+  "name": "Casa Mobile • JARVIS",
+  "short_name": "Casa Mobile",
+  "description": "Aplicativo Mobile da CASA para Controle Residencial via QR Code",
+  "start_url": "/casa/mobile.php",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#03080e",
+  "theme_color": "#ff9900",
+  "icons": [
+    {
+      "src": "/casa/favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    }
+  ]
+}

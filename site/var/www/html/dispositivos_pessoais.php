@@ -11,6 +11,12 @@ $csrf = $_SESSION['csrf_devices'];
 $message = '';
 $error = '';
 
+$aba = strtolower(trim((string)($_GET['aba'] ?? $_GET['tab'] ?? 'todos')));
+if (!in_array($aba, ['celular', 'mobile', 'watch', 'todos'], true)) {
+    $aba = 'todos';
+}
+if ($aba === 'mobile') $aba = 'celular';
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!hash_equals($csrf, $_POST['csrf'] ?? '')) {
         $error = 'Sessão inválida. Atualize a página.';
@@ -31,7 +37,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $table = $action === 'notify_watch' ? 'watch_notificacoes' : 'mobile_notificacoes';
                 $stmt = $pdo->prepare("INSERT INTO {$table}(id_dispositivo,titulo,mensagem,prioridade) VALUES(NULL,:t,:m,:p)");
                 $stmt->execute([':t'=>substr($title,0,120),':m'=>$text,':p'=>$priority]);
-                $message = $action === 'notify_watch' ? 'Notificação enviada ao relógio.' : 'Notificação enviada ao celular.';
+                $message = $action === 'notify_watch' ? 'Notificação enviada com sucesso para o relógio!' : 'Notificação enviada com sucesso para o celular!';
             } elseif ($action === 'ack_assist') {
                 $id=(int)($_POST['id'] ?? 0);
                 if ($id>0) $pdo->prepare("UPDATE assistencia_eventos SET confirmado=1,confirmado_em=NOW() WHERE id=:id")->execute([':id'=>$id]);
@@ -50,26 +56,228 @@ try {
     $stmt->execute([':c'=>$channel['id']]);
     $presence=$stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch(Throwable $e){}
+
 try { $watch=$pdo->query("SELECT * FROM watch_telemetria ORDER BY id DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC) ?: null; } catch(Throwable $e){}
 try { $assist=$pdo->query("SELECT id,tipo,severidade,mensagem,pessoa,dispositivo,confirmado,criado_em,confirmado_em FROM assistencia_eventos ORDER BY id DESC LIMIT 20")->fetchAll(PDO::FETCH_ASSOC); } catch(Throwable $e){}
 try { $mobileEvents=$pdo->query("SELECT tipo,descricao,dados,data_hora FROM mobile_eventos ORDER BY id DESC LIMIT 15")->fetchAll(PDO::FETCH_ASSOC); } catch(Throwable $e){}
 
 function h($v){ return htmlspecialchars((string)$v,ENT_QUOTES,'UTF-8'); }
 function ageText($date){ if(!$date)return '--'; $s=time()-strtotime($date); if($s<60)return $s.'s'; if($s<3600)return floor($s/60).' min'; return floor($s/3600).' h'; }
+
+$host = $_SERVER['HTTP_HOST'] ?? 'maurinsoft.com.br';
+$pwaUrl = "https://{$host}/casa/mobile/";
 ?>
-<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>CASA — Celular e Relógio</title><link rel="stylesheet" href="/casa/lcars.css?v=20260914b">
-<style>
-body{background:#fff7e8;color:#211b22;font-family:Arial,sans-serif;margin:0}.wrap{max-width:1180px;margin:auto;padding:18px}.head{display:flex;gap:12px;align-items:stretch}.elbow{background:#f59c73;border-radius:28px 0 0 28px;min-width:140px;padding:24px;font-weight:900}.title{background:#d8b4ea;flex:1;padding:18px 24px;border-radius:0 24px 24px 0}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-top:16px}.card{background:#fff;border:3px solid #d8b4ea;border-radius:20px;padding:16px}.card.orange{border-color:#f59c73}.card.blue{border-color:#8eb9ee}.card.green{border-color:#8ccf9c}.pill{display:inline-block;padding:5px 10px;border-radius:999px;font-weight:800}.ok{background:#9bd6a4}.off{background:#ef9b92}.warn{background:#ffd27a}table{width:100%;border-collapse:collapse}td,th{padding:8px;border-bottom:1px solid #ddd;text-align:left}input,textarea,select,button{font:inherit;padding:10px;border-radius:10px;border:1px solid #777;box-sizing:border-box}input,textarea,select{width:100%}button{background:#f59c73;font-weight:800;cursor:pointer}.msg{padding:10px;border-radius:10px;margin-top:12px;background:#dff3df}.err{background:#ffd9d3}.actions{display:flex;gap:8px;flex-wrap:wrap}.actions a{padding:10px 14px;background:#8eb9ee;border-radius:12px;color:#211b22;text-decoration:none;font-weight:800}</style></head><body><div class="wrap">
-<div class="head"><div class="elbow">CASA<br>LINK</div><div class="title"><h1>Celular + Relógio</h1><div>Gateway, telemetria, assistência e Família CASA</div></div></div>
-<div class="actions" style="margin-top:12px"><a href="/casa/index.php">Dashboard</a><a href="/casa/familia.php">Família CASA</a></div>
-<?php if($message):?><div class="msg"><?=h($message)?></div><?php endif;?><?php if($error):?><div class="msg err"><?=h($error)?></div><?php endif;?>
-<div class="grid">
-<div class="card green"><h2>Dispositivos presentes</h2><?php if(!$presence):?><p>Nenhum celular/relógio registrou presença ainda.</p><?php else:?><table><tr><th>Dispositivo</th><th>Tipo</th><th>Estado</th><th>Último contato</th></tr><?php foreach($presence as $p):?><tr><td><?=h($p['dispositivo'] ?: $p['cliente'])?></td><td><?=h($p['plataforma'])?></td><td><span class="pill <?=$p['online']?'ok':'off'?>"><?=$p['online']?'ONLINE':'OFFLINE'?></span></td><td><?=h(ageText($p['ultimo_ping']))?></td></tr><?php endforeach;?></table><?php endif;?></div>
-<div class="card blue"><h2>Última telemetria Watch</h2><?php if(!$watch):?><p>Aguardando telemetria do relógio via <code>/api/v1/watch.php</code>.</p><?php else:?><table><tr><td>Bateria</td><td><?=h($watch['bateria_pct'])?>%</td></tr><tr><td>Passos</td><td><?=h($watch['passos'])?></td></tr><tr><td>Transporte</td><td><?=h($watch['transporte'])?></td></tr><tr><td>Wi-Fi</td><td><?=h($watch['wifi_ssid'])?></td></tr><tr><td>RSSI BLE/Wi-Fi</td><td><?=h($watch['rssi_ble'])?> / <?=h($watch['rssi_wifi'])?></td></tr><tr><td>Sem movimento</td><td><?=h($watch['minutos_sem_movimento'])?> min</td></tr><tr><td>Energia</td><td><?=h($watch['modo_energia'])?></td></tr><tr><td>Atualização</td><td><?=h($watch['data_hora'])?></td></tr></table><?php endif;?></div>
-<div class="card orange"><h2>Broadcast Família</h2><form method="post"><input type="hidden" name="csrf" value="<?=h($csrf)?>"><input type="hidden" name="action" value="broadcast"><textarea name="message" rows="4" placeholder="Mensagem para site, celular e relógio"></textarea><button>Transmitir</button></form></div>
-<div class="card"><h2>Notificar dispositivo</h2><form method="post"><input type="hidden" name="csrf" value="<?=h($csrf)?>"><input name="title" value="JARVIS" placeholder="Título"><textarea name="message" rows="3" placeholder="Mensagem"></textarea><select name="priority"><option value="normal">Normal</option><option value="alta">Alta</option><option value="critica">Crítica</option></select><div style="display:flex;gap:8px;margin-top:8px"><button name="action" value="notify_mobile">Celular</button><button name="action" value="notify_watch">Relógio</button></div></form></div>
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>CASA — <?= $aba==='celular'?'Celular':($aba==='watch'?'Watch':'Celular & Relógio') ?></title>
+  <link rel="stylesheet" href="/casa/lcars.css?v=20260914b">
+  <script src="/casa/qrcode.min.js"></script>
+  <style>
+    body{background:#fff7e8;color:#211b22;font-family:Arial,sans-serif;margin:0}
+    .wrap{max-width:1180px;margin:auto;padding:18px}
+    .head{display:flex;gap:12px;align-items:stretch}
+    .elbow{background:<?= $aba==='watch'?'#a855f7':'#f59c73' ?>;border-radius:28px 0 0 28px;min-width:140px;padding:24px;font-weight:900;color:<?= $aba==='watch'?'#fff':'#211b22' ?>}
+    .title{background:<?= $aba==='watch'?'#e9d5ff':'#d8b4ea' ?>;flex:1;padding:18px 24px;border-radius:0 24px 24px 0}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-top:16px}
+    .card{background:#fff;border:3px solid #d8b4ea;border-radius:20px;padding:16px}
+    .card.orange{border-color:#f59c73}
+    .card.blue{border-color:#8eb9ee}
+    .card.green{border-color:#8ccf9c}
+    .card.purple{border-color:#a855f7}
+    .pill{display:inline-block;padding:5px 10px;border-radius:999px;font-weight:800}
+    .ok{background:#9bd6a4}
+    .off{background:#ef9b92}
+    .warn{background:#ffd27a}
+    .crit{background:#ef4444;color:#fff}
+    table{width:100%;border-collapse:collapse}
+    td,th{padding:8px;border-bottom:1px solid #ddd;text-align:left}
+    input,textarea,select,button{font:inherit;padding:10px;border-radius:10px;border:1px solid #777;box-sizing:border-box}
+    input,textarea,select{width:100%}
+    button{background:#f59c73;font-weight:800;cursor:pointer}
+    .msg{padding:10px;border-radius:10px;margin-top:12px;background:#dff3df}
+    .err{background:#ffd9d3}
+    .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+    .actions a{padding:10px 14px;background:#8eb9ee;border-radius:12px;color:#211b22;text-decoration:none;font-weight:800;transition:0.2s}
+    .actions a.active{background:#f59c73;color:#000;box-shadow:0 0 0 2px #211b22}
+    .qr-box{background:#fff;padding:10px;border-radius:12px;width:fit-content;margin:10px auto;border:2px solid #ddd}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div class="elbow">CASA<br><?= $aba==='watch'?'WATCH':($aba==='celular'?'MOBILE':'LINK') ?></div>
+    <div class="title">
+      <h1><?= $aba==='celular'?'JARVIS Mobile · Celular':($aba==='watch'?'JARVIS Watch · Relógio Inteligente':'Celular & Relógio') ?></h1>
+      <div><?= $aba==='celular'?'Controle pessoal, presença móvel, aplicativo Android e Web PWA':($aba==='watch'?'LilyGo T-Watch, telemetria biométrica, assistência SOS e comandos':'Gateway, telemetria, assistência e Família CASA') ?></div>
+    </div>
+  </div>
+
+  <div class="actions">
+    <a href="/casa/index.php">Dashboard</a>
+    <a href="/casa/dispositivos_pessoais.php?aba=celular" class="<?= $aba==='celular'?'active':'' ?>">📱 Celular</a>
+    <a href="/casa/dispositivos_pessoais.php?aba=watch" class="<?= $aba==='watch'?'active':'' ?>">⌚ Watch</a>
+    <a href="/casa/dispositivos_pessoais.php?aba=todos" class="<?= $aba==='todos'?'active':'' ?>">Todos</a>
+    <a href="/casa/familia.php">Família CASA</a>
+    <a href="/casa/mobile/" target="_blank">Abrir App Web (PWA)</a>
+    <a href="/casa/bin/">Downloads & APKs (/bin)</a>
+  </div>
+
+  <?php if($message):?><div class="msg"><?=h($message)?></div><?php endif;?>
+  <?php if($error):?><div class="msg err"><?=h($error)?></div><?php endif;?>
+
+  <div class="grid">
+    <?php if($aba==='celular' || $aba==='todos'): ?>
+      <!-- Presença Celulares -->
+      <div class="card green">
+        <h2>📱 Celulares presentes</h2>
+        <?php 
+          $celPresence = array_filter($presence, function($p){
+              $plat = strtolower($p['plataforma'] ?? '');
+              return in_array($plat, ['mobile','android','ios','web','pwa']) || $plat === '';
+          });
+        ?>
+        <?php if(!$celPresence):?>
+          <p>Nenhum celular registrou presença recentemente.<br>Abra o app ou web mobile para conectar.</p>
+        <?php else:?>
+          <table>
+            <tr><th>Dispositivo</th><th>Tipo</th><th>Estado</th><th>Último contato</th></tr>
+            <?php foreach($celPresence as $p):?>
+              <tr>
+                <td><b><?=h($p['dispositivo'] ?: $p['cliente'])?></b></td>
+                <td><?=h(strtoupper($p['plataforma'] ?: 'MOBILE'))?></td>
+                <td><span class="pill <?=$p['online']?'ok':'off'?>"><?=$p['online']?'ONLINE':'OFFLINE'?></span></td>
+                <td><?=h(ageText($p['ultimo_ping']))?></td>
+              </tr>
+            <?php endforeach;?>
+          </table>
+        <?php endif;?>
+      </div>
+
+      <!-- QR Code Mobile -->
+      <div class="card orange">
+        <h2>📷 Pareamento Celular (QR Code)</h2>
+        <p style="font-size:0.9rem;margin-top:0;">Aponte a câmera do celular para abrir o app móvel:</p>
+        <div class="qr-box"><div id="qr-pwa"></div></div>
+        <p style="text-align:center;font-size:0.85rem;"><a href="<?= h($pwaUrl) ?>" target="_blank" style="color:#211b22;font-weight:bold;"><?= h($pwaUrl) ?></a></p>
+      </div>
+
+      <!-- Notificar Celular -->
+      <div class="card">
+        <h2>🔔 Notificar Celular</h2>
+        <form method="post">
+          <input type="hidden" name="csrf" value="<?=h($csrf)?>">
+          <input name="title" value="CASA / JARVIS" placeholder="Título">
+          <textarea name="message" rows="3" placeholder="Mensagem para exibir no celular..."></textarea>
+          <select name="priority">
+            <option value="normal">Normal</option>
+            <option value="alta">Alta</option>
+            <option value="critica">Crítica</option>
+          </select>
+          <button name="action" value="notify_mobile">Enviar para o Celular</button>
+        </form>
+      </div>
+    <?php endif; ?>
+
+    <?php if($aba==='watch' || $aba==='todos'): ?>
+      <!-- Telemetria Watch -->
+      <div class="card blue">
+        <h2>⌚ Telemetria Watch</h2>
+        <?php if(!$watch):?>
+          <p>Aguardando telemetria do relógio via <code>/api/v1/watch.php</code>.</p>
+        <?php else:?>
+          <table>
+            <tr><td>Bateria</td><td><b><?=h($watch['bateria_pct'])?>%</b></td></tr>
+            <tr><td>Passos</td><td><?=h($watch['passos'])?></td></tr>
+            <tr><td>Transporte</td><td><?=h($watch['transporte'])?></td></tr>
+            <tr><td>Wi-Fi</td><td><?=h($watch['wifi_ssid'])?></td></tr>
+            <tr><td>RSSI BLE/Wi-Fi</td><td><?=h($watch['rssi_ble'])?> / <?=h($watch['rssi_wifi'])?></td></tr>
+            <tr><td>Sem movimento</td><td><?=h($watch['minutos_sem_movimento'])?> min</td></tr>
+            <tr><td>Energia</td><td><span class="pill ok"><?=h(strtoupper($watch['modo_energia']?:'NORMAL'))?></span></td></tr>
+            <tr><td>Atualização</td><td><?=h($watch['data_hora'])?></td></tr>
+          </table>
+        <?php endif;?>
+      </div>
+
+      <!-- Notificar Watch -->
+      <div class="card purple">
+        <h2>🔔 Alerta para o Relógio</h2>
+        <form method="post">
+          <input type="hidden" name="csrf" value="<?=h($csrf)?>">
+          <input name="title" value="CASA / WATCH" placeholder="Título">
+          <textarea name="message" rows="3" placeholder="Mensagem para o relógio..."></textarea>
+          <select name="priority">
+            <option value="normal">Normal</option>
+            <option value="alta">Alta (Vibração)</option>
+            <option value="critica">Crítica (SOS)</option>
+          </select>
+          <button name="action" value="notify_watch" style="background:#a855f7;color:#fff;">Enviar para o Relógio</button>
+        </form>
+      </div>
+    <?php endif; ?>
+  </div>
+
+  <?php if($aba==='watch' || $aba==='todos'): ?>
+    <!-- Assistência / SOS -->
+    <div class="card orange" style="margin-top:16px">
+      <h2>🚨 Assistência & SOS</h2>
+      <?php if(!$assist):?><p>Sem eventos de emergência.</p><?php else:?>
+        <table>
+          <tr><th>Data</th><th>Tipo</th><th>Severidade</th><th>Dispositivo</th><th>Mensagem</th><th>Ação</th></tr>
+          <?php foreach(array_slice($assist, 0, 8) as $a):?>
+            <tr>
+              <td><?=h($a['criado_em'])?></td>
+              <td><?=h($a['tipo'])?></td>
+              <td><span class="pill <?=strtolower($a['severidade'])==='critica'?'off':'warn'?>"><?=h($a['severidade'])?></span></td>
+              <td><?=h($a['dispositivo'])?></td>
+              <td><?=h($a['mensagem'])?></td>
+              <td>
+                <?php if(!$a['confirmado']):?>
+                  <form method="post" style="margin:0;"><input type="hidden" name="csrf" value="<?=h($csrf)?>"><input type="hidden" name="action" value="ack_assist"><input type="hidden" name="id" value="<?=h($a['id'])?>"><button style="padding:4px 8px;font-size:0.8rem;">Confirmar</button></form>
+                <?php else:?>
+                  <span style="color:#059669;font-weight:bold;">✓ Visto</span>
+                <?php endif;?>
+              </td>
+            </tr>
+          <?php endforeach;?>
+        </table>
+      <?php endif;?>
+    </div>
+  <?php endif; ?>
+
+  <?php if($aba==='celular' || $aba==='todos'): ?>
+    <!-- Eventos do Celular -->
+    <div class="card blue" style="margin-top:16px">
+      <h2>📱 Eventos recentes do celular / gateway</h2>
+      <?php if(!$mobileEvents):?><p>Sem eventos recentes.</p><?php else:?>
+        <table>
+          <tr><th style="width:180px;">Data</th><th style="width:160px;">Tipo</th><th>Descrição</th></tr>
+          <?php foreach($mobileEvents as $e):?>
+            <tr>
+              <td><?=h($e['data_hora'])?></td>
+              <td><b><?=h($e['tipo'])?></b></td>
+              <td><?=h($e['descricao'])?></td>
+            </tr>
+          <?php endforeach;?>
+        </table>
+      <?php endif;?>
+    </div>
+  <?php endif; ?>
 </div>
-<div class="card orange" style="margin-top:16px"><h2>Assistência</h2><?php if(!$assist):?><p>Sem eventos.</p><?php else:?><table><tr><th>Data</th><th>Tipo</th><th>Severidade</th><th>Dispositivo</th><th>Mensagem</th><th></th></tr><?php foreach($assist as $a):?><tr><td><?=h($a['criado_em'])?></td><td><?=h($a['tipo'])?></td><td><span class="pill <?=strtolower($a['severidade'])==='critica'?'off':'warn'?>"><?=h($a['severidade'])?></span></td><td><?=h($a['dispositivo'])?></td><td><?=h($a['mensagem'])?></td><td><?php if(!$a['confirmado']):?><form method="post"><input type="hidden" name="csrf" value="<?=h($csrf)?>"><input type="hidden" name="action" value="ack_assist"><input type="hidden" name="id" value="<?=h($a['id'])?>"><button>Confirmar</button></form><?php else:?>OK<?php endif;?></td></tr><?php endforeach;?></table><?php endif;?></div>
-<div class="card blue" style="margin-top:16px"><h2>Eventos recentes do celular/gateway</h2><?php if(!$mobileEvents):?><p>Sem eventos.</p><?php else:?><table><tr><th>Data</th><th>Tipo</th><th>Descrição</th></tr><?php foreach($mobileEvents as $e):?><tr><td><?=h($e['data_hora'])?></td><td><?=h($e['tipo'])?></td><td><?=h($e['descricao'])?></td></tr><?php endforeach;?></table><?php endif;?></div>
-</div></body></html>
+
+<script>
+  if (document.getElementById("qr-pwa") && typeof QRCode !== 'undefined') {
+    new QRCode(document.getElementById("qr-pwa"), {
+      text: <?= json_encode($pwaUrl) ?>,
+      width: 130,
+      height: 130,
+      colorDark : "#000000",
+      colorLight : "#ffffff",
+      correctLevel : QRCode.CorrectLevel.M
+    });
+  }
+</script>
+</body>
+</html>

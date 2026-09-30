@@ -92,11 +92,11 @@ if ($action === 'call_start') {
 
 if ($action === 'call_current') {
     $platform = trim((string)($_GET['platform'] ?? $input['platform'] ?? 'mobile'));
-    $visibility = family_call_visible_sql(':me',':platform');
+    $visibility = family_call_visible_sql(':me1',':me2',':me3',':platform');
     $stmt=$pdo->prepare("SELECT * FROM family_calls
         WHERE canal_id=:c AND status IN ('chamando','ativa') AND {$visibility}
         ORDER BY id DESC LIMIT 1");
-    $stmt->execute([':c'=>$channel['id'],':me'=>$clientName,':platform'=>$platform]);
+    $stmt->execute([':c'=>$channel['id'],':me1'=>$clientName,':me2'=>$clientName,':me3'=>$clientName,':platform'=>$platform]);
     echo json_encode(['status'=>'ok','call'=>$stmt->fetch(PDO::FETCH_ASSOC) ?: null], JSON_UNESCAPED_UNICODE); exit;
 }
 
@@ -114,10 +114,10 @@ if ($action === 'call_join') {
         echo json_encode(['status'=>'ok','call_id'=>$callId,'role'=>'initiator']); exit;
     }
 
-    $visibility = family_call_visible_sql(':me',':platform');
-    $stmt=$pdo->prepare("UPDATE family_calls SET status='ativa',atendido_por=:me
+    $visibility = family_call_visible_sql(':me1',':me2',':me3',':platform');
+    $stmt=$pdo->prepare("UPDATE family_calls SET status='ativa',atendido_por=:me_ans
         WHERE id=:id AND canal_id=:c AND status='chamando' AND {$visibility}");
-    $stmt->execute([':id'=>$callId,':c'=>$channel['id'],':me'=>$clientName,':platform'=>$platform]);
+    $stmt->execute([':id'=>$callId,':c'=>$channel['id'],':me_ans'=>$clientName,':me1'=>$clientName,':me2'=>$clientName,':me3'=>$clientName,':platform'=>$platform]);
     if ($stmt->rowCount() < 1) api_v1_json_response(409,['status'=>'erro','mensagem'=>'Chamada não disponível para este cliente']);
     family_presence($pdo,(int)$channel['id'],$clientName,$platform,$input['device'] ?? null,['call_id'=>$callId,'role'=>'callee']);
     echo json_encode(['status'=>'ok','call_id'=>$callId,'answered_by'=>$clientName,'role'=>'callee']); exit;

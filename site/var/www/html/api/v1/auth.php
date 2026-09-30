@@ -66,15 +66,119 @@ function mobile_auth_session(PDO $pdo): array {
     );
     $stmt->execute([':h'=>$hash]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
-    if (!$row) api_v1_json_response(401, ['status'=>'erro','mensagem'=>'Sessao invalida ou expirada']);
+    if ($row) {
+        $pdo->prepare("UPDATE mobile_user_sessions SET ultimo_uso=NOW(),ultimo_ip=:ip WHERE id=:id")
+            ->execute([':ip'=>api_v1_client_ip(), ':id'=>$row['session_id']]);
+        return $row;
+    }
 
-    $pdo->prepare("UPDATE mobile_user_sessions SET ultimo_uso=NOW(),ultimo_ip=:ip WHERE id=:id")
-        ->execute([':ip'=>api_v1_client_ip(), ':id'=>$row['session_id']]);
-    return $row;
+    // Valida Chave Mestre da API Externa
+    $stmtMaster = $pdo->prepare("SELECT valor FROM configuracoes_sistema WHERE chave='external_api_key' LIMIT 1");
+    $stmtMaster->execute();
+    $masterRow = $stmtMaster->fetch(PDO::FETCH_ASSOC);
+    if ($masterRow && !empty($masterRow['valor']) && hash_equals($masterRow['valor'], $token)) {
+        return [
+            'session_id' => 0,
+            'id' => 1,
+            'nome' => 'Chave Mestre CASA / JARVIS',
+            'login' => 'admin',
+            'email' => 'admin@casa.local',
+            'perfil' => 'admin'
+        ];
+    }
+
+    // Valida Token da tabela api_client_tokens (Chaves adicionais criadas)
+    $stmtKey = $pdo->prepare(
+        "SELECT id, nome, scopes, expira_em, revogado_em
+         FROM api_client_tokens
+         WHERE token_hash = :h AND ativo = 1
+           AND (expira_em IS NULL OR expira_em > NOW())
+           AND revogado_em IS NULL
+         LIMIT 1"
+    );
+    $stmtKey->execute([':h' => $hash]);
+    $keyRow = $stmtKey->fetch(PDO::FETCH_ASSOC);
+    if ($keyRow) {
+        $pdo->prepare("UPDATE api_client_tokens SET ultimo_uso = NOW(), ultimo_ip = :ip WHERE id = :id")
+            ->execute([':ip' => api_v1_client_ip(), ':id' => $keyRow['id']]);
+        return [
+            'session_id' => (int)$keyRow['id'],
+            'id' => (int)$keyRow['id'],
+            'nome' => !empty($keyRow['nome']) ? $keyRow['nome'] : ('Chave #' . $keyRow['id']),
+            'login' => 'api_key',
+            'email' => '',
+            'perfil' => 'operador'
+        ];
+    }
+
+    api_v1_json_response(401, ['status'=>'erro','mensagem'=>'Sessao ou chave de API invalida ou expirada']);
 }
 
 $in = mobile_auth_input();
 $acao = trim((string)($in['acao'] ?? 'login'));
+
+if ($acao === 'qr_login' || $acao === 'api_key_login') {
+    $token = trim((string)($in['token'] ?? $in['api_key'] ?? mobile_auth_bearer()));
+    if ($token === '') {
+        api_v1_json_response(400, ['status'=>'erro','mensagem'=>'Token ou Chave de API ausente']);
+    }
+
+    $hash = hash('sha256', $token);
+
+    // 1. Chave Mestre
+    $stmtMaster = $pdo->prepare("SELECT valor FROM configuracoes_sistema WHERE chave='external_api_key' LIMIT 1");
+    $stmtMaster->execute();
+    $masterRow = $stmtMaster->fetch(PDO::FETCH_ASSOC);
+    if ($masterRow && !empty($masterRow['valor']) && hash_equals($masterRow['valor'], $token)) {
+        api_v1_log($pdo, 'QR_LOGIN_MASTER_OK', 'INFO', 'admin');
+        echo json_encode([
+            'status' => 'ok',
+            'session_token' => $token,
+            'expires_at' => date('c', time() + (86400 * 365)),
+            'user' => [
+                'id' => 1,
+                'nome' => 'Chave Mestre CASA / JARVIS',
+                'login' => 'admin',
+                'email' => 'admin@casa.local',
+                'perfil' => 'admin'
+            ]
+        ], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+
+    // 2. Chaves individuais registradas
+    $stmtKey = $pdo->prepare(
+        "SELECT id, nome, scopes, expira_em, revogado_em
+         FROM api_client_tokens
+         WHERE token_hash = :h AND ativo = 1
+           AND (expira_em IS NULL OR expira_em > NOW())
+           AND revogado_em IS NULL
+         LIMIT 1"
+    );
+    $stmtKey->execute([':h' => $hash]);
+    $keyRow = $stmtKey->fetch(PDO::FETCH_ASSOC);
+    if ($keyRow) {
+        $pdo->prepare("UPDATE api_client_tokens SET ultimo_uso = NOW(), ultimo_ip = :ip WHERE id = :id")
+            ->execute([':ip' => api_v1_client_ip(), ':id' => $keyRow['id']]);
+        api_v1_log($pdo, 'QR_LOGIN_KEY_OK', 'INFO', $keyRow['nome']);
+        echo json_encode([
+            'status' => 'ok',
+            'session_token' => $token,
+            'expires_at' => !empty($keyRow['expira_em']) ? date('c', strtotime($keyRow['expira_em'])) : date('c', time() + (86400 * 365)),
+            'user' => [
+                'id' => (int)$keyRow['id'],
+                'nome' => !empty($keyRow['nome']) ? $keyRow['nome'] : ('Chave #' . $keyRow['id']),
+                'login' => 'api_key',
+                'email' => '',
+                'perfil' => 'operador'
+            ]
+        ], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+
+    api_v1_log($pdo, 'QR_LOGIN_DENIED', 'ALTO', 'token_invalido');
+    api_v1_json_response(401, ['status'=>'erro','mensagem'=>'Chave de API invalida, revogada ou expirada']);
+}
 
 if ($acao === 'login') {
     $usuario = trim((string)($in['usuario'] ?? ''));

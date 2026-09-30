@@ -4,6 +4,7 @@ header('Content-Type: application/json; charset=utf-8');
 require_once(__DIR__ . '/db.php');
 verify_api_auth();
 require_once(__DIR__ . '/seguranca.php');
+require_once(__DIR__ . '/v1/security_v1.php');
 
 $pdo = get_db_pdo();
 $tabela = isset($_GET['tabela']) ? preg_replace('/[^a-zA-Z0-9_]/', '', $_GET['tabela']) : '';
@@ -219,6 +220,122 @@ try {
             ->execute([':k'=>$key]);
         registrar_evento_seguranca(get_client_ip(),'ROTACAO_CHAVE_API','Chave externa rotacionada','AVISO');
         crud_json(['status'=>'sucesso','mensagem'=>'Nova chave gerada','nova_api_key'=>$key]);
+    }
+
+    if ($acao === 'listar_api_keys') {
+        $stmt = $pdo->query("SELECT id, nome, device_id, token, token_prefix, scopes, ativo, expira_em, revogado_em, ultimo_uso, ultimo_ip, criado_em FROM api_client_tokens ORDER BY id DESC");
+        $dados = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $now = time();
+        foreach ($dados as &$d) {
+            if (function_exists('api_v1_decode_scopes')) {
+                $d['scopes'] = api_v1_decode_scopes($d['scopes']);
+            } else {
+                $dec = json_decode($d['scopes'] ?? '', true);
+                $d['scopes'] = is_array($dec) ? $dec : [];
+            }
+            $isRevogado = !empty($d['revogado_em']) || empty($d['ativo']);
+            $isExpirado = !empty($d['expira_em']) && strtotime($d['expira_em']) < $now;
+            $d['status_formatado'] = $isRevogado ? 'revogado' : ($isExpirado ? 'expirado' : 'ativo');
+        }
+        unset($d);
+        crud_json(['status'=>'sucesso','dados'=>$dados,'total'=>count($dados)]);
+    }
+
+    if ($acao === 'criar_api_key') {
+        $nome = trim((string)($input['nome'] ?? ''));
+        if ($nome === '') $nome = 'Nova API Key';
+        if (mb_strlen($nome) > 120) $nome = mb_substr($nome, 0, 120);
+
+        $scopesRaw = $input['scopes'] ?? ['*'];
+        if (is_string($scopesRaw)) {
+            $scopesRaw = array_values(array_filter(array_map('trim', explode(',', $scopesRaw))));
+        }
+        if (!is_array($scopesRaw) || empty($scopesRaw)) {
+            $scopesRaw = ['*'];
+        }
+
+        $expiraDias = isset($input['expira_dias']) ? intval($input['expira_dias']) : 0;
+        $expiraEm = null;
+        if ($expiraDias > 0) {
+            $expiraEm = date('Y-m-d H:i:s', strtotime("+{$expiraDias} days"));
+        } elseif (!empty($input['expira_em'])) {
+            $ts = strtotime($input['expira_em']);
+            if ($ts > time()) $expiraEm = date('Y-m-d H:i:s', $ts);
+        }
+
+        $manualToken = trim((string)($input['token'] ?? ''));
+        if ($manualToken !== '') {
+            $rawToken = $manualToken;
+        } else {
+            $rawToken = 'casa_sec_' . bin2hex(random_bytes(24));
+        }
+        $hash = hash('sha256', $rawToken);
+        $prefix = substr($rawToken, 0, 14) . '...';
+
+        try {
+            $pdo->exec("ALTER TABLE api_client_tokens ADD COLUMN IF NOT EXISTS token VARCHAR(255) NULL AFTER device_id");
+        } catch(Throwable $e) {}
+
+        $stmt = $pdo->prepare("INSERT INTO api_client_tokens (nome, token, token_hash, token_prefix, scopes, ativo, expira_em, criado_em) VALUES (:n, :tok, :h, :p, :s, 1, :e, NOW())");
+        $stmt->execute([
+            ':n' => $nome,
+            ':tok' => $rawToken,
+            ':h' => $hash,
+            ':p' => $prefix,
+            ':s' => json_encode($scopesRaw, JSON_UNESCAPED_UNICODE),
+            ':e' => $expiraEm
+        ]);
+        $newId = (int)$pdo->lastInsertId();
+
+        registrar_evento_seguranca(get_client_ip(), 'API_KEY_CRIADA', "Chave criada: {$nome} (ID {$newId})", 'INFO');
+
+        crud_json([
+            'status' => 'sucesso',
+            'mensagem' => 'Nova chave de API gerada com sucesso!',
+            'chave_completa' => $rawToken,
+            'token' => [
+                'id' => $newId,
+                'nome' => $nome,
+                'token_prefix' => $prefix,
+                'scopes' => $scopesRaw,
+                'ativo' => 1,
+                'expira_em' => $expiraEm,
+                'criado_em' => date('Y-m-d H:i:s')
+            ]
+        ]);
+    }
+
+    if ($acao === 'revogar_api_key') {
+        $id = intval($input['id'] ?? ($_GET['id'] ?? 0));
+        if ($id <= 0) crud_json(['status'=>'erro','mensagem'=>'ID de chave inválido'], 400);
+
+        $stmt = $pdo->prepare("SELECT nome, device_id FROM api_client_tokens WHERE id=:id LIMIT 1");
+        $stmt->execute([':id'=>$id]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) crud_json(['status'=>'erro','mensagem'=>'Chave não encontrada'], 404);
+
+        $pdo->prepare("UPDATE api_client_tokens SET ativo=0, revogado_em=NOW() WHERE id=:id")->execute([':id'=>$id]);
+        if (!empty($row['device_id'])) {
+            $pdo->prepare("UPDATE dispositivos_cluster SET credential_revoked_at=NOW(), status='revoked' WHERE device_id=:d")->execute([':d'=>$row['device_id']]);
+        }
+        registrar_evento_seguranca(get_client_ip(), 'API_KEY_REVOGADA', "Chave revogada: {$row['nome']} (ID {$id})", 'AVISO');
+
+        crud_json(['status'=>'sucesso','mensagem'=>'Chave de API revogada com sucesso!']);
+    }
+
+    if ($acao === 'excluir_api_key') {
+        $id = intval($input['id'] ?? ($_GET['id'] ?? 0));
+        if ($id <= 0) crud_json(['status'=>'erro','mensagem'=>'ID de chave inválido'], 400);
+
+        $stmt = $pdo->prepare("SELECT nome FROM api_client_tokens WHERE id=:id LIMIT 1");
+        $stmt->execute([':id'=>$id]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) crud_json(['status'=>'erro','mensagem'=>'Chave não encontrada'], 404);
+
+        $pdo->prepare("DELETE FROM api_client_tokens WHERE id=:id")->execute([':id'=>$id]);
+        registrar_evento_seguranca(get_client_ip(), 'API_KEY_EXCLUIDA', "Chave excluída: {$row['nome']} (ID {$id})", 'AVISO');
+
+        crud_json(['status'=>'sucesso','mensagem'=>'Chave de API excluída com sucesso!']);
     }
 
     if ($acao === 'executar_tarefa') {

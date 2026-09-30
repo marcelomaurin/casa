@@ -3,8 +3,10 @@ session_start();
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 header('X-Content-Type-Options: nosniff');
-if (empty($_SESSION['auth_user'])) { http_response_code(401); echo json_encode(['status'=>'erro','mensagem'=>'Sessão expirada.']); exit; }
 require_once __DIR__ . '/db.php';
+if (empty($_SESSION['auth_user'])) {
+    verify_api_auth();
+}
 $pdo=get_db_pdo();
 function out($code,$data){http_response_code($code);echo json_encode($data,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);exit;}
 function caps_array($v){$a=json_decode((string)$v,true);return is_array($a)?$a:[];}
@@ -12,14 +14,15 @@ function json_array($v){$a=json_decode((string)$v,true);return is_array($a)?$a:[
 $method=$_SERVER['REQUEST_METHOD']??'GET';
 if($method==='GET'){
   try{
-    $sql="SELECT d.device_id,d.nome,d.tipo,d.model,d.localizacao,d.status,d.ip_address,d.sinal_rssi,d.ultimo_heartbeat,d.capabilities,d.metadata,s.desired_state,s.updated_at AS desired_updated FROM dispositivos_cluster d LEFT JOIN device_desired_state s ON s.device_id=d.device_id ORDER BY COALESCE(d.nome,d.model,d.device_id),d.device_id";
+    $sql="SELECT d.device_id,d.nome,d.tipo,d.model,d.localizacao,d.status,d.ip_address,d.mac_address,d.sinal_rssi,d.ultimo_heartbeat,d.capabilities,d.metadata,s.desired_state,s.updated_at AS desired_updated FROM dispositivos_cluster d LEFT JOIN device_desired_state s ON s.device_id=d.device_id WHERE d.tipo NOT IN ('linux-arm', 'cluster', 'server') AND d.device_id NOT LIKE 'raspberry%' AND d.device_id NOT LIKE 'cubie%' ORDER BY COALESCE(d.nome,d.model,d.device_id),d.device_id";
     $rows=$pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
     $latest=[];
     $q=$pdo->query("SELECT r.device_id,r.temperature_c,r.humidity_pct,r.sensor_type,r.observed_at FROM device_environment_readings r INNER JOIN (SELECT device_id,MAX(id) id FROM device_environment_readings GROUP BY device_id) x ON x.id=r.id");
     foreach($q->fetchAll(PDO::FETCH_ASSOC) as $r)$latest[$r['device_id']]=$r;
     $devices=[];
     foreach($rows as $r){
-      $caps=caps_array($r['capabilities']??'[]');$meta=json_array($r['metadata']??'{}');$desired=json_array($r['desired_state']??'{}');$env=$latest[$r['device_id']]??null;
+      $caps=caps_array($r['capabilities']??'[]');
+      if(in_array('arm-agent',$caps,true)||in_array('linux-arm',$caps,true)||$r['tipo']==='linux-arm') continue;$meta=json_array($r['metadata']??'{}');$desired=json_array($r['desired_state']??'{}');$env=$latest[$r['device_id']]??null;
       $devices[]=[
         'device_id'=>$r['device_id'],'nome'=>$r['nome'],'tipo'=>$r['tipo'],'model'=>$r['model'],'localizacao'=>$r['localizacao'],'status'=>$r['status'],'ip_address'=>$r['ip_address'],'sinal_rssi'=>$r['sinal_rssi'],'ultimo_heartbeat'=>$r['ultimo_heartbeat'],'capabilities'=>$caps,
         'is_relay'=>in_array('relay',$caps,true)||in_array('switch',$caps,true),

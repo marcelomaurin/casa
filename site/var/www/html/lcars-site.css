@@ -1092,3 +1092,482 @@ body{overscroll-behavior:none}
   .ja-ai-chat-modal{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr) auto}
   .ja-ai-task-panel{border-left:0;border-top:2px solid #2e2e2e;max-height:160px}
 }
+
+/* Multi-key API management */
+.ja-api-summary { margin-bottom: 12px; }
+.ja-apikey-card { border-color: #3f82ad; }
+.ja-apikey-card code { color: #ff9f00; font-family: monospace; font-size: 11px; }
+.ja-state-revoked { background: #c62828 !important; color: #fff !important; }
+.ja-state-expired { background: #ef6c00 !important; color: #fff !important; }
+.ja-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid #1a2730;
+}
+.ja-master-key-box {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 2px dashed #3f82ad;
+  border-radius: 16px;
+  background: #050b10;
+}
+.ja-master-key-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.ja-master-key-head strong {
+  color: #8fc7ef;
+  font-size: 13px;
+  text-transform: uppercase;
+}
+.ja-master-key-head p {
+  margin: 3px 0 0;
+  font-size: 11px;
+  color: #a9b7c6;
+}
+.ja-master-key-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.ja-custom-scopes {
+  grid-column: 1 / -1;
+  background: #0c1218;
+  padding: 10px 12px;
+  border: 1px solid #234358;
+  border-radius: 12px;
+}
+.ja-custom-scopes.is-hidden { display: none; }
+.ja-custom-scopes > span {
+  font-size: 11px;
+  font-weight: 700;
+  color: #8fc7ef;
+  display: block;
+  margin-bottom: 6px;
+}
+.ja-scopes-checkboxes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 6px;
+}
+.ja-scopes-checkboxes label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #c7d0d8;
+  cursor: pointer;
+}
+.ja-scopes-checkboxes input[type="checkbox"] {
+  width: auto;
+  accent-color: var(--ja-orange);
+}
+.ja-alert-warning {
+  padding: 10px 14px;
+  border-left: 4px solid var(--ja-orange);
+  background: #241400;
+  border-radius: 6px;
+  color: #ffe0b2;
+  margin-bottom: 12px;
+}
+.ja-alert-warning b {
+  color: var(--ja-orange);
+  display: block;
+  margin-bottom: 4px;
+}
+.ja-alert-warning p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.ja-key-reveal-field label span {
+  font-size: 11px;
+  font-weight: 900;
+  color: #8fc7ef;
+}
+.ja-key-input-group {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+.ja-key-input-group input {
+  flex: 1;
+  font-family: monospace;
+  font-size: 13px;
+  color: #4fc3f7;
+  background: #000;
+  border: 2px solid var(--ja-orange);
+  border-radius: 10px;
+  padding: 8px 12px;
+}
+.ja-txt-danger { color: #ef5350 !important; }
+
+/* Layout adaptativo Acesso Web & API - Sem estourar a tela */
+/* Layout adaptativo Acesso Web & API - Sem estourar a tela */
+.ja-api-container {
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 8px 30px 4px;
+  scrollbar-width: thin;
+  scroll-behavior: smooth;
+}
+
+.ja-native-body:has(.ja-api-container) {
+  display: block !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+.ja-api-topbar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+  align-items: center;
+}
+
+.ja-api-stat {
+  border: 2px solid #3f82ad;
+  border-radius: 14px;
+  padding: 6px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #050b10;
+  min-width: 0;
+}
+.ja-api-stat b {
+  font-size: 10px;
+  color: #8fc7ef;
+  text-transform: uppercase;
+}
+.ja-api-stat strong {
+  font-size: 12px;
+  color: #f2a000;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ja-api-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 10px;
+}
+
+.ja-apikey-card {
+  border: 2px solid #3f82ad;
+  border-radius: 16px;
+  background: #070707;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+  transition: border-color 0.2s;
+}
+.ja-apikey-card:hover {
+  border-color: #5ea3d0;
+}
+
+.ja-apikey-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.ja-apikey-head h3 {
+  margin: 0;
+  font-size: 13px;
+  color: #8fc7ef;
+  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ja-apikey-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 10px;
+  font-size: 10px;
+  color: #c7d0d8;
+}
+.ja-apikey-meta b {
+  color: #8fc7ef;
+}
+.ja-apikey-meta code {
+  color: #f2a000;
+  font-family: monospace;
+  font-size: 11px;
+}
+
+.ja-card-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid #1a2730;
+  flex-wrap: wrap;
+}
+
+/* Master Key Section */
+.ja-master-key-box {
+  border: 2px solid #f2a000;
+  border-radius: 16px;
+  background: #0a0802;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ja-master-key-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.ja-master-key-head strong {
+  color: #f2a000;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+}
+.ja-master-key-head p {
+  margin: 2px 0 0 0;
+  font-size: 10px;
+  color: #c7d0d8;
+}
+.ja-master-key-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* ESTAÇÃO DE LEITURA QR CODE (PARA RELÓGIO & CELULAR) */
+/* Esta operação é a última da página ao rolar para cima (bottom-most) */
+.ja-qr-station {
+  border: 3px solid #ff9900;
+  border-radius: 20px;
+  background: #03080e;
+  padding: 18px 20px 24px 20px;
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.7);
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.ja-qr-station.ja-station-highlight {
+  animation: ja-station-pulse 1.8s ease-in-out;
+}
+
+@keyframes ja-station-pulse {
+  0% { border-color: #ff9900; box-shadow: 0 0 0 rgba(255, 153, 0, 0); }
+  50% { border-color: #00e5ff; box-shadow: 0 0 35px rgba(0, 229, 255, 0.7); transform: scale(1.01); }
+  100% { border-color: #ff9900; box-shadow: 0 0 0 rgba(255, 153, 0, 0); transform: scale(1); }
+}
+
+.ja-qr-station-badge {
+  background: var(--ja-orange);
+  color: #000;
+  font-size: 11px;
+  font-weight: 900;
+  padding: 4px 14px;
+  border-radius: 12px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  display: inline-block;
+}
+
+.ja-qr-station-head h3 {
+  margin: 6px 0 2px 0;
+  font-size: 16px;
+  color: #fff;
+  letter-spacing: 0.5px;
+}
+
+.ja-qr-station-head p {
+  margin: 0;
+  font-size: 11px;
+  color: #8fc7ef;
+  max-width: 680px;
+  line-height: 1.4;
+}
+
+.ja-qr-camera-guide {
+  background: rgba(31, 65, 89, 0.35);
+  border: 1px dashed #3f82ad;
+  border-radius: 12px;
+  padding: 6px 14px;
+  font-size: 11px;
+  color: #ffcc00;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ja-qr-controls-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  width: 100%;
+  max-width: 640px;
+}
+
+.ja-qr-controls-row label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: #8fc7ef;
+  font-weight: 700;
+  margin: 0;
+}
+
+.ja-qr-controls-row select {
+  background: #0b1c28;
+  color: #fff;
+  border: 2px solid #3f82ad;
+  border-radius: 10px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  outline: none;
+  cursor: pointer;
+  max-width: 280px;
+}
+.ja-qr-controls-row select:focus {
+  border-color: var(--ja-orange);
+}
+
+.ja-qr-types-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  flex-wrap: wrap;
+}
+.ja-qr-types-tabs button {
+  border: 0;
+  border-radius: 10px;
+  padding: 7px 14px;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  background: #1b384c;
+  color: #8fc7ef;
+  transition: all 0.2s;
+}
+.ja-qr-types-tabs button:hover {
+  background: #254d68;
+  color: #fff;
+}
+.ja-qr-types-tabs button.active {
+  background: var(--ja-orange);
+  color: #111;
+  box-shadow: 0 0 10px rgba(255, 153, 0, 0.4);
+}
+
+/* Retículo óptico para enquadramento da lente da câmera do relógio */
+.ja-qr-viewfinder {
+  position: relative;
+  display: inline-flex;
+  padding: 14px;
+  margin: 4px 0;
+  border-radius: 20px;
+  background: #000;
+  border: 2px solid #234358;
+}
+
+.ja-qr-viewfinder::before,
+.ja-qr-viewfinder::after {
+  content: "";
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  pointer-events: none;
+}
+.ja-qr-viewfinder::before {
+  top: 4px;
+  left: 4px;
+  border-top: 3px solid #ff9900;
+  border-left: 3px solid #ff9900;
+}
+.ja-qr-viewfinder::after {
+  bottom: 4px;
+  right: 4px;
+  border-bottom: 3px solid #ff9900;
+  border-right: 3px solid #ff9900;
+}
+
+.ja-qr-canvas-box {
+  background: #ffffff;
+  padding: 14px;
+  border-radius: 12px;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  min-width: 240px;
+  min-height: 240px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.9);
+}
+
+.ja-qr-canvas-box img,
+.ja-qr-canvas-box canvas {
+  display: block !important;
+  margin: 0 auto;
+}
+
+.ja-qr-payload-box {
+  width: 100%;
+  max-width: 600px;
+  background: #000000;
+  border: 1px solid #3f82ad;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-family: Consolas, monospace;
+  font-size: 11px;
+  color: #4fc3f7;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  text-align: left;
+  margin: 0;
+}
+
+/* Modal de QR Code ampliado */
+.ja-qr-modal-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .ja-api-cards-grid { grid-template-columns: 1fr; }
+  .ja-apikey-meta { grid-template-columns: 1fr; }
+  .ja-api-topbar { grid-template-columns: 1fr; }
+  .ja-qr-controls-row { flex-direction: column; }
+}

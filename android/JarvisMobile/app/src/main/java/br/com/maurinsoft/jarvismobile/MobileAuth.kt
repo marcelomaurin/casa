@@ -81,10 +81,104 @@ object MobileAuth {
         }
     }
 
+    fun loginWithApiKey(
+        context: Context,
+        baseUrl: String,
+        apiKey: String,
+        deviceName: String = ""
+    ): Session {
+        val cleanUrl = baseUrl.trim().trimEnd('/')
+        require(cleanUrl.startsWith("http://") || cleanUrl.startsWith("https://")) {
+            "URL da CASA inválida. Utilize http:// ou https://"
+        }
+        require(apiKey.isNotBlank()) { "Chave de API / Token não informado" }
+
+        // 1. Tenta validar no endpoint oficial /api/v1/auth.php com acao 'qr_login'
+        var session: Session? = null
+        val body = JSONObject()
+            .put("acao", "qr_login")
+            .put("token", apiKey.trim())
+            .put("device_name", deviceName.ifBlank { "Casa Mobile (QR)" })
+
+        val reqAuth = Request.Builder()
+            .url("$cleanUrl/api/v1/auth.php")
+            .header("Authorization", "Bearer ${apiKey.trim()}")
+            .header("X-API-Key", apiKey.trim())
+            .header("Accept", "application/json")
+            .post(body.toString().toRequestBody(jsonType))
+            .build()
+
+        runCatching {
+            client.newCall(reqAuth).execute().use { response ->
+                val raw = response.body?.string().orEmpty()
+                val json = runCatching { JSONObject(raw) }.getOrElse { JSONObject() }
+                if (response.isSuccessful && json.optString("status") == "ok") {
+                    val user = json.optJSONObject("user") ?: JSONObject()
+                    session = Session(
+                        token = json.optString("session_token", apiKey.trim()),
+                        name = user.optString("nome", deviceName.ifBlank { "Casa Mobile" }),
+                        login = user.optString("login", "api_key"),
+                        profile = user.optString("perfil", "operador"),
+                        expiresAt = json.optString("expires_at", "permanente")
+                    )
+                }
+            }
+        }
+
+        // 2. Fallback: Se auth.php não respondeu, valida direto em /api/v1/status
+        if (session == null) {
+            val reqStatus = Request.Builder()
+                .url("$cleanUrl/api/v1/status")
+                .header("Authorization", "Bearer ${apiKey.trim()}")
+                .header("X-Device-Token", apiKey.trim())
+                .header("Accept", "application/json")
+                .get()
+                .build()
+
+            client.newCall(reqStatus).execute().use { response ->
+                val raw = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    throw IllegalStateException("Chave de API recusada pela CASA (HTTP ${response.code})")
+                }
+                val json = runCatching { JSONObject(raw) }.getOrElse { JSONObject() }
+                val clientLabel = json.optString("sistema", "CASA")
+                session = Session(
+                    token = apiKey.trim(),
+                    name = if (deviceName.isNotBlank()) deviceName else "Chave API: $clientLabel",
+                    login = "api_key",
+                    profile = "operador",
+                    expiresAt = "permanente"
+                )
+            }
+        }
+
+        val resolved = session ?: throw IllegalStateException("Não foi possível autenticar a chave de API.")
+        JarvisApi.saveConfig(context, cleanUrl, resolved.token)
+        save(context, resolved)
+        return resolved
+    }
+
     fun validate(context: Context): Session? {
         val current = savedSession(context) ?: return null
         val cfg = JarvisApi.loadConfig(context)
-        if (!cfg.baseUrl.startsWith("https://")) return null
+        if (!cfg.baseUrl.startsWith("http://") && !cfg.baseUrl.startsWith("https://")) return null
+
+        // Se a sessão for de chave de API, valida via /api/v1/status
+        if (current.login == "api_key") {
+            return runCatching {
+                val req = Request.Builder()
+                    .url(cfg.baseUrl.trimEnd('/') + "/api/v1/status")
+                    .header("Authorization", "Bearer ${current.token}")
+                    .header("X-Device-Token", current.token)
+                    .header("Accept", "application/json")
+                    .get()
+                    .build()
+                client.newCall(req).execute().use { response ->
+                    if (response.isSuccessful) current else null
+                }
+            }.getOrNull()
+        }
+
         val req = Request.Builder()
             .url(cfg.baseUrl.trimEnd('/') + "/api/v1/auth.php")
             .header("Accept", "application/json")

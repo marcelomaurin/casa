@@ -1,0 +1,67 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          casa-cluster-site
+# Required-Start:    $network $local_fs $remote_fs
+# Required-Stop:     $network $local_fs $remote_fs
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: CASA Cluster Node Site Portal
+### END INIT INFO
+
+PATH=/sbin:/usr/sbin:/bin:/usr/bin
+DESC="CASA Cluster Node Site Portal"
+NAME="casa-cluster-site"
+DAEMON=/usr/bin/python3
+DAEMON_ARGS="/opt/casa/site/server.py"
+PIDFILE=/var/run/$NAME.pid
+SCRIPTNAME=/etc/init.d/$NAME
+LOGFILE=/var/log/$NAME.log
+
+test -x $DAEMON || exit 0
+
+case "$1" in
+  start)
+    echo -n "Starting $DESC: "
+    if [ -f $PIDFILE ] && kill -0 $(cat $PIDFILE) 2>/dev/null; then
+        echo "already running."
+        exit 0
+    fi
+    mkdir -p /opt/casa/site
+    nohup $DAEMON $DAEMON_ARGS >> $LOGFILE 2>&1 &
+    echo $! > $PIDFILE
+    echo "done."
+    ;;
+  stop)
+    echo -n "Stopping $DESC: "
+    if [ -f $PIDFILE ]; then
+        kill $(cat $PIDFILE) 2>/dev/null || true
+        rm -f $PIDFILE
+    fi
+    pkill -f "python3 /opt/casa/site/server.py" 2>/dev/null || true
+    echo "done."
+    ;;
+  restart)
+    $0 stop
+    sleep 1
+    $0 start
+    ;;
+  status)
+    if [ -f $PIDFILE ] && kill -0 $(cat $PIDFILE) 2>/dev/null; then
+        echo "$DESC is running (PID $(cat $PIDFILE))."
+        exit 0
+    fi
+    PIDS=$(pgrep -f "python3 /opt/casa/site/server.py")
+    if [ -n "$PIDS" ]; then
+        echo "$DESC is running (PIDs $PIDS)."
+        exit 0
+    fi
+    echo "$DESC is stopped."
+    exit 3
+    ;;
+  *)
+    echo "Usage: $SCRIPTNAME {start|stop|restart|status}" >&2
+    exit 3
+    ;;
+esac
+
+exit 0

@@ -1,0 +1,18 @@
+[Unit]
+Description=CASA Cluster Node Web Site & Telemetry Portal
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/casa/site
+ExecStart=/usr/bin/python3 /opt/casa/site/server.py
+Restart=always
+RestartSec=5
+Environment=CLUSTER_SITE_PORT=8080
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

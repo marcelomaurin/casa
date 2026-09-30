@@ -77,7 +77,7 @@ if ($token !== '') {
             $cliente = 'Dispositivo: ' . $dev['nome'];
         } else {
             $hash = hash('sha256', $token);
-            $stmt = $pdo->prepare("SELECT id, nome FROM api_client_tokens WHERE token_hash=:h AND ativo=1 AND (expira_em IS NULL OR expira_em > NOW()) LIMIT 1");
+            $stmt = $pdo->prepare("SELECT id, nome FROM api_client_tokens WHERE token_hash=:h AND ativo=1 AND revogado_em IS NULL AND (expira_em IS NULL OR expira_em > NOW()) LIMIT 1");
             $stmt->execute([':h'=>$hash]);
             $cli = $stmt->fetch();
             if ($cli) {

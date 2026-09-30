@@ -8,12 +8,12 @@ function arm_node_json($value): array {
 
 function arm_node_caps($value): array {
     $caps = [];
-    foreach (arm_node_json($value) as $key => $value) {
-        if (is_array($value)) {
-            if (($value['enabled'] ?? true) && is_string($value['name'] ?? null)) $caps[] = $value['name'];
-        } elseif (is_int($key) && is_string($value)) {
-            $caps[] = $value;
-        } elseif (is_string($key) && $value) {
+    foreach (arm_node_json($value) as $key => $val) {
+        if (is_array($val)) {
+            if (($val['enabled'] ?? true) && is_string($val['name'] ?? null)) $caps[] = $val['name'];
+        } elseif (is_int($key) && is_string($val)) {
+            $caps[] = $val;
+        } elseif (is_string($key) && $val) {
             $caps[] = $key;
         }
     }
@@ -23,10 +23,10 @@ function arm_node_caps($value): array {
 function arm_node_is_agent(array $row): bool {
     $meta = arm_node_json($row['metadata'] ?? null);
     $caps = array_map('strtolower', arm_node_caps($row['capabilities'] ?? null));
-    if (array_intersect($caps, ['arm-agent', 'linux-arm', 'linux-arm-agent', 'raspberry-pi'])) return true;
+    if (array_intersect($caps, ['arm-agent', 'linux-arm', 'linux-arm-agent', 'raspberry-pi', 'cluster_arm'])) return true;
     $markers = [$row['tipo'] ?? '', $row['manufacturer'] ?? '', $meta['platform'] ?? '', $meta['architecture'] ?? '', $meta['arch'] ?? ''];
     foreach ($markers as $marker) {
-        if (is_string($marker) && preg_match('/(?:linux[-_ ]?arm|arm[-_ ]?(?:agent|node)|aarch64|arm64|armv[5-9]|raspberry[ _-]?pi|orange[ _-]?pi)/i', $marker)) return true;
+        if (is_string($marker) && preg_match('/(?:linux[-_ ]?arm|arm[-_ ]?(?:agent|node|cluster)|cluster[-_ ]?arm|aarch64|arm64|armv[5-9]|raspberry[ _-]?pi|orange[ _-]?pi|cubie[a-z0-9_-]*)/i', $marker)) return true;
     }
     return false;
 }
@@ -88,8 +88,6 @@ function arm_nodes_merge(array $legacy, array $devices, int $now): array {
         $id = trim((string)($row['device_id'] ?? ''));
         $key = $id !== '' ? 'id:'.$id : 'device:'.$row['id'];
         if (!isset($nodes[$key]) && !arm_node_is_agent($row)) continue;
-        // Registry is authoritative for shared device IDs, including revocation.
-        // Hostnames/IPs are not identities: several programs may share one host.
         $nodes[$key] = arm_node_normalize($row, false, $now);
     }
     $nodes = array_values($nodes);
@@ -101,8 +99,17 @@ function arm_nodes_merge(array $legacy, array $devices, int $now): array {
 
 function arm_nodes_list(PDO $pdo): array {
     $now = (int)$pdo->query('SELECT UNIX_TIMESTAMP()')->fetchColumn();
-    // No CRUD LIMIT: every registered agent must remain reachable in pagination.
-    $legacy = $pdo->query('SELECT id,device_id,hostname,ip_address,papel,status,cpu_info,ram_info,capabilities,ultimo_ping,UNIX_TIMESTAMP(ultimo_ping) AS last_seen_epoch FROM arm_nodes')->fetchAll(PDO::FETCH_ASSOC);
-    $devices = $pdo->query('SELECT id,device_id,nome,tipo,manufacturer,model,status,local_ip,ip_address,firmware_version,capabilities,metadata,ultimo_heartbeat,credential_revoked_at,UNIX_TIMESTAMP(ultimo_heartbeat) AS last_seen_epoch FROM dispositivos_cluster')->fetchAll(PDO::FETCH_ASSOC);
+    $legacy = [];
+    try {
+        $legacy = $pdo->query('SELECT id,device_id,hostname,ip_address,papel,status,cpu_info,ram_info,capabilities,ultimo_ping,UNIX_TIMESTAMP(ultimo_ping) AS last_seen_epoch FROM arm_nodes')->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) {
+        $legacy = [];
+    }
+    $devices = [];
+    try {
+        $devices = $pdo->query('SELECT id,device_id,nome,tipo,manufacturer,model,status,local_ip,ip_address,firmware_version,capabilities,metadata,ultimo_heartbeat,credential_revoked_at,UNIX_TIMESTAMP(ultimo_heartbeat) AS last_seen_epoch FROM dispositivos_cluster')->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) {
+        $devices = [];
+    }
     return arm_nodes_merge($legacy, $devices, $now);
 }

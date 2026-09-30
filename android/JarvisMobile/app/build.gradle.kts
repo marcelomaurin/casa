@@ -12,8 +12,8 @@ android {
         applicationId = "br.com.maurinsoft.jarvismobile"
         minSdk = 26
         targetSdk = 35
-        versionCode = 269
-        versionName = "2.6.9"
+        versionCode = 270
+        versionName = "2.7.0"
     }
 
     buildTypes {
@@ -51,5 +51,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.1")
     implementation("org.json:json:20250107")
+    implementation("com.google.zxing:core:3.5.3")
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     debugImplementation("androidx.compose.ui:ui-tooling:1.7.8")
 }

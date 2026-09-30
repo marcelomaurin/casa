@@ -24,6 +24,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import android.graphics.BitmapFactory
+import android.net.Uri
+import com.google.zxing.BinaryBitmap
+import com.google.zxing.MultiFormatReader
+import com.google.zxing.RGBLuminanceSource
+import com.google.zxing.common.HybridBinarizer
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
+import org.json.JSONObject
 
 class MainActivity : ComponentActivity() {
     private lateinit var speechInput: SpeechInputController
@@ -31,7 +40,40 @@ class MainActivity : ComponentActivity() {
     private lateinit var sessionController: MobileSessionController
     private lateinit var commandController: JarvisCommandController
 
-    private val permissionLauncher = registerForActivityResult(
+        private var onQrCodeScannedCallback: ((String) -> Unit)? = null
+
+    private val qrScanLauncher = registerForActivityResult(ScanContract()) { result ->
+        val contents = result.contents
+        if (!contents.isNullOrBlank()) {
+            onQrCodeScannedCallback?.invoke(contents)
+        }
+    }
+
+    private val pickImageLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        if (uri != null) {
+            decodeQrFromUri(uri)
+        }
+    }
+
+    private fun decodeQrFromUri(uri: Uri) {
+        runCatching {
+            contentResolver.openInputStream(uri)?.use { stream ->
+                val bitmap = BitmapFactory.decodeStream(stream) ?: return@use
+                val intArray = IntArray(bitmap.width * bitmap.height)
+                bitmap.getPixels(intArray, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+                val source = RGBLuminanceSource(bitmap.width, bitmap.height, intArray)
+                val bBitmap = BinaryBitmap(HybridBinarizer(source))
+                val result = MultiFormatReader().decode(bBitmap)
+                if (result != null && result.text.isNotBlank()) {
+                    runOnUiThread {
+                        onQrCodeScannedCallback?.invoke(result.text)
+                    }
+                }
+            }
+        }
+    }
+
+private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { }
 
@@ -118,11 +160,60 @@ class MainActivity : ComponentActivity() {
         var password by remember { mutableStateOf("") }
         var status by remember {
             mutableStateOf(
-                if (cfg.baseUrl.startsWith("https://")) "Informe suas credenciais."
-                else "Configure a URL HTTPS da CASA antes do primeiro login."
+                if (cfg.baseUrl.startsWith("http")) "Aponte a câmera para o QR Code da CASA ou informe suas credenciais."
+                else "Configure a URL da CASA ou leia o QR Code."
             )
         }
         var busy by remember { mutableStateOf(false) }
+
+        fun processQrPayload(scannedText: String) {
+            busy = true
+            status = "QR Code lido! Conectando à CASA..."
+            scope.launch {
+                try {
+                    var targetUrl = server
+                    var targetToken = ""
+                    var targetName = ""
+
+                    val trimmed = scannedText.trim()
+                    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+                        val json = JSONObject(trimmed)
+                        targetUrl = json.optString("url", targetUrl)
+                        targetToken = json.optString("token", "")
+                        targetName = json.optString("name", "")
+                    } else if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+                        val parsedUri = Uri.parse(trimmed)
+                        val tokenParam = parsedUri.getQueryParameter("token")
+                        if (!tokenParam.isNullOrBlank()) {
+                            targetToken = tokenParam
+                            targetUrl = "${parsedUri.scheme}://${parsedUri.host}" + if (parsedUri.port != -1) ":${parsedUri.port}" else ""
+                            if (parsedUri.path?.contains("/casa") == true) targetUrl += "/casa"
+                        } else {
+                            targetToken = trimmed
+                        }
+                    } else {
+                        targetToken = trimmed
+                    }
+
+                    if (targetToken.isBlank()) {
+                        status = "QR Code não contém um token válido."
+                        busy = false
+                        return@launch
+                    }
+
+                    val session = withContext(Dispatchers.IO) {
+                        MobileAuth.loginWithApiKey(this@MainActivity, targetUrl, targetToken, targetName)
+                    }
+                    server = targetUrl
+                    status = "Acesso autorizado via QR Code!"
+                    busy = false
+                    onLoggedIn(session)
+                } catch (e: Exception) {
+                    busy = false
+                    status = "Falha ao conectar via QR Code: " + (e.message ?: e.toString())
+                }
+            }
+        }
 
         LcarsFrame(
             title = "Acesso ao sistema",
@@ -133,7 +224,42 @@ class MainActivity : ComponentActivity() {
             onHome = {},
             onLogout = {}
         ) {
-            LcarsSectionLabel("LOGIN", LcarsColors.Salmon)
+            LcarsSectionLabel("ACESSO RÁPIDO VIA QR CODE", LcarsColors.Orange)
+
+            LcarsMenuButton(
+                title = "LER QR CODE DA CASA",
+                subtitle = "Aponte a câmera para o QR Code gerado no site para acesso instantâneo",
+                color = LcarsColors.Orange
+            ) {
+                if (busy) return@LcarsMenuButton
+                onQrCodeScannedCallback = { payload -> processQrPayload(payload) }
+                val options = ScanOptions().apply {
+                    setPrompt("Aponte a câmera para o QR Code na tela da CASA")
+                    setBeepEnabled(true)
+                    setBarcodeImageEnabled(true)
+                    setOrientationLocked(false)
+                }
+                qrScanLauncher.launch(options)
+            }
+
+            Spacer(Modifier.height(4.dp))
+
+            Button(
+                onClick = {
+                    if (busy) return@Button
+                    onQrCodeScannedCallback = { payload -> processQrPayload(payload) }
+                    pickImageLauncher.launch("image/*")
+                },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = LcarsColors.Blue),
+                enabled = !busy
+            ) {
+                Text("IMPORTAR QR CODE DA GALERIA / FOTO", style = MaterialTheme.typography.labelSmall)
+            }
+
+            Spacer(Modifier.height(14.dp))
+
+            LcarsSectionLabel("LOGIN MANUAL", LcarsColors.Salmon)
 
             OutlinedTextField(
                 value = server,
@@ -188,7 +314,7 @@ class MainActivity : ComponentActivity() {
                 },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !busy
-            ) { Text(if (busy) "AUTENTICANDO..." else "AUTORIZAR ACESSO") }
+            ) { Text(if (busy) "AUTENTICANDO..." else "AUTORIZAR ACESSO MANUAL") }
 
             ElevatedCard(Modifier.fillMaxWidth()) {
                 Text(status, modifier = Modifier.padding(16.dp))

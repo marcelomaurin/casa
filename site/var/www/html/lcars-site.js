@@ -38,7 +38,7 @@ const GROUPS={
       {title:'ROTINAS',items:[
         {id:'agendamentos',label:'Agendamentos',module:'schedules'},
         {id:'devices-op',label:'Dispositivos & relés',module:'devices'},
-        {id:'iot-op',label:'Cluster IoT',module:'iot'},
+        {id:'iot-op',label:'ESP32 / Arduino / IoT',module:'iot'},
         {id:'cenas',label:'Cenas e regras',url:'/casa/automacao.php'}
       ]},
       {title:'MONITORAMENTO',items:[
@@ -57,8 +57,10 @@ const GROUPS={
         {id:'nodes',label:'Cluster ARM',module:'nodes'}
       ]},
       {title:'PESSOAIS',items:[
-        {id:'mobile-watch',label:'Celular + Watch',url:'/casa/dispositivos_pessoais.php'},
-        {id:'family-dev',label:'Dispositivos da família',url:'/casa/familia.php'}
+        {id:'mobile-dev',label:'Celular',url:'/casa/celular.php'},
+        {id:'watch-dev',label:'Watch',url:'/casa/watch.php'},
+        {id:'family-dev',label:'Dispositivos da família',url:'/casa/familia.php'},
+        {id:'bin-dev',label:'Downloads & APKs (/bin)',url:'/casa/bin/'}
       ]}
     ]
   },
@@ -68,7 +70,7 @@ const GROUPS={
       {title:'EXECUÇÃO',items:[
         {id:'automation-dev',label:'Dispositivos & relés',module:'devices'},
         {id:'automation-ag',label:'Agendamentos',module:'schedules'},
-        {id:'automation-iot',label:'Cluster IoT',module:'iot'},
+        {id:'automation-iot',label:'ESP32 / Arduino / IoT',module:'iot'},
         {id:'automation-scenes',label:'Cenas e regras',url:'/casa/automacao.php'}
       ]},
       {title:'INTEGRAÇÃO',items:[
@@ -97,7 +99,8 @@ const GROUPS={
     sections:[
       {title:'PESSOAS',items:[
         {id:'family',label:'Família',url:'/casa/familia.php'},
-        {id:'personal',label:'Celular + Watch',url:'/casa/dispositivos_pessoais.php'}
+        {id:'mobile-person',label:'Celular',url:'/casa/celular.php'},
+        {id:'watch-person',label:'Watch',url:'/casa/watch.php'}
       ]},
       {title:'CONTROLE',items:[
         {id:'users',label:'Usuários & senhas',module:'users'}
@@ -110,7 +113,8 @@ const GROUPS={
       {title:'INFRAESTRUTURA',items:[
         {id:'nodes-sys',label:'Cluster ARM',module:'nodes'},
         {id:'sensors-sys',label:'Telemetria operacional',module:'telemetryOps'},
-        {id:'iot-sys',label:'Cluster IoT',module:'iot'}
+        {id:'iot-sys',label:'ESP32 / Arduino / IoT',module:'iot'},
+        {id:'bin-sys',label:'Central de Binários & APKs (/bin)',url:'/casa/bin/'}
       ]},
       {title:'ADMINISTRAÇÃO',items:[
         {id:'users-sys',label:'Usuários & senhas',module:'users'},
@@ -515,8 +519,7 @@ async function renderNodes(){
       '<dt>CPU</dt><dd>'+esc(n.cpu||'Não informada')+'</dd>'+
       '<dt>RAM</dt><dd>'+esc(n.ram||'Não informada')+'</dd>'+
       '<dt>Capacidades</dt><dd>'+esc((n.capabilities||[]).join(', ')||'Não informadas')+'</dd>'+
-      '<dt>Último contato (servidor)</dt><dd>'+esc(n.last_seen||'Ainda não recebido')+'</dd>'+
-      '</dl><span class="ja-state '+(n.online?'ok':'')+'">'+esc(states[n.status]||n.status)+'</span></article>')+pager('nodes',p):
+      '<dt>Último contato (servidor)</dt><dd>'+esc(n.last_seen||'Ainda não recebido')+'</dd>'+'<dt>Site do Cluster</dt><dd>'+(n.ip_address?'<a href="http://'+esc(n.ip_address)+':8080/" target="_blank" style="display:inline-block;padding:3px 10px;background:#38bdf8;color:#000;border-radius:4px;text-decoration:none;font-weight:bold;font-size:0.8rem;">🌐 ABRIR PORTAL (:8080)</a>':'—')+'</dd>'+'</dl><span class="ja-state '+(n.online?'ok':'')+'">'+esc(states[n.status]||n.status)+'</span></article>')+pager('nodes',p):
       '<div class="ja-empty">Nenhum agente Linux ARM registrado. Os agentes conectados pela API de dispositivos aparecem aqui ao informar a plataforma linux-arm ou a capacidade arm-agent.</div>';
     moduleShell('Clusters e agentes Linux ARM',summary+body,'<button id="nodes-refresh" class="ja-mini">Atualizar lista</button>');
     bindPager('nodes',p,renderNodes);
@@ -626,10 +629,77 @@ async function renderSchedules(){
 }
 
 async function renderIoT(){
-  loading('Cluster IoT');
-  const j=await crud('dispositivos_cluster'); const all=j.dados||[]; const p=paginate('iot',all,6);
-  moduleShell('Cluster IoT',cards(p.slice,d=>'<article class="ja-native-card"><h3>'+esc(d.nome||('IoT '+d.id))+'</h3><p>'+esc(d.localizacao||'')+'</p><dl><dt>Tipo</dt><dd>'+esc(d.tipo||'—')+'</dd><dt>IP</dt><dd>'+esc(d.ip_address||'—')+'</dd><dt>RSSI</dt><dd>'+esc(d.sinal_rssi||'—')+'</dd></dl><span class="ja-state '+((d.status||'').toLowerCase()==='online'?'ok':'off')+'">'+esc(d.status||'OFFLINE')+'</span></article>')+pager('iot',p));
-  bindPager('iot',p,renderIoT);
+  loading('Dispositivos ESP32 / Arduino / IoT');
+  try{
+    const j=await crud('dispositivos_cluster');
+    const raw=j.dados||[];
+    // Strictly filter ONLY ESP32, Arduino, ESP8266 and microcontroller IoT devices.
+    // Exclude all cluster machines (Raspberry Pi, Cubieboard, Linux ARM nodes).
+    const all=raw.filter(d=>{
+      const tipo=String(d.tipo||'').toLowerCase();
+      const devId=String(d.device_id||'').toLowerCase();
+      const model=String(d.model||'').toLowerCase();
+      const caps=Array.isArray(d.capabilities)?d.capabilities.join(' ').toLowerCase():String(d.capabilities||'').toLowerCase();
+      if(tipo==='linux-arm'||tipo==='cluster'||tipo==='server'||caps.includes('arm-agent')||
+         devId.startsWith('raspberry')||devId.startsWith('cubie')||
+         model.includes('raspberry')||model.includes('cubieboard')){
+        return false;
+      }
+      return true;
+    });
+
+    const p=paginate('iot',all,8);
+    const summary='<p>'+esc(all.length)+' dispositivo(s) ESP32 / Arduino / IoT · '+esc(all.filter(d=>(d.status||'').toLowerCase()==='online').length)+' online. Exclusivo para microcontroladores (câmeras ESP32-CAM, relés, voz e sensores).</p>';
+
+    const body=all.length?cards(p.slice,d=>{
+      const tipo=String(d.tipo||'iot').toUpperCase();
+      const badgeColor=tipo.includes('ESP32')?'#e06666':(tipo.includes('ARDUINO')?'#00979d':(tipo.includes('ESP8266')?'#f6b26b':'#674ea7'));
+      const rssi=Number(d.sinal_rssi||0);
+      const rssiLabel=rssi===0?'Cabeada / Ethernet':(rssi+' dBm '+(rssi>-60?'📶 Excelente':(rssi>-75?'📶 Bom':'📶 Fraco')));
+      let capsArr=[];
+      try{
+        capsArr=Array.isArray(d.capabilities)?d.capabilities:(typeof d.capabilities==='string'&&d.capabilities.startsWith('[')?JSON.parse(d.capabilities):[]);
+      }catch(e){capsArr=[];}
+      const isRelay=capsArr.includes('relay')||capsArr.includes('switch');
+      const isCam=capsArr.includes('camera')||capsArr.includes('streaming');
+
+      let actions='';
+      if(isRelay){
+        actions+='<a href="/casa/dispositivos_iot.php" class="ja-mini" style="margin-right:6px;background:#f59c73;color:#000;font-weight:bold;text-decoration:none;padding:3px 8px;border-radius:4px;">⚡ Relés</a>';
+      }
+      if(isCam){
+        actions+='<a href="/casa/index.php?grupo=SEGURANCA&item=cameras" class="ja-mini" style="margin-right:6px;background:#8eb9ee;color:#000;font-weight:bold;text-decoration:none;padding:3px 8px;border-radius:4px;">📷 Câmera</a>';
+      }
+      if(d.ip_address){
+        actions+='<a href="http://'+esc(d.ip_address)+'/" target="_blank" class="ja-mini" style="background:#444;color:#fff;font-weight:bold;text-decoration:none;padding:3px 8px;border-radius:4px;">🌐 Web IP</a>';
+      }
+
+      return '<article class="ja-native-card">'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">'+
+          '<h3>'+esc(d.nome||d.device_id)+'</h3>'+
+          '<span style="background:'+badgeColor+';color:#fff;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:bold;">'+esc(tipo)+'</span>'+
+        '</div>'+
+        '<p>'+esc(d.localizacao||'Local não definido')+' · <i>'+esc(d.model||'Módulo IoT')+'</i></p>'+
+        '<dl>'+
+          '<dt>Identificador</dt><dd>'+esc(d.device_id)+'</dd>'+
+          '<dt>Endereço IP</dt><dd>'+esc(d.ip_address||'—')+'</dd>'+
+          '<dt>MAC Address</dt><dd>'+esc(d.mac_address||'—')+'</dd>'+
+          '<dt>Conexão / Sinal</dt><dd>'+esc(rssiLabel)+'</dd>'+
+          '<dt>Capacidades</dt><dd>'+esc(capsArr.join(', ')||'Geral')+'</dd>'+
+          '<dt>Ações</dt><dd>'+(actions||'—')+'</dd>'+
+        '</dl>'+
+        '<span class="ja-state '+((d.status||'').toLowerCase()==='online'?'ok':'off')+'">'+esc((d.status||'OFFLINE').toUpperCase())+'</span>'+
+      '</article>';
+    })+pager('iot',p):
+    '<div class="ja-empty">Nenhum módulo ESP32 ou Arduino registrado no momento. Os microcontroladores pareados via Wi-Fi aparecerão aqui automaticamente.</div>';
+
+    moduleShell('Dispositivos ESP32 / Arduino / IoT',summary+body,'<button id="iot-refresh" class="ja-mini">Atualizar lista</button>');
+    bindPager('iot',p,renderIoT);
+    document.getElementById('iot-refresh').onclick=renderIoT;
+  }catch(e){
+    moduleShell('Dispositivos ESP32 / Arduino / IoT','<div class="ja-empty">'+esc(e.message||'Falha ao carregar dispositivos.')+'</div>','<button id="iot-retry" class="ja-mini">Tentar novamente</button>');
+    document.getElementById('iot-retry').onclick=renderIoT;
+  }
 }
 
 async function renderSecurity(){
@@ -1055,12 +1125,622 @@ async function renderConfig(){
   });
 }
 
+async function copyToClipboard(text, btnElement, successMsg = 'COPIADO!'){
+  let success = false;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      success = true;
+    } catch(e) {}
+  }
+  if (!success) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      success = true;
+    } catch(e) {}
+  }
+  if (btnElement) {
+    const orig = btnElement.textContent;
+    btnElement.textContent = success ? successMsg : 'FALHA AO COPIAR';
+    setTimeout(() => { btnElement.textContent = orig; }, 2200);
+  }
+}
+
+function generateQrCodeToElement(targetEl, textToEncode, size = 240){
+  targetEl.innerHTML = '';
+  if (typeof QRCode !== 'undefined') {
+    try {
+      new QRCode(targetEl, {
+        text: textToEncode,
+        width: size,
+        height: size,
+        colorDark: '#000000',
+        colorLight: '#ffffff',
+        correctLevel: QRCode.CorrectLevel.M
+      });
+      return;
+    } catch(e) {}
+  }
+  const encoded = encodeURIComponent(textToEncode);
+  targetEl.innerHTML = '<img src="https://api.qrserver.com/v1/create-qr-code/?size=' + size + 'x' + size + '&data=' + encoded + '" width="' + size + '" height="' + size + '" alt="QR Code">';
+}
+
+function openQrCodeModal(tokenData, baseUrl = ''){
+  document.getElementById('ja-qr-modal')?.remove();
+  const modal = document.createElement('div');
+  modal.id = 'ja-qr-modal';
+  modal.className = 'ja-schedule-backdrop';
+
+  const token = tokenData.chave_completa || tokenData.token || tokenData.api_key || '';
+  const nome = tokenData.nome || tokenData.token?.nome || 'Dispositivo / Integracao';
+  const resolvedBaseUrl = baseUrl || (location.origin + '/casa');
+
+  const fullPayloadObj = {
+    url: resolvedBaseUrl,
+    token: token,
+    name: nome
+  };
+  const jsonText = JSON.stringify(fullPayloadObj, null, 2);
+  const rawTokenText = token;
+
+  modal.innerHTML = 
+    '<section class="ja-schedule-modal" style="width:min(600px,96vw);" role="dialog" aria-modal="true">' +
+      '<header style="background:var(--ja-orange);color:#111;">' +
+        '<strong>QR CODE - PAREAMENTO RELOGIO & CELULAR</strong>' +
+        '<button type="button" data-close>FECHAR</button>' +
+      '</header>' +
+      '<div class="ja-qr-modal-body">' +
+        '<div style="font-size:12px;color:#8fc7ef;font-weight:700;">' +
+          'Aponte a camera do relogio ou celular para o reticulo abaixo.' +
+        '</div>' +
+        '<div class="ja-qr-types-tabs">' +
+          '<button type="button" id="ja-qr-tab-token" class="active">MODO RELOGIO (SOMENTE TOKEN)</button>' +
+          '<button type="button" id="ja-qr-tab-json">MODO CELULAR (JSON COMPLETO)</button>' +
+        '</div>' +
+        '<div class="ja-qr-viewfinder">' +
+          '<div class="ja-qr-canvas-box" id="ja-qr-canvas-target"></div>' +
+        '</div>' +
+        '<pre class="ja-qr-payload-box" id="ja-qr-payload-text"></pre>' +
+        '<div class="ja-row-actions" style="margin-top:6px;">' +
+          '<button type="button" class="ja-mini primary" id="ja-btn-qr-copy-token">COPIAR TOKEN</button>' +
+          '<button type="button" class="ja-mini" id="ja-btn-qr-copy-json">COPIAR JSON</button>' +
+        '</div>' +
+      '</div>' +
+      '<footer>' +
+        '<button type="button" data-close style="background:var(--ja-orange);color:#111;">CONCLUIR E FECHAR</button>' +
+      '</footer>' +
+    '</section>';
+
+  document.body.appendChild(modal);
+
+  const close = () => modal.remove();
+  modal.querySelectorAll('[data-close]').forEach(b => b.onclick = close);
+  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+
+  const canvasBox = document.getElementById('ja-qr-canvas-target');
+  const payloadBox = document.getElementById('ja-qr-payload-text');
+  const tabJson = document.getElementById('ja-qr-tab-json');
+  const tabToken = document.getElementById('ja-qr-tab-token');
+  const btnCopyTok = document.getElementById('ja-btn-qr-copy-token');
+  const btnCopyJs = document.getElementById('ja-btn-qr-copy-json');
+
+  let currentMode = 'token'; // Padrão 'token' para relógios
+
+  function renderModalPayload(){
+    if (currentMode === 'token') {
+      tabToken.classList.add('active');
+      tabJson.classList.remove('active');
+      payloadBox.textContent = rawTokenText;
+      generateQrCodeToElement(canvasBox, rawTokenText, 260);
+    } else {
+      tabJson.classList.add('active');
+      tabToken.classList.remove('active');
+      payloadBox.textContent = jsonText;
+      generateQrCodeToElement(canvasBox, JSON.stringify(fullPayloadObj), 260);
+    }
+  }
+
+  tabJson.onclick = () => { currentMode = 'json'; renderModalPayload(); };
+  tabToken.onclick = () => { currentMode = 'token'; renderModalPayload(); };
+
+  btnCopyTok.onclick = () => copyToClipboard(rawTokenText, btnCopyTok, 'TOKEN COPIADO!');
+  btnCopyJs.onclick = () => copyToClipboard(jsonText, btnCopyJs, 'JSON COPIADO!');
+
+  renderModalPayload();
+}
+
+function openNewApiKeyModal(baseUrl, onCreatedCallback){
+  document.getElementById('ja-apikey-modal')?.remove();
+  const modal = document.createElement('div');
+  modal.id = 'ja-apikey-modal';
+  modal.className = 'ja-schedule-backdrop';
+
+  modal.innerHTML = 
+    '<section class="ja-schedule-modal" style="width:min(620px,96vw);" role="dialog" aria-modal="true">' +
+      '<header>' +
+        '<strong>CADASTRAR NOVA CHAVE DE API</strong>' +
+        '<button type="button" data-close>FECHAR</button>' +
+      '</header>' +
+      '<form id="ja-form-new-key">' +
+        '<div class="ja-config-grid" style="grid-template-columns:1fr;">' +
+          '<label>' +
+            '<span>NOME / IDENTIFICACAO DO DISPOSITIVO *</span>' +
+            '<input type="text" name="nome" placeholder="Ex: Smartwatch LILYGO, Celular Android, Tablet Sala" required autofocus>' +
+          '</label>' +
+          '<label>' +
+            '<span>TIPO DE DEFINICAO DE CHAVE</span>' +
+            '<select name="tipo_geracao" id="ja-key-gen-type">' +
+              '<option value="auto">Gerar Chave Criptografica Segura Automaticamente (Recomendado)</option>' +
+              '<option value="custom">Informar Chave Personalizada Manualmente</option>' +
+            '</select>' +
+          '</label>' +
+          '<div id="ja-custom-token-box" style="display:none;">' +
+            '<label>' +
+              '<span>DIGITE A CHAVE PERSONALIZADA (Minimo 16 caracteres)</span>' +
+              '<input type="text" name="custom_token" placeholder="Insira seu token personalizado seguro">' +
+            '</label>' +
+          '</div>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' +
+            '<label>' +
+              '<span>DISPOSITIVO VINCULADO (OPCIONAL)</span>' +
+              '<input type="text" name="device_id" placeholder="Ex: watch-twatch-01, phone-pixel">' +
+            '</label>' +
+            '<label>' +
+              '<span>VALIDADE (DIAS)</span>' +
+              '<input type="number" name="validade_dias" placeholder="Vazio = Permanente" min="1" max="3650">' +
+            '</label>' +
+          '</div>' +
+          '<label>' +
+            '<span>ESCOPOS DE ACESSO</span>' +
+            '<div class="ja-scopes-checkboxes">' +
+              '<label><input type="checkbox" name="scopes" value="*" checked> Acesso Total Irrestrito (*)</label>' +
+              '<label><input type="checkbox" name="scopes" value="read"> Apenas Leitura (Status / Sensores)</label>' +
+              '<label><input type="checkbox" name="scopes" value="devices"> Controle de Dispositivos & Reles</label>' +
+              '<label><input type="checkbox" name="scopes" value="audio"> Intercomunicador & Voz</label>' +
+            '</div>' +
+          '</label>' +
+        '</div>' +
+        '<footer>' +
+          '<button type="button" data-close>CANCELAR</button>' +
+          '<button type="submit" class="primary">GERAR & SALVAR CHAVE</button>' +
+        '</footer>' +
+      '</form>' +
+    '</section>';
+
+  document.body.appendChild(modal);
+
+  const form = modal.querySelector('form');
+  const genType = document.getElementById('ja-key-gen-type');
+  const customBox = document.getElementById('ja-custom-token-box');
+
+  genType.onchange = () => {
+    customBox.style.display = genType.value === 'custom' ? 'block' : 'none';
+  };
+
+  const close = () => modal.remove();
+  modal.querySelectorAll('[data-close]').forEach(b => b.onclick = close);
+
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const btnSubmit = form.querySelector('button[type="submit"]');
+    btnSubmit.disabled = true;
+    btnSubmit.textContent = 'CRIANDO...';
+
+    const scopesChecked = Array.from(form.querySelectorAll('input[name="scopes"]:checked')).map(i => i.value);
+
+    const payload = {
+      nome: form.nome.value.trim(),
+      device_id: form.device_id.value.trim() || null,
+      validade_dias: form.validade_dias.value ? Number(form.validade_dias.value) : null,
+      scopes: scopesChecked.length ? scopesChecked : ['*']
+    };
+
+    if (genType.value === 'custom') {
+      const ct = form.custom_token.value.trim();
+      if (ct.length < 16) {
+        alert('A chave personalizada deve ter pelo menos 16 caracteres para seguranca.');
+        btnSubmit.disabled = false;
+        btnSubmit.textContent = 'GERAR & SALVAR CHAVE';
+        return;
+      }
+      payload.custom_token = ct;
+    }
+
+    try {
+      const res = await postJson('/casa/api/crud.php?acao=criar_api_key', payload);
+      close();
+      if (onCreatedCallback) onCreatedCallback(res);
+    } catch(err) {
+      alert('Falha ao cadastrar chave: ' + (err.message || String(err)));
+      btnSubmit.disabled = false;
+      btnSubmit.textContent = 'GERAR & SALVAR CHAVE';
+    }
+  };
+}
+
 async function renderExternal(){
-  loading('Acesso web & API');
-  const [tun,key]=await Promise.all([crud('devices','status_tunnel').catch(()=>({})),crud('devices','obter_external_api_key').catch(()=>({}))]);
-  const t=tun.tunnel||{};
-  const body='<div class="ja-native-summary"><div><b>TÚNEL</b><strong>'+esc((t.status||'indisponível').toUpperCase())+'</strong></div><div><b>URL</b><strong class="small">'+esc(t.url||'—')+'</strong></div></div><div class="ja-config-grid"><label><span>API KEY</span><input type="password" id="ja-api-key" value="'+attr(key.api_key||'')+'" readonly></label><label><span>ENDPOINT</span><input value="/api/v1/status" readonly></label></div>';
-  moduleShell('Acesso web & API',body);
+  loading('Acesso Web & API');
+  try {
+    const [tun, keysRes, masterRes] = await Promise.all([
+      crud('devices','status_tunnel').catch(()=>({})),
+      crud('api_client_tokens','listar_api_keys').catch(()=>({dados:[]})),
+      crud('devices','obter_external_api_key').catch(()=>({}))
+    ]);
+
+    const t = tun.tunnel || {};
+    const allKeys = Array.isArray(keysRes.dados) ? keysRes.dados : [];
+    const activeCount = allKeys.filter(k => k.status_formatado === 'ativo').length;
+    const masterKey = masterRes.api_key || '';
+    const baseUrl = t.url || (location.origin + '/casa');
+
+    // Desativa restricao rigida de grid do LCARS no elemento pai para nunca estourar a tela
+    const bodyNode = document.querySelector('.ja-native-body');
+    if (bodyNode) {
+      bodyNode.style.display = 'block';
+      bodyNode.style.height = '100%';
+      bodyNode.style.overflow = 'hidden';
+    }
+
+    const topBar = 
+      '<div class="ja-api-topbar">' +
+        '<div class="ja-api-stat"><b>TUNEL</b><strong>' + esc((t.status||'indisponivel').toUpperCase()) + '</strong></div>' +
+        '<div class="ja-api-stat"><b>URL PUBLICA</b><strong title="' + attr(baseUrl) + '">' + esc(baseUrl) + '</strong></div>' +
+        '<div class="ja-api-stat"><b>CHAVES ATIVAS</b><strong>' + esc(activeCount) + ' de ' + esc(allKeys.length) + '</strong></div>' +
+        '<div class="ja-api-stat"><b>ENDPOINT V1</b><strong>/api/v1/status</strong></div>' +
+      '</div>';
+
+    const p = paginate('api_keys', allKeys, 6);
+
+    const cardsHtml = allKeys.length ? 
+      '<div class="ja-api-cards-grid">' +
+        p.slice.map(k => {
+          const isRevoked = k.status_formatado === 'revogado';
+          const isExpired = k.status_formatado === 'expirado';
+          const stateClass = isRevoked ? 'off ja-state-revoked' : (isExpired ? 'off ja-state-expired' : 'ok');
+          const stateLabel = isRevoked ? 'REVOGADO' : (isExpired ? 'EXPIRADO' : 'ATIVO');
+
+          let scopesLabel = 'Acesso Total (*)';
+          if (Array.isArray(k.scopes) && k.scopes.length) {
+            if (!k.scopes.includes('*')) scopesLabel = k.scopes.join(', ');
+          }
+
+          const hasToken = Boolean(k.token);
+          const actions = 
+            '<div class="ja-row-actions">' +
+              (hasToken ? actionBtn('QR CODE', 'qrcode:' + k.id, 'primary') : '') +
+              (hasToken ? actionBtn('COPIAR', 'copy:' + k.id) : '') +
+              (!isRevoked ? actionBtn('REVOGAR', 'revoke:' + k.id, 'danger') : '') +
+              actionBtn('EXCLUIR', 'delete:' + k.id, 'danger') +
+            '</div>';
+
+          return '<article class="ja-apikey-card">' +
+            '<div class="ja-apikey-head">' +
+              '<h3>' + esc(k.nome || ('Chave #' + k.id)) + '</h3>' +
+              '<span class="ja-state ' + stateClass + '">' + stateLabel + '</span>' +
+            '</div>' +
+            '<div class="ja-apikey-meta">' +
+              '<div><b>Prefixo:</b> <code>' + esc(k.token_prefix || '-') + '</code></div>' +
+              '<div><b>Permissoes:</b> <span title="' + attr(scopesLabel) + '">' + esc(scopesLabel) + '</span></div>' +
+              '<div><b>Criado:</b> ' + esc(k.criado_em || '-') + '</div>' +
+              '<div><b>Ultimo uso:</b> ' + esc(k.ultimo_uso ? (k.ultimo_uso + (k.ultimo_ip ? ' (' + k.ultimo_ip + ')' : '')) : 'Nunca') + '</div>' +
+              '<div><b>Validade:</b> ' + esc(k.expira_em || 'Permanente') + '</div>' +
+              (k.revogado_em ? '<div class="ja-txt-danger"><b>Revogado em:</b> ' + esc(k.revogado_em) + '</div>' : '') +
+              (k.device_id ? '<div><b>Dispositivo:</b> ' + esc(k.device_id) + '</div>' : '') +
+            '</div>' +
+            '<div class="ja-card-footer">' +
+              actions +
+            '</div>' +
+          '</article>';
+        }).join('') +
+      '</div>' + pager('api_keys', p) : 
+      '<div class="ja-empty">Nenhuma chave de API registrada. Clique em <b>+ INCLUIR CHAVE</b> acima para cadastrar credenciais para Celular, Relogio ou Home Assistant.</div>';
+
+    const masterSection = 
+      '<div class="ja-master-key-box">' +
+        '<div class="ja-master-key-head">' +
+          '<div>' +
+            '<strong>CHAVE MESTRE DO SISTEMA (ACESSO TOTAL IRRESTRITO)</strong>' +
+            '<p>Credencial administrativa central. Pode ser utilizada para pareamento de contingencia via QR Code.</p>' +
+          '</div>' +
+          '<div class="ja-master-key-actions">' +
+            '<button type="button" class="ja-mini primary" id="ja-btn-qr-master">QR CODE</button>' +
+            '<button type="button" class="ja-mini" id="ja-btn-toggle-master">MOSTRAR</button>' +
+            '<button type="button" class="ja-mini" id="ja-btn-copy-master">COPIAR</button>' +
+            '<button type="button" class="ja-mini danger" id="ja-btn-rotate-master">ROTACIONAR</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="ja-config-grid" style="margin-top:8px;">' +
+          '<label><span>CHAVE MESTRE</span><input type="password" id="ja-master-key-input" value="' + attr(masterKey) + '" readonly></label>' +
+          '<label><span>ENDPOINT OFICIAL</span><input value="/api/v1/status" readonly></label>' +
+        '</div>' +
+      '</div>';
+
+    // Construcao das opcoes de chaves para o seletor da estacao de QR Code
+    let keyOptions = '<option value="master">Chave Mestre (Acesso Total)</option>';
+    allKeys.forEach(k => {
+      if (k.token) {
+        keyOptions += '<option value="' + esc(k.id) + '">Chave: ' + esc(k.nome || ('#' + k.id)) + '</option>';
+      }
+    });
+
+    // ESTACAO FINAL DE LEITURA DE QR CODE (ULTIMA OPERACAO ROLANDO PARA CIMA)
+    const qrStationHtml = 
+      '<section class="ja-qr-station" id="ja-qr-station-section">' +
+        '<div class="ja-qr-station-badge">CAMERA LEITOR QR CODE (ULTIMA OPERACAO NA ROLAGEM)</div>' +
+        '<div class="ja-qr-station-head">' +
+          '<h3>ESTACAO DE TRANSMISSAO QR CODE PARA RELOGIO & CELULAR</h3>' +
+          '<p>Esta operacao fica posicionada ao final da tela (role para cima). Aponte a camera do seu <b>LILYGO Watch</b> ou smartphone para o reticulo optico abaixo para capturar as credenciais instantaneamente.</p>' +
+        '</div>' +
+        '<div class="ja-qr-camera-guide">' +
+          '<span>&#128247;</span> <span>Dica de Foco: Aproxime a camera do relogio a 10-20 cm da tela. No relogio, utilize o MODO RELOGIO (somente token) para leitura ultra-rapida.</span>' +
+        '</div>' +
+        '<div class="ja-qr-controls-row">' +
+          '<label><span>Chave Selecionada:</span> <select id="ja-qr-station-select">' + keyOptions + '</select></label>' +
+          '<div class="ja-qr-types-tabs">' +
+            '<button type="button" id="ja-qr-station-btn-token" class="active">MODO RELOGIO (SOMENTE TOKEN)</button>' +
+            '<button type="button" id="ja-qr-station-btn-json">MODO CELULAR (JSON COMPLETO)</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="ja-qr-viewfinder">' +
+          '<div class="ja-qr-canvas-box" id="ja-qr-station-canvas"></div>' +
+        '</div>' +
+        '<pre class="ja-qr-payload-box" id="ja-qr-station-payload"></pre>' +
+        '<div class="ja-row-actions">' +
+          '<button type="button" class="ja-mini primary" id="ja-qr-station-copy-token">COPIAR TOKEN</button>' +
+          '<button type="button" class="ja-mini" id="ja-qr-station-copy-json">COPIAR JSON</button>' +
+          '<button type="button" class="ja-mini" id="ja-qr-station-fullscreen">TELA CHEIA / ZOOM</button>' +
+          '<a href="/casa/mobile.php" target="_blank" class="ja-mini primary" style="text-decoration:none;display:inline-flex;align-items:center;">APP MOBILE (PWA)</a>' +
+          '<a href="/casa/bin/" target="_blank" class="ja-mini" style="text-decoration:none;display:inline-flex;align-items:center;">PASTA /BIN/</a>' +
+          '<button type="button" class="ja-mini" id="ja-qr-station-top">ROLAR AO TOPO</button>' +
+        '</div>' +
+      '</section>';
+
+    const fullContainer = 
+      '<div class="ja-api-container" id="ja-api-scroll-container">' +
+        topBar +
+        cardsHtml +
+        masterSection +
+        qrStationHtml +
+      '</div>';
+
+    moduleShell(
+      'Acesso Web & API',
+      fullContainer,
+      actionBtn('+ INCLUIR CHAVE', 'new_key', 'primary') +
+      ' <a href="/casa/bin/" target="_blank" class="ja-mini" style="margin-left:8px;text-decoration:none;display:inline-flex;align-items:center;background:#ff9900;color:#000;font-weight:bold;padding:6px 12px;border-radius:12px;">DOWNLOADS /BIN/</a>'
+    );
+
+    bindPager('api_keys', p, renderExternal);
+
+    // Controles da estacao de QR Code no final da tela
+    const qrCanvas = document.getElementById('ja-qr-station-canvas');
+    const qrPayloadEl = document.getElementById('ja-qr-station-payload');
+    const qrSelect = document.getElementById('ja-qr-station-select');
+    const btnModeJson = document.getElementById('ja-qr-station-btn-json');
+    const btnModeToken = document.getElementById('ja-qr-station-btn-token');
+    const btnCopyStationTok = document.getElementById('ja-qr-station-copy-token');
+    const btnCopyStationJson = document.getElementById('ja-qr-station-copy-json');
+    const btnFullscreen = document.getElementById('ja-qr-station-fullscreen');
+    const btnScrollTop = document.getElementById('ja-qr-station-top');
+    const stationSection = document.getElementById('ja-qr-station-section');
+
+    let stationMode = 'token'; // Padrão 'token' para facilitar leitura por câmeras de relógios
+
+    function getSelectedKeyData(){
+      const val = qrSelect ? qrSelect.value : 'master';
+      if (val === 'master') {
+        return {
+          token: masterKey,
+          nome: 'Chave Mestre CASA / JARVIS'
+        };
+      }
+      const found = allKeys.find(k => String(k.id) === String(val));
+      if (found && found.token) {
+        return {
+          token: found.token,
+          nome: found.nome || ('Chave #' + found.id)
+        };
+      }
+      return {
+        token: masterKey,
+        nome: 'Chave Mestre CASA / JARVIS'
+      };
+    }
+
+    function updateStationQr(){
+      if (!qrCanvas || !qrPayloadEl) return;
+      const kData = getSelectedKeyData();
+      const payloadObj = {
+        url: baseUrl,
+        token: kData.token,
+        name: kData.nome
+      };
+      const jsonStr = JSON.stringify(payloadObj, null, 2);
+      const textToEncode = (stationMode === 'json') ? JSON.stringify(payloadObj) : kData.token;
+
+      qrPayloadEl.textContent = (stationMode === 'json') ? jsonStr : kData.token;
+      generateQrCodeToElement(qrCanvas, textToEncode, 240);
+    }
+
+    if (qrSelect) {
+      qrSelect.onchange = updateStationQr;
+    }
+
+    if (btnModeJson && btnModeToken) {
+      btnModeJson.onclick = () => {
+        stationMode = 'json';
+        btnModeJson.classList.add('active');
+        btnModeToken.classList.remove('active');
+        updateStationQr();
+      };
+      btnModeToken.onclick = () => {
+        stationMode = 'token';
+        btnModeToken.classList.add('active');
+        btnModeJson.classList.remove('active');
+        updateStationQr();
+      };
+    }
+
+    if (btnCopyStationTok) {
+      btnCopyStationTok.onclick = () => {
+        const kData = getSelectedKeyData();
+        copyToClipboard(kData.token, btnCopyStationTok, 'TOKEN COPIADO!');
+      };
+    }
+
+    if (btnCopyStationJson) {
+      btnCopyStationJson.onclick = () => {
+        const kData = getSelectedKeyData();
+        const payloadObj = { url: baseUrl, token: kData.token, name: kData.nome };
+        copyToClipboard(JSON.stringify(payloadObj, null, 2), btnCopyStationJson, 'JSON COPIADO!');
+      };
+    }
+
+    if (btnFullscreen) {
+      btnFullscreen.onclick = () => {
+        const kData = getSelectedKeyData();
+        openQrCodeModal(kData, baseUrl);
+      };
+    }
+
+    if (btnScrollTop) {
+      btnScrollTop.onclick = () => {
+        const cont = document.getElementById('ja-api-scroll-container');
+        if (cont) cont.scrollTo({ top: 0, behavior: 'smooth' });
+      };
+    }
+
+    // Rolar suavemente ate a estacao de QR Code no final da tela
+    function scrollToQrStation(keyId = null){
+      if (keyId && qrSelect) {
+        qrSelect.value = String(keyId);
+        updateStationQr();
+      }
+      if (stationSection) {
+        stationSection.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        stationSection.classList.remove('ja-station-highlight');
+        void stationSection.offsetWidth; // Força reflow para reiniciar animação
+        stationSection.classList.add('ja-station-highlight');
+      }
+    }
+
+    // Inicializa a estacao de QR Code
+    updateStationQr();
+
+    // Header action: Incluir chave
+    document.querySelector('.ja-native-actions [data-act="new_key"]')?.addEventListener('click', () => {
+      openNewApiKeyModal(baseUrl, (createdRes) => {
+        renderExternal().then(() => {
+          setTimeout(() => {
+            const newId = createdRes.token?.id || createdRes.id;
+            if (newId) scrollToQrStation(newId);
+          }, 200);
+        });
+      });
+    });
+
+    // Card actions (QR Code / Copy / Revoke / Delete)
+    document.querySelectorAll('.ja-native-body [data-act]').forEach(b => {
+      b.onclick = async () => {
+        const [act, idStr] = (b.dataset.act || '').split(':');
+        const id = Number(idStr);
+        if (!id) return;
+        const target = allKeys.find(x => Number(x.id) === id);
+        const nome = target ? target.nome : ('#' + id);
+
+        if (act === 'qrcode') {
+          if (target && target.token) {
+            scrollToQrStation(target.id);
+          } else {
+            alert('Esta chave antiga foi gravada apenas em formato de hash criptografico e nao pode ser reexibida em QR Code. Crie uma nova chave para gerar o QR Code correspondente.');
+          }
+        }
+
+        if (act === 'copy') {
+          if (target && target.token) {
+            copyToClipboard(target.token, b, 'COPIADO!');
+          }
+        }
+
+        if (act === 'revoke') {
+          if (!confirm('Atencao: Deseja realmente REVOGAR o acesso da chave "' + nome + '"?\n\nO celular, relogio ou aplicativo que estiver utilizando esta chave perdera a conexao imediatamente.')) return;
+          b.disabled = true;
+          try {
+            await postJson('/casa/api/crud.php?acao=revogar_api_key', { id });
+            renderExternal();
+          } catch(e) {
+            alert('Falha ao revogar chave: ' + (e.message || String(e)));
+            b.disabled = false;
+          }
+        }
+
+        if (act === 'delete') {
+          if (!confirm('Deseja EXCLUIR permanentemente a chave "' + nome + '"?\n\nEsta exclusao e definitiva.')) return;
+          b.disabled = true;
+          try {
+            await postJson('/casa/api/crud.php?acao=excluir_api_key', { id });
+            renderExternal();
+          } catch(e) {
+            alert('Falha ao excluir chave: ' + (e.message || String(e)));
+            b.disabled = false;
+          }
+        }
+      };
+    });
+
+    // Master key QR Code, toggle, copy & rotate
+    const masterInput = document.getElementById('ja-master-key-input');
+    const btnQrMaster = document.getElementById('ja-btn-qr-master');
+    const btnToggleMaster = document.getElementById('ja-btn-toggle-master');
+    const btnCopyMaster = document.getElementById('ja-btn-copy-master');
+    const btnRotateMaster = document.getElementById('ja-btn-rotate-master');
+
+    if (btnQrMaster) {
+      btnQrMaster.onclick = () => {
+        scrollToQrStation('master');
+      };
+    }
+
+    if (btnToggleMaster && masterInput) {
+      btnToggleMaster.onclick = () => {
+        if (masterInput.type === 'password') {
+          masterInput.type = 'text';
+          btnToggleMaster.textContent = 'OCULTAR';
+        } else {
+          masterInput.type = 'password';
+          btnToggleMaster.textContent = 'MOSTRAR';
+        }
+      };
+    }
+
+    if (btnCopyMaster && masterInput) {
+      btnCopyMaster.onclick = () => copyToClipboard(masterKey, btnCopyMaster, 'COPIADO!');
+    }
+
+    if (btnRotateMaster) {
+      btnRotateMaster.onclick = async () => {
+        if (!confirm('Atencao: Rotacionar a chave mestre INVALIDA a chave anterior imediatamente. Deseja continuar?')) return;
+        btnRotateMaster.disabled = true;
+        try {
+          await crud('devices', 'rotacionar_external_api_key');
+          renderExternal();
+        } catch(e) {
+          alert('Falha ao rotacionar chave: ' + (e.message || String(e)));
+          btnRotateMaster.disabled = false;
+        }
+      };
+    }
+
+  } catch(e) {
+    showModuleError('Falha ao carregar Acesso Web & API: ' + (e.message || String(e)));
+  }
 }
 
 function computerVoice(){

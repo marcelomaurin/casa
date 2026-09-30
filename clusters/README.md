@@ -7,6 +7,7 @@ GPU remotos e não significa executar esses recursos no ARM.
 
 ```text
 clusters/
+├── site/                          Portal web local do nó do cluster (porta 8080)
 ├── comunicacao/
 │   └── arm-agent/                 Agente principal do nó ARM
 ├── automacao/
@@ -28,6 +29,7 @@ clusters/
 
 | Área | Programas | Relação com o site |
 |---|---|---|
+| [Site do Cluster](site/README.md) | casa-cluster-site | Portal web local (porta 8080) para visualização e telemetria dos serviços do nó |
 | [Comunicação](comunicacao/README.md) | arm-agent | Heartbeat e comandos pela API v1; aparece no painel ARM |
 | [Automação](automacao/README.md) | casa-scheduler | Serviço auxiliar de agendamento; sem heartbeat próprio ARM |
 | [Voz](voz/README.md) | google-home-agent, tts | Google Home usa registro específico; TTS é serviço auxiliar |
