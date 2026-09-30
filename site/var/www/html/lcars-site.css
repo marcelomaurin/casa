@@ -1571,3 +1571,133 @@ body{overscroll-behavior:none}
   .ja-api-topbar { grid-template-columns: 1fr; }
   .ja-qr-controls-row { flex-direction: column; }
 }
+
+/* Jarvis Voice Controls & Mobile Bar */
+.ja-mobile-voice-bar{
+  display:none;
+  align-items:center;
+  justify-content:space-between;
+  padding:8px 12px;
+  background:#141414;
+  border:2px solid #3f82ad;
+  border-radius:14px;
+  margin-bottom:6px;
+  flex-shrink:0;
+}
+.ja-mobile-voice-state{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-size:11px;
+  font-weight:900;
+  color:#f2a000;
+  letter-spacing:1px;
+  text-transform:uppercase;
+}
+.ja-voice-pulse{
+  width:10px;
+  height:10px;
+  border-radius:50%;
+  background:#555;
+  display:inline-block;
+  transition:background .2s, transform .2s;
+}
+.ja-voice-pulse.active{
+  background:#39e58c;
+  box-shadow:0 0 8px #39e58c;
+  animation:jaVoicePulseAnim 1s infinite alternate ease-in-out;
+}
+.ja-voice-pulse.speaking{
+  background:#8fc7ef;
+  box-shadow:0 0 8px #8fc7ef;
+  animation:jaVoicePulseAnim .7s infinite alternate ease-in-out;
+}
+@keyframes jaVoicePulseAnim{
+  from{transform:scale(.85);opacity:.7}
+  to{transform:scale(1.25);opacity:1}
+}
+.ja-voice-inline-btn{
+  border:0;
+  border-radius:12px;
+  background:#8fc7ef;
+  color:#111;
+  font-weight:900;
+  padding:0 12px;
+  cursor:pointer;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:4px;
+  transition:background .2s, transform .1s;
+}
+.ja-voice-inline-btn.listening{
+  background:#39e58c !important;
+  color:#000 !important;
+  box-shadow:0 0 10px #39e58c;
+  animation:jaVoicePulseAnim 1.2s infinite alternate ease-in-out;
+}
+
+@media(max-width:760px){
+  /* Jarvis Mobile Responsive Adaptation */
+  .ja-jarvis{
+    height:100% !important;
+    min-height:0 !important;
+    display:flex !important;
+    flex-direction:column !important;
+    gap:8px !important;
+  }
+  .ja-mobile-voice-bar{
+    display:flex !important;
+  }
+  .ja-chat-log{
+    flex:1 1 0 !important;
+    min-height:160px !important;
+    max-height:none !important;
+    padding:8px !important;
+    gap:6px !important;
+    border-radius:14px !important;
+    -webkit-overflow-scrolling:touch;
+  }
+  .ja-chat-line{
+    font-size:13px !important;
+    padding:9px 12px !important;
+    border-radius:14px !important;
+    line-height:1.4 !important;
+  }
+  .ja-chat-line.user{
+    margin-left:8% !important;
+  }
+  .ja-command{
+    display:grid !important;
+    grid-template-columns:auto minmax(0,1fr) auto auto !important;
+    gap:6px !important;
+    padding-bottom:env(safe-area-inset-bottom, 4px);
+  }
+  .ja-command input{
+    height:46px !important;
+    font-size:14px !important;
+    padding:8px 12px !important;
+    border-radius:14px !important;
+  }
+  .ja-command button{
+    min-height:46px !important;
+    padding:0 14px !important;
+    font-size:13px !important;
+    border-radius:14px !important;
+  }
+  .ja-voice-inline-btn{
+    min-height:46px !important;
+    min-width:54px !important;
+    padding:0 10px !important;
+  }
+  .ja-native-module{
+    height:100% !important;
+    display:flex !important;
+    flex-direction:column !important;
+  }
+  .ja-native-body{
+    flex:1 1 auto !important;
+    min-height:0 !important;
+    overflow:hidden !important;
+  }
+}

@@ -189,6 +189,11 @@ function findItem(group,id){
 }
 
 function openItem(item,updateRoute=true){
+  if(currentItem==='jarvis' && (!item || item.id!=='jarvis')){
+    if(activeRecognition){try{activeRecognition.abort();}catch(_){}activeRecognition=null;}
+    stopComputerSpeech();
+    mobileVoiceEnabled=false;
+  }
   if(!item || !currentGroup) return;
   currentItem=item.id;
   CASALcars.render('#app',{
@@ -1819,6 +1824,15 @@ function stopComputerSpeech(){
 function setComputerSpeaking(active){
   const btn=document.getElementById('ja-command-stop');
   if(btn){btn.hidden=!active;btn.disabled=!active;}
+  isComputerSpeaking = active;
+  updateMobileVoiceBarUI(false);
+  if(!active && isMobileDevice() && mobileVoiceEnabled && !computerRequestInFlight && !activeRecognition && currentGroup==='IA & VOZ' && currentItem==='jarvis'){
+    setTimeout(()=>{
+      if(mobileVoiceEnabled && !computerRequestInFlight && !activeRecognition && !isComputerSpeaking && currentGroup==='IA & VOZ' && currentItem==='jarvis'){
+        window.CASAComputerActions?.voice?.();
+      }
+    }, 450);
+  }
 }
 function speakComputer(text){
   const speech=String(text||'').trim();
@@ -1863,7 +1877,31 @@ async function loadComputerHistory(){
   }
 }
 async function renderJarvis(){
-  moduleShell('Núcleo COMPUTER','<div class="ja-jarvis"><div id="ja-chat-log" class="ja-chat-log"><div class="ja-chat-line ai">Carregando histórico...</div></div><div class="ja-command"><input id="ja-command-input" placeholder="Digite um comando para o COMPUTER"><button id="ja-command-send">ENVIAR</button><button id="ja-command-stop" class="danger" hidden>STOP</button></div></div>');
+  const isMobile = isMobileDevice();
+  mobileVoiceEnabled = isMobile;
+
+  moduleShell('Núcleo COMPUTER',
+    '<div class="ja-jarvis">' +
+      '<div id="ja-mobile-voice-bar" class="ja-mobile-voice-bar" style="' + (isMobile ? 'display:flex' : 'display:none') + '">' +
+        '<div class="ja-mobile-voice-state">' +
+          '<span class="ja-voice-pulse ' + (isMobile ? 'active' : '') + '"></span>' +
+          '<span id="ja-mobile-voice-label">' + (isMobile ? 'VOZ ATIVA (PADRÃO) · OUVINDO' : 'VOZ INATIVA') + '</span>' +
+        '</div>' +
+        '<button id="ja-mobile-voice-toggle" type="button" class="ja-mini ' + (isMobile ? 'danger' : 'primary') + '">' +
+          (isMobile ? 'PAUSAR VOZ' : 'ATIVAR VOZ') +
+        '</button>' +
+      '</div>' +
+      '<div id="ja-chat-log" class="ja-chat-log">' +
+        '<div class="ja-chat-line ai">Carregando histórico...</div>' +
+      '</div>' +
+      '<div class="ja-command">' +
+        '<button id="ja-command-voice" type="button" class="ja-voice-inline-btn" title="Reconhecimento de Voz">🎤 VOZ</button>' +
+        '<input id="ja-command-input" placeholder="Digite um comando ou fale com o COMPUTER" autocomplete="off">' +
+        '<button id="ja-command-send">ENVIAR</button>' +
+        '<button id="ja-command-stop" class="danger" hidden>STOP</button>' +
+      '</div>' +
+    '</div>'
+  );
   const input=document.getElementById('ja-command-input');
   const log=document.getElementById('ja-chat-log');
   await diagnoseVoiceCore();
@@ -1920,26 +1958,79 @@ async function renderJarvis(){
   input.onkeydown=e=>{if(e.key==='Enter')send();};
   const stopBtn=document.getElementById('ja-command-stop');
   if(stopBtn)stopBtn.onclick=stopComputerSpeech;
-  window.CASAComputerActions={
-    voice:()=>startVoice(input,send),
-    clear:async()=>{
-    if(!confirm('Deseja apagar todo o histórico de conversas do COMPUTER? Esta ação não pode ser desfeita.')) return;
-    const clearBtn=document.getElementById('ja-left-clear');
-    if(clearBtn){clearBtn.disabled=true;clearBtn.textContent='LIMPANDO...';}
-    try{
-      const r=await postJson('/casa/api/computer_historico.php',{acao:'limpar'});
-      if(log){
-        log.innerHTML='';
-        appendChat('COMPUTER',r.mensagem||'Histórico limpo.','ai');
-        conversationHistory=[];
+
+  const triggerVoice=()=>startVoice(input,send);
+
+  const voiceInlineBtn=document.getElementById('ja-command-voice');
+  if(voiceInlineBtn){
+    voiceInlineBtn.onclick=()=>{
+      if(isMobileDevice()){
+        mobileVoiceEnabled = !mobileVoiceEnabled;
+        if(mobileVoiceEnabled){
+          triggerVoice();
+        } else {
+          if(activeRecognition){try{activeRecognition.stop();}catch(_){}}
+          activeRecognition=null;
+          updateMobileVoiceBarUI(false,'VOZ PAUSADA');
+        }
+      } else {
+        triggerVoice();
       }
-    }catch(e){
-      appendChat('Sistema',e.message||'Falha ao limpar histórico.','error');
-    }finally{
-      if(clearBtn){clearBtn.disabled=false;clearBtn.textContent='LIMPAR HISTÓRICO';}
-    }
+    };
+  }
+
+  const voiceToggleBtn=document.getElementById('ja-mobile-voice-toggle');
+  if(voiceToggleBtn){
+    voiceToggleBtn.onclick=()=>{
+      mobileVoiceEnabled = !mobileVoiceEnabled;
+      if(mobileVoiceEnabled){
+        triggerVoice();
+      } else {
+        if(activeRecognition){try{activeRecognition.stop();}catch(_){}}
+        activeRecognition=null;
+        updateMobileVoiceBarUI(false,'VOZ PAUSADA');
+      }
+    };
+  }
+
+  window.CASAComputerActions={
+    voice:triggerVoice,
+    clear:async()=>{
+      if(!confirm('Deseja apagar todo o histórico de conversas do COMPUTER? Esta ação não pode ser desfeita.')) return;
+      const clearBtn=document.getElementById('ja-left-clear');
+      if(clearBtn){clearBtn.disabled=true;clearBtn.textContent='LIMPANDO...';}
+      try{
+        const r=await postJson('/casa/api/computer_historico.php',{acao:'limpar'});
+        if(log){
+          log.innerHTML='';
+          appendChat('COMPUTER',r.mensagem||'Histórico limpo.','ai');
+          conversationHistory=[];
+        }
+      }catch(e){
+        appendChat('Sistema',e.message||'Falha ao limpar histórico.','error');
+      }finally{
+        if(clearBtn){clearBtn.disabled=false;clearBtn.textContent='LIMPAR HISTÓRICO';}
+      }
     }
   };
+
+  // Se mobile: habilita e inicia o reconhecimento de voz por padrão
+  if(isMobileDevice() && mobileVoiceEnabled){
+    setTimeout(()=>{
+      if(currentGroup==='IA & VOZ' && currentItem==='jarvis' && mobileVoiceEnabled && !activeRecognition && !computerRequestInFlight){
+        triggerVoice();
+      }
+    }, 350);
+
+    const onUserTouch=()=>{
+      if(mobileVoiceEnabled && !activeRecognition && !computerRequestInFlight && !isComputerSpeaking && currentGroup==='IA & VOZ' && currentItem==='jarvis'){
+        triggerVoice();
+      }
+    };
+    window.addEventListener('touchstart', onUserTouch, {once:true, passive:true});
+    window.addEventListener('click', onUserTouch, {once:true, passive:true});
+  }
+
   scheduleAdminMount();
 }
 function appendChat(who,text,cls,scroll=true){
@@ -1962,6 +2053,70 @@ function appendChat(who,text,cls,scroll=true){
   if(scroll) l.scrollTop=l.scrollHeight;
 }
 let activeRecognition=null;
+let mobileVoiceEnabled=false;
+let isComputerSpeaking=false;
+
+function isMobileDevice(){
+  const ua = navigator.userAgent || '';
+  const mobileRegex = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i;
+  const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+  const isSmallScreen = window.innerWidth <= 768 || (window.matchMedia && window.matchMedia('(max-width: 768px)').matches);
+  return mobileRegex.test(ua) || (isTouch && isSmallScreen);
+}
+
+function updateMobileVoiceBarUI(listening, customText=null){
+  const bar = document.getElementById('ja-mobile-voice-bar');
+  const label = document.getElementById('ja-mobile-voice-label');
+  const dot = bar?.querySelector('.ja-voice-pulse');
+  const toggle = document.getElementById('ja-mobile-voice-toggle');
+  const inlineBtn = document.getElementById('ja-command-voice');
+  const leftBtn = document.getElementById('ja-left-voice');
+
+  if(inlineBtn){
+    if(listening){
+      inlineBtn.classList.add('listening');
+      inlineBtn.textContent='🎙️ OUVINDO...';
+    }else{
+      inlineBtn.classList.remove('listening');
+      inlineBtn.textContent='🎤 VOZ';
+    }
+  }
+  if(leftBtn){
+    leftBtn.textContent = listening ? 'OUVINDO...' : 'VOZ';
+    leftBtn.disabled = listening;
+  }
+
+  if(!bar) return;
+  if(!isMobileDevice()){
+    bar.style.display = 'none';
+    return;
+  }
+  bar.style.display = 'flex';
+
+  if(!mobileVoiceEnabled){
+    if(label) label.textContent = customText || 'VOZ PAUSADA';
+    if(dot){ dot.className = 'ja-voice-pulse'; }
+    if(toggle){ toggle.textContent = 'ATIVAR VOZ'; toggle.className = 'ja-mini primary'; }
+    return;
+  }
+
+  if(toggle){ toggle.textContent = 'PAUSAR VOZ'; toggle.className = 'ja-mini danger'; }
+
+  if(isComputerSpeaking){
+    if(label) label.textContent = 'JARVIS FALANDO...';
+    if(dot){ dot.className = 'ja-voice-pulse speaking'; }
+  } else if(listening){
+    if(label) label.textContent = customText || 'VOZ ATIVA · OUVINDO...';
+    if(dot){ dot.className = 'ja-voice-pulse active'; }
+  } else if(computerRequestInFlight){
+    if(label) label.textContent = 'PROCESSANDO...';
+    if(dot){ dot.className = 'ja-voice-pulse'; }
+  } else {
+    if(label) label.textContent = customText || 'VOZ ATIVA (PADRÃO)';
+    if(dot){ dot.className = 'ja-voice-pulse active'; }
+  }
+}
+
 function voiceStatus(state,text,ok=false){
   const el=document.getElementById('ja-mic-state');
   if(el){el.textContent=text;el.className='ja-state '+(ok?'ok':state==='listening'?'warn':'off');}
@@ -2000,16 +2155,26 @@ async function diagnoseVoiceCore(){
 }
 async function startVoice(input,done){
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-  if(!SR){voiceStatus('error','STT NÃO SUPORTADO');appendChat('Sistema','Este navegador não oferece SpeechRecognition. Use a digitação ou um navegador compatível.','error');return;}
+  if(!SR){
+    voiceStatus('error','STT NÃO SUPORTADO');
+    updateMobileVoiceBarUI(false,'STT NÃO SUPORTADO');
+    if(!isMobileDevice()) appendChat('Sistema','Este navegador não oferece SpeechRecognition. Use a digitação ou um navegador compatível.','error');
+    return;
+  }
   if(activeRecognition)return;
   stopComputerSpeech();
-  if(!(await diagnoseVoiceCore())){appendChat('Sistema','Não foi possível acessar uma entrada de áudio. Verifique a permissão do microfone no navegador.','error');return;}
-  const btn=document.getElementById('ja-left-voice');
+  if(!(await diagnoseVoiceCore())){
+    updateMobileVoiceBarUI(false,'MIC INDISPONÍVEL');
+    if(!isMobileDevice()) appendChat('Sistema','Não foi possível acessar uma entrada de áudio. Verifique a permissão do microfone no navegador.','error');
+    return;
+  }
   const r=new SR(); activeRecognition=r;
   r.lang='pt-BR'; r.continuous=false; r.interimResults=false; r.maxAlternatives=1;
   let resultConsumed=false;
-  if(btn){btn.disabled=true;btn.textContent='OUVINDO...';}
+
   voiceStatus('listening','OUVINDO');
+  updateMobileVoiceBarUI(true);
+
   r.onresult=e=>{
     if(resultConsumed)return;
     const finals=Array.from(e.results).filter(x=>x.isFinal!==false);
@@ -2018,21 +2183,58 @@ async function startVoice(input,done){
       resultConsumed=true;
       input.value=transcript;
       voiceStatus('ready','RECONHECIDO',true);
+      updateMobileVoiceBarUI(false,'RECONHECIDO');
       try{r.stop();}catch(_){}
       done();
     }else if(e.results.length){
       voiceStatus('listening','OUVINDO');
+      updateMobileVoiceBarUI(true);
     }else{
       voiceStatus('error','SEM RESULTADO');
+      updateMobileVoiceBarUI(false,'SEM RESULTADO');
     }
   };
-  r.onnomatch=()=>{voiceStatus('error','NÃO RECONHECIDO');appendChat('Sistema','Não consegui reconhecer a fala. Tente novamente mais próximo do microfone.','error');};
-  r.onerror=e=>{
-    const map={'not-allowed':'Permissão de microfone negada.','service-not-allowed':'Serviço de reconhecimento bloqueado pelo navegador.','audio-capture':'Nenhum áudio pôde ser capturado.','no-speech':'Nenhuma fala foi detectada.','network':'O serviço de reconhecimento de voz não respondeu pela rede.','aborted':'Reconhecimento interrompido.'};
-    voiceStatus('error','ERRO DE VOZ');appendChat('Sistema',map[e.error]||('Erro no reconhecimento de voz: '+e.error),'error');
+  r.onnomatch=()=>{
+    voiceStatus('error','NÃO RECONHECIDO');
+    updateMobileVoiceBarUI(false,'NÃO RECONHECIDO');
+    if(!isMobileDevice()) appendChat('Sistema','Não consegui reconhecer a fala. Tente novamente mais próximo do microfone.','error');
   };
-  r.onend=()=>{activeRecognition=null;if(btn){btn.disabled=false;btn.textContent='VOZ';}const s=document.getElementById('ja-mic-state');if(s&&s.textContent==='OUVINDO')voiceStatus('ready','MIC OK',true);};
-  try{r.start();}catch(e){activeRecognition=null;if(btn){btn.disabled=false;btn.textContent='VOZ';}voiceStatus('error','FALHA AO INICIAR');appendChat('Sistema',e.message||'Falha ao iniciar reconhecimento de voz.','error');}
+  r.onerror=e=>{
+    if(e.error==='no-speech'||e.error==='aborted'){
+      if(!isMobileDevice()) voiceStatus('ready','MIC OK',true);
+      return;
+    }
+    const map={'not-allowed':'Permissão de microfone negada.','service-not-allowed':'Serviço de reconhecimento bloqueado pelo navegador.','audio-capture':'Nenhum áudio pôde ser capturado.','network':'O serviço de reconhecimento de voz não respondeu pela rede.'};
+    voiceStatus('error','ERRO DE VOZ');
+    updateMobileVoiceBarUI(false,map[e.error]||'ERRO NO MIC');
+    if(e.error==='not-allowed'&&isMobileDevice()){
+      mobileVoiceEnabled=false;
+    }
+    appendChat('Sistema',map[e.error]||('Erro no reconhecimento de voz: '+e.error),'error');
+  };
+  r.onend=()=>{
+    activeRecognition=null;
+    updateMobileVoiceBarUI(false);
+    const s=document.getElementById('ja-mic-state');
+    if(s&&s.textContent==='OUVINDO')voiceStatus('ready','MIC OK',true);
+
+    // Se no mobile com reconhecimento padrão ativo e o computador não está falando nem enviando:
+    if(isMobileDevice() && mobileVoiceEnabled && !computerRequestInFlight && !isComputerSpeaking && currentGroup==='IA & VOZ' && currentItem==='jarvis'){
+      setTimeout(()=>{
+        if(mobileVoiceEnabled && !computerRequestInFlight && !isComputerSpeaking && !activeRecognition && currentGroup==='IA & VOZ' && currentItem==='jarvis'){
+          startVoice(input,done);
+        }
+      }, 500);
+    }
+  };
+  try{
+    r.start();
+  }catch(e){
+    activeRecognition=null;
+    updateMobileVoiceBarUI(false,'FALHA AO INICIAR');
+    voiceStatus('error','FALHA AO INICIAR');
+    if(!isMobileDevice()) appendChat('Sistema',e.message||'Falha ao iniciar reconhecimento de voz.','error');
+  }
 }
 
 // Carrega a lista de vozes assim que o navegador disponibilizá-la.
