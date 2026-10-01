@@ -15,11 +15,78 @@ import posixpath
 import urllib.parse
 import urllib.request
 import subprocess
+import threading
+from collections import deque
 from http.server import HTTPServer, SimpleHTTPRequestHandler
+from socketserver import ThreadingMixIn
 
 PORT = int(os.environ.get("CLUSTER_SITE_PORT", 8080))
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = BASE_DIR
+
+class CpuTelemetry:
+    """Sample Linux CPU counters independently of HTTP traffic (Python 3.4+)."""
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.previous = None
+        self.history = deque(maxlen=61)
+
+    def sample(self):
+        now = time.time()
+        try:
+            with open("/proc/stat", "r") as handle:
+                fields = handle.readline().split()
+            if fields[0] != "cpu" or len(fields) < 5:
+                raise ValueError("CPU counters unavailable")
+            # guest/guest_nice are already included in user/nice.
+            ticks = [int(value) for value in fields[1:9]]
+            if any(value < 0 for value in ticks):
+                raise ValueError("Invalid CPU counters")
+            total = sum(ticks)
+            idle = ticks[3] + (ticks[4] if len(ticks) > 4 else 0)
+            with self.lock:
+                usage = None
+                if self.previous is not None:
+                    delta = total - self.previous[0]
+                    idle_delta = idle - self.previous[1]
+                    if delta > 0 and 0 <= idle_delta <= delta:
+                        usage = round(100.0 * (delta - idle_delta) / delta, 1)
+                self.previous = (total, idle)
+                self.history.append({"timestamp": now, "usage_pct": usage})
+        except (OSError, ValueError, IndexError):
+            with self.lock:
+                self.previous = None
+                self.history.append({"timestamp": now, "usage_pct": None})
+
+    def snapshot(self):
+        now = time.time()
+        with self.lock:
+            history = [dict(point) for point in self.history if now - point["timestamp"] <= 60]
+        latest = history[-1] if history else None
+        usage = latest["usage_pct"] if latest and now - latest["timestamp"] <= 3 else None
+        try:
+            loads = os.getloadavg()
+        except (AttributeError, OSError):
+            loads = (None, None, None)
+        return {
+            "cores": os.cpu_count(), "usage_pct": usage,
+            "load_1m": loads[0], "load_5m": loads[1], "load_15m": loads[2],
+            "temp_c": get_cpu_temp(), "history": history, "timestamp": now,
+            "sample_interval_seconds": 1, "window_seconds": 60,
+        }
+
+    def run(self, stop):
+        self.sample()
+        while not stop.wait(1):
+            self.sample()
+
+
+CPU_TELEMETRY = CpuTelemetry()
+
+
+class ClusterHTTPServer(ThreadingMixIn, HTTPServer):
+    # Cloud/service checks must not block the CPU graph's lightweight polling.
+    daemon_threads = True
 
 def run_cmd(args):
     try:
@@ -246,6 +313,8 @@ class ClusterSiteHandler(SimpleHTTPRequestHandler):
 
         if path == "/api/telemetry" or path == "/api/status":
             self.handle_telemetry()
+        elif path == "/api/cpu":
+            self.send_json({"cpu": CPU_TELEMETRY.snapshot()})
         elif path == "/api/heartbeat":
             self.handle_heartbeat()
         elif path == "/api/cluster/update" or path == "/api/cluster/update/status":
@@ -270,6 +339,7 @@ class ClusterSiteHandler(SimpleHTTPRequestHandler):
         body = json.dumps(data).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -302,6 +372,7 @@ class ClusterSiteHandler(SimpleHTTPRequestHandler):
             "port": PORT,
             "uptime": uptime,
             "cpu_temp": cpu_temp,
+            "cpu": CPU_TELEMETRY.snapshot(),
             "ram": ram,
             "disk": disk,
             "base_url": env.get("CASA_BASE_URL", "https://maurinsoft.com.br/casa"),
@@ -372,10 +443,13 @@ class ClusterSiteHandler(SimpleHTTPRequestHandler):
         except (OSError, ValueError):
             pass
         components = state.get("components", {})
-        commits = sorted(set(item.get("commit", "unknown") for item in components.values()))
+        commits = sorted(set(item.get("commit") for item in components.values() if item.get("commit")))
+        current = state.get("commit") or (commits[0] if len(commits) == 1 else "mixed" if commits else "unknown")
         self.send_json({
             "ok": True,
-            "current_commit": commits[0] if len(commits) == 1 else "mixed" if commits else "unknown",
+            "current_commit": current,
+            "remote_commit": state.get("remote_commit"),
+            "branch": state.get("branch"),
             "components": components,
             "pending_reports": len(state.get("pending_reports", [])),
             "last_update": state.get("last_update"),
@@ -402,7 +476,11 @@ class ClusterSiteHandler(SimpleHTTPRequestHandler):
 def main():
     os.chdir(STATIC_DIR)
     server_address = ("0.0.0.0", PORT)
-    httpd = HTTPServer(server_address, ClusterSiteHandler)
+    httpd = ClusterHTTPServer(server_address, ClusterSiteHandler)
+    stop_sampling = threading.Event()
+    sampler = threading.Thread(target=CPU_TELEMETRY.run, args=(stop_sampling,))
+    sampler.daemon = True
+    sampler.start()
     print("==================================================================")
     print(" CASA / JARVIS - Cluster Site Server started on port {0}".format(PORT))
     print(" Serving UI: {0}".format(STATIC_DIR))
@@ -412,6 +490,9 @@ def main():
         httpd.serve_forever()
     except KeyboardInterrupt:
         print("\nShutting down server...")
+    finally:
+        stop_sampling.set()
+        sampler.join(timeout=2)
         httpd.server_close()
 
 if __name__ == "__main__":

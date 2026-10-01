@@ -1721,3 +1721,19 @@ body{overscroll-behavior:none}
 .ja-auto-block>button{justify-self:start}
 .ja-auto-check{grid-column:1/-1;display:flex!important;align-items:center;gap:8px}.ja-auto-check input{width:auto!important}
 @media(max-width:700px){.ja-auto-action,.ja-auto-action.is-custom,.ja-auto-cond,.ja-auto-when{grid-template-columns:1fr}}
+/* Segurança › Atualizações dos clusters */
+.ja-state.warn{background:#f2c14e;color:#111}
+.ja-upd-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px}
+.ja-upd-head small{display:block;color:#8b98a5;font-size:10px;margin-top:2px}
+.ja-upd-tag{display:inline-block;background:#d4a84f;color:#111;font-size:9px;font-weight:900;letter-spacing:.06em;padding:2px 7px;border-radius:8px;margin-right:4px}
+.ja-upd-intro{margin:0 0 8px;color:#cfd8e3;font-size:clamp(10px,.85vw,12px);line-height:1.35}
+.ja-upd-card{display:flex;flex-direction:column;gap:6px}
+.ja-upd-cardhead{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}.ja-upd-cardhead h3{margin:0!important}
+.ja-upd-sha{font-family:monospace;font-weight:900;color:#00e5ff;text-decoration:none}
+.ja-upd-none{opacity:.6}
+.ja-upd-comps{margin:0;padding-left:16px;font-size:11px;columns:2;column-gap:14px}.ja-upd-comps li.bad{color:#ff9b9b}
+.ja-upd-err{margin:0;color:#ff9b9b;font-size:11px;overflow-wrap:anywhere}
+.ja-upd-note{margin:0;color:#f2c14e;font-size:11px}
+.ja-upd-card .ja-row-actions{margin-top:auto}
+.ja-native-body>.ja-upd-layout{height:100%;min-height:0;display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;gap:6px}
+@media(max-width:700px){.ja-upd-layout .ja-native-grid{grid-template-columns:1fr;grid-auto-rows:auto;overflow:auto}.ja-upd-layout .ja-native-card:nth-child(n+5){display:flex}.ja-upd-comps{columns:1}}
