@@ -1,0 +1,19 @@
+[Unit]
+Description=CASA Cluster SSH Maintenance Agent for AI Tasks
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/casa/ssh-agent
+ExecStart=/usr/bin/python3 /opt/casa/ssh-agent/casa-ssh-agent.py
+Restart=always
+RestartSec=5
+Environment=SSH_AGENT_PORT=8095
+EnvironmentFile=-/etc/casa-ssh-agent.env
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
