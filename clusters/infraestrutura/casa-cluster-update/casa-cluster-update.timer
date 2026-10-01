@@ -1,9 +1,9 @@
 [Unit]
-Description=CASA - consulta ativa de versoes a cada cinco minutos
+Description=CASA - consulta o Git e o painel a cada dois minutos
 
 [Timer]
 OnBootSec=2min
-OnUnitInactiveSec=5min
+OnUnitInactiveSec=2min
 RandomizedDelaySec=30
 Unit=casa-cluster-update.service
 

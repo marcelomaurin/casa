@@ -28,7 +28,7 @@ DEVICE_TOKEN = os.environ.get("JARVIS_DEVICE_TOKEN", "").strip()
 CAPABILITIES = [
     x.strip() for x in os.environ.get(
         "JARVIS_CAPABILITIES",
-        "gateway,arm-agent,hardware-gateway"
+        "gateway,arm-agent,hardware-gateway,update-agent"
     ).split(",") if x.strip()
 ]
 LOCAL_TTS_URL = os.environ.get("JARVIS_LOCAL_TTS_URL", "").strip().rstrip("/")
@@ -126,14 +126,14 @@ def api_request(action, method="GET", payload=None, params=None, timeout=10):
 
 
 def get_deployed_version():
+    """Commit instalado pelo casa-cluster-update (fonte oficial); depois, clone Git local."""
     try:
-        last_update_path = "/opt/casa/site/last_update.json"
-        if os.path.exists(last_update_path):
-            with open(last_update_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                commit = data.get("commit_after") or data.get("commit")
-                if commit:
-                    return "v2.7.0 (#" + commit[:7] + ")", commit, data.get("timestamp")
+        with open("/var/lib/casa-cluster-update/state.json", "r", encoding="utf-8") as f:
+            data = json.load(f)
+        commit = data.get("commit") or (data.get("last_update") or {}).get("commit_after")
+        if commit:
+            stamp = (data.get("last_update") or {}).get("timestamp")
+            return "#" + commit[:7] + " (" + (data.get("branch") or "master") + ")", commit, stamp
     except Exception:
         pass
 
@@ -144,11 +144,12 @@ def get_deployed_version():
                 out, _ = p.communicate()
                 commit = (out or "").strip()
                 if commit and len(commit) >= 7:
-                    return "v2.7.0 (#" + commit[:7] + ")", commit, None
+                    return "#" + commit[:7] + " (clone local)", commit, None
     except Exception:
         pass
 
-    return "v2.7.0 (#2a160da)", "2a160da85c33dcd2b9a49918d92405479ac1c755", None
+    # Sem atualizador nem clone: versão desconhecida (nunca inventar um commit).
+    return AGENT_VERSION, None, None
 
 
 def send_heartbeat():

@@ -266,9 +266,10 @@ if ($action === 'autorizar_pareamento') {
         // 1. Registrar no cluster de dispositivos
         $stmtIns = $pdo->prepare("INSERT INTO dispositivos_cluster 
             (device_id, nome, tipo, mac_address, device_token, device_token_hash, status, health, capabilities, metadata, localizacao) 
-            VALUES (:did, :n, :t, :m, 'HASHED', :h, 'online', 'ok', :cap, :meta, :loc)");
+            VALUES (:did, :n, :t, :m, CONCAT('HASHED:', :did2), :h, 'online', 'ok', :cap, :meta, :loc)");
         $stmtIns->execute([
             ':did' => $deviceId,
+            ':did2' => $deviceId,
             ':n' => $name,
             ':t' => $type,
             ':m' => $mac,
@@ -382,8 +383,8 @@ if ($action === 'create') {
     $metadata = ['provisioned_by' => $client['nome'] ?? 'mobile', 'provisioned_at' => date('c'), 'transport_setup' => 'ble', 'transport_runtime' => in_array($type, ['watch', 'mobile'], true) ? 'ble_or_wifi' : 'wifi'];
     try {
         $pdo->beginTransaction();
-        $stmt = $pdo->prepare("INSERT INTO dispositivos_cluster(device_id,nome,tipo,mac_address,device_token,device_token_hash,status,health,capabilities,metadata,localizacao) VALUES(:did,:n,:t,:m,'HASHED',:h,'offline','unknown',:cap,:meta,:loc)");
-        $stmt->execute([':did' => $deviceId, ':n' => $name, ':t' => $type, ':m' => $mac !== '' ? $mac : null, ':h' => $hash, ':cap' => json_encode($caps, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), ':meta' => json_encode($metadata, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), ':loc' => $location ?: 'Residencia']);
+        $stmt = $pdo->prepare("INSERT INTO dispositivos_cluster(device_id,nome,tipo,mac_address,device_token,device_token_hash,status,health,capabilities,metadata,localizacao) VALUES(:did,:n,:t,:m,CONCAT('HASHED:',:did2),:h,'offline','unknown',:cap,:meta,:loc)");
+        $stmt->execute([':did' => $deviceId, ':did2' => $deviceId, ':n' => $name, ':t' => $type, ':m' => $mac !== '' ? $mac : null, ':h' => $hash, ':cap' => json_encode($caps, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), ':meta' => json_encode($metadata, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), ':loc' => $location ?: 'Residencia']);
         $internalId = (int)$pdo->lastInsertId();
         registry_sync_capabilities($pdo,$deviceId,$caps);
         $stmt = $pdo->prepare("INSERT INTO api_client_tokens(nome,device_id,token_hash,token_prefix,scopes,ativo) VALUES(:n,:d,:h,:p,:s,1)");

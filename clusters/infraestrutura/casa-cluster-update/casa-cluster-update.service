@@ -1,5 +1,5 @@
 [Unit]
-Description=CASA - verifica e aplica a release liberada na API
+Description=CASA - atualiza os integradores a partir do Git (branch master)
 After=network-online.target
 Wants=network-online.target
 

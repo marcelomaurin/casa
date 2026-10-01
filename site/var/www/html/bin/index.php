@@ -107,6 +107,19 @@
       <div>
         <h3>&#128250; Android TV (Jarvis TV)</h3>
         <p>Aplicativo para Smart TVs e TV Box com controle remoto e comandos de automação residencial.</p>
+        <ul class="files-list">
+          <?php
+            $files_tv = glob(__DIR__ . '/android-tv/*.apk');
+            if ($files_tv) {
+              foreach ($files_tv as $f) {
+                $bn = basename($f);
+                echo '<li><a href="android-tv/' . urlencode($bn) . '" download>' . htmlspecialchars($bn) . '</a> <span>' . round(filesize($f)/1048576, 1) . ' MB</span></li>';
+              }
+            } else {
+              echo '<li style="color:#8fc7ef;">Compilações via GitHub Actions (v1.0.0+)</li>';
+            }
+          ?>
+        </ul>
       </div>
       <div>
         <a href="android-tv/README.md" class="btn sec">VER DETALHES</a>
