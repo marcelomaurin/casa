@@ -91,6 +91,9 @@ jobs:
       - name: Test scenes, rules and schedules driving relays
         run: php .github/tests/test_automation_relays.php
 
+      - name: Test security (IP blocking and events)
+        run: php .github/tests/test_seguranca.php
+
       - name: Test Casa Mobile QR pairing
         run: php .github/tests/test_mobile_pairing.php
 
