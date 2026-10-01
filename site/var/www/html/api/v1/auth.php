@@ -117,6 +117,30 @@ function mobile_auth_session(PDO $pdo): array {
 $in = mobile_auth_input();
 $acao = trim((string)($in['acao'] ?? 'login'));
 
+// Pareamento do Casa Mobile: troca o código de uso único do QR (Segurança › Acessos pessoais)
+// por uma credencial própria do celular. Ver api/mobile_pairing.php.
+if ($acao === 'pair') {
+    require_once(__DIR__ . '/../mobile_pairing.php');
+    api_v1_rate_limit($pdo, 'mobile_pair_' . (api_v1_client_ip() ?? 'unknown'), 20, 60);
+    try {
+        $r = mobile_pair_redeem($pdo, (string)($in['code'] ?? ''), $in, api_v1_client_ip());
+    } catch (RuntimeException $e) {
+        api_v1_log($pdo, 'MOBILE_PAIR_DENIED', 'ALTO', 'qr_pair', ['erro' => $e->getMessage()]);
+        api_v1_json_response(401, ['status' => 'erro', 'mensagem' => $e->getMessage()]);
+    }
+    api_v1_log($pdo, 'MOBILE_PAIR_OK', 'INFO', $r['name'], ['device_id' => $r['device_id'], 'paired_by' => $r['paired_by']]);
+    echo json_encode([
+        'status' => 'ok',
+        'session_token' => $r['token'],
+        'device_token' => $r['token'],
+        'device_id' => $r['device_id'],
+        'expires_at' => 'permanente',
+        'notice' => 'Credencial exibida uma unica vez. O servidor armazena somente o hash.',
+        'user' => ['id' => 0, 'nome' => $r['name'], 'login' => 'api_key', 'email' => '', 'perfil' => 'operador', 'pareado_por' => $r['paired_by']]
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
 if ($acao === 'qr_login' || $acao === 'api_key_login') {
     $token = trim((string)($in['token'] ?? $in['api_key'] ?? mobile_auth_bearer()));
     if ($token === '') {

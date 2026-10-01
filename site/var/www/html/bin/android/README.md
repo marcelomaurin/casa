@@ -2,13 +2,15 @@
 
 Neste diretório ficam concentrados os instaladores e APKs compilados do **Casa Mobile** (`android/JarvisMobile`).
 
-## Funcionalidades de Acesso via QR Code (v2.7.0+)
+## Pareamento por QR Code (v2.7.1+)
 
-O Casa Mobile agora possui autenticação instantânea por leitura de QR Code:
-1. Abra o site da CASA em `https://maurinsoft.com.br/casa/index.php?grupo=SISTEMA&item=api-sys`.
-2. Role até a estação de QR Code (última operação da página).
-3. No smartphone, abra o **Casa Mobile** e toque em **"LER QR CODE DA CASA"** (ou importe da galeria).
-4. O app lê as credenciais, autentica no servidor via `/api/v1/` e libera acesso imediato à residência (Relés, Sensores, Voz e Dispositivos).
+O celular é pareado com um QR Code de uso único:
+1. No site da CASA, abra **Segurança › Acessos pessoais** (`index.php?grupo=SEGURANÇA&item=acessos`) e clique em **Gerar QR Code de acesso**.
+2. No smartphone, abra o **Casa Mobile** e toque em **"LER QR CODE DA CASA"** (ou importe a imagem da galeria).
+3. O app troca o código por uma credencial própria do celular (`/api/v1/auth.php`, `acao=pair`), guardada no Android Keystore.
+4. O QR vale 10 minutos e só pode ser usado uma vez. O celular aparece em **Celulares pareados**, onde o acesso pode ser revogado.
+
+QR Codes com chave de API (Sistema › Acesso Web & API) continuam aceitos por compatibilidade.
 
 ## Acesso Mobile Web (PWA - Sem Instalação)
 
