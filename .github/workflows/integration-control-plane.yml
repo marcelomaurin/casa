@@ -60,6 +60,11 @@ jobs:
       - name: Validate cluster organization
         run: python3 .github/tests/test_clusters_layout.py
 
+      - name: Validate cluster CPU telemetry and chart
+        run: |
+          python3 clusters/site/tests/test_cpu_telemetry.py
+          node .github/tests/test_cluster_cpu_ui.js
+
       - name: Enforce API v1 on external clients
         run: python3 .github/tests/test_api_v1_clients.py
 
