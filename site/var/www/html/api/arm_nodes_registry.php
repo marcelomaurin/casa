@@ -61,11 +61,10 @@ function arm_node_normalize(array $row, bool $legacy, int $now): array {
     $commit = (string)($meta['commit'] ?? $meta['git_commit'] ?? '');
     $deployedAt = (string)($meta['deployed_at'] ?? $meta['last_update'] ?? '');
     if ($commit !== '' && !str_contains($version, substr($commit, 0, 7))) {
-        $version = ($version !== '' && $version !== '1.1.0' ? $version . ' · ' : 'v2.7.0 · ') . '#' . substr($commit, 0, 7);
+        $version = ($version !== '' && $version !== '1.1.0' ? $version . ' · ' : '') . '#' . substr($commit, 0, 7);
     }
-    if ($version === '' || $version === '1.1.0') {
-        $version = 'v2.7.0 (#2a160da)';
-    }
+    // Sem commit informado pelo nó a versão é desconhecida: não inventar um commit.
+    if ($version === '1.1.0' && $commit === '') $version = '';
 
     return [
         'id' => ($legacy ? 'legacy:' : 'device:').$row['id'],
@@ -76,7 +75,7 @@ function arm_node_normalize(array $row, bool $legacy, int $now): array {
         'papel' => (string)($row['papel'] ?? $row['model'] ?? $row['tipo'] ?? 'Agente Linux ARM'),
         'platform' => (string)($meta['platform'] ?? 'Linux ARM'),
         'version' => $version,
-        'commit' => $commit ?: '2a160da',
+        'commit' => $commit,
         'deployed_at' => $deployedAt,
         'cpu' => arm_node_metric($meta['cpu'] ?? $row['cpu_info'] ?? null, 'cpu'),
         'ram' => arm_node_metric($meta['ram'] ?? $row['ram_info'] ?? null, 'ram'),

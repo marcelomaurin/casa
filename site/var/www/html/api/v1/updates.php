@@ -13,11 +13,21 @@ api_v1_basic_guard($pdo);
 $action = (string)($_GET['acao'] ?? 'current');
 $input = device_v1_input();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
-$writes = ['register','activate','report'];
-if (!in_array($action,['current','report','register','activate','releases','status'],true)) api_v1_json_response(404,['status'=>'erro','mensagem'=>'Acao desconhecida']);
+$writes = ['register','activate','report','node_report'];
+if (!in_array($action,['current','report','register','activate','releases','status','policy','node_report'],true)) api_v1_json_response(404,['status'=>'erro','mensagem'=>'Acao desconhecida']);
 if ($method !== (in_array($action,$writes,true) ? 'POST' : 'GET')) api_v1_json_response(405,['status'=>'erro','mensagem'=>'Metodo nao permitido']);
 
 try {
+    // Modo Git (casa-cluster-update 2.x): política (branch + pedido de atualização forçada) e relatório do nó.
+    if ($action === 'policy' || $action === 'node_report') {
+        $deviceId = (string)($input['device_id'] ?? $_GET['device_id'] ?? $_SERVER['HTTP_X_DEVICE_ID'] ?? '');
+        $dev = device_v1_load($pdo, $deviceId, $action === 'node_report');
+        if (!updates_device_allowed($dev)) api_v1_json_response(403, ['status'=>'erro','mensagem'=>'Dispositivo sem permissao de atualizacao']);
+        if ($action === 'policy') api_v1_json_response(200, ['status'=>'ok','policy'=>updates_policy($pdo, $dev['device_id'])]);
+        updates_node_report($pdo, $dev['device_id'], $input);
+        api_v1_json_response(200, ['status'=>'ok','policy'=>updates_policy($pdo, $dev['device_id'])]);
+    }
+
     if ($action === 'current' || $action === 'report') {
         $deviceId = (string)($input['device_id'] ?? $_GET['device_id'] ?? $_SERVER['HTTP_X_DEVICE_ID'] ?? '');
         $dev = device_v1_load($pdo,$deviceId,$action === 'report');

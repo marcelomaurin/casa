@@ -91,6 +91,12 @@ jobs:
       - name: Test Casa Mobile QR pairing
         run: php .github/tests/test_mobile_pairing.php
 
+      - name: Test cluster updates (Git) API
+        run: php .github/tests/test_cluster_updates.php
+
+      - name: Test cluster updater (Git)
+        run: python3 -m unittest discover -s clusters/infraestrutura/casa-cluster-update/tests -v
+
       - name: Test Control Plane HTTP end-to-end
         shell: bash
         run: |
