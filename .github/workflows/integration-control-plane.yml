@@ -88,6 +88,9 @@ jobs:
       - name: Test Command Bus and automation internals
         run: php .github/tests/test_control_plane.php
 
+      - name: Test security (IP blocking and events)
+        run: php .github/tests/test_seguranca.php
+
       - name: Test Casa Mobile QR pairing
         run: php .github/tests/test_mobile_pairing.php
 

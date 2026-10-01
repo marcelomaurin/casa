@@ -4,6 +4,9 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 require_once(__DIR__ . '/api/db.php');
+// O bloqueio de IP é tratado aqui com mensagem própria (a página é HTML).
+define('CASA_SEGURANCA_SEM_AUTOCHECK', true);
+require_once(__DIR__ . '/api/seguranca.php');
 $mensagem_erro = '';
 $mensagem_sucesso = '';
 $basePath = '/casa';
@@ -35,7 +38,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $usuario = isset($_POST['usuario']) ? trim($_POST['usuario']) : '';
     $senha = isset($_POST['senha']) ? (string)$_POST['senha'] : '';
     login_log('LOGIN_INICIO', 'usuario=' . strtolower($usuario));
-    if ($usuario === '' || $senha === '') {
+    $bloqueio = null;
+    try { $bloqueio = seguranca_bloqueio_ativo(get_db_pdo(), get_client_ip()); } catch (Throwable $e) {}
+    if ($bloqueio) {
+        login_log('LOGIN_BLOQUEADO', 'usuario=' . strtolower($usuario));
+        registrar_evento_seguranca(get_client_ip(), 'LOGIN_IP_BLOQUEADO', 'Login recusado: IP bloqueado até ' . $bloqueio['bloqueado_ate'], 'CRITICO', true, 'painel', mb_substr(strtolower($usuario), 0, 120));
+        $mensagem_erro = 'Acesso temporariamente bloqueado por excesso de tentativas. Tente novamente após ' . date('d/m/Y H:i', strtotime($bloqueio['bloqueado_ate'])) . '.';
+    } elseif ($usuario === '' || $senha === '') {
         login_log('LOGIN_FALHA', 'campos obrigatorios vazios');
         $mensagem_erro = 'Por favor, preencha o usuário e a senha de segurança.';
     } else {
@@ -84,6 +93,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['auth_time'] = time();
                 $_SESSION['jarvis_session_token'] = bin2hex(random_bytes(32));
                 login_log('LOGIN_OK', 'usuario=' . $user['login'] . '; destino=' . $basePath . '/index.php');
+                seguranca_limpar_falhas();
+                registrar_evento_seguranca(get_client_ip(), 'LOGIN_OK', 'Login no painel autorizado.', 'INFO', false, 'painel', $user['login']);
                 try {
                     $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
                     $log = $pdo->prepare("INSERT INTO comandos_log (comando, origem, resultado) VALUES (:cmd, 'SEGURANCA', :res)");
@@ -93,6 +104,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             login_log('LOGIN_NEGADO', 'usuario=' . strtolower($usuario));
             $mensagem_erro = 'Acesso negado: credenciais inválidas ou operador inativo.';
+            $novoBloqueio = registrar_falha_seguranca('Login do painel inválido (' . ($user ? 'senha incorreta' : 'usuário inexistente') . ')', 'AVISO', 'painel', mb_substr(strtolower($usuario), 0, 120));
+            if ($novoBloqueio) $mensagem_erro = 'Muitas tentativas inválidas: acesso bloqueado até ' . date('d/m/Y H:i', strtotime($novoBloqueio['bloqueado_ate'])) . '.';
             try {
                 $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
                 $log = $pdo->prepare("INSERT INTO comandos_log (comando, origem, resultado) VALUES (:cmd, 'SEGURANCA', :res)");

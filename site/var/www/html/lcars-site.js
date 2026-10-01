@@ -821,13 +821,96 @@ async function renderIoT(){
   }
 }
 
+// ---------------------------------------------------------------------------
+// Segurança › Defesa & anti-intrusão. Os contadores abrem janelas flutuantes:
+// IPs bloqueados (com data do bloqueio e desbloqueio) e a lista de eventos.
+// ---------------------------------------------------------------------------
+const SEC_API='/casa/api/seguranca_painel.php';
+function secSev(s){const k=String(s||'INFO').toUpperCase();const c={CRITICO:'crit',ALTO:'crit',AVISO:'warn',INFO:'info'}[k]||'info';return '<span class="ja-sec-sev '+c+'">'+esc(k)+'</span>';}
+function secWhen(v){if(!v)return '—';const d=new Date(String(v).replace(' ','T'));return isNaN(d)?esc(v):esc(d.toLocaleString('pt-BR'));}
+function secModal(title,inner){
+  document.getElementById('ja-sec-modal')?.remove();
+  const m=document.createElement('div');m.id='ja-sec-modal';m.className='ja-schedule-backdrop';
+  m.innerHTML='<section class="ja-schedule-modal ja-sec-modal" role="dialog" aria-modal="true"><header><strong>'+esc(title)+'</strong><button type="button" data-close>FECHAR</button></header><div class="ja-sec-body">'+inner+'</div></section>';
+  document.body.appendChild(m);
+  const close=()=>{m.remove();document.removeEventListener('keydown',esc_);};
+  const esc_=e=>{if(e.key==='Escape')close();};
+  document.addEventListener('keydown',esc_);
+  m.querySelector('[data-close]').onclick=close;
+  m.addEventListener('click',e=>{if(e.target===m)close();});
+  return m;
+}
+async function openBlockedIps(){
+  const m=secModal('IPs BLOQUEADOS','<div class="ja-empty">Carregando...</div>');
+  const body=m.querySelector('.ja-sec-body');
+  try{
+    const j=await getJson(SEC_API+'?acao=bloqueados');
+    const r=j.regra||{};
+    let h='<p class="ja-sec-note">Regra: '+esc(r.falhas)+' falhas em '+esc(r.janela_min)+' min bloqueiam o IP por '+esc(r.bloqueio_min)+' min.</p>';
+    h+='<h4>Bloqueados agora ('+j.ativos.length+')</h4>';
+    h+=j.ativos.length?'<div class="ja-sec-scroll"><table class="ja-sec-table"><thead><tr><th>IP</th><th>Bloqueado em</th><th>Até</th><th>Falhas</th><th>Origem</th><th>Motivo</th><th></th></tr></thead><tbody>'+
+      j.ativos.map(a=>'<tr><td class="mono">'+esc(a.ip)+'</td><td>'+secWhen(a.bloqueado_em)+'</td><td>'+secWhen(a.bloqueado_ate)+'<small> ('+esc(a.restante_min)+' min)</small></td><td>'+esc(a.tentativas)+'</td><td>'+esc(a.origem||'—')+'</td><td>'+esc(a.motivo||'')+'</td><td><button class="ja-mini danger" data-unblock="'+attr(a.ip)+'">DESBLOQUEAR</button></td></tr>').join('')+'</tbody></table></div>'
+      :'<p class="ja-sec-empty">Nenhum IP bloqueado no momento.</p>';
+    const obs=j.observacao||[];
+    h+='<h4>Em observação ('+obs.length+')</h4><p class="ja-sec-note">IPs com falhas recentes que ainda não atingiram o limite.</p>';
+    h+=obs.length?'<div class="ja-sec-scroll"><table class="ja-sec-table"><thead><tr><th>IP</th><th>Falhas</th><th>Última falha</th><th>Origem</th><th>Motivo</th><th></th></tr></thead><tbody>'+
+      obs.map(a=>'<tr><td class="mono">'+esc(a.ip)+'</td><td>'+esc(a.tentativas)+'</td><td>'+secWhen(a.ultima_falha)+'</td><td>'+esc(a.origem||'—')+'</td><td>'+esc(a.motivo||'')+'</td><td><button class="ja-mini" data-unblock="'+attr(a.ip)+'">ZERAR</button></td></tr>').join('')+'</tbody></table></div>'
+      :'<p class="ja-sec-empty">Nenhum IP em observação.</p>';
+    const hist=j.historico||[];
+    if(hist.length) h+='<h4>Últimos bloqueios automáticos</h4><div class="ja-sec-scroll"><table class="ja-sec-table"><thead><tr><th>Data</th><th>IP</th><th>Detalhes</th></tr></thead><tbody>'+hist.map(x=>'<tr><td>'+secWhen(x.data_hora)+'</td><td class="mono">'+esc(x.ip)+'</td><td>'+esc(x.detalhes||'')+'</td></tr>').join('')+'</tbody></table></div>';
+    body.innerHTML=h;
+    body.querySelectorAll('[data-unblock]').forEach(b=>b.onclick=async()=>{
+      if(!confirm('Liberar o IP '+b.dataset.unblock+'?'))return;
+      b.disabled=true;
+      try{await postJson(SEC_API,{acao:'desbloquear',ip:b.dataset.unblock});openBlockedIps();renderSecurity();}catch(e){alert(e.message);b.disabled=false;}
+    });
+  }catch(e){body.innerHTML='<div class="ja-empty">'+esc(e.message||'Falha ao carregar.')+'</div>';}
+}
+async function openSecurityEvents(){
+  const m=secModal('EVENTOS DE SEGURANÇA',
+    '<div class="ja-sec-filters"><select data-f="sev"><option value="">Todas as severidades</option><option>CRITICO</option><option>ALTO</option><option>AVISO</option><option>INFO</option></select>'+
+    '<select data-f="fonte"><option value="todos">Painel, hardware e API</option><option value="casa">Painel e hardware</option><option value="api_v1">API v1 (avisos e críticos)</option></select>'+
+    '<input data-f="q" placeholder="Buscar IP, evento, usuário ou texto"><button class="ja-mini primary" data-f="go">FILTRAR</button></div>'+
+    '<div class="ja-sec-scroll ja-sec-events"><table class="ja-sec-table"><thead><tr><th>Data</th><th>Evento</th><th>IP</th><th>Usuário / cliente</th><th>Severidade</th><th>Origem</th><th>Detalhes</th></tr></thead><tbody></tbody></table></div>'+
+    '<div class="ja-sec-more"><span data-f="info"></span><button class="ja-mini" data-f="more" hidden>CARREGAR MAIS</button></div>');
+  const tb=m.querySelector('tbody'),info=m.querySelector('[data-f=info]'),more=m.querySelector('[data-f=more]');
+  let offset=0,total=0;
+  const load=async(reset)=>{
+    if(reset){offset=0;total=0;tb.innerHTML='<tr><td colspan="7" class="ja-sec-empty">Carregando...</td></tr>';}
+    const q=new URLSearchParams({acao:'eventos',limite:'50',offset:String(offset),sev:m.querySelector('[data-f=sev]').value,fonte:m.querySelector('[data-f=fonte]').value,q:m.querySelector('[data-f=q]').value.trim()});
+    try{
+      const j=await getJson(SEC_API+'?'+q.toString());
+      if(reset)tb.innerHTML='';
+      tb.insertAdjacentHTML('beforeend',j.eventos.map(e=>'<tr class="'+(e.bloqueado==1?'blocked':'')+'"><td>'+secWhen(e.data_hora)+'</td><td><b>'+esc(e.evento)+'</b></td><td class="mono">'+esc(e.ip||'—')+'</td><td>'+esc(e.usuario||'—')+'</td><td>'+secSev(e.severidade)+'</td><td>'+esc(e.origem||'—')+'</td><td class="det">'+esc(e.detalhes||'')+'</td></tr>').join(''));
+      total+=j.eventos.length;offset+=j.eventos.length;
+      if(!total)tb.innerHTML='<tr><td colspan="7" class="ja-sec-empty">Nenhum evento encontrado.</td></tr>';
+      info.textContent=total?total+' evento(s) exibido(s)':'';
+      more.hidden=!j.mais;
+    }catch(e){tb.innerHTML='<tr><td colspan="7" class="ja-sec-empty">'+esc(e.message||'Falha ao carregar.')+'</td></tr>';}
+  };
+  m.querySelector('[data-f=go]').onclick=()=>load(true);
+  m.querySelector('[data-f=q]').addEventListener('keydown',e=>{if(e.key==='Enter')load(true);});
+  m.querySelectorAll('select').forEach(s=>s.onchange=()=>load(true));
+  more.onclick=()=>load(false);
+  load(true);
+}
 async function renderSecurity(){
   loading('Defesa & anti-intrusão');
-  const [ips,logs]=await Promise.all([crud('seguranca_ips_bloqueados'),crud('seguranca_logs','listar','&limite=20')]);
-  const all=(logs.dados||[]); const p=paginate('security',all,6);
-  const summary='<div class="ja-native-summary"><div><b>IPs BLOQUEADOS</b><strong>'+esc((ips.dados||[]).length)+'</strong></div><div><b>EVENTOS</b><strong>'+esc(all.length)+'</strong></div></div>';
-  moduleShell('Defesa & anti-intrusão',summary+cards(p.slice,l=>'<article class="ja-native-card"><h3>'+esc(l.evento||'Evento')+'</h3><p>'+esc(l.detalhes||'')+'</p><dl><dt>IP</dt><dd>'+esc(l.origem_ip||'—')+'</dd><dt>Severidade</dt><dd>'+esc(l.severidade||'INFO')+'</dd><dt>Data</dt><dd>'+esc(l.data_hora||'')+'</dd></dl></article>')+pager('security',p));
-  bindPager('security',p,renderSecurity);
+  let j;
+  try{ j=await getJson(SEC_API+'?acao=resumo'); }
+  catch(e){
+    moduleShell('Defesa & anti-intrusão','<div class="ja-empty">'+esc(e.message||'Falha ao carregar.')+'</div>','<button id="sec-retry" class="ja-mini">Tentar novamente</button>');
+    document.getElementById('sec-retry').onclick=renderSecurity; return;
+  }
+  const summary='<div class="ja-native-summary ja-sec-summary">'+
+    '<button type="button" data-open="ips" title="Ver IPs bloqueados"><b>IPs BLOQUEADOS</b><strong>'+esc(j.bloqueados_ativos)+'</strong><small>'+esc(j.em_observacao)+' em observação · ver lista ›</small></button>'+
+    '<button type="button" data-open="eventos" title="Ver lista de eventos"><b>EVENTOS (24 h)</b><strong>'+esc(j.eventos_24h)+'</strong><small>'+esc(j.criticos_24h)+' crítico(s) · ver lista ›</small></button></div>';
+  const rec=j.recentes||[];
+  const body=rec.length?cards(rec,l=>'<article class="ja-native-card ja-sec-card" data-open="eventos"><h3>'+esc(l.evento||'Evento')+'</h3><p>'+esc(l.detalhes||'')+'</p><dl><dt>IP</dt><dd>'+esc(l.ip||'—')+'</dd><dt>Severidade</dt><dd>'+secSev(l.severidade)+'</dd><dt>Origem</dt><dd>'+esc(l.origem||'—')+(l.usuario?' · '+esc(l.usuario):'')+'</dd><dt>Data</dt><dd>'+secWhen(l.data_hora)+'</dd></dl></article>')
+    :'<div class="ja-empty">Nenhum evento de segurança registrado ainda.</div>';
+  moduleShell('Defesa & anti-intrusão','<div class="ja-sec-layout">'+summary+body+'</div>','<button class="ja-mini" id="sec-refresh">ATUALIZAR</button>');
+  document.getElementById('sec-refresh').onclick=renderSecurity;
+  document.querySelectorAll('.ja-native-body [data-open]').forEach(el=>el.onclick=()=>el.dataset.open==='ips'?openBlockedIps():openSecurityEvents());
 }
 
 async function renderAgents(){
