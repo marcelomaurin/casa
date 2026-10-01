@@ -275,11 +275,59 @@ async function mountNativeModule(item){
   }catch(e){showModuleError(e.message||String(e));}
 }
 
+// Dispositivos & relés: lista somente equipamentos que anunciam capacidade
+// "relay"/"switch" (dispositivos_cluster) e permite ligar/desligar gravando o
+// estado desejado via /casa/api/iot_dashboard.php. O firmware (ex.: ESP01 Relay)
+// consulta /api/v1/device_desired_state.php e aplica o estado.
+function relayStateLabel(v){return v===true?'LIGADO':v===false?'DESLIGADO':'—';}
 async function renderDevices(){
   loading('Dispositivos & relés');
-  const j=await crud('devices'); const all=j.dados||[]; const p=paginate('devices',all,6);
-  moduleShell('Dispositivos & relés',cards(p.slice,d=>'<article class="ja-native-card"><h3>'+esc(d.devname||('Dispositivo '+d.iddevice))+'</h3><p>'+esc(d.devdesc||'')+'</p><dl><dt>ID</dt><dd>'+esc(d.iddevice)+'</dd><dt>Conexão</dt><dd>'+esc(d.devcon||'—')+'</dd><dt>Tipo</dt><dd>'+esc(d.devtype||'—')+'</dd></dl><span class="ja-state '+(d.devstatus?'ok':'off')+'">'+(d.devstatus?'ONLINE':'OFFLINE')+'</span></article>')+pager('devices',p),'');
+  let relays=[];
+  try{
+    const j=await getJson('/casa/api/iot_dashboard.php');
+    relays=(j.devices||[]).filter(d=>d.is_relay);
+  }catch(e){
+    moduleShell('Dispositivos & relés','<div class="ja-empty">'+esc(e.message||'Falha ao carregar relés.')+'</div>','<button id="relay-retry" class="ja-mini">Tentar novamente</button>');
+    const r=document.getElementById('relay-retry'); if(r) r.onclick=renderDevices;
+    return;
+  }
+  const p=paginate('devices',relays,6);
+  const online=relays.filter(d=>String(d.status||'').toLowerCase()==='online').length;
+  const summary='<p>'+esc(relays.length)+' equipamento(s) de acionamento · '+esc(online)+' online. O comando grava o estado desejado; o equipamento aplica na próxima consulta (≈3 s).</p>';
+  const body=relays.length?cards(p.slice,d=>{
+    const isOn=String(d.status||'').toLowerCase()==='online';
+    const pending=d.relay_desired!==null&&d.relay_actual!==null&&d.relay_desired!==d.relay_actual;
+    return '<article class="ja-native-card ja-iot-card is-relay">'+
+      '<header class="ja-iot-card-head"><div><small>'+esc(String(d.tipo||'IoT').toUpperCase())+'</small><h3>'+esc(d.nome||d.model||d.device_id)+'</h3></div>'+
+      '<span class="ja-state '+(isOn?'ok':'off')+'">'+esc(String(d.status||'offline').toUpperCase())+'</span></header>'+
+      '<section class="ja-iot-relay">'+
+        '<div class="ja-iot-readout"><span>ESTADO FÍSICO</span><strong>'+relayStateLabel(d.relay_actual)+'</strong></div>'+
+        '<div class="ja-iot-readout"><span>ESTADO DESEJADO</span><strong>'+relayStateLabel(d.relay_desired)+(pending?' ⏳':'')+'</strong></div>'+
+        '<div class="ja-row-actions">'+
+          '<button class="ja-mini primary" data-relay="1" data-device="'+attr(d.device_id)+'"'+(d.relay_actual===true&&!pending?' disabled':'')+'>LIGAR</button>'+
+          '<button class="ja-mini" data-relay="0" data-device="'+attr(d.device_id)+'"'+(d.relay_actual===false&&!pending?' disabled':'')+'>DESLIGAR</button>'+
+        '</div>'+
+      '</section>'+
+      '<dl class="ja-iot-meta"><dt>Local</dt><dd>'+esc(d.localizacao||'—')+'</dd><dt>Modelo</dt><dd>'+esc(d.model||'—')+'</dd><dt>IP</dt><dd>'+esc(d.ip_address||'—')+'</dd></dl>'+
+      '<footer>Heartbeat: '+esc(d.ultimo_heartbeat||'—')+(d.desired_updated?' · Comando: '+esc(d.desired_updated):'')+'</footer>'+
+    '</article>';
+  })+pager('devices',p):
+  '<div class="ja-empty">Nenhum equipamento com relé registrado. Dispositivos que anunciam a capacidade "relay" ou "switch" no heartbeat aparecem aqui automaticamente.</div>';
+  moduleShell('Dispositivos & relés',summary+body,'<button id="relay-refresh" class="ja-mini">Atualizar</button>');
   bindPager('devices',p,renderDevices);
+  const rf=document.getElementById('relay-refresh'); if(rf) rf.onclick=renderDevices;
+  document.querySelectorAll('#app .ja-content [data-relay]').forEach(b=>b.onclick=async()=>{
+    const all=document.querySelectorAll('#app .ja-content [data-device="'+CSS.escape(b.dataset.device)+'"]');
+    all.forEach(x=>x.disabled=true);
+    try{
+      await postJson('/casa/api/iot_dashboard.php',{acao:'relay_state',device_id:b.dataset.device,relay_on:b.dataset.relay==='1'});
+      await renderDevices();
+      setTimeout(()=>{ if(document.getElementById('relay-refresh')) renderDevices(); },4000);
+    }catch(e){
+      alert(e.message||'Falha ao acionar o relé.');
+      all.forEach(x=>x.disabled=false);
+    }
+  });
 }
 
 async function renderSensors(){
