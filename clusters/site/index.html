@@ -486,6 +486,25 @@
         <button type="button" class="action-btn" onclick="viewLogBox('Web Agent disponível para pesquisas sob demanda do COMPUTER.')">INFORMAÇÕES</button>
       </div>
     </div>
+      <!-- Cluster Update Service -->
+    <div class="card" id="card-update">
+      <div>
+        <div class="card-header">
+          <div class="card-title">🔄 Atualização do Cluster</div>
+          <span class="status-badge ok" id="badge-update-status">SINCRONIZADO</span>
+        </div>
+        <p class="card-desc">Sincroniza repositório Git (GitHub), atualiza módulos em /opt/casa/ e reinicia serviços ativos.</p>
+        <div class="meta-list" style="margin-top:8px;">
+          <div class="meta-row"><span>Commit Local:</span> <b id="update-current-commit">...</b></div>
+          <div class="meta-row"><span>Último Update:</span> <b id="update-last-time">—</b></div>
+          <div class="meta-row"><span>Serviço:</span> <b>casa-cluster-update.service</b></div>
+        </div>
+      </div>
+      <div class="card-actions">
+        <button type="button" class="action-btn primary" id="btn-trigger-update" onclick="triggerClusterUpdate()">⚡ ATUALIZAR CLUSTER AGORA</button>
+        <button type="button" class="action-btn" onclick="checkClusterUpdateStatus()">VERIFICAR STATUS</button>
+      </div>
+    </div>
   </div>
 
   <!-- Live Output Console Box -->
@@ -619,6 +638,74 @@
       }
     }
 
+    
+    async function triggerClusterUpdate() {
+      const btn = document.getElementById('btn-trigger-update');
+      const badge = document.getElementById('badge-update-status');
+      if (btn) { btn.disabled = true; btn.textContent = '⏳ INICIANDO ATUALIZAÇÃO...'; }
+      if (badge) { badge.className = 'status-badge warn'; badge.textContent = 'ATUALIZANDO'; }
+      log('Disparando serviço de atualização do cluster...');
+      try {
+        const res = await fetch('/api/cluster/update', {method: 'POST'});
+        const data = await res.json();
+        log('Atualização iniciada: ' + (data.message || JSON.stringify(data)));
+        pollUpdateProgress();
+      } catch (e) {
+        log('Erro ao disparar atualização: ' + e.message);
+        if (btn) { btn.disabled = false; btn.textContent = '⚡ ATUALIZAR CLUSTER AGORA'; }
+      }
+    }
+
+    async function checkClusterUpdateStatus() {
+      try {
+        const res = await fetch('/api/cluster/update');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.current_commit) {
+          const el = document.getElementById('update-current-commit');
+          if (el) el.textContent = data.current_commit.substring(0, 7);
+        }
+        if (data.last_update && data.last_update.timestamp) {
+          const elTime = document.getElementById('update-last-time');
+          if (elTime) elTime.textContent = new Date(data.last_update.timestamp).toLocaleString();
+        }
+        if (data.progress && data.progress.percent < 100) {
+          log('Progresso da atualização: ' + data.progress.percent + '% - ' + data.progress.message);
+        }
+      } catch (_) {}
+    }
+
+    let updatePollTimer = null;
+    function pollUpdateProgress() {
+      if (updatePollTimer) clearInterval(updatePollTimer);
+      let count = 0;
+      updatePollTimer = setInterval(async () => {
+        count++;
+        try {
+          const res = await fetch('/api/cluster/update');
+          const data = await res.json();
+          if (data.progress) {
+            log('[' + (data.progress.percent || 0) + '%] ' + data.progress.message);
+            if (data.progress.percent >= 100) {
+              clearInterval(updatePollTimer);
+              const btn = document.getElementById('btn-trigger-update');
+              const badge = document.getElementById('badge-update-status');
+              if (btn) { btn.disabled = false; btn.textContent = '⚡ ATUALIZAR CLUSTER AGORA'; }
+              if (badge) { badge.className = 'status-badge ok'; badge.textContent = 'ATUALIZADO'; }
+              log('✅ Atualização do cluster finalizada com sucesso!');
+              checkClusterUpdateStatus();
+            }
+          }
+        } catch (_) {}
+        if (count > 60) {
+          clearInterval(updatePollTimer);
+          const btn = document.getElementById('btn-trigger-update');
+          if (btn) { btn.disabled = false; btn.textContent = '⚡ ATUALIZAR CLUSTER AGORA'; }
+        }
+      }, 2000);
+    }
+
+    checkClusterUpdateStatus();
     document.getElementById('btn-refresh').onclick = fetchTelemetry;
 
     // Inicialização e polling automático

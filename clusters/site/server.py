@@ -182,6 +182,8 @@ class ClusterSiteHandler(SimpleHTTPRequestHandler):
             self.handle_telemetry()
         elif path == "/api/heartbeat":
             self.handle_heartbeat()
+        elif path == "/api/cluster/update" or path == "/api/cluster/update/status":
+            self.handle_cluster_update_status()
         else:
             super().do_GET()
 
@@ -193,6 +195,8 @@ class ClusterSiteHandler(SimpleHTTPRequestHandler):
             self.handle_tts()
         elif path == "/api/heartbeat":
             self.handle_heartbeat()
+        elif path == "/api/cluster/update":
+            self.handle_cluster_update_trigger()
         else:
             self.send_error(404, "Endpoint not found")
 
@@ -294,6 +298,55 @@ class ClusterSiteHandler(SimpleHTTPRequestHandler):
             # Try espeak or pico2wave
             run_cmd(["espeak", "-v", "pt-br", texto])
             self.send_json({"ok": True, "fala": texto})
+        except Exception as e:
+            self.send_json({"ok": False, "error": str(e)}, code=500)
+
+
+    def handle_cluster_update_status(self):
+        last_update = None
+        progress = None
+        last_update_path = "/opt/casa/site/last_update.json"
+        progress_path = "/tmp/casa_update_progress.json"
+
+        if os.path.exists(last_update_path):
+            try:
+                with open(last_update_path, "r", encoding="utf-8") as f:
+                    last_update = json.load(f)
+            except Exception:
+                pass
+
+        if os.path.exists(progress_path):
+            try:
+                with open(progress_path, "r", encoding="utf-8") as f:
+                    progress = json.load(f)
+            except Exception:
+                pass
+
+        ret, cur_commit = run_cmd(["git", "-C", "/home/mmm/projetos/maurinsoft/casa", "rev-parse", "HEAD"])
+        if ret != 0:
+            cur_commit = last_update.get("commit_after") if last_update else "unknown"
+
+        self.send_json({
+            "ok": True,
+            "current_commit": cur_commit,
+            "last_update": last_update,
+            "progress": progress
+        })
+
+    def handle_cluster_update_trigger(self):
+        try:
+            ret, _ = run_cmd(["systemctl", "start", "casa-cluster-update.service"])
+            if ret != 0:
+                cmd = ["/usr/bin/python3", "/opt/casa/cluster-update/casa-cluster-update.py", "--apply"]
+                if not os.path.exists("/opt/casa/cluster-update/casa-cluster-update.py"):
+                    cmd = ["/usr/bin/python3", "/home/mmm/projetos/maurinsoft/casa/clusters/infraestrutura/casa-cluster-update/casa-cluster-update.py", "--apply"]
+                subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+            self.send_json({
+                "ok": True,
+                "status": "started",
+                "message": "Servico de atualizacao do cluster disparado com sucesso."
+            })
         except Exception as e:
             self.send_json({"ok": False, "error": str(e)}, code=500)
 

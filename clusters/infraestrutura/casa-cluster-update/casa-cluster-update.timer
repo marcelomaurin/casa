@@ -1,0 +1,11 @@
+[Unit]
+Description=CASA Cluster Periodic Update Check
+After=network-online.target
+
+[Timer]
+OnCalendar=*-*-* 04:00:00
+RandomizedDelaySec=1800
+Persistent=true
+
+[Install]
+WantedBy=timers.target
