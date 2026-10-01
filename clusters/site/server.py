@@ -552,17 +552,33 @@ class ClusterSiteHandler(SimpleHTTPRequestHandler):
 
         known = get_cluster_nodes_from_registry()
         nodes_list = []
-        for nid, n in known.items():
-            nodes_list.append({
-                "id": nid,
-                "name": n.get("name", nid),
-                "host": n.get("host", ""),
-                "lan_ip": n.get("host", ""),
-                "port": 22,
-                "user": "mmm",
-                "role": n.get("role", "ARM Node"),
-                "online": True
-            })
+        if isinstance(known, dict):
+            for nid, n in known.items():
+                host = n.get("host") or n.get("ip", "")
+                nodes_list.append({
+                    "id": nid,
+                    "name": n.get("name", nid),
+                    "host": host,
+                    "lan_ip": host,
+                    "port": int(n.get("port") or 22),
+                    "user": "mmm",
+                    "role": n.get("role", "ARM Node"),
+                    "online": bool(n.get("online", True))
+                })
+        elif isinstance(known, list):
+            for n in known:
+                nid = n.get("id") or n.get("name") or "node"
+                host = n.get("ip") or n.get("host", "")
+                nodes_list.append({
+                    "id": nid,
+                    "name": n.get("name", nid),
+                    "host": host,
+                    "lan_ip": host,
+                    "port": int(n.get("port") or 22),
+                    "user": "mmm",
+                    "role": n.get("role", "ARM Node"),
+                    "online": bool(n.get("online", True))
+                })
         self.send_json({"ok": True, "nodes": nodes_list, "total": len(nodes_list), "fallback": True})
 
     def handle_telemetry(self):
@@ -607,7 +623,7 @@ class ClusterSiteHandler(SimpleHTTPRequestHandler):
                 "port": 22,
                 "agent_port": 8095,
                 "user": ssh_user,
-                "command": f"ssh {ssh_user}@{ip}",
+                "command": "ssh {0}@{1}".format(ssh_user, ip),
             },
             "cluster_nodes": known_nodes,
             "timestamp": int(time.time()),

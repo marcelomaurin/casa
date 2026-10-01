@@ -840,13 +840,10 @@
         renderMeshNodes(data.nodes || []);
       } catch (e) {
         if (nodeData && nodeData.cluster_nodes) {
-          const arr = Object.entries(nodeData.cluster_nodes).map(([id, n]) => ({
-            id: id,
-            name: n.name || id,
-            host: n.host || '',
-            role: n.role || 'Nó ARM',
-            online: true
-          }));
+          const raw = nodeData.cluster_nodes;
+          const arr = Array.isArray(raw)
+            ? raw.map(n => ({ id: n.id, name: n.name || n.id, host: n.ip || n.host || '', role: n.role || 'Nó ARM', online: n.online !== false }))
+            : Object.entries(raw).map(([id, n]) => ({ id: id, name: n.name || id, host: n.host || n.ip || '', role: n.role || 'Nó ARM', online: true }));
           renderMeshNodes(arr);
         }
       }
