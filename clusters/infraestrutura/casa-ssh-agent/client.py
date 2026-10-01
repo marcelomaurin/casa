@@ -72,7 +72,7 @@ class ClusterSSHClient:
 
 def main():
     parser = argparse.ArgumentParser(description="CASA Cluster SSH Maintenance CLI")
-    subparsers = parser.add_subparsers(dest="cmd", help="Comando a executar")
+    subparsers = parser.add_subparsers(dest="action", help="Acao a executar")
 
     # Nodes
     subparsers.add_parser("nodes", help="Lista nos e latencia")
@@ -82,7 +82,7 @@ def main():
     # Exec
     p_exec = subparsers.add_parser("exec", help="Executa comando em um no")
     p_exec.add_argument("--node", "-n", required=True, help="Nome, ID ou IP do no")
-    p_exec.add_argument("--cmd", "-c", required=True, help="Comando shell")
+    p_exec.add_argument("--cmd", "-c", "--command", required=True, dest="command", help="Comando shell")
     p_exec.add_argument("--sudo", "-s", action="store_true", help="Executa com elevacao sudo")
     p_exec.add_argument("--timeout", "-t", type=int, default=30, help="Tempo limite em segundos")
     p_exec.add_argument("--task-id", default=None, help="ID da tarefa da IA")
@@ -90,31 +90,31 @@ def main():
     # Batch
     p_batch = subparsers.add_parser("batch", help="Executa comando em multiplos nos")
     p_batch.add_argument("--nodes", default="all", help="Lista de nos separados por virgula ou 'all'")
-    p_batch.add_argument("--cmd", "-c", required=True, help="Comando shell")
+    p_batch.add_argument("--cmd", "-c", "--command", required=True, dest="command", help="Comando shell")
     p_batch.add_argument("--sudo", "-s", action="store_true", help="Executa com elevacao sudo")
 
     args = parser.parse_args()
     client = ClusterSSHClient()
 
-    if args.cmd == "status":
+    if args.action == "status":
         print(json.dumps(client.status(), indent=2))
-    elif args.cmd == "nodes":
+    elif args.action == "nodes":
         print(json.dumps(client.list_nodes(), indent=2))
-    elif args.cmd == "history":
+    elif args.action == "history":
         print(json.dumps(client.history(), indent=2))
-    elif args.cmd == "exec":
+    elif args.action == "exec":
         res = client.exec(
             node=args.node,
-            command=args.cmd,
+            command=args.command,
             sudo=args.sudo,
             timeout=args.timeout,
             task_id=args.task_id
         )
         print(json.dumps(res, indent=2))
-    elif args.cmd == "batch":
+    elif args.action == "batch":
         res = client.batch(
             nodes=args.nodes,
-            command=args.cmd,
+            command=args.command,
             sudo=args.sudo
         )
         print(json.dumps(res, indent=2))
