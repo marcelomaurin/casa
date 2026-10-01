@@ -1,6 +1,8 @@
 package br.com.maurinsoft.jarvismobile
 
 import android.content.Context
+import android.os.Build
+import android.provider.Settings
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -24,6 +26,7 @@ object MobileAuth {
     private const val KEY_LOGIN = "user_login"
     private const val KEY_PROFILE = "user_profile"
     private const val KEY_EXPIRES = "expires_at"
+    private const val KEY_DEVICE_ID = "paired_device_id"
 
     private val jsonType = "application/json; charset=utf-8".toMediaType()
     private val client = OkHttpClient.Builder()
@@ -157,6 +160,75 @@ object MobileAuth {
         save(context, resolved)
         return resolved
     }
+
+    /** Conteúdo do QR de pareamento gerado em Segurança › Acessos pessoais. */
+    data class PairingQr(val baseUrl: String, val code: String)
+
+    /** Reconhece {"t":"casa-pair","v":1,"url":...,"code":...}; null se o QR for de outro tipo. */
+    fun parsePairingQr(raw: String): PairingQr? {
+        val text = raw.trim()
+        if (!text.startsWith("{")) return null
+        val json = runCatching { JSONObject(text) }.getOrNull() ?: return null
+        if (json.optString("t") != "casa-pair") return null
+        val url = json.optString("url").trim().trimEnd('/')
+        val code = json.optString("code").trim()
+        if (code.isBlank() || !(url.startsWith("https://") || url.startsWith("http://"))) return null
+        return PairingQr(url, code)
+    }
+
+    private fun deviceDisplayName(context: Context): String {
+        val custom = runCatching { Settings.Global.getString(context.contentResolver, "device_name") }.getOrNull().orEmpty().trim()
+        if (custom.isNotBlank()) return custom
+        val maker = Build.MANUFACTURER.orEmpty().replaceFirstChar { it.uppercase() }
+        val model = Build.MODEL.orEmpty()
+        return if (model.startsWith(maker, ignoreCase = true)) model else "$maker $model".trim()
+    }
+
+    /**
+     * Pareia este celular usando o código de uso único do QR. O servidor cria a
+     * identidade do celular e devolve uma credencial própria, guardada no Keystore.
+     */
+    fun pairWithCode(context: Context, qr: PairingQr): Session {
+        val appVersion = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull().orEmpty()
+        val body = JSONObject()
+            .put("acao", "pair")
+            .put("code", qr.code)
+            .put("device_name", deviceDisplayName(context))
+            .put("device_model", "${Build.MANUFACTURER} ${Build.MODEL}".trim())
+            .put("os_version", "Android ${Build.VERSION.RELEASE}")
+            .put("app_version", appVersion)
+        val req = Request.Builder()
+            .url(qr.baseUrl + "/api/v1/auth.php")
+            .header("Accept", "application/json")
+            .post(body.toString().toRequestBody(jsonType))
+            .build()
+        client.newCall(req).execute().use { response ->
+            val raw = response.body?.string().orEmpty()
+            val json = runCatching { JSONObject(raw) }.getOrElse { JSONObject() }
+            if (!response.isSuccessful || json.optString("status") != "ok") {
+                throw IllegalStateException(json.optString("mensagem").ifBlank { "Pareamento recusado (HTTP ${response.code})" })
+            }
+            val token = json.optString("device_token", json.optString("session_token"))
+            require(token.isNotBlank()) { "Servidor não retornou a credencial do celular" }
+            val user = json.optJSONObject("user") ?: JSONObject()
+            val session = Session(
+                token = token,
+                name = user.optString("nome", "Casa Mobile"),
+                login = "api_key",
+                profile = user.optString("perfil", "operador"),
+                expiresAt = json.optString("expires_at", "permanente")
+            )
+            JarvisApi.saveConfig(context, qr.baseUrl, token)
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putString(KEY_DEVICE_ID, json.optString("device_id"))
+                .apply()
+            save(context, session)
+            return session
+        }
+    }
+
+    fun pairedDeviceId(context: Context): String =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_DEVICE_ID, "").orEmpty()
 
     fun validate(context: Context): Session? {
         val current = savedSession(context) ?: return null
