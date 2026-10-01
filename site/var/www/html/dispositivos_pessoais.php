@@ -64,8 +64,6 @@ try { $mobileEvents=$pdo->query("SELECT tipo,descricao,dados,data_hora FROM mobi
 function h($v){ return htmlspecialchars((string)$v,ENT_QUOTES,'UTF-8'); }
 function ageText($date){ if(!$date)return '--'; $s=time()-strtotime($date); if($s<60)return $s.'s'; if($s<3600)return floor($s/60).' min'; return floor($s/3600).' h'; }
 
-$host = $_SERVER['HTTP_HOST'] ?? 'maurinsoft.com.br';
-$pwaUrl = "https://{$host}/casa/mobile/";
 ?>
 <!doctype html>
 <html lang="pt-BR">
@@ -74,7 +72,6 @@ $pwaUrl = "https://{$host}/casa/mobile/";
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>CASA — <?= $aba==='celular'?'Celular':($aba==='watch'?'Watch':'Celular & Relógio') ?></title>
   <link rel="stylesheet" href="/casa/lcars.css?v=20260914b">
-  <script src="/casa/qrcode.min.js"></script>
   <style>
     body{background:#fff7e8;color:#211b22;font-family:Arial,sans-serif;margin:0}
     .wrap{max-width:1180px;margin:auto;padding:18px}
@@ -111,7 +108,7 @@ $pwaUrl = "https://{$host}/casa/mobile/";
     <div class="elbow">CASA<br><?= $aba==='watch'?'WATCH':($aba==='celular'?'MOBILE':'LINK') ?></div>
     <div class="title">
       <h1><?= $aba==='celular'?'JARVIS Mobile · Celular':($aba==='watch'?'JARVIS Watch · Relógio Inteligente':'Celular & Relógio') ?></h1>
-      <div><?= $aba==='celular'?'Controle pessoal, presença móvel, aplicativo Android e Web PWA':($aba==='watch'?'LilyGo T-Watch, telemetria biométrica, assistência SOS e comandos':'Gateway, telemetria, assistência e Família CASA') ?></div>
+      <div><?= $aba==='celular'?'Controle pessoal e monitoramento de presença móvel':($aba==='watch'?'LilyGo T-Watch, telemetria biométrica, assistência SOS e comandos':'Gateway, telemetria, assistência e Família CASA') ?></div>
     </div>
   </div>
 
@@ -121,7 +118,6 @@ $pwaUrl = "https://{$host}/casa/mobile/";
     <a href="/casa/dispositivos_pessoais.php?aba=watch" class="<?= $aba==='watch'?'active':'' ?>">⌚ Watch</a>
     <a href="/casa/dispositivos_pessoais.php?aba=todos" class="<?= $aba==='todos'?'active':'' ?>">Todos</a>
     <a href="/casa/familia.php">Família CASA</a>
-    <a href="/casa/mobile/" target="_blank">Abrir App Web (PWA)</a>
     <a href="/casa/bin/">Downloads & APKs (/bin)</a>
   </div>
 
@@ -140,7 +136,7 @@ $pwaUrl = "https://{$host}/casa/mobile/";
           });
         ?>
         <?php if(!$celPresence):?>
-          <p>Nenhum celular registrou presença recentemente.<br>Abra o app ou web mobile para conectar.</p>
+          <p>Nenhum celular registrou presença recentemente.<br>Aguardando comunicação dos dispositivos móveis.</p>
         <?php else:?>
           <table>
             <tr><th>Dispositivo</th><th>Tipo</th><th>Estado</th><th>Último contato</th></tr>
@@ -154,14 +150,6 @@ $pwaUrl = "https://{$host}/casa/mobile/";
             <?php endforeach;?>
           </table>
         <?php endif;?>
-      </div>
-
-      <!-- QR Code Mobile -->
-      <div class="card orange">
-        <h2>📷 Pareamento Celular (QR Code)</h2>
-        <p style="font-size:0.9rem;margin-top:0;">Aponte a câmera do celular para abrir o app móvel:</p>
-        <div class="qr-box"><div id="qr-pwa"></div></div>
-        <p style="text-align:center;font-size:0.85rem;"><a href="<?= h($pwaUrl) ?>" target="_blank" style="color:#211b22;font-weight:bold;"><?= h($pwaUrl) ?></a></p>
       </div>
 
       <!-- Notificar Celular -->
@@ -266,18 +254,5 @@ $pwaUrl = "https://{$host}/casa/mobile/";
     </div>
   <?php endif; ?>
 </div>
-
-<script>
-  if (document.getElementById("qr-pwa") && typeof QRCode !== 'undefined') {
-    new QRCode(document.getElementById("qr-pwa"), {
-      text: <?= json_encode($pwaUrl) ?>,
-      width: 130,
-      height: 130,
-      colorDark : "#000000",
-      colorLight : "#ffffff",
-      correctLevel : QRCode.CorrectLevel.M
-    });
-  }
-</script>
 </body>
 </html>
