@@ -1,11 +1,11 @@
 [Unit]
-Description=CASA Cluster Periodic Update Check
-After=network-online.target
+Description=CASA - consulta ativa de versoes a cada cinco minutos
 
 [Timer]
-OnCalendar=*-*-* 04:00:00
-RandomizedDelaySec=1800
-Persistent=true
+OnBootSec=2min
+OnUnitInactiveSec=5min
+RandomizedDelaySec=30
+Unit=casa-cluster-update.service
 
 [Install]
 WantedBy=timers.target

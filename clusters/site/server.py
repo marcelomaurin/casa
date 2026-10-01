@@ -364,34 +364,22 @@ class ClusterSiteHandler(SimpleHTTPRequestHandler):
 
 
     def handle_cluster_update_status(self):
-        last_update = None
-        progress = None
-        last_update_path = "/opt/casa/site/last_update.json"
-        progress_path = "/tmp/casa_update_progress.json"
-
-        if os.path.exists(last_update_path):
-            try:
-                with open(last_update_path, "r", encoding="utf-8") as f:
-                    last_update = json.load(f)
-            except Exception:
-                pass
-
-        if os.path.exists(progress_path):
-            try:
-                with open(progress_path, "r", encoding="utf-8") as f:
-                    progress = json.load(f)
-            except Exception:
-                pass
-
-        ret, cur_commit = run_cmd(["git", "-C", "/home/mmm/projetos/maurinsoft/casa", "rev-parse", "HEAD"])
-        if ret != 0:
-            cur_commit = last_update.get("commit_after") if last_update else "unknown"
-
+        # O Git local nao representa mais a release instalada: ler estado do updater.
+        state = {}
+        try:
+            with open("/var/lib/casa-cluster-update/state.json", "r", encoding="utf-8") as handle:
+                state = json.load(handle)
+        except (OSError, ValueError):
+            pass
+        components = state.get("components", {})
+        commits = sorted(set(item.get("commit", "unknown") for item in components.values()))
         self.send_json({
             "ok": True,
-            "current_commit": cur_commit,
-            "last_update": last_update,
-            "progress": progress
+            "current_commit": commits[0] if len(commits) == 1 else "mixed" if commits else "unknown",
+            "components": components,
+            "pending_reports": len(state.get("pending_reports", [])),
+            "last_update": state.get("last_update"),
+            "progress": state.get("progress")
         })
 
     def handle_cluster_update_trigger(self):
@@ -428,3 +416,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

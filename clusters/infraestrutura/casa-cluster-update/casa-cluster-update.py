@@ -1,307 +1,264 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-CASA / JARVIS - Servico e Script de Atualizacao do Cluster
-Compativel com Python 3.4+ (Raspberry Pi, Cubieboard, Linux ARM/x86).
-"""
-
-import os
-import sys
+"""Atualizador ativo. Somente releases explicitamente liberadas na API são aplicadas."""
+import argparse
+import configparser
+import fcntl
+import hashlib
 import json
-import time
+import os
+import re
 import shutil
 import socket
-import argparse
 import subprocess
+import sys
+import tempfile
+import time
 import urllib.request
-import urllib.parse
-from datetime import datetime
+from pathlib import Path
 
-DEFAULT_REPO_PATHS = [
-    "/home/mmm/projetos/maurinsoft/casa",
-    "/home/pi/projetos/maurinsoft/casa",
-    "/root/projetos/maurinsoft/casa",
-    "/opt/casa/repo",
-]
+CATALOG = {
+    'arm-agent': ('clusters/comunicacao/arm-agent/', '/opt/casa-node-agent', 'casa-node-agent'),
+    'scheduler': ('clusters/automacao/casa-scheduler/', '/opt/casa-scheduler', 'casa-scheduler'),
+    'google-home': ('clusters/voz/google-home-agent/', '/home/mmm/servicos/google-home-agent', 'casa-google-home'),
+    'tts': ('clusters/voz/tts/', '/home/mmm/servicos/tts', 'casa-tts'),
+    'espcam': ('clusters/visao/espcam/', '/opt/casa/espcam', ''),
+    'avatar': ('clusters/visao/raspberrypi-avatar-agent/meta-casa-avatar/recipes-casa/casa-avatar/files/', '/opt/casa-avatar', 'casa-avatar'),
+    'web-agent': ('clusters/pesquisa/web-agent/', '/opt/jarvis-web-agent', 'jarvis-web-agent'),
+    'tunnel': ('clusters/infraestrutura/casa-tunnel/', '/opt/casa-tunnel', 'casa-tunnel'),
+    'runpod': ('clusters/infraestrutura/runpod-agent/', '/opt/casa/servicos/runpod-agent', 'casa-runpod-agent'),
+    'cluster-site': ('clusters/site/', '/opt/casa/site', 'casa-cluster-site'),
+    'ssh-agent': ('clusters/infraestrutura/casa-ssh-agent/', '/opt/casa/ssh-agent', 'casa-ssh-agent'),
+    'update-agent': ('clusters/infraestrutura/casa-cluster-update/', '/opt/casa/cluster-update', 'casa-cluster-update'),
+}
 
-LAST_UPDATE_FILE = "/opt/casa/site/last_update.json"
-PROGRESS_FILE = "/tmp/casa_update_progress.json"
-ENV_FILE = "/etc/casa-node-agent.env"
+def safe_file(value):
+    return isinstance(value, str) and len(value) <= 240 and all(re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*', p) for p in value.split('/')) and bool(re.search(r'\.(py|html|css|js|sh)$', value))
 
-def run_cmd(cmd, cwd=None):
-    try:
-        p = subprocess.Popen(
-            cmd,
-            cwd=cwd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            universal_newlines=True
-        )
-        out, err = p.communicate()
-        return p.returncode, (out or "").strip(), (err or "").strip()
-    except Exception as e:
-        return 1, "", str(e)
+def validate(manifest):
+    if manifest.get('schema') != 1 or not re.fullmatch(r'(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})', str(manifest.get('version', ''))):
+        raise ValueError('Manifesto/versao invalido')
+    if not re.fullmatch(r'[a-f0-9]{40}', str(manifest.get('source_commit', ''))):
+        raise ValueError('Commit fixo obrigatorio')
+    components = manifest.get('components')
+    if not isinstance(components, dict) or not 1 <= len(components) <= len(CATALOG):
+        raise ValueError('Integradores invalidos')
+    total = 0
+    for name, component in components.items():
+        if name not in CATALOG or not isinstance(component, dict):
+            raise ValueError('Integrador desconhecido')
+        files = component.get('files')
+        if not isinstance(files, list) or not 1 <= len(files) <= 32:
+            raise ValueError('Lista de arquivos invalida')
+        targets = set()
+        for item in files:
+            source, target = item.get('source'), item.get('target')
+            size = item.get('size')
+            if not safe_file(source) or not safe_file(target) or not source.startswith(CATALOG[name][0]) or target in targets:
+                raise ValueError('Caminho proibido ou repetido')
+            # Configuracao e dados nunca fazem parte de uma release.
+            if any(re.search(r'\.(cfg|env|ini|onnx|wav|db|sqlite|json)$', p, re.I) for p in (source + '/' + target).split('/')):
+                raise ValueError('Configuracao/dados protegidos')
+            if type(size) is not int or not 1 <= size <= 5242880 or not re.fullmatch(r'[a-f0-9]{64}', str(item.get('sha256', ''))):
+                raise ValueError('Hash/tamanho invalido')
+            targets.add(target)
+            total += size
+    if total > 52428800:
+        raise ValueError('Release excede 50 MB')
 
-def find_repo_dir(custom_path=None):
-    if custom_path and os.path.isdir(os.path.join(custom_path, ".git")):
-        return custom_path
-    for p in DEFAULT_REPO_PATHS:
-        if os.path.isdir(os.path.join(p, ".git")):
-            return p
-    cur = os.path.abspath(os.getcwd())
-    while len(cur) > 3:
-        if os.path.isdir(os.path.join(cur, ".git")):
-            return cur
-        parent = os.path.dirname(cur)
-        if parent == cur:
-            break
-        cur = parent
-    return None
-
-def get_env_map():
-    env = {}
-    if os.path.exists(ENV_FILE):
+def load_config(path):
+    path = Path(path)
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        cfg = configparser.ConfigParser(interpolation=None)
+        cfg['update'] = {'api_url': 'https://maurinsoft.com.br/casa/api/v1/updates.php', 'device_id': socket.gethostname(), 'device_token': '', 'state_dir': '/var/lib/casa-cluster-update'}
+        for name, (_, root, service) in CATALOG.items():
+            cfg[name] = {'root': root, 'service': service}
+        # Criação exclusiva: nunca sobrescrever configuração existente, inclusive em corrida.
         try:
-            with open(ENV_FILE, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith("#") and "=" in line:
-                        k, v = line.split("=", 1)
-                        env[k.strip()] = v.strip().strip("'\"")
-        except Exception:
+            fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
             pass
-    return env
+        else:
+            with os.fdopen(fd, 'w') as handle:
+                cfg.write(handle)
+    cfg = configparser.ConfigParser(interpolation=None)
+    with path.open() as handle:
+        cfg.read_file(handle)
+    if not cfg.has_section('update'):
+        raise ValueError('Secao update obrigatoria no config.cfg')
+    return cfg
 
-def set_progress(step, msg, pct=0, error=None):
-    data = {
-        "step": step,
-        "message": msg,
-        "percent": pct,
-        "error": error,
-        "updated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-    }
+def atomic_json(path, value):
+    path = Path(path)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent))
     try:
-        with open(PROGRESS_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
+        with os.fdopen(fd, 'w') as handle:
+            json.dump(value, handle, indent=2)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, str(path))
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+def api(cfg, action, payload=None):
+    settings = cfg['update']
+    url = settings['api_url']
+    if not url.startswith('https://') or not settings.get('device_token'):
+        raise ValueError('Configure HTTPS e device_token no config.cfg')
+    url += ('&' if '?' in url else '?') + 'acao=' + action
+    request = urllib.request.Request(url, data=None if payload is None else json.dumps(payload).encode(), headers={'Content-Type': 'application/json', 'X-Device-Id': settings['device_id'], 'X-Device-Token': settings['device_token']})
+    with urllib.request.urlopen(request, timeout=30) as response:
+        result = json.loads(response.read(1048577))
+    if result.get('status') != 'ok':
+        raise RuntimeError('API rejeitou a operacao')
+    return result
+
+def command(args):
+    subprocess.run(args, check=True, timeout=60, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+def install_component(root, files, stage, service, version):
+    root = Path(root).resolve()
+    backup = []
+    was_active = bool(service) and subprocess.run(['systemctl', 'is-active', '--quiet', service]).returncode == 0
+    try:
+        for item in files:
+            target = root / item['target']
+            if target.is_symlink() or root not in target.resolve().parents:
+                raise ValueError('Destino fora da instalacao ou link simbolico')
+            target.parent.mkdir(parents=True, exist_ok=True)
+            old = stage / ('backup-' + str(len(backup)))
+            existed = target.exists()
+            if existed:
+                shutil.copy2(str(target), str(old))
+            backup.append((target, old if existed else None))
+            fd, temp = tempfile.mkstemp(dir=str(target.parent))
+            os.close(fd)
+            try:
+                shutil.copyfile(str(stage / item['sha256']), temp)
+                os.chmod(temp, target.stat().st_mode & 0o777 if existed else (0o755 if target.suffix == '.sh' else 0o644))
+                if existed:
+                    stat = target.stat()
+                    os.chown(temp, stat.st_uid, stat.st_gid)
+                os.replace(temp, str(target))
+            finally:
+                if os.path.exists(temp):
+                    os.unlink(temp)
+        # O updater oneshot se atualiza para a proxima execução, sem reiniciar a si mesmo.
+        if was_active and service != 'casa-cluster-update':
+            command(['systemctl', 'restart', service])
+            time.sleep(2)
+            command(['systemctl', 'is-active', '--quiet', service])
     except Exception:
-        pass
-    print("[{0}%] {1}".format(pct, msg))
+        for target, old in reversed(backup):
+            if old is None:
+                target.unlink(missing_ok=True)
+            else:
+                os.replace(str(old), str(target))
+        if was_active and service != 'casa-cluster-update':
+            command(['systemctl', 'restart', service])
+        raise
 
-def get_git_info(repo_dir):
-    rc, head, _ = run_cmd(["git", "rev-parse", "HEAD"], cwd=repo_dir)
-    rc2, subj, _ = run_cmd(["git", "log", "-1", "--format=%s"], cwd=repo_dir)
-    rc3, branch, _ = run_cmd(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo_dir)
-    return {
-        "commit": head if rc == 0 else "unknown",
-        "subject": subj if rc2 == 0 else "",
-        "branch": branch if rc3 == 0 else "master"
-    }
-
-def check_remote_updates(repo_dir):
-    run_cmd(["git", "fetch", "origin", "master"], cwd=repo_dir)
-    rc1, local_head, _ = run_cmd(["git", "rev-parse", "HEAD"], cwd=repo_dir)
-    rc2, remote_head, _ = run_cmd(["git", "rev-parse", "origin/master"], cwd=repo_dir)
-    if rc1 != 0 or rc2 != 0:
-        return False, local_head, remote_head
-    return (local_head != remote_head), local_head, remote_head
-
-def sync_components(repo_dir):
-    updated = []
-    
-    # 1. clusters/site -> /opt/casa/site
-    site_src = os.path.join(repo_dir, "clusters", "site")
-    site_dst = "/opt/casa/site"
-    if os.path.isdir(site_src):
-        os.makedirs(site_dst, exist_ok=True)
-        for fname in ["index.html", "server.py"]:
-            src = os.path.join(site_src, fname)
-            if os.path.exists(src):
-                dst = os.path.join(site_dst, fname)
-                shutil.copy2(src, dst)
-        run_cmd(["chmod", "+x", os.path.join(site_dst, "server.py")])
-        updated.append("casa-cluster-site")
-
-    # 2. clusters/comunicacao/arm-agent -> /opt/casa-node-agent
-    agent_src = os.path.join(repo_dir, "clusters", "comunicacao", "arm-agent", "casa-node-agent.py")
-    agent_dst = "/opt/casa-node-agent"
-    if os.path.exists(agent_src):
-        os.makedirs(agent_dst, exist_ok=True)
-        shutil.copy2(agent_src, os.path.join(agent_dst, "casa-node-agent.py"))
-        run_cmd(["chmod", "+x", os.path.join(agent_dst, "casa-node-agent.py")])
-        updated.append("casa-node-agent")
-
-    # 3. clusters/infraestrutura/runpod-agent -> /opt/casa/servicos/runpod-agent
-    runpod_src = os.path.join(repo_dir, "clusters", "infraestrutura", "runpod-agent", "casa-runpod-agent.py")
-    runpod_dst = "/opt/casa/servicos/runpod-agent"
-    if os.path.exists(runpod_src) and os.path.isdir(runpod_dst):
-        shutil.copy2(runpod_src, os.path.join(runpod_dst, "casa-runpod-agent.py"))
-        updated.append("casa-runpod-agent")
-
-    # 4. clusters/automacao/casa-scheduler -> /opt/casa-scheduler
-    sched_src = os.path.join(repo_dir, "clusters", "automacao", "casa-scheduler", "casa-scheduler.py")
-    sched_dst = "/opt/casa-scheduler"
-    if os.path.exists(sched_src) and os.path.isdir(sched_dst):
-        shutil.copy2(sched_src, os.path.join(sched_dst, "casa-scheduler.py"))
-        updated.append("casa-scheduler")
-
-    # 5. clusters/infraestrutura/casa-tunnel -> /opt/casa-tunnel
-    tun_src = os.path.join(repo_dir, "clusters", "infraestrutura", "casa-tunnel", "casa-tunnel.py")
-    tun_dst = "/opt/casa-tunnel"
-    if os.path.exists(tun_src) and os.path.isdir(tun_dst):
-        shutil.copy2(tun_src, os.path.join(tun_dst, "casa-tunnel.py"))
-        updated.append("casa-tunnel")
-
-    # 6. clusters/infraestrutura/casa-cluster-update -> /opt/casa/cluster-update
-    up_src = os.path.join(repo_dir, "clusters", "infraestrutura", "casa-cluster-update")
-    up_dst = "/opt/casa/cluster-update"
-    if os.path.isdir(up_src):
-        os.makedirs(up_dst, exist_ok=True)
-        for f in os.listdir(up_src):
-            s = os.path.join(up_src, f)
-            d = os.path.join(up_dst, f)
-            if os.path.isfile(s):
-                shutil.copy2(s, d)
-        run_cmd(["chmod", "+x", os.path.join(up_dst, "casa-cluster-update.py")])
-        updated.append("casa-cluster-update")
-
-    return updated
-
-def restart_services():
-    restarted = []
-    run_cmd(["systemctl", "daemon-reload"])
-
-    for comp in ["casa-cluster-site", "casa-node-agent", "casa-runpod-agent", "casa-scheduler", "casa-tunnel"]:
-        rc, out, _ = run_cmd(["systemctl", "is-enabled", comp])
-        if rc == 0 or out.strip() == "enabled":
-            print("Reiniciando servico {0}...".format(comp))
-            run_cmd(["systemctl", "restart", comp])
-            restarted.append(comp)
-
-    return restarted
-
-def notify_central_server(commit_info, restarted):
-    env = get_env_map()
-    base_url = env.get("CASA_BASE_URL", "https://maurinsoft.com.br/casa").rstrip("/")
-    token = env.get("DEVICE_TOKEN", env.get("JARVIS_DEVICE_TOKEN", "casa_sec_a4c5a1a2fea405d668edf5934f67d9eb9df23d4c89c5c616"))
-    dev_id = env.get("DEVICE_ID", env.get("JARVIS_DEVICE_ID", socket.gethostname()))
-
-    payload = {
-        "status": "online",
-        "device_id": dev_id,
-        "event": "cluster_updated",
-        "commit": commit_info.get("commit"),
-        "subject": commit_info.get("subject"),
-        "restarted_services": restarted,
-        "timestamp": int(time.time()),
-        "iso_time": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-    }
-
-    url = "{0}/api/v1/device.php".format(base_url)
-    headers = {
-        "Content-Type": "application/json",
-        "X-Device-Id": dev_id,
-        "X-Device-Token": token,
-        "Authorization": "Bearer {0}".format(token),
-        "User-Agent": "ClusterUpdate-Agent/1.0"
-    }
-
-    try:
-        req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            return True, resp.read().decode("utf-8")
-    except Exception as e:
-        return False, str(e)
-
-def perform_update(repo_dir, force=False):
-    set_progress("init", "Iniciando processo de atualizacao do cluster...", 5)
-    
-    info_before = get_git_info(repo_dir)
-    set_progress("git_fetch", "Verificando atualizacoes no repositorio origin/master...", 20)
-    has_updates, loc_h, rem_h = check_remote_updates(repo_dir)
-
-    if not has_updates and not force:
-        msg = "Cluster ja se encontra atualizado no commit {0}".format(loc_h[:7])
-        set_progress("done", msg, 100)
-        return {"status": "up-to-date", "commit": loc_h, "message": msg}
-
-    set_progress("git_pull", "Atualizando arvore de trabalho (git pull origin master)...", 40)
-    rc, out, err = run_cmd(["git", "pull", "--ff-only", "origin", "master"], cwd=repo_dir)
-    if rc != 0:
-        run_cmd(["git", "fetch", "origin", "master"], cwd=repo_dir)
-        rc, out, err = run_cmd(["git", "reset", "--hard", "origin/master"], cwd=repo_dir)
-        if rc != 0:
-            err_msg = "Falha no git pull: " + err
-            set_progress("error", err_msg, 100, error=err_msg)
-            return {"status": "error", "error": err_msg}
-
-    info_after = get_git_info(repo_dir)
-
-    set_progress("sync_files", "Copiando modulos atualizados para /opt/casa/...", 65)
-    updated_comps = sync_components(repo_dir)
-
-    set_progress("restart_services", "Recarregando systemd e reiniciando servicos do cluster...", 85)
-    restarted = restart_services()
-
-    set_progress("notify", "Notificando servidor central e registrando status...", 95)
-    notif_ok, notif_res = notify_central_server(info_after, restarted)
-
-    last_record = {
-        "status": "success",
-        "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "commit_before": info_before["commit"],
-        "commit_after": info_after["commit"],
-        "commit_subject": info_after["subject"],
-        "updated_components": updated_comps,
-        "restarted_services": restarted,
-        "notified_central": notif_ok
-    }
-
-    try:
-        os.makedirs(os.path.dirname(LAST_UPDATE_FILE), exist_ok=True)
-        with open(LAST_UPDATE_FILE, "w", encoding="utf-8") as f:
-            json.dump(last_record, f, indent=2)
-    except Exception:
-        pass
-
-    set_progress("done", "Atualizacao concluida com sucesso no commit {0}!".format(info_after["commit"][:7]), 100)
-    return last_record
+def poll(cfg, check=False):
+    state_dir = Path(cfg['update']['state_dir'])
+    state_dir.mkdir(parents=True, exist_ok=True)
+    os.chmod(str(state_dir), 0o755)
+    with (state_dir / 'update.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        state_file = state_dir / 'state.json'
+        state = json.loads(state_file.read_text()) if state_file.exists() else {'components': {}, 'pending_reports': []}
+        # Persistir relatorios pendentes permite reenvio apos falha de rede.
+        pending = []
+        for report in state.get('pending_reports', []):
+            try:
+                api(cfg, 'report', report)
+            except Exception:
+                pending.append(report)
+        state['pending_reports'] = pending
+        atomic_json(state_file, state)
+        release = api(cfg, 'current').get('release')
+        if release is None:
+            return {'status': 'no-release'}
+        manifest = release['manifest']
+        validate(manifest)
+        if check:
+            return {'status': 'available', 'release_id': release['id'], 'version': manifest['version']}
+        failures = []
+        with tempfile.TemporaryDirectory(dir=str(state_dir)) as temp:
+            stage = Path(temp)
+            # Validar todos os downloads antes de tocar em qualquer integrador.
+            selected = []
+            for name, component in manifest['components'].items():
+                default_root, default_service = CATALOG[name][1:]
+                root = cfg.get(name, 'root', fallback=default_root)
+                service = cfg.get(name, 'service', fallback=default_service)
+                previous = state['components'].get(name, {})
+                if previous.get('release_id') == release['id']:
+                    continue
+                if previous.get('version') and tuple(map(int, manifest['version'].split('.'))) <= tuple(map(int, previous['version'].split('.'))):
+                    raise ValueError('Downgrade recusado para ' + name)
+                if not Path(root).is_dir():
+                    state['pending_reports'].append({'release_id': release['id'], 'component': name, 'status': 'not_installed'})
+                    continue
+                for item in component['files']:
+                    url = 'https://raw.githubusercontent.com/marcelomaurin/casa/' + manifest['source_commit'] + '/' + item['source']
+                    with urllib.request.urlopen(url, timeout=30) as response:
+                        data = response.read(item['size'] + 1)
+                    if len(data) != item['size'] or hashlib.sha256(data).hexdigest() != item['sha256']:
+                        raise ValueError('Download divergente: ' + item['source'])
+                    (stage / item['sha256']).write_bytes(data)
+                    if item['target'].endswith('.py'):
+                        compile(data, item['target'], 'exec')
+                    elif item['target'].endswith('.sh'):
+                        command(['bash', '-n', str(stage / item['sha256'])])
+                selected.append((name, component, root, service))
+            for name, component, root, service in selected:
+                report = {'release_id': release['id'], 'component': name}
+                try:
+                    install_component(root, component['files'], stage, service, manifest['version'])
+                    state['components'][name] = {'version': manifest['version'], 'release_id': release['id'], 'commit': manifest['source_commit']}
+                    report.update(status='updated', installed_version=manifest['version'])
+                except Exception as error:
+                    failures.append(name)
+                    report.update(status='failed', details={'error_type': type(error).__name__})
+                state['pending_reports'].append(report)
+                atomic_json(state_file, state)
+        remaining = []
+        for report in state['pending_reports']:
+            try:
+                api(cfg, 'report', report)
+            except Exception:
+                remaining.append(report)
+        state['pending_reports'] = remaining
+        state['last_update'] = {'status': 'failed' if failures else 'success', 'timestamp': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'commit_after': manifest['source_commit'], 'version': manifest['version'], 'updated_components': [name for name, _, _, _ in selected if name not in failures], 'failed_components': failures}
+        atomic_json(state_file, state)
+        if failures:
+            raise RuntimeError('Falha nos integradores: ' + ', '.join(failures))
+        return {'status': 'success', 'version': manifest['version'], 'pending_reports': len(remaining)}
 
 def main():
-    parser = argparse.ArgumentParser(description="CASA Cluster Update Utility")
-    parser.add_argument("--repo", default=None, help="Caminho do repositorio Git")
-    parser.add_argument("--check", action="store_true", help="Apenas verifica se existem atualizacoes")
-    parser.add_argument("--apply", action="store_true", help="Aplica a atualizacao completa")
-    parser.add_argument("--force", action="store_true", help="Forca reinstalacao e reinicio de servicos")
-    parser.add_argument("--status", action="store_true", help="Exibe informacoes da ultima atualizacao")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--config', default='/etc/casa/cluster-update/config.cfg')
+    parser.add_argument('--check', action='store_true')
+    parser.add_argument('--apply', action='store_true')
+    parser.add_argument('--status', action='store_true')
+    parser.add_argument('--init-config', action='store_true')
     args = parser.parse_args()
-
-    if args.status:
-        if os.path.exists(LAST_UPDATE_FILE):
-            with open(LAST_UPDATE_FILE, "r", encoding="utf-8") as f:
-                print(f.read())
+    try:
+        cfg = load_config(args.config)
+        if args.init_config:
+            print('Configure api_url, device_id e device_token em ' + args.config)
+        elif args.status:
+            path = Path(cfg['update']['state_dir']) / 'state.json'
+            print(path.read_text() if path.exists() else '{}')
         else:
-            print(json.dumps({"status": "unknown", "message": "Nenhuma atualizacao registrada anteriormente."}))
-        return
+            print(json.dumps(poll(cfg, args.check)))
+    except Exception as error:
+        # Evita expor credenciais em respostas HTTP ou logs.
+        print('Atualizacao falhou: ' + type(error).__name__, file=sys.stderr)
+        return 1
+    return 0
 
-    repo_dir = find_repo_dir(args.repo)
-    if not repo_dir:
-        print("ERRO: Repositorio Git nao encontrado. Especifique com --repo /caminho/do/casa")
-        sys.exit(1)
-
-    if args.check:
-        has_up, loc_h, rem_h = check_remote_updates(repo_dir)
-        info = get_git_info(repo_dir)
-        res = {
-            "has_updates": has_up,
-            "local_commit": loc_h,
-            "remote_commit": rem_h,
-            "subject": info["subject"]
-        }
-        print(json.dumps(res, indent=2))
-        return
-
-    res = perform_update(repo_dir, force=args.force)
-    print("Resultado:", json.dumps(res, indent=2))
-
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    sys.exit(main())

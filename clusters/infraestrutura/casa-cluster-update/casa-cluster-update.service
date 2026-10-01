@@ -1,5 +1,5 @@
 [Unit]
-Description=CASA Cluster Update Service - Git Sync and Services Reload
+Description=CASA - verifica e aplica a release liberada na API
 After=network-online.target
 Wants=network-online.target
 
@@ -8,8 +8,7 @@ Type=oneshot
 User=root
 WorkingDirectory=/opt/casa/cluster-update
 ExecStart=/usr/bin/python3 /opt/casa/cluster-update/casa-cluster-update.py --apply
-StandardOutput=journal+console
-StandardError=journal+console
-
-[Install]
-WantedBy=multi-user.target
+TimeoutStartSec=15min
+StandardOutput=journal
+StandardError=journal
+UMask=0077
