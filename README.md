@@ -290,3 +290,10 @@ docs/
 ```
 
 A documentação deve acompanhar a evolução do código e distinguir claramente recursos funcionais, experimentais e ainda pendentes.
+
+
+## Atualização automática dos integradores
+
+O serviço de cada nó consulta ativamente a API e instala somente a versão explicitamente liberada. As configurações locais são preservadas.
+
+Veja o [passo a passo de instalação, configuração e liberação de versões](clusters/infraestrutura/casa-cluster-update/INSTALACAO.md).

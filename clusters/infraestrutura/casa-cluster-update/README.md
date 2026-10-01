@@ -1,5 +1,7 @@
 # Atualização dos integradores CASA
 
+[Passo a passo: instalação, configuração, publicação e diagnóstico](INSTALACAO.md).
+
 O serviço consulta ativamente `api/v1/updates.php?acao=current` a cada cinco minutos. Um commit novo na master não provoca atualização. Somente uma release cadastrada e depois explicitamente ativada pelo publicador pode ser aplicada. A API exige autenticação do dispositivo e capability `update-agent`; publicação exige um token com scope `updates.publish`.
 
 ## Instalação inicial
