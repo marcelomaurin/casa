@@ -520,7 +520,7 @@ async function renderNodes(){
       '<dt>Programa / função</dt><dd>'+esc(n.papel||'—')+'</dd>'+
       '<dt>Plataforma</dt><dd>'+esc(n.platform||'—')+'</dd>'+
       '<dt>IP</dt><dd>'+esc(n.ip_address||'—')+'</dd>'+
-      '<dt>Versão implantada</dt><dd>'+(n.version?'<strong style="color:#00e5ff;font-family:monospace;font-size:0.95rem;">'+esc(n.version)+'</strong>':'<span style="opacity:0.6;">Não informada</span>')+(n.deployed_at?'<small style="display:block;opacity:0.8;font-size:0.75rem;margin-top:2px;">Atualizado: '+esc(n.deployed_at)+'</small>':'')+'</dd>+'
+      '<dt>Versão implantada</dt><dd>'+(n.version?'<strong style="color:#00e5ff;font-family:monospace;font-size:0.95rem;">'+esc(n.version)+'</strong>':'<span style="opacity:0.6;">Não informada</span>')+(n.deployed_at?'<small style="display:block;opacity:0.8;font-size:0.75rem;margin-top:2px;">Atualizado: '+esc(n.deployed_at)+'</small>':'')+'</dd>'+
       '<dt>CPU</dt><dd>'+esc(n.cpu||'Não informada')+'</dd>'+
       '<dt>RAM</dt><dd>'+esc(n.ram||'Não informada')+'</dd>'+
       '<dt>Capacidades</dt><dd>'+esc((n.capabilities||[]).join(', ')||'Não informadas')+'</dd>'+
