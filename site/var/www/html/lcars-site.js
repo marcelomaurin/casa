@@ -29,6 +29,9 @@ const GROUPS={
       {title:'EVENTOS',items:[
         {id:'sensores-sec',label:'Sensores & telemetria',module:'sensors'},
         {id:'api-sec',label:'Acesso web & API segura',module:'external'}
+      ]},
+      {title:'MANUTENÇÃO',items:[
+        {id:'atualizacoes',label:'Atualizações',module:'updates'}
       ]}
     ]
   },
@@ -261,6 +264,7 @@ async function mountNativeModule(item){
     if(m==='telemetryOps') return renderOperationalTelemetry();
     if(m==='nodes') return renderNodes();
     if(m==='schedules') return renderSchedules();
+    if(m==='updates') return renderUpdates(false);
     if(m==='iot') return renderIoT();
     if(m==='security') return renderSecurity();
     if(m==='agents') return renderAgents();
@@ -631,6 +635,68 @@ async function renderSchedules(){
     }catch(e){alert(e.message||'Falha no agendamento.');}
   });
   bindPager('schedules',p,renderSchedules);
+}
+
+// ---------------------------------------------------------------------------
+// Segurança › Atualizações: versões dos clusters (commit instalado x master no
+// GitHub) e pedido de atualização forçada. Os nós executam casa-cluster-update,
+// que busca os fontes direto do Git a cada ~2 minutos.
+// ---------------------------------------------------------------------------
+const UPD_API='/casa/api/cluster_updates.php';
+const UPD_STATES={atualizado:['ATUALIZADO','ok'],desatualizado:['DESATUALIZADO','warn'],falhou:['FALHOU','off'],sem_contato:['SEM CONTATO','off'],sem_atualizador:['SEM ATUALIZADOR','off'],desconhecido:['DESCONHECIDO','off']};
+const UPD_COMP={updated:'atualizado',unchanged:'sem mudança',failed:'FALHOU',not_installed:'não instalado'};
+let updTimer=null;
+function updSha(s){return s?'<a class="ja-upd-sha" href="https://github.com/marcelomaurin/casa/commit/'+attr(s)+'" target="_blank" rel="noopener">#'+esc(s.slice(0,7))+'</a>':'<span class="ja-upd-none">—</span>';}
+function updWhen(v){if(!v)return '—';const d=new Date(String(v).replace(' ','T'));return isNaN(d)?esc(v):esc(d.toLocaleString('pt-BR'));}
+async function renderUpdates(refresh){
+  clearTimeout(updTimer);
+  if(!refresh) loading('Atualizações dos clusters');
+  let st;
+  try{ st=await getJson(UPD_API+'?acao=estado'+(refresh?'&refresh=1':'')); }
+  catch(e){
+    moduleShell('Atualizações dos clusters','<div class="ja-empty">'+esc(e.message||'Falha ao carregar.')+'</div>','<button id="upd-retry" class="ja-mini">Tentar novamente</button>');
+    document.getElementById('upd-retry').onclick=()=>renderUpdates(true); return;
+  }
+  const L=st.latest, nodes=st.nodes||[];
+  const count=k=>nodes.filter(n=>n.estado===k).length;
+  const head='<div class="ja-upd-head"><div><span class="ja-upd-tag">MASTER</span> '+(L?updSha(L.sha)+' '+esc(L.message||'')+'<small>'+(L.date?updWhen(L.date)+(L.author?' · '+esc(L.author):''):'')+(L.source==='nodes'?' (informado pelos nós)':'')+'</small>':'<span class="ja-upd-none">GitHub indisponível agora</span>')+'</div>'+
+    '<div class="ja-iot-counts"><span>'+count('atualizado')+' ATUALIZADO(S)</span><span>'+count('desatualizado')+' DESATUALIZADO(S)</span><span>'+(count('falhou')+count('sem_contato')+count('sem_atualizador'))+' ATENÇÃO</span></div></div>'+
+    '<p class="ja-upd-intro">Cada cluster consulta a branch <b>'+esc(st.branch)+'</b> no GitHub a cada ~2 minutos e instala os fontes novos sozinho. <b>FORÇAR</b> reinstala todos os arquivos e reinicia os serviços ativos na próxima consulta do nó.</p>';
+  const p=paginate('updates',nodes,6);
+  const body=nodes.length?cards(p.slice,n=>{
+    const [lbl,cls]=UPD_STATES[n.estado]||[String(n.estado||'').toUpperCase(),'off'];
+    const comps=Object.entries(n.componentes||{}).filter(([k,c])=>c.status!=='not_installed');
+    return '<article class="ja-native-card ja-upd-card">'+
+      '<header class="ja-upd-cardhead"><h3>'+esc(n.nome)+'</h3><span class="ja-state '+cls+'">'+lbl+'</span></header>'+
+      '<dl><dt>Instalado</dt><dd>'+updSha(n.commit)+(n.branch?' <small>('+esc(n.branch)+')</small>':'')+'</dd>'+
+      '<dt>Última verificação</dt><dd>'+updWhen(n.ultima_verificacao)+'</dd>'+
+      '<dt>Última atualização</dt><dd>'+updWhen(n.ultima_atualizacao)+'</dd>'+
+      '<dt>Atualizador</dt><dd>'+(n.updater_version?'v'+esc(n.updater_version):'<span class="ja-upd-none">não reportou</span>')+(n.ip?' · '+esc(n.ip):'')+'</dd></dl>'+
+      (comps.length?'<ul class="ja-upd-comps">'+comps.map(([k,c])=>'<li class="'+(c.status==='failed'?'bad':'')+'"><b>'+esc(k)+'</b> '+esc(UPD_COMP[c.status]||c.status)+(c.files_changed?' ('+esc(c.files_changed)+' arq.)':'')+'</li>').join('')+'</ul>':'')+
+      (n.erro?'<p class="ja-upd-err">'+esc(n.erro)+'</p>':'')+
+      (n.estado==='sem_atualizador'?'<p class="ja-upd-note">Instale o casa-cluster-update neste nó (clusters/infraestrutura/casa-cluster-update/install.sh).</p>':'')+
+      (n.forcar_pendente?'<p class="ja-upd-note">⏳ Atualização forçada pedida '+(n.forcar_pedido_por?'por '+esc(n.forcar_pedido_por)+' ':'')+'em '+updWhen(n.forcar_pedido_em)+' — aguardando o nó.</p>':'')+
+      '<div class="ja-row-actions">'+actionBtn(n.forcar_pendente?'AGUARDANDO…':'FORÇAR ATUALIZAÇÃO','force:'+n.device_id,'primary')+'</div>'+
+    '</article>';
+  })+pager('updates',p):'<div class="ja-empty">Nenhum cluster registrado. Os nós Linux ARM aparecem aqui ao enviar heartbeat ou relatório do atualizador.</div>';
+  moduleShell('Atualizações dos clusters','<div class="ja-upd-layout">'+head+body+'</div>','<button class="ja-mini" id="upd-refresh">VERIFICAR AGORA</button><button class="ja-mini primary" id="upd-all"'+(nodes.length?'':' disabled')+'>FORÇAR TODOS</button>');
+  bindPager('updates',p,()=>renderUpdates(false));
+  document.getElementById('upd-refresh').onclick=()=>renderUpdates(true);
+  document.getElementById('upd-all').onclick=async()=>{
+    if(!confirm('Forçar a atualização de todos os '+nodes.length+' cluster(s)? Os serviços ativos serão reiniciados.'))return;
+    try{await postJson(UPD_API,{acao:'forcar_todos'});renderUpdates(false);}catch(e){alert(e.message);}
+  };
+  document.querySelectorAll('.ja-upd-card [data-act^="force:"]').forEach(b=>{
+    const id=b.dataset.act.slice(6); const n=nodes.find(x=>x.device_id===id);
+    if(n&&n.forcar_pendente) b.disabled=true;
+    b.onclick=async()=>{
+      if(!confirm('Forçar a atualização de "'+(n?.nome||id)+'"? Os serviços ativos serão reiniciados.'))return;
+      b.disabled=true;
+      try{await postJson(UPD_API,{acao:'forcar',device_id:id});renderUpdates(false);}catch(e){alert(e.message);b.disabled=false;}
+    };
+  });
+  // Enquanto houver pedido pendente, acompanha sozinho (o nó responde em até ~2 min).
+  if(nodes.some(n=>n.forcar_pendente)) updTimer=setTimeout(()=>{ if(document.getElementById('upd-refresh')) renderUpdates(false); },15000);
 }
 
 async function renderIoT(){

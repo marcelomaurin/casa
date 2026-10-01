@@ -294,6 +294,6 @@ A documentação deve acompanhar a evolução do código e distinguir claramente
 
 ## Atualização automática dos integradores
 
-O serviço de cada nó consulta ativamente a API e instala somente a versão explicitamente liberada. As configurações locais são preservadas.
+O serviço `casa-cluster-update` de cada nó acompanha a branch `master` direto do GitHub (a cada ~2 minutos) e instala os fontes novos dos integradores presentes no nó, preservando as configurações locais. O painel **Segurança › Atualizações** mostra a versão de cada cluster e permite forçar a atualização.
 
-Veja o [passo a passo de instalação, configuração e liberação de versões](clusters/infraestrutura/casa-cluster-update/INSTALACAO.md).
+Veja o [passo a passo de instalação, configuração e diagnóstico](clusters/infraestrutura/casa-cluster-update/INSTALACAO.md).

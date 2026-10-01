@@ -443,10 +443,13 @@ class ClusterSiteHandler(SimpleHTTPRequestHandler):
         except (OSError, ValueError):
             pass
         components = state.get("components", {})
-        commits = sorted(set(item.get("commit", "unknown") for item in components.values()))
+        commits = sorted(set(item.get("commit") for item in components.values() if item.get("commit")))
+        current = state.get("commit") or (commits[0] if len(commits) == 1 else "mixed" if commits else "unknown")
         self.send_json({
             "ok": True,
-            "current_commit": commits[0] if len(commits) == 1 else "mixed" if commits else "unknown",
+            "current_commit": current,
+            "remote_commit": state.get("remote_commit"),
+            "branch": state.get("branch"),
             "components": components,
             "pending_reports": len(state.get("pending_reports", [])),
             "last_update": state.get("last_update"),
