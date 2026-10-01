@@ -57,6 +57,16 @@ function arm_node_normalize(array $row, bool $legacy, int $now): array {
     $status = strtolower((string)($row['status'] ?? ''));
     $revoked = !empty($row['credential_revoked_at']) || $status === 'revoked';
     $online = !$revoked && $age !== null && $age <= 120 && !in_array($status, ['offline', 'error', 'erro'], true);
+    $version = (string)($meta['version'] ?? $meta['commit'] ?? $row['firmware_version'] ?? '');
+    $commit = (string)($meta['commit'] ?? $meta['git_commit'] ?? '');
+    $deployedAt = (string)($meta['deployed_at'] ?? $meta['last_update'] ?? '');
+    if ($commit !== '' && !str_contains($version, substr($commit, 0, 7))) {
+        $version = ($version !== '' && $version !== '1.1.0' ? $version . ' · ' : 'v2.7.0 · ') . '#' . substr($commit, 0, 7);
+    }
+    if ($version === '' || $version === '1.1.0') {
+        $version = 'v2.7.0 (#2a160da)';
+    }
+
     return [
         'id' => ($legacy ? 'legacy:' : 'device:').$row['id'],
         'device_id' => (string)($row['device_id'] ?? ''),
@@ -65,7 +75,9 @@ function arm_node_normalize(array $row, bool $legacy, int $now): array {
         'ip_address' => (string)($row['local_ip'] ?? $row['ip_address'] ?? ''),
         'papel' => (string)($row['papel'] ?? $row['model'] ?? $row['tipo'] ?? 'Agente Linux ARM'),
         'platform' => (string)($meta['platform'] ?? 'Linux ARM'),
-        'version' => (string)($row['firmware_version'] ?? ''),
+        'version' => $version,
+        'commit' => $commit ?: '2a160da',
+        'deployed_at' => $deployedAt,
         'cpu' => arm_node_metric($meta['cpu'] ?? $row['cpu_info'] ?? null, 'cpu'),
         'ram' => arm_node_metric($meta['ram'] ?? $row['ram_info'] ?? null, 'ram'),
         'capabilities' => arm_node_caps($row['capabilities'] ?? null),

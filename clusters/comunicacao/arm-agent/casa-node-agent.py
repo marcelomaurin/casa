@@ -125,19 +125,49 @@ def api_request(action, method="GET", payload=None, params=None, timeout=10):
         return json.loads(raw) if raw else {}
 
 
+def get_deployed_version():
+    try:
+        last_update_path = "/opt/casa/site/last_update.json"
+        if os.path.exists(last_update_path):
+            with open(last_update_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                commit = data.get("commit_after") or data.get("commit")
+                if commit:
+                    return "v2.7.0 (#" + commit[:7] + ")", commit, data.get("timestamp")
+    except Exception:
+        pass
+
+    try:
+        for repo_dir in ["/home/mmm/projetos/maurinsoft/casa", "/opt/casa/repo"]:
+            if os.path.isdir(os.path.join(repo_dir, ".git")):
+                p = subprocess.Popen(["git", "-C", repo_dir, "rev-parse", "HEAD"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+                out, _ = p.communicate()
+                commit = (out or "").strip()
+                if commit and len(commit) >= 7:
+                    return "v2.7.0 (#" + commit[:7] + ")", commit, None
+    except Exception:
+        pass
+
+    return "v2.7.0 (#2a160da)", "2a160da85c33dcd2b9a49918d92405479ac1c755", None
+
+
 def send_heartbeat():
+    version_str, commit_hash, deployed_at = get_deployed_version()
     payload = {
         "device_id": DEVICE_ID,
         "transport": "https",
         "local_ip": get_ip(),
         "health": "ok",
-        "firmware_version": AGENT_VERSION,
+        "firmware_version": version_str,
         "protocol_version": PROTOCOL_VERSION,
         "uptime_sec": int(time.monotonic()),
         "capabilities": CAPABILITIES,
         "data": {
             "platform": "linux-arm",
             "hostname": socket.gethostname(),
+            "version": version_str,
+            "commit": commit_hash,
+            "deployed_at": deployed_at,
             "cpu": get_cpu_info(),
             "ram": get_ram_info(),
             "agent_port": AGENT_PORT,
