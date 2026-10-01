@@ -30,65 +30,19 @@ import subprocess
 
 logger = logging.getLogger("casa-ssh-agent")
 
-DEFAULT_NODES = {
-    "raspberry-pi-local": {
-        "id": "raspberry-pi-local",
-        "name": "Raspberry Pi 4B (Hub Principal)",
-        "host": "127.0.0.1",
-        "lan_ip": "192.168.2.13",
-        "port": 22,
-        "user": "mmm",
-        "password": "PASSWORD_PLACEHOLDER",
-        "arch": "aarch64",
-        "role": "hub",
-        "tags": ["hub", "local", "pi", "arm64"]
-    },
-    "cubieboard-arm-07": {
-        "id": "cubieboard-arm-07",
-        "name": "Cubieboard 2 ARMv7",
-        "host": "192.168.2.7",
-        "lan_ip": "192.168.2.7",
-        "port": 22,
-        "user": "mmm",
-        "password": "PASSWORD_PLACEHOLDER",
-        "arch": "armv7l",
-        "role": "gateway",
-        "tags": ["cubieboard", "serial", "rs485", "armv7"]
-    },
-    "raspberry-pi-node-08": {
-        "id": "raspberry-pi-node-08",
-        "name": "Raspberry Pi Node 08",
-        "host": "192.168.2.8",
-        "lan_ip": "192.168.2.8",
-        "port": 22,
-        "user": "mmm",
-        "password": "PASSWORD_PLACEHOLDER",
-        "arch": "aarch64",
-        "role": "periferico",
-        "tags": ["pi", "reles", "sensores", "arm64"]
-    },
-    "raspberry-pi-node-13": {
-        "id": "raspberry-pi-node-13",
-        "name": "Raspberry Pi Node 13",
-        "host": "192.168.2.13",
-        "lan_ip": "192.168.2.13",
-        "port": 22,
-        "user": "mmm",
-        "password": "PASSWORD_PLACEHOLDER",
-        "arch": "aarch64",
-        "role": "secundario",
-        "tags": ["pi", "secundario", "arm64"]
-    }
-}
+# Sem IPs chumbados no codigo: carregado dinamicamente do registro da central
+DEFAULT_NODES = {}
 
 
 class ClusterSSHController:
     def __init__(self, config_env_path="/etc/casa-ssh-agent.env", audit_log_path="/opt/casa/ssh-agent/audit.jsonl"):
         self.config_env_path = config_env_path
         self.audit_log_path = audit_log_path
-        self.nodes = dict(DEFAULT_NODES)
+        self.env_map = {}
+        self.nodes = {}
         self.history = []
         self._load_env_config()
+        self.refresh_nodes_from_registry()
         self._ensure_audit_dir()
 
     def _load_env_config(self):
@@ -103,19 +57,95 @@ class ClusterSSHController:
                             env[k.strip()] = v.strip().strip("'\"")
             except Exception as e:
                 logger.warning("Falha ao ler %s: %s", self.config_env_path, e)
+        self.env_map = env
+        self._apply_custom_and_passwords()
 
-        # Atualiza credenciais padrao ou nos adicionais
-        default_pass = env.get("CASA_SSH_DEFAULT_PASSWORD", "PASSWORD_PLACEHOLDER")
-        default_user = env.get("CASA_SSH_DEFAULT_USER", "mmm")
+    def refresh_nodes_from_registry(self, timeout=4.0):
+        """Busca dinamicamente os nós registrados no banco/API da central, sem IPs chumbados."""
+        cache_file = "/opt/casa/ssh-agent/cached_cluster_nodes.json"
+        base_url = self.env_map.get("CASA_BASE_URL", "https://maurinsoft.com.br/casa").rstrip("/")
+        token = self.env_map.get("JARVIS_DEVICE_TOKEN", self.env_map.get("CASA_DEVICE_TOKEN", "casa_sec_a4c5a1a2fea405d668edf5934f67d9eb9df23d4c89c5c616"))
+        default_user = self.env_map.get("CASA_SSH_DEFAULT_USER", "mmm")
+        default_pass = self.env_map.get("CASA_SSH_DEFAULT_PASSWORD", "PASSWORD_PLACEHOLDER")
 
+        fetched_nodes = {}
+        # 1. Busca da API arm_nodes.php da central
+        try:
+            import urllib.request
+            url = base_url + "/api/arm_nodes.php"
+            req = urllib.request.Request(url, headers={
+                "User-Agent": "CASA-SSH-Agent/1.0",
+                "Authorization": "Bearer " + token,
+                "X-Device-Token": token
+            })
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                for n in data.get("nodes", []):
+                    node_id = n.get("device_id") or n.get("id")
+                    ip = n.get("ip_address") or n.get("local_ip")
+                    if node_id and ip:
+                        caps = n.get("capabilities")
+                        if isinstance(caps, str):
+                            try:
+                                caps = json.loads(caps)
+                            except Exception:
+                                caps = [c.strip() for c in caps.split(",") if c.strip()]
+                        elif not isinstance(caps, list):
+                            caps = []
+
+                        fetched_nodes[node_id] = {
+                            "id": node_id,
+                            "name": n.get("nome") or n.get("papel") or n.get("hostname") or node_id,
+                            "host": ip,
+                            "lan_ip": ip,
+                            "port": int(n.get("porta") or 22),
+                            "user": default_user,
+                            "password": default_pass,
+                            "arch": n.get("arch", "aarch64"),
+                            "role": n.get("papel", "no"),
+                            "tags": caps or ["cluster", "arm"]
+                        }
+        except Exception as e:
+            logger.debug("Nao foi possivel obter nos da API central: %s", e)
+
+        # 2. Se obteve com sucesso, atualiza dicionario e salva cache local
+        if fetched_nodes:
+            self.nodes = fetched_nodes
+            self._apply_custom_and_passwords()
+            try:
+                os.makedirs(os.path.dirname(cache_file), exist_ok=True)
+                with open(cache_file, "w", encoding="utf-8") as cf:
+                    json.dump(self.nodes, cf, ensure_ascii=False, indent=2)
+                logger.info("Inventario de nos atualizado dinamicamente via registro (%d nos)", len(self.nodes))
+            except Exception as e:
+                logger.warning("Falha ao salvar cache de nos: %s", e)
+            return True
+
+        # 3. Fallback: carregar de cache local se API central inacessivel
+        if os.path.exists(cache_file):
+            try:
+                with open(cache_file, "r", encoding="utf-8") as cf:
+                    cached = json.load(cf)
+                    if isinstance(cached, dict) and cached:
+                        self.nodes = cached
+                        self._apply_custom_and_passwords()
+                        logger.info("Inventario de nos carregado do cache local (%d nos)", len(self.nodes))
+                        return True
+            except Exception as e:
+                logger.warning("Falha ao ler cache local de nos: %s", e)
+
+        return False
+
+    def _apply_custom_and_passwords(self):
+        default_pass = self.env_map.get("CASA_SSH_DEFAULT_PASSWORD", "PASSWORD_PLACEHOLDER")
+        default_user = self.env_map.get("CASA_SSH_DEFAULT_USER", "mmm")
         for node_id, info in self.nodes.items():
             if not info.get("password") or info.get("password") == "PASSWORD_PLACEHOLDER":
                 info["password"] = default_pass
             if not info.get("user"):
                 info["user"] = default_user
 
-        # Nos adicionais via JSON na variavel CASA_SSH_CUSTOM_NODES
-        custom_raw = env.get("CASA_SSH_CUSTOM_NODES")
+        custom_raw = self.env_map.get("CASA_SSH_CUSTOM_NODES")
         if custom_raw:
             try:
                 custom_list = json.loads(custom_raw)

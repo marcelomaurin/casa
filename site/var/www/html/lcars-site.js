@@ -2243,9 +2243,57 @@ if('speechSynthesis' in window){
   window.speechSynthesis.addEventListener?.('voiceschanged',()=>window.speechSynthesis.getVoices());
 }
 
-function renderCameras(){
-  moduleShell('Câmeras & visão','<div class="ja-camera-grid"><article class="ja-native-card"><h3>ESP32-CAM PORTÃO</h3><p>Stream configurado em 192.168.2.50.</p><div class="ja-row-actions">'+actionBtn('CAPTURAR','capture','primary')+actionBtn('STREAM','stream')+actionBtn('FLASH','flash')+'</div></article><article class="ja-native-card"><h3>ANÁLISE DE CENA</h3><p>Envia uma solicitação ao COMPUTER para análise da captura recente.</p><div class="ja-row-actions">'+actionBtn('ANALISAR','analyze','primary')+'</div></article></div>');
-  document.querySelectorAll('[data-act]').forEach(b=>b.onclick=async()=>{if(b.dataset.act==='capture')window.open('http://192.168.2.50/capture?t='+Date.now(),'_blank');if(b.dataset.act==='stream')window.open('http://192.168.2.50/stream','_blank');if(b.dataset.act==='flash')fetch('http://192.168.2.50/flash/on').catch(()=>{});if(b.dataset.act==='analyze'){await postJson('/casa/api/jarvis.php',{comando:'/cloud Analise a imagem recente da câmera de entrada e descreva objetos, pessoas e riscos de segurança detectados.',ia_mode:'auto'}).then(r=>alert(r.resposta||'Solicitação enviada.'));}});
+async function renderCameras(){
+  loading('Câmeras & visão');
+  try{
+    const j=await crud('dispositivos_cluster');
+    const raw=j.dados||[];
+    // Filtra câmeras dinamicamente do banco de dados (ESP32-CAM, streaming, etc)
+    const cams=raw.filter(d=>{
+      const t=String(d.tipo||'').toLowerCase();
+      const m=String(d.model||'').toLowerCase();
+      const caps=Array.isArray(d.capabilities)?d.capabilities.join(' ').toLowerCase():String(d.capabilities||'').toLowerCase();
+      return t==='camera'||caps.includes('camera')||caps.includes('streaming')||m.includes('cam');
+    });
+
+    if(!cams.length){
+      moduleShell('Câmeras & visão','<div class="ja-empty">Nenhuma câmera registrada no momento. Registre novos módulos ESP32-CAM no banco para visualização dinâmica.</div>');
+      return;
+    }
+
+    const cardsHtml=cams.map(cam=>{
+      const ip=cam.ip_address||cam.local_ip||'';
+      const name=esc(cam.nome||cam.device_id||'Câmera');
+      const loc=esc(cam.localizacao||'Ambiente monitorado');
+      let actions='';
+      if(ip){
+        actions='<div class="ja-row-actions" style="margin-top:10px;">'+
+          '<button class="ja-btn primary" onclick="window.open(\'http://'+esc(ip)+'/capture?t=\'+Date.now(),\'_blank\')">📸 CAPTURAR</button>'+
+          '<button class="ja-btn" onclick="window.open(\'http://'+esc(ip)+'/stream\',\'_blank\')">📹 STREAM</button>'+
+          '<button class="ja-btn" onclick="fetch(\'http://'+esc(ip)+'/flash/on\').catch(()=>{})">💡 FLASH</button>'+
+          '<button class="ja-btn" onclick="postJson(\'/casa/api/jarvis.php\',{comando:\'/cloud Analise a imagem recente da câmera '+name+'\'}).catch(()=>{})">🤖 IA VISÃO</button>'+
+        '</div>';
+      }else{
+        actions='<div style="opacity:0.6;font-size:0.85rem;margin-top:8px;">Aguardando IP atribuído pelo registro central.</div>';
+      }
+
+      return '<article class="ja-native-card">'+
+        '<h3>'+name+'</h3>'+
+        '<p>'+loc+' · <i>'+esc(cam.model||'ESP32-CAM')+'</i></p>'+
+        '<dl>'+
+          '<dt>Identificador</dt><dd>'+esc(cam.device_id)+'</dd>'+
+          '<dt>Endereço IP</dt><dd>'+(ip?'<a href="http://'+esc(ip)+'/" target="_blank" style="color:#38bdf8;text-decoration:none;font-weight:bold;">'+esc(ip)+'</a>':'—')+'</dd>'+
+          '<dt>Status</dt><dd><span class="ja-state '+(cam.status==='online'?'ok':'off')+'">'+esc((cam.status||'OFFLINE').toUpperCase())+'</span></dd>'+
+        '</dl>'+
+        actions+
+      '</article>';
+    }).join('');
+
+    moduleShell('Câmeras & visão','<div class="ja-camera-grid">'+cardsHtml+'</div>','<button id="cam-refresh" class="ja-mini">Atualizar Câmeras</button>');
+    document.getElementById('cam-refresh').onclick=renderCameras;
+  }catch(e){
+    moduleShell('Câmeras & visão','<div class="ja-empty">Falha ao carregar câmeras do registro: '+esc(e.message||'Erro')+'</div>');
+  }
 }
 
 async function renderHealth(){

@@ -26,7 +26,7 @@ $authName = !empty($_SESSION['auth_name']) ? $_SESSION['auth_name'] : ($_SESSION
   <noscript>O CASA/COMPUTER precisa de JavaScript habilitado para a interface adaptativa.</noscript>
   <script src="/casa/lcars-framework.js?v=1.3.0"></script>
   <script src="/casa/qrcode.min.js"></script>
-  <script src="/casa/lcars-site.js?v=1.5.19"></script>
+  <script src="/casa/lcars-site.js?v=1.5.20"></script>
   <script src="/casa/lcars-iot.js?v=1.1.0"></script>
 </body>
 </html>

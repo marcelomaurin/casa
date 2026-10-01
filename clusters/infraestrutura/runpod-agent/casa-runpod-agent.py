@@ -35,7 +35,7 @@ def load_env():
 
 ENV = load_env()
 RUNPOD_API_KEY = os.getenv("RUNPOD_API_KEY", ENV.get("RUNPOD_API_KEY", ""))
-SSH_HOST = os.getenv("SSH_HOST", ENV.get("SSH_HOST", "192.168.2.12"))
+SSH_HOST = os.getenv("SSH_HOST", ENV.get("SSH_HOST", "127.0.0.1"))
 SSH_PORT = int(os.getenv("SSH_PORT", ENV.get("SSH_PORT", "22")))
 SSH_USER = os.getenv("SSH_USER", ENV.get("SSH_USER", "mmm"))
 SSH_PASS = os.getenv("SSH_PASS", ENV.get("SSH_PASS", "226468"))

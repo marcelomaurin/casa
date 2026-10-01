@@ -147,6 +147,72 @@ def check_service(name):
 
     return "inactive"
 
+_cached_nodes = []
+_last_nodes_fetch = 0
+
+def get_cluster_nodes_from_registry():
+    """Busca dinamicamente os nós registrados no banco/API da central, sem IPs chumbados."""
+    global _cached_nodes, _last_nodes_fetch
+    now = time.time()
+    cache_file = "/opt/casa/site/cluster_nodes_cache.json"
+
+    # Retorna do cache em memória se recente (30 segundos)
+    if _cached_nodes and (now - _last_nodes_fetch < 30):
+        return _cached_nodes
+
+    env = get_env_map()
+    base_url = env.get("CASA_BASE_URL", "https://maurinsoft.com.br/casa").rstrip("/")
+    token = env.get("JARVIS_DEVICE_TOKEN", "casa_sec_a4c5a1a2fea405d668edf5934f67d9eb9df23d4c89c5c616")
+
+    nodes_fetched = []
+    # 1. Tenta carregar da API oficial de nós da central
+    try:
+        url = base_url + "/api/arm_nodes.php"
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "CASA-ClusterSite/2.0",
+            "Authorization": "Bearer " + token,
+            "X-Device-Token": token
+        })
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            raw_nodes = data.get("nodes", [])
+            for n in raw_nodes:
+                ip = n.get("ip_address") or n.get("local_ip")
+                if ip:
+                    nodes_fetched.append({
+                        "id": n.get("device_id") or n.get("id"),
+                        "ip": ip,
+                        "name": n.get("nome") or n.get("hostname") or n.get("device_id"),
+                        "port": int(n.get("porta") or 8080),
+                        "online": bool(n.get("online")),
+                        "version": n.get("version", "")
+                    })
+    except Exception:
+        pass
+
+    # 2. Se a central respondeu nós válidos, atualiza cache
+    if nodes_fetched:
+        _cached_nodes = nodes_fetched
+        _last_nodes_fetch = now
+        try:
+            with open(cache_file, "w", encoding="utf-8") as cf:
+                json.dump(nodes_fetched, cf, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+        return nodes_fetched
+
+    # 3. Fallback: carrega do arquivo de cache local
+    if os.path.exists(cache_file):
+        try:
+            with open(cache_file, "r", encoding="utf-8") as cf:
+                _cached_nodes = json.load(cf)
+                _last_nodes_fetch = now
+                return _cached_nodes
+        except Exception:
+            pass
+
+    return _cached_nodes or []
+
 class ClusterSiteHandler(SimpleHTTPRequestHandler):
     def translate_path(self, path):
         # Clean URL and resolve inside STATIC_DIR (Python 3.4 compatible)
@@ -225,13 +291,8 @@ class ClusterSiteHandler(SimpleHTTPRequestHandler):
             "ssh": check_service("ssh"),
         }
 
-        # Cluster nodes summary
-        known_nodes = [
-            {"id": "cubieboard-arm-07", "ip": "192.168.2.7", "name": "Cubieboard ARMv7", "port": 8080},
-            {"id": "raspberry-pi-local", "ip": "192.168.2.12", "name": "Raspberry Pi 4 Cluster Hub", "port": 8080},
-            {"id": "raspberry-pi-node-13", "ip": "192.168.2.13", "name": "Raspberry Pi Node 13", "port": 8080},
-            {"id": "raspberry-pi-node-08", "ip": "192.168.2.8", "name": "Raspberry Pi Node 08", "port": 8080},
-        ]
+        # Cluster nodes summary - Carregado dinamicamente do registro da central
+        known_nodes = get_cluster_nodes_from_registry()
 
         resp = {
             "status": "online",

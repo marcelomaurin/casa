@@ -82,7 +82,10 @@ class SSHAgentRequestHandler(BaseHTTPRequestHandler):
                 "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
             })
 
-        elif path == "/api/ssh/nodes":
+        elif path in ["/api/ssh/nodes", "/api/ssh/nodes/refresh"]:
+            # Recarrega do registro se solicitado ou se lista estiver vazia
+            if path == "/api/ssh/nodes/refresh" or not controller.nodes:
+                controller.refresh_nodes_from_registry()
             nodes_data = controller.list_nodes()
             # Adiciona ping ao vivo
             for n in nodes_data:
