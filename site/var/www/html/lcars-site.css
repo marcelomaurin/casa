@@ -1701,3 +1701,23 @@ body{overscroll-behavior:none}
     overflow:hidden !important;
   }
 }
+
+
+/* Cenas e regras (módulo nativo) */
+.ja-auto-intro{margin:0 0 8px;color:#cfd8e3;font-size:clamp(10px,.85vw,12px);line-height:1.35}
+.ja-auto-card{display:flex;flex-direction:column;gap:6px}
+.ja-auto-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}.ja-auto-head h3{margin:0!important}
+.ja-auto-steps{margin:2px 0 0;padding-left:18px}.ja-auto-steps li{margin:2px 0}
+.ja-auto-tag{display:inline-block;background:#d4a84f;color:#111;font-size:9px;font-weight:900;letter-spacing:.06em;padding:2px 7px;border-radius:8px;margin-right:4px}
+.ja-auto-foot{color:#8b98a5;font-size:10px;margin-top:auto}
+.ja-auto-modal{width:min(900px,96vw)}.ja-auto-modal *,.ja-auto-modal *::before,.ja-auto-modal *::after{box-sizing:border-box}
+.ja-auto-block{grid-column:1/-1;display:grid;gap:7px;border:2px solid #2c4a5e;border-radius:14px;padding:10px}
+.ja-auto-label{font-size:11px;font-weight:900;color:#f2a000;letter-spacing:.05em}
+.ja-auto-action,.ja-auto-cond{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,.9fr) auto;gap:6px;align-items:center}
+.ja-auto-action.is-custom{grid-template-columns:minmax(0,1.3fr) minmax(0,.8fr) minmax(0,1fr) minmax(0,1.2fr) auto}
+.ja-auto-cond{grid-template-columns:minmax(0,1.3fr) minmax(0,.6fr) minmax(0,1fr) auto}
+.ja-auto-when{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.ja-auto-block select,.ja-auto-block input{width:100%;min-width:0;border:2px solid #3f82ad;border-radius:12px;background:#101010;color:#fff;padding:8px 10px;font:inherit}
+.ja-auto-block>button{justify-self:start}
+.ja-auto-check{grid-column:1/-1;display:flex!important;align-items:center;gap:8px}.ja-auto-check input{width:auto!important}
+@media(max-width:700px){.ja-auto-action,.ja-auto-action.is-custom,.ja-auto-cond,.ja-auto-when{grid-template-columns:1fr}}

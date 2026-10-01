@@ -83,6 +83,9 @@ jobs:
       - name: Test Command Bus and automation internals
         run: php .github/tests/test_control_plane.php
 
+      - name: Test scenes, rules and schedules driving relays
+        run: php .github/tests/test_automation_relays.php
+
       - name: Test Control Plane HTTP end-to-end
         shell: bash
         run: |

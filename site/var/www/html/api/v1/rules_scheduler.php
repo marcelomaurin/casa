@@ -60,5 +60,7 @@ function rules_scheduler_tick(PDO $pdo,bool $force=false):array {
         $dev=registry_get($pdo,$deviceId,false);if(!$dev)continue;
         $runs[]=rules_scheduler_run_rule($pdo,$rule,['device'=>$dev,'state'=>$dev,'data'=>$dev['metadata']],'state');
     }
+    // Agendamentos de cena/relé (Operações > Agendamentos) executados no servidor.
+    try{foreach(automation_schedules_tick($pdo) as $r)$runs[]=['agendamento'=>$r];}catch(Throwable $e){error_log('automation_schedules_tick: '.$e->getMessage());}
     return $runs;
 }

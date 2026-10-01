@@ -39,7 +39,7 @@ const GROUPS={
         {id:'agendamentos',label:'Agendamentos',module:'schedules'},
         {id:'devices-op',label:'Dispositivos & relés',module:'devices'},
         {id:'iot-op',label:'ESP32 / Arduino / IoT',module:'iot'},
-        {id:'cenas',label:'Cenas e regras',url:'/casa/automacao.php'}
+        {id:'cenas',label:'Cenas e regras',module:'automation'}
       ]},
       {title:'MONITORAMENTO',items:[
         {id:'sensores-op',label:'Sensores',module:'sensors'},
@@ -71,7 +71,7 @@ const GROUPS={
         {id:'automation-dev',label:'Dispositivos & relés',module:'devices'},
         {id:'automation-ag',label:'Agendamentos',module:'schedules'},
         {id:'automation-iot',label:'ESP32 / Arduino / IoT',module:'iot'},
-        {id:'automation-scenes',label:'Cenas e regras',url:'/casa/automacao.php'}
+        {id:'automation-scenes',label:'Cenas e regras',module:'automation'}
       ]},
       {title:'INTEGRAÇÃO',items:[
         {id:'automation-agents',label:'Agentes externos',module:'agents'},
@@ -261,6 +261,7 @@ async function mountNativeModule(item){
     if(m==='telemetryOps') return renderOperationalTelemetry();
     if(m==='nodes') return renderNodes();
     if(m==='schedules') return renderSchedules();
+    if(m==='automation') return renderAutomation();
     if(m==='iot') return renderIoT();
     if(m==='security') return renderSecurity();
     if(m==='agents') return renderAgents();
@@ -584,6 +585,15 @@ async function renderNodes(){
 }
 
 
+function scheduleExecutorLabel(t){
+  const m={executar_cena:'CENA',dispositivo_rele:'RELÉ',aviso_fala:'FALA',comando_jarvis:'IA',dispositivo_devpar:'EQUIPAMENTO'};
+  return m[t.tipo_acao]||String(t.executor_tipo||t.tipo_acao||'IA').toUpperCase();
+}
+function scheduleTargetLabel(t){
+  if(t.tipo_acao==='dispositivo_rele'){const p=new URLSearchParams(t.payload||'');return (p.get('relay_on')==='1'?'LIGAR ':'DESLIGAR ')+(p.get('device_id')||'');}
+  if(t.tipo_acao==='executar_cena') return String(t.target_node||'').replace(/^cena:/,'');
+  return t.target_node||'local';
+}
 function scheduleCronLabel(t){
   if(t.cron_expr) return t.cron_expr;
   const h=String(t.horario||'').trim();
@@ -612,9 +622,11 @@ function openScheduleEditor(){
         '<label><span>Título</span><input id="sch-title" placeholder="Ex.: Acordar às 8"></label>'+
         '<label class="wide"><span>Descrição</span><input id="sch-desc" placeholder="Descrição opcional"></label>'+
         '<label class="wide"><span>Cron</span><input id="sch-cron" value="0 8 * * *" placeholder="min hora dia mês dia-semana"><small>Ex.: 0 8 * * * = todos os dias às 08:00 · 0 10 * * 1-5 = seg-sex às 10:00</small></label>'+
-        '<label><span>Executor</span><select id="sch-executor"><option value="ia">IA / COMPUTER</option><option value="fala">FALA</option><option value="equipamento">EQUIPAMENTO</option></select></label>'+
+        '<label><span>Executor</span><select id="sch-executor"><option value="cena">EXECUTAR CENA</option><option value="rele">LIGAR/DESLIGAR RELÉ</option><option value="ia" selected>IA / COMPUTER</option><option value="fala">FALA</option><option value="equipamento">EQUIPAMENTO (legado)</option></select></label>'+
         '<label id="sch-target-wrap"><span>Destino</span><input id="sch-target" value="local" placeholder="local ou identificação do equipamento"></label>'+
         '<label class="wide"><span>Comando / mensagem</span><textarea id="sch-payload" rows="4" placeholder="Ex.: Me acorde; Ligue a luz da sala"></textarea></label>'+
+        '<div id="sch-scene-fields" class="ja-schedule-device is-hidden"><label class="wide"><span>Cena</span><select id="sch-scene"><option value="">Carregando cenas...</option></select></label></div>'+
+        '<div id="sch-relay-fields" class="ja-schedule-device is-hidden"><label><span>Relé</span><select id="sch-relay"><option value="">Carregando relés...</option></select></label><label><span>Ação</span><select id="sch-relay-on"><option value="1">LIGAR</option><option value="0">DESLIGAR</option></select></label></div>'+
         '<div id="sch-device-fields" class="ja-schedule-device is-hidden">'+
           '<label><span>ID equipamento</span><input id="sch-device-id" type="number" min="1" placeholder="1"></label>'+
           '<label><span>Parâmetro</span><input id="sch-device-par" value="dev1"></label>'+
@@ -630,7 +642,24 @@ function openScheduleEditor(){
   modal.addEventListener('click',e=>{if(e.target===modal)close();});
   const executor=modal.querySelector('#sch-executor');
   const dev=modal.querySelector('#sch-device-fields');
-  executor.onchange=()=>dev.classList.toggle('is-hidden',executor.value!=='equipamento');
+  const sceneBox=modal.querySelector('#sch-scene-fields'), relayBox=modal.querySelector('#sch-relay-fields');
+  const payloadWrap=modal.querySelector('#sch-payload').closest('label'), targetWrap=modal.querySelector('#sch-target-wrap');
+  executor.onchange=()=>{
+    const v=executor.value;
+    dev.classList.toggle('is-hidden',v!=='equipamento');
+    sceneBox.classList.toggle('is-hidden',v!=='cena');
+    relayBox.classList.toggle('is-hidden',v!=='rele');
+    payloadWrap.style.display=(v==='ia'||v==='fala')?'':'none';
+    targetWrap.style.display=(v==='ia'||v==='fala')?'':'none';
+  };
+  executor.onchange();
+  // Cenas e relés vêm da API de automação (os mesmos de Operações › Cenas e regras).
+  getJson('/casa/api/automacao.php?acao=estado').then(st=>{
+    const sc=modal.querySelector('#sch-scene'), rl=modal.querySelector('#sch-relay');
+    sc.innerHTML=(st.scenes||[]).length?st.scenes.map(x=>'<option value="'+attr(x.id)+'">'+esc(x.nome)+(x.ativo?'':' (pausada)')+'</option>').join(''):'<option value="">Nenhuma cena — crie em Cenas e regras</option>';
+    const relays=(st.devices||[]).filter(d=>d.is_relay);
+    rl.innerHTML=relays.length?relays.map(d=>'<option value="'+attr(d.device_id)+'">'+esc(d.nome)+(d.localizacao?' · '+esc(d.localizacao):'')+'</option>').join(''):'<option value="">Nenhum relé registrado</option>';
+  }).catch(()=>{modal.querySelector('#sch-scene').innerHTML='<option value="">Falha ao carregar</option>';modal.querySelector('#sch-relay').innerHTML='<option value="">Falha ao carregar</option>';});
   modal.querySelector('[data-save]').onclick=async()=>{
     const title=modal.querySelector('#sch-title').value.trim();
     const cron=modal.querySelector('#sch-cron').value.trim();
@@ -639,7 +668,13 @@ function openScheduleEditor(){
     if(!title){msg.textContent='Informe o título.';msg.className='ja-schedule-message error';return;}
     if(!scheduleCronValid(cron)){msg.textContent='Cron inválido. Use 5 campos, por exemplo: 0 8 * * *';msg.className='ja-schedule-message error';return;}
     let body={acao:'criar',titulo:title,descricao:modal.querySelector('#sch-desc').value.trim(),cron_expr:cron,executor:executor.value,target_node:modal.querySelector('#sch-target').value.trim()||'local',payload:payloadText};
-    if(executor.value==='equipamento'){
+    if(executor.value==='cena'){
+      body.scene_id=Number(modal.querySelector('#sch-scene').value||0);body.payload='';
+      if(!body.scene_id){msg.textContent='Escolha a cena.';msg.className='ja-schedule-message error';return;}
+    }else if(executor.value==='rele'){
+      body.device_id=modal.querySelector('#sch-relay').value;body.relay_on=modal.querySelector('#sch-relay-on').value==='1';body.payload='';
+      if(!body.device_id){msg.textContent='Escolha o relé.';msg.className='ja-schedule-message error';return;}
+    }else if(executor.value==='equipamento'){
       body.device_id=Number(modal.querySelector('#sch-device-id').value||0);
       body.devparname=modal.querySelector('#sch-device-par').value.trim()||'dev1';
       body.valor=modal.querySelector('#sch-device-value').value;
@@ -663,7 +698,7 @@ async function renderSchedules(){
   const j=await getJson('/casa/api/agendamentos.php?acao=listar');
   const all=j.dados||[];
   const p=paginate('schedules',all,6);
-  const body=cards(p.slice,t=>'<article class="ja-native-card"><h3>'+esc(t.titulo||('Tarefa '+t.id))+'</h3><p>'+esc(t.descricao||'')+'</p><dl><dt>Cron</dt><dd><code>'+esc(scheduleCronLabel(t))+'</code></dd><dt>Executor</dt><dd>'+esc((t.executor_tipo||t.tipo_acao||'IA').toUpperCase())+'</dd><dt>Destino</dt><dd>'+esc(t.target_node||'local')+'</dd></dl><div class="ja-row-actions">'+actionBtn('RODAR AGORA','run:'+t.id,'primary')+actionBtn(t.ativo?'PAUSAR':'ATIVAR','toggle:'+t.id)+actionBtn('EXCLUIR','delete:'+t.id,'danger')+'</div></article>')+pager('schedules',p);
+  const body=cards(p.slice,t=>'<article class="ja-native-card"><h3>'+esc(t.titulo||('Tarefa '+t.id))+'</h3><p>'+esc(t.descricao||'')+'</p><dl><dt>Cron</dt><dd><code>'+esc(scheduleCronLabel(t))+'</code></dd><dt>Executor</dt><dd>'+esc(scheduleExecutorLabel(t))+'</dd><dt>Destino</dt><dd>'+esc(scheduleTargetLabel(t))+'</dd></dl><div class="ja-row-actions">'+actionBtn('RODAR AGORA','run:'+t.id,'primary')+actionBtn(t.ativo?'PAUSAR':'ATIVAR','toggle:'+t.id)+actionBtn('EXCLUIR','delete:'+t.id,'danger')+'</div></article>')+pager('schedules',p);
   moduleShell('Agendamentos',body,actionBtn('NOVO AGENDAMENTO','new','primary'));
   document.querySelector('.ja-native-actions [data-act="new"]')?.addEventListener('click',openScheduleEditor);
   document.querySelectorAll('.ja-native-body [data-act]').forEach(b=>b.onclick=async()=>{
@@ -679,6 +714,228 @@ async function renderSchedules(){
     }catch(e){alert(e.message||'Falha no agendamento.');}
   });
   bindPager('schedules',p,renderSchedules);
+}
+
+// ---------------------------------------------------------------------------
+// Cenas e regras (módulo nativo). Cena = conjunto de ações disparadas de uma vez
+// (botão EXECUTAR ou um agendamento). Regra = "quando X acontecer, faça Y".
+// Comandos LIGAR/DESLIGAR em relés viram estado desejado (api/automation_common.php).
+// ---------------------------------------------------------------------------
+let automationTab='cenas';
+const AUTO_API='/casa/api/automacao.php';
+const AUTO_OPS={eq:'=',neq:'≠',gt:'>',gte:'≥',lt:'<',lte:'≤',contains:'contém',exists:'existe'};
+function autoCmdLabel(c){
+  const k=String(c||'').toLowerCase();
+  if(['power_on','on','turn_on','relay_on','switch_on','ligar'].includes(k)) return 'LIGAR';
+  if(['power_off','off','turn_off','relay_off','switch_off','desligar'].includes(k)) return 'DESLIGAR';
+  if(['toggle','relay_toggle','alternar'].includes(k)) return 'ALTERNAR';
+  return String(c||'').toUpperCase();
+}
+function autoDevName(state,id){const d=(state.devices||[]).find(x=>x.device_id===id);return d?(d.nome||id):id+' (não encontrado)';}
+function autoActionsText(state,actions){
+  if(!actions||!actions.length) return '<em>Nenhuma ação</em>';
+  return '<ul class="ja-auto-steps">'+actions.map(a=>'<li><b>'+esc(autoCmdLabel(a.comando))+'</b> '+esc(autoDevName(state,a.device_id))+'</li>').join('')+'</ul>';
+}
+function autoCondText(c){
+  const f=String(c.field||'').replace(/^data\./,'');
+  const v=c.value===true?'ligado/verdadeiro':c.value===false?'desligado/falso':String(c.value??'');
+  return esc(f)+' '+esc(AUTO_OPS[c.op]||c.op)+(c.op==='exists'?'':' '+esc(v));
+}
+function autoRuleWhen(state,r){
+  const tc=r.trigger_config||{};
+  if(r.trigger_type==='schedule') return 'Horário (formato antigo) — recrie em Operações > Agendamentos';
+  const src=tc.device_id?autoDevName(state,tc.device_id):'qualquer dispositivo';
+  let t=r.trigger_type==='state'?'O estado de <b>'+esc(src)+'</b> atender':'<b>'+esc(src)+'</b> enviar o evento <b>'+esc(tc.event_type||'(qualquer)')+'</b>';
+  if((r.conditions||[]).length) t+=' com '+r.conditions.map(autoCondText).join(' e ');
+  return t;
+}
+
+async function renderAutomation(){
+  loading('Cenas e regras');
+  let st;
+  try{ st=await getJson(AUTO_API+'?acao=estado'); }
+  catch(e){
+    moduleShell('Cenas e regras','<div class="ja-empty">'+esc(e.message||'Falha ao carregar.')+'</div>','<button id="auto-retry" class="ja-mini">Tentar novamente</button>');
+    document.getElementById('auto-retry').onclick=renderAutomation; return;
+  }
+  const tabs='<button class="ja-mini '+(automationTab==='cenas'?'primary':'')+'" data-auto-tab="cenas">CENAS ('+st.scenes.length+')</button>'+
+    '<button class="ja-mini '+(automationTab==='regras'?'primary':'')+'" data-auto-tab="regras">REGRAS ('+st.rules.length+')</button>'+
+    '<button class="ja-mini primary" data-auto-new>'+(automationTab==='cenas'?'+ NOVA CENA':'+ NOVA REGRA')+'</button>';
+  let body;
+  if(automationTab==='cenas'){
+    const intro='<p class="ja-auto-intro"><b>Cena</b> é um conjunto de ações disparadas de uma vez — ex.: "Sair de casa" desliga a bomba e as luzes. Execute pelo botão abaixo, pelo app, ou programe em <b>Operações › Agendamentos</b>.</p>';
+    const p=paginate('automation-scenes',st.scenes,6);
+    body=intro+(st.scenes.length?cards(p.slice,s=>{
+      const lr=s.last_run?('Última execução: '+esc(s.last_run.criado_em)+' · '+esc(s.last_run.status)):'Nunca executada';
+      return '<article class="ja-native-card ja-auto-card">'+
+        '<header class="ja-auto-head"><h3>'+esc(s.nome)+'</h3><span class="ja-state '+(s.ativo?'ok':'off')+'">'+(s.ativo?'ATIVA':'PAUSADA')+'</span></header>'+
+        (s.descricao?'<p>'+esc(s.descricao)+'</p>':'')+autoActionsText(st,s.actions)+'<small class="ja-auto-foot">'+lr+'</small>'+
+        '<div class="ja-row-actions">'+actionBtn('EXECUTAR','run:'+s.id,'primary')+actionBtn('EDITAR','edit:'+s.id)+actionBtn(s.ativo?'PAUSAR':'ATIVAR','toggle:'+s.id)+actionBtn('EXCLUIR','delete:'+s.id,'danger')+'</div>'+
+      '</article>';
+    })+pager('automation-scenes',p):'<div class="ja-empty">Nenhuma cena criada. Use <b>+ NOVA CENA</b> para montar a primeira.</div>');
+    moduleShell('Cenas e regras',body,tabs);
+    bindPager('automation-scenes',p,renderAutomation);
+  }else{
+    const intro='<p class="ja-auto-intro"><b>Regra</b> reage sozinha a um dispositivo: "<i>quando</i> o sensor/botão X enviar um evento (ou o estado dele mudar), <i>então</i> ligue/desligue Y". Para horários fixos use <b>Operações › Agendamentos</b>.</p>';
+    const p=paginate('automation-rules',st.rules,6);
+    body=intro+(st.rules.length?cards(p.slice,r=>'<article class="ja-native-card ja-auto-card">'+
+        '<header class="ja-auto-head"><h3>'+esc(r.nome)+'</h3><span class="ja-state '+(r.enabled?'ok':'off')+'">'+(r.enabled?'ATIVA':'PAUSADA')+'</span></header>'+
+        '<p><span class="ja-auto-tag">QUANDO</span> '+autoRuleWhen(st,r)+'</p>'+
+        '<div><span class="ja-auto-tag">ENTÃO</span>'+autoActionsText(st,r.actions)+'</div>'+
+        '<small class="ja-auto-foot">Intervalo mínimo: '+esc(r.cooldown_seconds)+' s · Último disparo: '+esc(r.last_triggered_at||'nunca')+'</small>'+
+        '<div class="ja-row-actions">'+(r.trigger_type==='schedule'?'':actionBtn('EDITAR','edit:'+r.id))+actionBtn(r.enabled?'PAUSAR':'ATIVAR','toggle:'+r.id)+actionBtn('EXCLUIR','delete:'+r.id,'danger')+'</div>'+
+      '</article>')+pager('automation-rules',p):'<div class="ja-empty">Nenhuma regra criada. Use <b>+ NOVA REGRA</b>.</div>');
+    moduleShell('Cenas e regras',body,tabs);
+    bindPager('automation-rules',p,renderAutomation);
+  }
+  document.querySelectorAll('[data-auto-tab]').forEach(b=>b.onclick=()=>{automationTab=b.dataset.autoTab;renderAutomation();});
+  document.querySelector('[data-auto-new]').onclick=()=>automationTab==='cenas'?openSceneEditor(st,null):openRuleEditor(st,null);
+  document.querySelectorAll('.ja-native-body [data-act]').forEach(b=>b.onclick=async()=>{
+    const [a,idS]=b.dataset.act.split(':'); const id=Number(idS);
+    const isScene=automationTab==='cenas';
+    const item=(isScene?st.scenes:st.rules).find(x=>x.id===id);
+    try{
+      if(a==='edit') return isScene?openSceneEditor(st,item):openRuleEditor(st,item);
+      if(a==='toggle') await postJson(AUTO_API,{acao:isScene?'cena_ativar':'regra_ativar',id,ativo:!(isScene?item.ativo:item.enabled)});
+      if(a==='delete'){ if(!confirm('Excluir "'+(item?.nome||'')+'"?')) return; await postJson(AUTO_API,{acao:isScene?'cena_excluir':'regra_excluir',id}); }
+      if(a==='run'){
+        b.disabled=true;
+        let r;
+        try{ r=await postJson(AUTO_API,{acao:'cena_executar',id}); }
+        catch(e){
+          if(/sensível|confirm/i.test(e.message||'') && confirm('Esta cena tem ação sensível. Executar mesmo assim?')) r=await postJson(AUTO_API,{acao:'cena_executar',id,confirmar:true});
+          else throw e;
+        }
+        const errs=(r.errors||[]).length, rel=r.relays_applied||0, other=(r.queued||[]).length-rel;
+        alert('Cena "'+(item?.nome||'')+'" executada: '+rel+' relé(s) acionado(s)'+(other>0?', '+other+' comando(s) enviados a outros dispositivos':'')+(errs?', '+errs+' falha(s)':'')+'.');
+      }
+      renderAutomation();
+    }catch(e){ alert(e.message||'Falha na operação.'); b.disabled=false; }
+  });
+}
+
+function autoDeviceOptions(devices,selected,filter){
+  const list=filter?devices.filter(filter):devices;
+  const relays=list.filter(d=>d.is_relay), others=list.filter(d=>!d.is_relay);
+  const opt=d=>'<option value="'+attr(d.device_id)+'"'+(d.device_id===selected?' selected':'')+'>'+esc(d.nome)+(d.localizacao?' · '+esc(d.localizacao):'')+(String(d.status||'').toLowerCase()==='online'?'':' (offline)')+'</option>';
+  let h='<option value="">— escolha —</option>';
+  if(relays.length) h+='<optgroup label="Relés">'+relays.map(opt).join('')+'</optgroup>';
+  if(others.length) h+='<optgroup label="Outros dispositivos">'+others.map(opt).join('')+'</optgroup>';
+  if(selected && !list.some(d=>d.device_id===selected)) h+='<option value="'+attr(selected)+'" selected>'+esc(selected)+' (não encontrado)</option>';
+  return h;
+}
+// Linhas de ação reaproveitadas pelos editores de cena e regra.
+function autoActionRow(st,a){
+  a=a||{};
+  const cmd=a.comando||'power_on';
+  const label=autoCmdLabel(cmd);
+  const known=['LIGAR','DESLIGAR','ALTERNAR'].includes(label);
+  const row=document.createElement('div'); row.className='ja-auto-action';
+  row.innerHTML='<select data-f="device">'+autoDeviceOptions(st.devices,a.device_id||'')+'</select>'+
+    '<select data-f="cmd"><option value="power_on"'+(label==='LIGAR'?' selected':'')+'>LIGAR</option><option value="power_off"'+(label==='DESLIGAR'?' selected':'')+'>DESLIGAR</option><option value="toggle"'+(label==='ALTERNAR'?' selected':'')+'>ALTERNAR</option><option value="custom"'+(known?'':' selected')+'>OUTRO COMANDO…</option></select>'+
+    '<input data-f="custom" placeholder="comando (ex.: volume_up)" value="'+(known?'':attr(cmd))+'">'+
+    '<input data-f="payload" placeholder=\'parâmetros JSON (opcional) ex.: {"nivel":50}\' value="'+(known||!a.payload||!Object.keys(a.payload).length?'':attr(JSON.stringify(a.payload)))+'">'+
+    '<button type="button" class="ja-mini danger" data-f="del" title="Remover ação">✕</button>';
+  const sel=row.querySelector('[data-f=cmd]'), dev=row.querySelector('[data-f=device]');
+  const sync=()=>{const c=sel.value==='custom';row.querySelector('[data-f=custom]').style.display=c?'':'none';row.querySelector('[data-f=payload]').style.display=c?'':'none';row.classList.toggle('is-custom',c);};
+  dev.onchange=()=>{const d=st.devices.find(x=>x.device_id===dev.value); if(d&&!d.is_relay&&sel.value!=='custom'){sel.value='custom';} sync();};
+  sel.onchange=sync; sync();
+  row.querySelector('[data-f=del]').onclick=()=>row.remove();
+  return row;
+}
+function autoCollectActions(box){
+  const out=[];
+  for(const row of box.querySelectorAll('.ja-auto-action')){
+    const device_id=row.querySelector('[data-f=device]').value;
+    let comando=row.querySelector('[data-f=cmd]').value, payload='';
+    if(comando==='custom'){comando=row.querySelector('[data-f=custom]').value.trim();payload=row.querySelector('[data-f=payload]').value.trim();}
+    if(!device_id&&!comando) continue;
+    if(!device_id) throw new Error('Escolha o dispositivo de cada ação.');
+    if(!comando) throw new Error('Informe o comando da ação personalizada.');
+    if(payload){try{JSON.parse(payload);}catch(e){throw new Error('Parâmetros JSON inválidos em "'+comando+'".');}}
+    out.push({device_id,comando,payload});
+  }
+  if(!out.length) throw new Error('Adicione pelo menos uma ação.');
+  return out;
+}
+function autoModal(title,inner,onSave){
+  document.getElementById('ja-auto-modal')?.remove();
+  const m=document.createElement('div'); m.id='ja-auto-modal'; m.className='ja-schedule-backdrop';
+  m.innerHTML='<section class="ja-schedule-modal ja-auto-modal" role="dialog" aria-modal="true"><header><strong>'+esc(title)+'</strong><button type="button" data-close>FECHAR</button></header>'+
+    '<div class="ja-schedule-form">'+inner+'<div class="ja-schedule-message" data-msg></div></div><footer><button type="button" data-save>SALVAR</button></footer></section>';
+  document.body.appendChild(m);
+  const close=()=>m.remove();
+  m.querySelector('[data-close]').onclick=close;
+  m.addEventListener('click',e=>{if(e.target===m)close();});
+  const save=m.querySelector('[data-save]'), msg=m.querySelector('[data-msg]');
+  save.onclick=async()=>{
+    msg.textContent='';msg.className='ja-schedule-message';
+    save.disabled=true;save.textContent='SALVANDO...';
+    try{ await onSave(m); close(); renderAutomation(); }
+    catch(e){ msg.textContent=e.message||'Falha ao salvar.'; msg.className='ja-schedule-message error'; save.disabled=false; save.textContent='SALVAR'; }
+  };
+  return m;
+}
+function openSceneEditor(st,s){
+  const m=autoModal(s?'EDITAR CENA':'NOVA CENA',
+    '<label><span>Nome</span><input data-k="nome" value="'+attr(s?.nome||'')+'" placeholder="Ex.: Sair de casa"></label>'+
+    '<label><span>Situação</span><select data-k="ativo"><option value="1">Ativa</option><option value="0"'+(s&&!s.ativo?' selected':'')+'>Pausada</option></select></label>'+
+    '<label class="wide"><span>Descrição</span><input data-k="descricao" value="'+attr(s?.descricao||'')+'" placeholder="Opcional"></label>'+
+    '<div class="wide ja-auto-block"><span class="ja-auto-label">AÇÕES (executadas em ordem)</span><div data-actions></div><button type="button" class="ja-mini" data-add>+ ADICIONAR AÇÃO</button></div>'+
+    '<label class="wide ja-auto-check"><input type="checkbox" data-k="stop"'+(s?.stop_on_error?' checked':'')+'> Parar a cena se uma ação falhar</label>',
+    async mm=>{
+      const nome=mm.querySelector('[data-k=nome]').value.trim(); if(!nome) throw new Error('Informe o nome da cena.');
+      await postJson(AUTO_API,{acao:'cena_salvar',id:s?.id||0,nome,descricao:mm.querySelector('[data-k=descricao]').value.trim(),ativo:mm.querySelector('[data-k=ativo]').value==='1',stop_on_error:mm.querySelector('[data-k=stop]').checked,actions:autoCollectActions(mm.querySelector('[data-actions]'))});
+    });
+  const box=m.querySelector('[data-actions]');
+  (s?.actions?.length?s.actions:[null]).forEach(a=>box.appendChild(autoActionRow(st,a)));
+  m.querySelector('[data-add]').onclick=()=>box.appendChild(autoActionRow(st,null));
+}
+function autoCondRow(fields,c){
+  c=c||{};
+  const row=document.createElement('div'); row.className='ja-auto-cond';
+  const ops=Object.entries(AUTO_OPS).map(([k,v])=>'<option value="'+k+'"'+((c.op||'eq')===k?' selected':'')+'>'+esc(v)+'</option>').join('');
+  const val=c.value===true?'true':c.value===false?'false':(c.value??'');
+  row.innerHTML='<input data-f="field" list="ja-auto-fields" placeholder="campo (ex.: temperature_c)" value="'+attr(String(c.field||'').replace(/^data\./,''))+'"><select data-f="op">'+ops+'</select><input data-f="value" placeholder="valor (ex.: 30, true)" value="'+attr(val)+'"><button type="button" class="ja-mini danger" data-f="del">✕</button>';
+  row.querySelector('[data-f=del]').onclick=()=>row.remove();
+  return row;
+}
+function openRuleEditor(st,r){
+  const tc=r?.trigger_config||{};
+  const m=autoModal(r?'EDITAR REGRA':'NOVA REGRA',
+    '<label><span>Nome</span><input data-k="nome" value="'+attr(r?.nome||'')+'" placeholder="Ex.: Presença acende corredor"></label>'+
+    '<label><span>Situação</span><select data-k="ativo"><option value="1">Ativa</option><option value="0"'+(r&&!r.enabled?' selected':'')+'>Pausada</option></select></label>'+
+    '<div class="wide ja-auto-block"><span class="ja-auto-label">QUANDO</span><div class="ja-auto-when">'+
+      '<select data-k="tipo"><option value="event">o dispositivo enviar um evento</option><option value="state"'+(r?.trigger_type==='state'?' selected':'')+'>o estado do dispositivo atender às condições</option></select>'+
+      '<select data-k="src">'+autoDeviceOptions(st.devices,tc.device_id||'')+'</select>'+
+      '<input data-k="evt" list="ja-auto-events" placeholder="tipo do evento (ex.: sensor.presence) — vazio = qualquer" value="'+attr(tc.event_type||'')+'">'+
+    '</div><datalist id="ja-auto-events"></datalist><datalist id="ja-auto-fields"></datalist>'+
+    '<span class="ja-auto-label">E SE (condições — todas precisam ser verdadeiras)</span><div data-conds></div><button type="button" class="ja-mini" data-addc>+ CONDIÇÃO</button></div>'+
+    '<div class="wide ja-auto-block"><span class="ja-auto-label">ENTÃO</span><div data-actions></div><button type="button" class="ja-mini" data-add>+ ADICIONAR AÇÃO</button></div>'+
+    '<label><span>Intervalo mínimo entre disparos (s)</span><input data-k="cool" type="number" min="0" value="'+attr(r?.cooldown_seconds??60)+'"></label>'+
+    '<label><span>Descrição</span><input data-k="descricao" value="'+attr(r?.descricao||'')+'" placeholder="Opcional"></label>',
+    async mm=>{
+      const nome=mm.querySelector('[data-k=nome]').value.trim(); if(!nome) throw new Error('Informe o nome da regra.');
+      const src=mm.querySelector('[data-k=src]').value; if(!src) throw new Error('Escolha o dispositivo que dispara a regra.');
+      const conditions=[...mm.querySelectorAll('.ja-auto-cond')].map(x=>({field:x.querySelector('[data-f=field]').value.trim(),op:x.querySelector('[data-f=op]').value,value:x.querySelector('[data-f=value]').value})).filter(c=>c.field);
+      await postJson(AUTO_API,{acao:'regra_salvar',id:r?.id||0,nome,descricao:mm.querySelector('[data-k=descricao]').value.trim(),enabled:mm.querySelector('[data-k=ativo]').value==='1',
+        trigger_type:mm.querySelector('[data-k=tipo]').value,trigger_device_id:src,trigger_event_type:mm.querySelector('[data-k=evt]').value.trim(),
+        conditions,cooldown_seconds:Number(mm.querySelector('[data-k=cool]').value||0),actions:autoCollectActions(mm.querySelector('[data-actions]'))});
+    });
+  const tipo=m.querySelector('[data-k=tipo]'), srcSel=m.querySelector('[data-k=src]'), evt=m.querySelector('[data-k=evt]');
+  const refresh=()=>{
+    evt.style.display=tipo.value==='event'?'':'none';
+    const d=st.devices.find(x=>x.device_id===srcSel.value);
+    m.querySelector('#ja-auto-fields').innerHTML=(d?.data_fields||[]).concat(d?.is_relay?['relay_on']:[]).filter((v,i,a)=>a.indexOf(v)===i).map(f=>'<option value="'+attr(f)+'">').join('');
+    m.querySelector('#ja-auto-events').innerHTML=(st.events||[]).filter(e=>e.device_id===srcSel.value).map(e=>'<option value="'+attr(e.tipo)+'">').join('');
+  };
+  tipo.onchange=refresh; srcSel.onchange=refresh; refresh();
+  const conds=m.querySelector('[data-conds]');
+  (r?.conditions||[]).forEach(c=>conds.appendChild(autoCondRow([],c)));
+  m.querySelector('[data-addc]').onclick=()=>conds.appendChild(autoCondRow([],null));
+  const box=m.querySelector('[data-actions]');
+  (r?.actions?.length?r.actions:[null]).forEach(a=>box.appendChild(autoActionRow(st,a)));
+  m.querySelector('[data-add]').onclick=()=>box.appendChild(autoActionRow(st,null));
 }
 
 async function renderIoT(){

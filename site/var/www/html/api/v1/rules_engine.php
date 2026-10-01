@@ -1,5 +1,6 @@
 <?php
 require_once(__DIR__.'/device_registry.php');
+require_once(__DIR__.'/../automation_common.php');
 // CASA/JARVIS - Motor deterministico de regras. Nao usa LLM/IA.
 // Modelo: device de entrada autenticado -> regra/condicoes -> um ou varios devices de saida.
 
@@ -75,21 +76,14 @@ function rules_enqueue_action(PDO $pdo, array $action, string $requestedBy, int 
         if ((int)$resolved['risk_level'] >= 3) throw new RuntimeException('automatic_high_risk_blocked');
     }
 
-    $corr = $correlationId;
     $idem = 'rule_' . $runId . '_action_' . (int)$action['id'];
-    $payload = rules_json($action['payload'] ?? null, []);
-    $stmt = $pdo->prepare("INSERT INTO device_commands(device_id,comando,payload,prioridade,correlation_id,idempotency_key,status,lifecycle_status,max_retries,requested_by,risk_level,expira_em) VALUES(:d,:c,:p,:pr,:x,:i,'pending','QUEUED',3,:rb,:risk,DATE_ADD(NOW(),INTERVAL :ttl SECOND))");
-    $stmt->bindValue(':d', $deviceId);
-    $stmt->bindValue(':c', (string)$action['comando']);
-    $stmt->bindValue(':p', json_encode($payload, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES));
-    $stmt->bindValue(':pr', $priority);
-    $stmt->bindValue(':x', $corr);
-    $stmt->bindValue(':i', $idem);
-    $stmt->bindValue(':rb', $requestedBy);
-    $stmt->bindValue(':risk', $risk, PDO::PARAM_INT);
-    $stmt->bindValue(':ttl', $ttl, PDO::PARAM_INT);
-    $stmt->execute();
-    return (int)$pdo->lastInsertId();
+    $action['device_id'] = $deviceId;
+    $action['prioridade'] = $priority;
+    $action['risk_level'] = $risk;
+    $action['ttl_seconds'] = $ttl;
+    // Reles recebem o estado desejado diretamente (ver api/automation_common.php).
+    $res = automation_enqueue_command($pdo, $action, $requestedBy, $correlationId, $idem);
+    return (int)$res['command_id'];
 }
 
 function rules_engine_process_event(PDO $pdo, array $event): array {
