@@ -564,6 +564,26 @@
         <button type="button" class="action-btn" onclick="viewLogBox('Web Agent disponível para pesquisas sob demanda do COMPUTER.')">INFORMAÇÕES</button>
       </div>
     </div>
+    <!-- SSH Access & Mesh Service -->
+    <div class="card" id="card-ssh">
+      <div>
+        <div class="card-header">
+          <div class="card-title">🔑 Acesso SSH & Malha Cluster</div>
+          <span class="status-badge ok" id="srv-ssh-badge">PORTA 22</span>
+        </div>
+        <p class="card-desc">Acesso seguro via terminal OpenSSH e comunicação distribuída entre nós do cluster.</p>
+        <div class="meta-list" style="margin-top:8px;">
+          <div class="meta-row"><span>Serviço OpenSSH:</span> <b id="ssh-service-status">ATIVO (:22)</b></div>
+          <div class="meta-row"><span>Agente de Malha:</span> <b id="ssh-agent-status">casa-ssh-agent (:8095)</b></div>
+          <div class="meta-row"><span>Comando de Acesso:</span> <b id="ssh-cmd" style="color:var(--cyan);font-family:var(--font-mono);user-select:all;">ssh mmm@...</b></div>
+        </div>
+      </div>
+      <div class="card-actions">
+        <button type="button" class="action-btn primary" id="btn-copy-ssh" onclick="copySshCommand()">COPIAR COMANDO SSH</button>
+        <button type="button" class="action-btn" id="btn-check-mesh" onclick="fetchMeshNodes()">↻ ATUALIZAR MALHA</button>
+      </div>
+    </div>
+
       <!-- Cluster Update Service -->
     <div class="card" id="card-update">
       <div>
@@ -582,6 +602,15 @@
         <button type="button" class="action-btn primary" id="btn-trigger-update" onclick="triggerClusterUpdate()">⚡ ATUALIZAR CLUSTER AGORA</button>
         <button type="button" class="action-btn" onclick="checkClusterUpdateStatus()">VERIFICAR STATUS</button>
       </div>
+    </div>
+  </div>
+
+
+  <!-- Cluster Mesh Nodes Section -->
+  <div class="section-title">MALHA DE NÓS DO CLUSTER ARM (DESCOBERTA & SSH)</div>
+  <div class="grid" id="mesh-grid">
+    <div style="grid-column: 1 / -1; padding: 18px; text-align: center; color: var(--muted); background: var(--surface); border: 2px solid var(--border); border-radius: 14px;">
+      Aguardando descoberta dos nós da malha SSH…
     </div>
   </div>
 
@@ -785,6 +814,77 @@
       }
     }
 
+
+    function copySshCommand(cmd) {
+      const text = cmd || document.getElementById('ssh-cmd').textContent.trim();
+      if (!text || text.includes('...')) return;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+          log('Comando SSH copiado para a área de transferência: ' + text);
+          const btn = document.getElementById('btn-copy-ssh');
+          if (btn) { const old = btn.textContent; btn.textContent = '✓ COPIADO!'; setTimeout(() => btn.textContent = old, 2000); }
+        }).catch(() => fallbackCopy(text));
+      } else {
+        fallbackCopy(text);
+      }
+    }
+    function fallbackCopy(text) {
+      prompt('Copie o comando SSH:', text);
+    }
+
+    async function fetchMeshNodes() {
+      try {
+        const res = await fetch('/api/ssh/nodes');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        renderMeshNodes(data.nodes || []);
+      } catch (e) {
+        if (nodeData && nodeData.cluster_nodes) {
+          const arr = Object.entries(nodeData.cluster_nodes).map(([id, n]) => ({
+            id: id,
+            name: n.name || id,
+            host: n.host || '',
+            role: n.role || 'Nó ARM',
+            online: true
+          }));
+          renderMeshNodes(arr);
+        }
+      }
+    }
+
+    function renderMeshNodes(nodes) {
+      const grid = document.getElementById('mesh-grid');
+      if (!grid) return;
+      if (!nodes || !nodes.length) {
+        grid.innerHTML = '<div style="grid-column: 1 / -1; padding: 18px; text-align: center; color: var(--muted); background: var(--surface); border: 2px solid var(--border); border-radius: 14px;">Nenhum nó registrado na malha.</div>';
+        return;
+      }
+      grid.innerHTML = nodes.map(n => {
+        const host = n.host || n.lan_ip || '—';
+        const isCurrent = nodeData && nodeData.ip === host;
+        const sshCmd = 'ssh ' + (n.user || 'mmm') + '@' + host;
+        return '<div class="card" style="border-left: 4px solid ' + (n.online ? 'var(--green)' : 'var(--red)') + ';">' +
+          '<div>' +
+            '<div class="card-header">' +
+              '<div class="card-title">' + (n.name || n.id) + (isCurrent ? ' <small style="color:var(--cyan);font-size:11px;">(ESTE NÓ)</small>' : '') + '</div>' +
+              '<span class="status-badge ' + (n.online ? 'ok' : 'off') + '">' + (n.online ? 'ONLINE' : 'OFFLINE') + '</span>' +
+            '</div>' +
+            '<p class="card-desc">' + (n.role || 'Nó ARM do Cluster') + '</p>' +
+            '<div class="meta-list" style="margin-top:8px;">' +
+              '<div class="meta-row"><span>Endereço IP:</span> <b>' + host + '</b></div>' +
+              '<div class="meta-row"><span>Porta SSH:</span> <b>' + (n.port || 22) + '</b></div>' +
+              (n.latency_ms !== undefined ? '<div class="meta-row"><span>Latência SSH:</span> <b>' + n.latency_ms + ' ms</b></div>' : '') +
+              '<div class="meta-row"><span>Acesso Terminal:</span> <b style="color:var(--cyan);font-family:var(--font-mono);user-select:all;">' + sshCmd + '</b></div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="card-actions">' +
+            (host && host !== '—' ? '<a href="http://' + host + ':8080/" target="_blank" class="action-btn primary" style="text-decoration:none;">PORTAL :8080 ↗</a>' : '') +
+            '<button type="button" class="action-btn" onclick="copySshCommand(\'' + sshCmd + '\')">COPIAR SSH</button>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+
     function updateUI(d) {
       if (d.hostname) document.getElementById('node-hostname').textContent = d.hostname.toUpperCase();
       if (d.device_id) document.getElementById('node-id').textContent = d.device_id;
@@ -821,6 +921,37 @@
       // Uptime
       if (d.uptime) {
         document.getElementById('sum-uptime').textContent = d.uptime;
+      }
+
+      // SSH Access & Services
+      if (d.ssh) {
+        const sshBadge = document.getElementById('srv-ssh-badge');
+        if (sshBadge) {
+          sshBadge.textContent = d.ssh.service === 'active' ? 'PORTA ' + (d.ssh.port || 22) + ' · OK' : 'OFFLINE';
+          sshBadge.className = 'status-badge ' + (d.ssh.service === 'active' ? 'ok' : 'off');
+        }
+        const sshStatusEl = document.getElementById('ssh-service-status');
+        if (sshStatusEl) sshStatusEl.textContent = d.ssh.service === 'active' ? 'ATIVO (PORTA ' + (d.ssh.port || 22) + ')' : (d.ssh.service || 'DESCONHECIDO').toUpperCase();
+        
+        const sshAgentEl = document.getElementById('ssh-agent-status');
+        if (sshAgentEl) sshAgentEl.textContent = d.ssh.agent_service === 'active' ? 'ATIVO (PORTA ' + (d.ssh.agent_port || 8095) + ')' : 'INATIVO';
+
+        const sshCmdEl = document.getElementById('ssh-cmd');
+        if (sshCmdEl) sshCmdEl.textContent = d.ssh.command || ('ssh ' + (d.ssh.user || 'mmm') + '@' + (d.ip || '...'));
+      }
+
+      // Render Cluster Mesh Nodes
+      if (d.cluster_nodes) {
+        const arr = Object.entries(d.cluster_nodes).map(([id, n]) => ({
+          id: id,
+          name: n.name || id,
+          host: n.host || '',
+          role: n.role || 'Nó ARM',
+          port: 22,
+          user: 'mmm',
+          online: true
+        }));
+        renderMeshNodes(arr);
       }
     }
 

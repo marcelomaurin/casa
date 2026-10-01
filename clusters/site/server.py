@@ -472,6 +472,8 @@ class ClusterSiteHandler(SimpleHTTPRequestHandler):
             self.handle_heartbeat()
         elif path == "/api/cluster/update" or path == "/api/cluster/update/status":
             self.handle_cluster_update_status()
+        elif path == "/api/ssh/nodes" or path == "/api/ssh/status":
+            self.handle_ssh_mesh()
         else:
             super().do_GET()
 
@@ -537,6 +539,32 @@ class ClusterSiteHandler(SimpleHTTPRequestHandler):
             self.log_message("process termination pid=%s ok=%s", result["pid"], result["ok"])
         self.send_json({"results": results})
 
+    def handle_ssh_mesh(self):
+        agent_url = "http://127.0.0.1:8095/api/ssh/nodes"
+        try:
+            req = urllib.request.Request(agent_url, headers={"User-Agent": "casa-cluster-site"})
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                self.send_json(data)
+                return
+        except Exception:
+            pass
+
+        known = get_cluster_nodes_from_registry()
+        nodes_list = []
+        for nid, n in known.items():
+            nodes_list.append({
+                "id": nid,
+                "name": n.get("name", nid),
+                "host": n.get("host", ""),
+                "lan_ip": n.get("host", ""),
+                "port": 22,
+                "user": "mmm",
+                "role": n.get("role", "ARM Node"),
+                "online": True
+            })
+        self.send_json({"ok": True, "nodes": nodes_list, "total": len(nodes_list), "fallback": True})
+
     def handle_telemetry(self):
         env = get_env_map()
         hostname = socket.gethostname()
@@ -546,9 +574,11 @@ class ClusterSiteHandler(SimpleHTTPRequestHandler):
         disk = get_disk_info()
         uptime = get_uptime()
 
+        ssh_user = env.get("JARVIS_SSH_USER", "mmm")
         services = {
             "casa-node-agent": check_service("casa-node-agent"),
             "casa-cluster-site": "active",
+            "casa-ssh-agent": check_service("casa-ssh-agent"),
             "apache2": check_service("apache2"),
             "mosquitto": check_service("mosquitto"),
             "ssh": check_service("ssh"),
@@ -571,6 +601,14 @@ class ClusterSiteHandler(SimpleHTTPRequestHandler):
             "base_url": env.get("CASA_BASE_URL", "https://maurinsoft.com.br/casa"),
             "capabilities": env.get("JARVIS_CAPABILITIES", "cluster-node,site"),
             "services": services,
+            "ssh": {
+                "service": services.get("ssh", "unknown"),
+                "agent_service": services.get("casa-ssh-agent", "unknown"),
+                "port": 22,
+                "agent_port": 8095,
+                "user": ssh_user,
+                "command": f"ssh {ssh_user}@{ip}",
+            },
             "cluster_nodes": known_nodes,
             "timestamp": int(time.time()),
         }
