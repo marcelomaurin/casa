@@ -2,6 +2,7 @@
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 require_once(__DIR__.'/db.php');
+require_once(__DIR__.'/automation_common.php');
 verify_api_auth();
 
 $pdo=get_db_pdo();
@@ -38,7 +39,9 @@ function ag_post_json($url,$payload,$timeout=45){
 }
 function ag_execute(PDO $pdo,array $t){
     $tipo=$t['tipo_acao'];$payload=(string)$t['payload'];$target=(string)($t['target_node']??'local');
-    if($tipo==='comando_jarvis'){
+    if(in_array($tipo,automation_schedule_server_types(),true)){
+        $r=automation_schedule_execute($pdo,$t,'SCHEDULER_MANUAL');
+    }elseif($tipo==='comando_jarvis'){
         $r=ag_post_json('http://127.0.0.1/api/jarvis.php',['comando'=>$payload,'skip_planner'=>true,'origem'=>'SCHEDULER_MANUAL'],45);
     }elseif($tipo==='aviso_fala'){
         $r=ag_post_json('http://127.0.0.1:8097/falar',['texto'=>$payload,'speaker'=>'padrao','reproduzir'=>true],20);
@@ -65,10 +68,19 @@ try{
         $titulo=trim((string)($in['titulo']??''));$cron=trim((string)($in['cron_expr']??''));$executor=strtolower(trim((string)($in['executor']??'ia')));
         if($titulo==='')ag_out(['status'=>'erro','mensagem'=>'Título obrigatório.'],400);
         if(!ag_cron_valid($cron))ag_out(['status'=>'erro','mensagem'=>'Expressão cron inválida. Use 5 campos.'],400);
-        if(!in_array($executor,['ia','fala','equipamento'],true))ag_out(['status'=>'erro','mensagem'=>'Executor inválido.'],400);
+        if(!in_array($executor,['ia','fala','equipamento','cena','rele'],true))ag_out(['status'=>'erro','mensagem'=>'Executor inválido.'],400);
         [$horario,$dias]=ag_cron_legacy($cron);
         $payload=trim((string)($in['payload']??''));$target=trim((string)($in['target_node']??'local'))?:'local';
-        if($executor==='equipamento'){
+        if($executor==='cena'){
+            $sid=(int)($in['scene_id']??0);$scene=$sid>0?automation_scene_load($pdo,$sid):null;
+            if(!$scene)ag_out(['status'=>'erro','mensagem'=>'Escolha a cena a executar.'],400);
+            $payload=http_build_query(['scene_id'=>$sid]);$target='cena:'.$scene['slug'];$tipo='executar_cena';
+        }elseif($executor==='rele'){
+            $dev=trim((string)($in['device_id']??''));$row=$dev!==''?automation_device_row($pdo,$dev):null;
+            if(!$row||!automation_caps_is_relay(automation_json($row['capabilities']??null,[])))ag_out(['status'=>'erro','mensagem'=>'Escolha um relé válido.'],400);
+            $on=!empty($in['relay_on']);
+            $payload=http_build_query(['device_id'=>$dev,'relay_on'=>$on?1:0]);$target='rele:'.$dev;$tipo='dispositivo_rele';
+        }elseif($executor==='equipamento'){
             $id=(int)($in['device_id']??0);if($id<=0)ag_out(['status'=>'erro','mensagem'=>'ID do equipamento obrigatório.'],400);
             $payload=http_build_query(['iddevice'=>$id,'devparname'=>trim((string)($in['devparname']??'dev1'))?:'dev1','valor'=>(string)($in['valor']??'1')]);
             $target='equipamento:'.$id;$tipo='dispositivo_devpar';

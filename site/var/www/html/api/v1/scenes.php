@@ -10,6 +10,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') { http_response_code(20
 
 require_once(__DIR__.'/../db.php');
 require_once(__DIR__.'/security_v1.php');
+require_once(__DIR__.'/../automation_common.php');
 $pdo = get_db_pdo();
 api_v1_basic_guard($pdo);
 $action = $_GET['acao'] ?? 'list';
@@ -124,52 +125,12 @@ if ($action === 'create' || $action === 'update') {
 if ($action === 'execute') {
     $scene = scene_load($pdo, $in['id'] ?? 0, trim((string)($in['slug'] ?? '')));
     if (!$scene) api_v1_json_response(404,['status'=>'erro','mensagem'=>'Cena nao encontrada']);
-    if (!(bool)$scene['ativo']) api_v1_json_response(409,['status'=>'erro','mensagem'=>'Cena desabilitada']);
-    $actions = array_values(array_filter(scene_actions($pdo,$scene['id']), fn($a)=>$a['enabled']));
-    if (!$actions) api_v1_json_response(409,['status'=>'erro','mensagem'=>'Cena sem acoes habilitadas']);
-    $maxRisk=(int)$scene['risk_level']; foreach($actions as $a)$maxRisk=max($maxRisk,(int)$a['risk_level']);
-    if ($maxRisk>=3 && empty($in['confirm'])) api_v1_json_response(409,['status'=>'confirmacao_necessaria','risk_level'=>$maxRisk,'mensagem'=>'Cena contem acao sensivel; envie confirm=true']);
-
-    $requestedBy=substr((string)($client['nome']??'api-client'),0,160);
-    $runCorr='scene_'.bin2hex(random_bytes(12));
-    $pdo->beginTransaction();
-    try {
-        $stmt=$pdo->prepare("INSERT INTO scene_runs(scene_id,requested_by,status,correlation_id,iniciado_em) VALUES(:s,:r,'QUEUED',:c,NOW())");
-        $stmt->execute([':s'=>$scene['id'],':r'=>$requestedBy,':c'=>$runCorr]);
-        $runId=(int)$pdo->lastInsertId();
-        $queued=[]; $errors=[];
-        foreach($actions as $a){
-            $devStmt=$pdo->prepare("SELECT device_id FROM dispositivos_cluster WHERE device_id=:d AND credential_revoked_at IS NULL LIMIT 1");
-            $devStmt->execute([':d'=>$a['device_id']]);
-            if(!$devStmt->fetchColumn()){
-                $errors[]=['action_id'=>$a['id'],'device_id'=>$a['device_id'],'error'=>'device_not_found'];
-                $pdo->prepare("INSERT INTO scene_run_actions(run_id,scene_action_id,device_id,comando,status,erro) VALUES(:r,:a,:d,:c,'FAILED','Device nao encontrado ou revogado')")->execute([':r'=>$runId,':a'=>$a['id'],':d'=>$a['device_id'],':c'=>$a['comando']]);
-                if((bool)$scene['stop_on_error'])break; else continue;
-            }
-            if(!empty($a['required_capability'])){
-                $capStmt=$pdo->prepare("SELECT enabled,risk_level FROM device_capabilities WHERE device_id=:d AND capability=:c LIMIT 1");
-                $capStmt->execute([':d'=>$a['device_id'],':c'=>$a['required_capability']]); $cap=$capStmt->fetch(PDO::FETCH_ASSOC);
-                if($cap && !(bool)$cap['enabled']){
-                    $errors[]=['action_id'=>$a['id'],'device_id'=>$a['device_id'],'error'=>'capability_disabled'];
-                    $pdo->prepare("INSERT INTO scene_run_actions(run_id,scene_action_id,device_id,comando,status,erro) VALUES(:r,:a,:d,:c,'FAILED','Capability desabilitada')")->execute([':r'=>$runId,':a'=>$a['id'],':d'=>$a['device_id'],':c'=>$a['comando']]);
-                    if((bool)$scene['stop_on_error'])break; else continue;
-                }
-            }
-            $corr='cmd_'.bin2hex(random_bytes(12));
-            $idem='scene_'.$runId.'_action_'.$a['id'];
-            $cmd=$pdo->prepare("INSERT INTO device_commands(device_id,comando,payload,prioridade,correlation_id,idempotency_key,status,lifecycle_status,max_retries,requested_by,risk_level,expira_em) VALUES(:d,:c,:p,:pr,:x,:i,'pending','QUEUED',3,:rb,:risk,DATE_ADD(NOW(),INTERVAL :ttl SECOND))");
-            $cmd->bindValue(':d',$a['device_id']); $cmd->bindValue(':c',$a['comando']); $cmd->bindValue(':p',json_encode($a['payload'],JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES)); $cmd->bindValue(':pr',$a['prioridade']); $cmd->bindValue(':x',$corr); $cmd->bindValue(':i',$idem); $cmd->bindValue(':rb',$requestedBy); $cmd->bindValue(':risk',(int)$a['risk_level'],PDO::PARAM_INT); $cmd->bindValue(':ttl',(int)$a['ttl_seconds'],PDO::PARAM_INT); $cmd->execute();
-            $commandId=(int)$pdo->lastInsertId();
-            $pdo->prepare("INSERT INTO scene_run_actions(run_id,scene_action_id,command_id,device_id,comando,status) VALUES(:r,:a,:cmd,:d,:c,'QUEUED')")->execute([':r'=>$runId,':a'=>$a['id'],':cmd'=>$commandId,':d'=>$a['device_id'],':c'=>$a['comando']]);
-            $queued[]=['action_id'=>(int)$a['id'],'command_id'=>$commandId,'device_id'=>$a['device_id'],'correlation_id'=>$corr];
-        }
-        $status=$errors ? ($queued ? 'PARTIAL' : 'FAILED') : 'QUEUED';
-        $summary=['queued'=>$queued,'errors'=>$errors,'risk_level'=>$maxRisk];
-        $pdo->prepare("UPDATE scene_runs SET status=:s,resumo=:j,concluido_em=CASE WHEN :terminal=1 THEN NOW() ELSE NULL END WHERE id=:id")->execute([':s'=>$status,':j'=>json_encode($summary,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES),':terminal'=>$status==='FAILED'?1:0,':id'=>$runId]);
-        $pdo->commit();
-    } catch(Throwable $e){ if($pdo->inTransaction())$pdo->rollBack(); api_v1_json_response(500,['status'=>'erro','mensagem'=>'Falha ao enfileirar cena']); }
-    api_v1_log($pdo,'SCENE_EXECUTED','INFO',$requestedBy,['scene_id'=>$scene['id'],'run_id'=>$runId,'queued'=>count($queued),'errors'=>count($errors)]);
-    api_v1_json_response(202,['status'=>'ok','scene'=>['id'=>(int)$scene['id'],'slug'=>$scene['slug'],'name'=>$scene['nome']],'run_id'=>$runId,'correlation_id'=>$runCorr,'run_status'=>$status,'queued'=>$queued,'errors'=>$errors]);
+    $requestedBy = substr((string)($client['nome'] ?? 'api-client'), 0, 160);
+    // Execucao compartilhada com o painel web e agendamentos (api/automation_common.php):
+    // comandos liga/desliga para reles viram estado desejado aplicado pelo firmware.
+    $r = automation_scene_execute($pdo, $scene, $requestedBy, !empty($in['confirm']));
+    if ($r['http'] === 202) api_v1_log($pdo,'SCENE_EXECUTED','INFO',$requestedBy,['scene_id'=>$scene['id'],'run_id'=>$r['body']['run_id'],'queued'=>count($r['body']['queued']),'errors'=>count($r['body']['errors'])]);
+    api_v1_json_response($r['http'], $r['body']);
 }
 
 if ($action === 'run_status') {
