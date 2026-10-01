@@ -261,6 +261,25 @@
     .cpu-stats dd { font-size: 22px; font-variant-numeric: tabular-nums; }
     .cpu-stats .cpu-utilization { font-size: 32px; color: var(--cyan); }
     .cpu-live-status { margin-top: 20px; color: var(--muted); font-size: 12px; }
+    .process-panel { background: var(--surface); border: 2px solid var(--border); border-radius: 14px; padding: 16px; }
+    .process-toolbar { display: flex; gap: 12px; justify-content: space-between; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+    .process-toolbar p, .process-help { color: var(--muted); font-size: 12px; line-height: 1.5; }
+    .process-table-wrap { overflow: auto; max-height: 350px; }
+    .process-table { border-collapse: collapse; width: 100%; font-size: 12px; white-space: nowrap; }
+    .process-table th { text-align: left; color: var(--muted); background: var(--card); position: sticky; top: 0; }
+    .process-table th, .process-table td { padding: 11px 12px; border-bottom: 1px solid var(--border); }
+    .process-table tr:has(input:checked) { background: #143046; }
+    .process-table input { width: 17px; height: 17px; accent-color: var(--cyan); cursor: pointer; }
+    .process-table input:disabled { cursor: not-allowed; }
+    .process-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin: 16px 0 8px; }
+    .process-controls label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--muted); }
+    .process-controls input { background: var(--card); color: var(--text); border: 1px solid var(--border); padding: 9px 10px; border-radius: 8px; width: min(280px, 100%); }
+    .action-btn.danger { background: #562329; border-color: var(--red); color: #fff; padding: 9px 14px; }
+    .action-btn:disabled { opacity: .45; cursor: not-allowed; }
+    .process-result { white-space: pre-line; color: var(--text); font-size: 12px; margin-top: 10px; line-height: 1.6; }
+    .process-confirm { background: #301c20; border: 1px solid var(--red); padding: 14px; border-radius: 8px; margin-top: 12px; }
+    .process-confirm[hidden] { display: none; }
+    .process-confirm p { white-space: pre-line; font-size: 12px; margin-bottom: 12px; line-height: 1.6; }
     @media (max-width: 600px) {
       .cpu-dialog { padding: 18px; }
       .cpu-chart svg { height: 200px; }
@@ -400,6 +419,35 @@
       </div>
     </div>
   </div>
+
+  <div class="section-title" id="process-heading">PROCESSOS DA APLICAÇÃO (NÓ LOCAL)</div>
+  <section class="process-panel" aria-labelledby="process-heading">
+    <div class="process-toolbar">
+      <p id="process-status" role="status">Carregando processos da aplicação…</p>
+      <button type="button" class="action-btn" id="process-refresh">↻ ATUALIZAR PROCESSOS</button>
+    </div>
+    <div class="process-table-wrap">
+      <table class="process-table" aria-label="Processos da aplicação em execução">
+        <thead><tr><th scope="col">Selecionar</th><th scope="col">Aplicação</th><th scope="col">PID</th><th scope="col">Usuário</th><th scope="col">Estado</th><th scope="col">CPU total</th><th scope="col">Memória</th></tr></thead>
+        <tbody id="process-rows"><tr><td colspan="7">Aguardando leitura do nó…</td></tr></tbody>
+      </table>
+    </div>
+    <div class="process-controls">
+      <label for="process-admin-token">Token administrativo do nó
+        <input id="process-admin-token" type="password" autocomplete="off" placeholder="Necessário para encerrar" spellcheck="false">
+      </label>
+      <button type="button" class="action-btn danger" id="process-kill" disabled>Matar processo</button>
+      <span class="process-help" id="process-selection">Nenhum processo selecionado.</span>
+    </div>
+    <p class="process-help" id="process-permission"></p>
+    <p class="process-help">Atualização a cada 3 segundos. Portal e atualizador protegidos. Serviços supervisionados podem reiniciar automaticamente após o encerramento.</p>
+    <div class="process-confirm" id="process-confirm-box" hidden>
+      <p id="process-confirm-message"></p>
+      <button type="button" class="action-btn danger" id="process-confirm">Confirmar encerramento</button>
+      <button type="button" class="action-btn" id="process-cancel">Cancelar</button>
+    </div>
+    <div class="process-result" id="process-result" role="status"></div>
+  </section>
 
   <!-- Cluster Services Section -->
   <div class="section-title">SERVIÇOS DISTRIBUÍDOS DO CLUSTER (NÓ LOCAL)</div>
@@ -897,6 +945,159 @@
     // Inicialização e polling automático
     fetchTelemetry();
     setInterval(fetchTelemetry, 3000);
+  </script>
+  <script id="processes-script">
+    let applicationProcesses = [];
+    let selectedProcesses = new Set();
+    let processFresh = false;
+    let processTerminationEnabled = false;
+    let processBusy = false;
+    let processKilling = false;
+    let pendingTermination = [];
+    const processKey = process => process.pid + ':' + process.start_time;
+    const processStates = {R: 'Em execução', S: 'Aguardando', D: 'Aguardando E/S', T: 'Suspenso', t: 'Suspenso', Z: 'Encerrado (zumbi)', I: 'Ocioso'};
+
+    function updateProcessControls() {
+      const count = selectedProcesses.size;
+      document.getElementById('process-selection').textContent = count ? count + ' processo(s) selecionado(s).' : 'Nenhum processo selecionado.';
+      const button = document.getElementById('process-kill');
+      button.textContent = processKilling ? 'Solicitando encerramento…' : count > 1 ? 'Matar processos (' + count + ')' : 'Matar processo';
+      button.disabled = processKilling || !processFresh || !processTerminationEnabled || count === 0 || count > 20 || !document.getElementById('process-admin-token').value.trim();
+      const valid = new Set(applicationProcesses.filter(p => p.can_terminate).map(processKey));
+      document.getElementById('process-confirm').disabled = button.disabled || !pendingTermination.length || pendingTermination.some(p => !valid.has(processKey(p)));
+    }
+
+    function renderProcesses(rows) {
+      applicationProcesses = rows;
+      const validKeys = new Set(rows.filter(p => p.can_terminate).map(processKey));
+      selectedProcesses = new Set([...selectedProcesses].filter(key => validKeys.has(key)));
+      const focusId = document.activeElement && document.activeElement.id;
+      const body = document.getElementById('process-rows');
+      body.replaceChildren();
+      const cell = (row, text) => { const td = document.createElement('td'); td.textContent = text; row.appendChild(td); return td; };
+      rows.forEach(process => {
+        const row = document.createElement('tr');
+        const selectCell = cell(row, '');
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.id = 'process-select-' + process.pid;
+        input.setAttribute('aria-label', 'Selecionar ' + process.name + ', PID ' + process.pid);
+        input.disabled = !process.can_terminate || !processTerminationEnabled || processKilling;
+        input.checked = selectedProcesses.has(processKey(process));
+        input.addEventListener('change', () => {
+          if (input.checked) selectedProcesses.add(processKey(process));
+          else selectedProcesses.delete(processKey(process));
+          pendingTermination = [];
+          document.getElementById('process-confirm-box').hidden = true;
+          updateProcessControls();
+        });
+        selectCell.appendChild(input);
+        cell(row, process.name + (process.protected ? ' · protegido' : ''));
+        cell(row, process.pid);
+        cell(row, process.user);
+        cell(row, processStates[process.state] || process.state);
+        cell(row, typeof process.cpu_pct === 'number' ? process.cpu_pct.toLocaleString('pt-BR') + '%' : '—');
+        cell(row, typeof process.memory_mb === 'number' ? process.memory_mb.toLocaleString('pt-BR') + ' MB' : '—');
+        body.appendChild(row);
+      });
+      if (!rows.length) {
+        const row = document.createElement('tr');
+        cell(row, 'Nenhum processo da aplicação encontrado neste nó.').colSpan = 7;
+        body.appendChild(row);
+      }
+      if (focusId && focusId.startsWith('process-select-')) {
+        const input = document.getElementById(focusId);
+        if (input && !input.disabled) input.focus({preventScroll: true});
+      }
+      updateProcessControls();
+    }
+
+    async function fetchProcesses() {
+      if (processBusy || processKilling) return;
+      processBusy = true;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 7000);
+      try {
+        const response = await fetch('/api/processes', {cache: 'no-store', signal: controller.signal});
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const data = await response.json();
+        if (!Array.isArray(data.processes)) throw new Error('Resposta inválida');
+        processFresh = true;
+        processTerminationEnabled = data.termination_enabled === true;
+        renderProcesses(data.processes);
+        document.getElementById('process-status').textContent = data.processes.length + ' processo(s) · atualizado às ' + new Date().toLocaleTimeString('pt-BR');
+        document.getElementById('process-permission').textContent = processTerminationEnabled
+          ? 'Selecione até 20 processos e informe o token para solicitar o encerramento.'
+          : 'Consulta disponível. Para encerrar processos, configure CLUSTER_SITE_ADMIN_TOKEN no nó.';
+      } catch (_) {
+        processFresh = false;
+        document.getElementById('process-status').textContent = 'Não foi possível atualizar. Os dados podem estar desatualizados; tentando novamente…';
+        updateProcessControls();
+      } finally {
+        processBusy = false;
+        clearTimeout(timeout);
+      }
+    }
+
+    function prepareProcessTermination() {
+      if (document.getElementById('process-kill').disabled) return;
+      pendingTermination = applicationProcesses.filter(p => selectedProcesses.has(processKey(p)) && p.can_terminate);
+      if (!pendingTermination.length) return;
+      document.getElementById('process-confirm-message').textContent = 'Encerrar os processos abaixo?\n' + pendingTermination.map(p => p.name + ' (PID ' + p.pid + ')').join('\n') + '\nServiços supervisionados podem reiniciar automaticamente.';
+      document.getElementById('process-confirm-box').hidden = false;
+      updateProcessControls();
+      document.getElementById('process-cancel').focus();
+    }
+
+    function cancelProcessTermination() {
+      pendingTermination = [];
+      document.getElementById('process-confirm-box').hidden = true;
+      document.getElementById('process-kill').focus();
+    }
+
+    async function killSelectedProcesses() {
+      if (document.getElementById('process-confirm').disabled) return;
+      const targets = pendingTermination.slice();
+      if (!targets.length) return;
+      document.getElementById('process-confirm-box').hidden = true;
+      pendingTermination = [];
+      processKilling = true;
+      updateProcessControls();
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      const result = document.getElementById('process-result');
+      result.textContent = 'Enviando solicitação…';
+      try {
+        const response = await fetch('/api/processes/terminate', {
+          method: 'POST', signal: controller.signal,
+          headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + document.getElementById('process-admin-token').value.trim()},
+          body: JSON.stringify({processes: targets.map(p => ({pid: p.pid, start_time: p.start_time}))}),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Falha ao solicitar encerramento.');
+        if (!Array.isArray(data.results)) throw new Error('Resposta inválida. Atualize a lista antes de tentar novamente.');
+        result.textContent = data.results.map(item => 'PID ' + item.pid + ': ' + item.message).join('\n');
+        selectedProcesses.clear();
+      } catch (error) {
+        result.textContent = error.name === 'AbortError'
+          ? 'Sem confirmação do nó. Confira a lista antes de tentar novamente; a solicitação pode ter sido recebida.'
+          : 'Não foi possível confirmar o encerramento: ' + error.message;
+      } finally {
+        clearTimeout(timeout);
+        document.getElementById('process-admin-token').value = '';
+        processKilling = false;
+        updateProcessControls();
+        fetchProcesses();
+      }
+    }
+
+    document.getElementById('process-refresh').addEventListener('click', fetchProcesses);
+    document.getElementById('process-kill').addEventListener('click', prepareProcessTermination);
+    document.getElementById('process-confirm').addEventListener('click', killSelectedProcesses);
+    document.getElementById('process-cancel').addEventListener('click', cancelProcessTermination);
+    document.getElementById('process-admin-token').addEventListener('input', updateProcessControls);
+    fetchProcesses();
+    setInterval(fetchProcesses, 3000);
   </script>
 </body>
 </html>

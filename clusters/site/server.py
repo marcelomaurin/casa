@@ -16,6 +16,8 @@ import urllib.parse
 import urllib.request
 import subprocess
 import threading
+import signal
+import hmac
 from collections import deque
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from socketserver import ThreadingMixIn
@@ -82,6 +84,150 @@ class CpuTelemetry:
 
 
 CPU_TELEMETRY = CpuTelemetry()
+
+# Only known application entrypoints are eligible; never match arbitrary argv text.
+APPLICATIONS = [
+    ("Agente ARM", "comunicacao/arm-agent/casa-node-agent.py", "/opt/casa-node-agent/casa-node-agent.py"),
+    ("Portal do cluster", "site/server.py", "/opt/casa/site/server.py"),
+    ("Agendador", "automacao/casa-scheduler/casa-scheduler.py", "/opt/casa-scheduler/casa-scheduler.py"),
+    ("Google Home", "voz/google-home-agent/google_home_agent.py", "/home/mmm/servicos/google-home-agent/google_home_agent.py"),
+    ("Voz TTS", "voz/tts/server_tts.py", "/home/mmm/servicos/tts/server_tts.py"),
+    ("Visão ESPCam", "visao/espcam/processa_imagem.py", "/opt/casa/espcam/processa_imagem.py"),
+    ("Análise de cena", "visao/espcam/analisa_cena_ia.py", "/opt/casa/espcam/analisa_cena_ia.py"),
+    ("Avatar", "visao/raspberrypi-avatar-agent/meta-casa-avatar/recipes-casa/casa-avatar/files/casa_avatar.py", "/opt/casa-avatar/casa_avatar.py"),
+    ("Pesquisa web", "pesquisa/web-agent/web_agent.py", "/opt/jarvis-web-agent/web_agent.py"),
+    ("Túnel", "infraestrutura/casa-tunnel/casa-tunnel.py", "/opt/casa-tunnel/casa-tunnel.py"),
+    ("RunPod", "infraestrutura/runpod-agent/casa-runpod-agent.py", "/opt/casa/servicos/runpod-agent/casa-runpod-agent.py"),
+    ("Agente SSH", "infraestrutura/casa-ssh-agent/casa-ssh-agent.py", "/opt/casa/ssh-agent/casa-ssh-agent.py"),
+    ("Atualizador", "infraestrutura/casa-cluster-update/casa-cluster-update.py", "/opt/casa/cluster-update/casa-cluster-update.py"),
+]
+
+
+class ApplicationProcesses:
+    def __init__(self, proc_root="/proc"):
+        self.proc_root = proc_root
+        self.lock = threading.Lock()
+        self.samples = {}
+        self.allowed = {}
+        cluster_root = os.path.dirname(BASE_DIR)
+        for name, relative, installed in APPLICATIONS:
+            for path in (installed, os.path.join(cluster_root, relative)):
+                self.allowed[os.path.realpath(path)] = name
+        self.allowed[os.path.realpath(__file__)] = "Portal do cluster"
+
+    def read(self, pid):
+        directory = os.path.join(self.proc_root, str(pid))
+        with open(os.path.join(directory, "cmdline"), "rb") as handle:
+            args = [part.decode("utf-8", "replace") for part in handle.read(65536).split(b"\0") if part]
+        executable = os.path.basename(os.readlink(os.path.join(directory, "exe")))
+        if not executable.startswith("python") or len(args) < 2:
+            return None
+        script_index = 1
+        while script_index < len(args) and args[script_index] in ("-u", "-B", "-E", "-s", "-S", "-I", "-O", "-OO"):
+            script_index += 1
+        if script_index >= len(args) or args[script_index].startswith("-"):
+            return None
+        script = args[script_index]
+        if not os.path.isabs(script):
+            script = os.path.join(os.readlink(os.path.join(directory, "cwd")), script)
+        name = self.allowed.get(os.path.realpath(script))
+        if not name:
+            return None
+        with open(os.path.join(directory, "stat"), "r") as handle:
+            # comm can contain spaces and parentheses; fields after its closing ')'.
+            fields = handle.read().rsplit(")", 1)[1].split()
+        start_time = fields[19]
+        ticks = int(fields[11]) + int(fields[12])
+        rss_mb = max(0, int(fields[21])) * os.sysconf("SC_PAGE_SIZE") / (1024.0 * 1024.0)
+        uid = os.stat(directory).st_uid
+        try:
+            import pwd
+            user = pwd.getpwuid(uid).pw_name
+        except (ImportError, KeyError):
+            user = str(uid)
+        protected = pid in (1, os.getpid()) or name in ("Portal do cluster", "Atualizador")
+        return {
+            "pid": pid, "start_time": start_time, "name": name,
+            "user": user, "state": fields[0], "memory_mb": round(rss_mb, 1),
+            "can_terminate": not protected and fields[0] not in ("Z", "X"),
+            "protected": protected, "ticks": ticks,
+        }
+
+    def snapshot(self):
+        if not os.path.isdir(self.proc_root):
+            raise OSError("Lista de processos disponível somente em nós Linux")
+        now = time.monotonic()
+        clock_ticks = os.sysconf("SC_CLK_TCK")
+        cores = os.cpu_count() or 1
+        rows = []
+        with self.lock:
+            new_samples = {}
+            for entry in os.listdir(self.proc_root):
+                if not entry.isdigit():
+                    continue
+                try:
+                    row = self.read(int(entry))
+                    if not row:
+                        continue
+                    key = (row["pid"], row["start_time"])
+                    ticks = row.pop("ticks")
+                    previous = self.samples.get(key)
+                    row["cpu_pct"] = None
+                    if previous and now - previous[0] >= 0.5:
+                        delta = ticks - previous[1]
+                        if delta >= 0:
+                            row["cpu_pct"] = round(min(100.0, 100.0 * delta / clock_ticks / (now - previous[0]) / cores), 1)
+                        new_samples[key] = (now, ticks, row["cpu_pct"])
+                    elif previous:
+                        row["cpu_pct"] = previous[2]
+                        new_samples[key] = previous
+                    else:
+                        new_samples[key] = (now, ticks, None)
+                    rows.append(row)
+                except (OSError, ValueError, IndexError):
+                    # Processes may exit or become unreadable during enumeration.
+                    continue
+            self.samples = new_samples
+        return sorted(rows, key=lambda row: (row["name"], row["pid"]))
+
+    def terminate(self, pid, start_time):
+        descriptor = None
+        try:
+            # pidfd binds the signal to a process instance on newer Linux/Python.
+            if hasattr(os, "pidfd_open") and hasattr(signal, "pidfd_send_signal"):
+                try:
+                    descriptor = os.pidfd_open(pid, 0)
+                except OSError as error:
+                    if error.errno not in (22, 38):  # EINVAL/ENOSYS: old kernel.
+                        raise
+            current = self.read(pid)
+            if not current or current["start_time"] != start_time:
+                return {"pid": pid, "ok": False, "message": "Processo mudou ou não pertence à aplicação. Atualize a lista."}
+            if not current["can_terminate"]:
+                return {"pid": pid, "ok": False, "message": "Processo protegido ou já encerrado."}
+            if descriptor is not None:
+                signal.pidfd_send_signal(descriptor, signal.SIGTERM)
+            else:
+                # Legacy ARM kernels lack pidfd: revalidate immediately before kill.
+                check = self.read(pid)
+                if not check or check["start_time"] != start_time or not check["can_terminate"]:
+                    return {"pid": pid, "ok": False, "message": "Processo mudou. Atualize a lista."}
+                os.kill(pid, signal.SIGTERM)
+            return {"pid": pid, "ok": True, "message": "Encerramento solicitado (SIGTERM)."}
+        except PermissionError:
+            return {"pid": pid, "ok": False, "message": "O portal não tem permissão para encerrar este processo."}
+        except (OSError, ValueError, IndexError):
+            return {"pid": pid, "ok": False, "message": "Processo indisponível. Atualize a lista."}
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+
+
+APPLICATION_PROCESSES = ApplicationProcesses()
+
+
+def process_admin_token():
+    return os.environ.get("CLUSTER_SITE_ADMIN_TOKEN", "").strip() or get_env_map().get("CLUSTER_SITE_ADMIN_TOKEN", "").strip()
 
 
 class ClusterHTTPServer(ThreadingMixIn, HTTPServer):
@@ -298,7 +444,8 @@ class ClusterSiteHandler(SimpleHTTPRequestHandler):
         return cur
 
     def end_headers(self):
-        self.send_header("Access-Control-Allow-Origin", "*")
+        if not urllib.parse.urlparse(self.path).path.startswith("/api/processes"):
+            self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         super().end_headers()
@@ -315,6 +462,12 @@ class ClusterSiteHandler(SimpleHTTPRequestHandler):
             self.handle_telemetry()
         elif path == "/api/cpu":
             self.send_json({"cpu": CPU_TELEMETRY.snapshot()})
+        elif path == "/api/processes":
+            try:
+                self.send_json({"processes": APPLICATION_PROCESSES.snapshot(), "timestamp": time.time(),
+                                "termination_enabled": bool(process_admin_token())})
+            except OSError:
+                self.send_json({"error": "Não foi possível consultar os processos deste nó Linux."}, code=503)
         elif path == "/api/heartbeat":
             self.handle_heartbeat()
         elif path == "/api/cluster/update" or path == "/api/cluster/update/status":
@@ -332,6 +485,8 @@ class ClusterSiteHandler(SimpleHTTPRequestHandler):
             self.handle_heartbeat()
         elif path == "/api/cluster/update":
             self.handle_cluster_update_trigger()
+        elif path == "/api/processes/terminate":
+            self.handle_process_termination()
         else:
             self.send_error(404, "Endpoint not found")
 
@@ -343,6 +498,44 @@ class ClusterSiteHandler(SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def handle_process_termination(self):
+        expected = process_admin_token()
+        if not expected:
+            self.send_json({"error": "Configure CLUSTER_SITE_ADMIN_TOKEN no nó para habilitar o encerramento."}, code=503)
+            return
+        supplied = self.headers.get("Authorization", "")
+        if not hmac.compare_digest(supplied.encode("utf-8"), ("Bearer " + expected).encode("utf-8")):
+            self.send_json({"error": "Token administrativo inválido."}, code=401)
+            return
+        origin = self.headers.get("Origin")
+        if origin:
+            parsed = urllib.parse.urlparse(origin)
+            if parsed.scheme not in ("http", "https") or parsed.netloc != self.headers.get("Host"):
+                self.send_json({"error": "Origem não permitida."}, code=403)
+                return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if not 0 < length <= 8192 or self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
+                raise ValueError()
+            data = json.loads(self.rfile.read(length).decode("utf-8"))
+            selections = data.get("processes") if isinstance(data, dict) else None
+            if not isinstance(selections, list) or not 1 <= len(selections) <= 20:
+                raise ValueError()
+            seen = set()
+            for item in selections:
+                if not isinstance(item, dict) or type(item.get("pid")) is not int or not 1 < item["pid"] <= 4194304:
+                    raise ValueError()
+                if not isinstance(item.get("start_time"), str) or not item["start_time"].isdigit() or len(item["start_time"]) > 24 or item["pid"] in seen:
+                    raise ValueError()
+                seen.add(item["pid"])
+        except (ValueError, UnicodeError):
+            self.send_json({"error": "Selecione de 1 a 20 processos válidos da lista atual."}, code=400)
+            return
+        results = [APPLICATION_PROCESSES.terminate(item["pid"], item["start_time"]) for item in selections]
+        for result in results:
+            self.log_message("process termination pid=%s ok=%s", result["pid"], result["ok"])
+        self.send_json({"results": results})
 
     def handle_telemetry(self):
         env = get_env_map()

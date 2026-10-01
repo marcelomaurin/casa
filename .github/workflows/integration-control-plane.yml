@@ -65,6 +65,11 @@ jobs:
           python3 clusters/site/tests/test_cpu_telemetry.py
           node .github/tests/test_cluster_cpu_ui.js
 
+      - name: Validate application process controls
+        run: |
+          python3 clusters/site/tests/test_processes.py
+          node .github/tests/test_cluster_processes_ui.js
+
       - name: Enforce API v1 on external clients
         run: python3 .github/tests/test_api_v1_clients.py
 
