@@ -37,7 +37,55 @@ if ($action === 'status') {
 }
 
 if ($action === 'presence') {
-    family_presence($pdo,(int)$channel['id'],$clientName,$input['platform'] ?? 'mobile',$input['device'] ?? null,$input['metadata'] ?? []);
+    $platform = strtolower((string)($input['platform'] ?? 'mobile'));
+    $device = $input['device'] ?? null;
+    $meta = is_array($input['metadata'] ?? null) ? $input['metadata'] : [];
+
+    family_presence($pdo, (int)$channel['id'], $clientName, $platform, $device, $meta);
+
+    // Se o envio veio do celular com dados de telemetria (bateria, wifi, modelo)
+    if ($platform === 'mobile' && (isset($meta['battery']) || isset($meta['wifi']) || isset($meta['wifi_ssid']))) {
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS mobile_telemetria (
+              id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+              cliente VARCHAR(120) NOT NULL,
+              dispositivo VARCHAR(120) NULL,
+              modelo VARCHAR(120) NULL,
+              fabricante VARCHAR(80) NULL,
+              bateria_pct INT NULL,
+              carregando TINYINT(1) NOT NULL DEFAULT 0,
+              tipo_rede VARCHAR(40) NULL,
+              wifi_ssid VARCHAR(120) NULL,
+              rssi_wifi INT NULL,
+              ip_local VARCHAR(60) NULL,
+              ip_publico VARCHAR(60) NULL,
+              dados JSON NULL,
+              data_hora TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              PRIMARY KEY (id),
+              KEY idx_mob_tel_cliente_data (cliente, data_hora),
+              KEY idx_mob_tel_data (data_hora)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+            $stmt = $pdo->prepare("INSERT INTO mobile_telemetria
+                (cliente, dispositivo, modelo, fabricante, bateria_pct, carregando, tipo_rede, wifi_ssid, rssi_wifi, ip_local, ip_publico, dados)
+                VALUES(:c, :d, :m, :f, :b, :cg, :nr, :ws, :rw, :lip, :pip, :j)");
+            $stmt->execute([
+                ':c' => $clientName,
+                ':d' => $device ? substr((string)$device, 0, 120) : 'JARVIS Mobile',
+                ':m' => isset($meta['model']) ? substr((string)$meta['model'], 0, 120) : null,
+                ':f' => isset($meta['manufacturer']) ? substr((string)$meta['manufacturer'], 0, 80) : null,
+                ':b' => isset($meta['battery']) ? (int)$meta['battery'] : null,
+                ':cg' => !empty($meta['charging']) ? 1 : 0,
+                ':nr' => substr((string)($meta['network_type'] ?? (!empty($meta['wifi']) ? 'wifi' : 'cellular')), 0, 40),
+                ':ws' => isset($meta['wifi_ssid']) ? substr((string)$meta['wifi_ssid'], 0, 120) : null,
+                ':rw' => isset($meta['rssi']) ? (int)$meta['rssi'] : null,
+                ':lip' => isset($meta['local_ip']) ? substr((string)$meta['local_ip'], 0, 60) : null,
+                ':pip' => api_v1_client_ip(),
+                ':j' => json_encode($meta, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES)
+            ]);
+        } catch (Throwable $e) {}
+    }
+
     echo json_encode(['status'=>'ok','server_time'=>date('c')]); exit;
 }
 

@@ -20,6 +20,32 @@ $pdo = get_db_pdo();
 api_v1_basic_guard($pdo);
 family_ensure_schema($pdo);
 
+function mobile_ensure_schema(PDO $pdo): void {
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS mobile_telemetria (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          cliente VARCHAR(120) NOT NULL,
+          dispositivo VARCHAR(120) NULL,
+          modelo VARCHAR(120) NULL,
+          fabricante VARCHAR(80) NULL,
+          bateria_pct INT NULL,
+          carregando TINYINT(1) NOT NULL DEFAULT 0,
+          tipo_rede VARCHAR(40) NULL,
+          wifi_ssid VARCHAR(120) NULL,
+          rssi_wifi INT NULL,
+          ip_local VARCHAR(60) NULL,
+          ip_publico VARCHAR(60) NULL,
+          dados JSON NULL,
+          data_hora TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          KEY idx_mob_tel_cliente_data (cliente, data_hora),
+          KEY idx_mob_tel_data (data_hora)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    } catch (Throwable $e) {}
+}
+
+mobile_ensure_schema($pdo);
+
 function mobile_v1_json_input() {
     $raw = file_get_contents('php://input');
     if (!$raw) return [];
@@ -28,7 +54,7 @@ function mobile_v1_json_input() {
 }
 
 $acao = $_GET['acao'] ?? 'status';
-$readActions = ['notificacoes','status','watch_status'];
+$readActions = ['notificacoes','status','watch_status','mobile_status'];
 $client = api_v1_auth_client_any($pdo, in_array($acao,$readActions,true)
     ? ['mobile.read','family.read']
     : ['mobile.write','family.write']);
@@ -75,17 +101,87 @@ if ($acao === 'status') {
     exit;
 }
 
-if ($acao === 'presence') {
-    $channel=family_channel($pdo,$in['channel'] ?? 'familia');
-    $metadata=is_array($in['metadata'] ?? null)?$in['metadata']:[];
-    family_presence($pdo,(int)$channel['id'],$client['nome'],'mobile',$in['device'] ?? 'JARVIS Mobile',$metadata);
-    if ($deviceId) {
-        try {
-            $stmt=$pdo->prepare("UPDATE dispositivos_cluster SET status='online',metadata=:m,ultimo_heartbeat=NOW() WHERE id=:id");
-            $stmt->execute([':m'=>json_encode($metadata,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES),':id'=>$deviceId]);
-        } catch (Throwable $e) {}
-    }
+if ($acao === 'presence' || $acao === 'telemetry') {
+    $channel = family_channel($pdo, $in['channel'] ?? 'familia');
+    $metadata = is_array($in['metadata'] ?? null) ? $in['metadata'] : (is_array($in['data'] ?? null) ? $in['data'] : []);
+    $deviceLabel = $in['device'] ?? ($in['modelo'] ?? 'JARVIS Mobile');
+    $model = $in['model'] ?? ($in['modelo'] ?? ($metadata['model'] ?? ($metadata['modelo'] ?? null)));
+    $manufacturer = $in['manufacturer'] ?? ($in['fabricante'] ?? ($metadata['manufacturer'] ?? ($metadata['fabricante'] ?? null)));
+    $batt = isset($in['battery']) ? (int)$in['battery'] : (isset($metadata['battery']) ? (int)$metadata['battery'] : null);
+    $charging = !empty($in['charging']) || !empty($metadata['charging']) ? 1 : 0;
+    $wifiSsid = $in['wifi_ssid'] ?? ($metadata['wifi_ssid'] ?? ($metadata['ssid'] ?? null));
+    $rssiWifi = isset($in['rssi']) ? (int)$in['rssi'] : (isset($metadata['rssi']) ? (int)$metadata['rssi'] : null);
+    $netType = $in['network_type'] ?? ($metadata['network_type'] ?? (!empty($metadata['wifi']) ? 'wifi' : 'cellular'));
+    $localIp = $in['local_ip'] ?? ($metadata['local_ip'] ?? null);
+    $pubIp = api_v1_client_ip();
+
+    // Persistir em mobile_telemetria
+    try {
+        $stmt = $pdo->prepare("INSERT INTO mobile_telemetria
+            (cliente, dispositivo, modelo, fabricante, bateria_pct, carregando, tipo_rede, wifi_ssid, rssi_wifi, ip_local, ip_publico, dados)
+            VALUES(:c, :d, :m, :f, :b, :cg, :nr, :ws, :rw, :lip, :pip, :j)");
+        $stmt->execute([
+            ':c' => $client['nome'],
+            ':d' => substr((string)$deviceLabel, 0, 120),
+            ':m' => $model ? substr((string)$model, 0, 120) : null,
+            ':f' => $manufacturer ? substr((string)$manufacturer, 0, 80) : null,
+            ':b' => $batt,
+            ':cg' => $charging,
+            ':nr' => substr((string)$netType, 0, 40),
+            ':ws' => $wifiSsid ? substr((string)$wifiSsid, 0, 120) : null,
+            ':rw' => $rssiWifi,
+            ':lip' => $localIp ? substr((string)$localIp, 0, 60) : null,
+            ':pip' => $pubIp ? substr((string)$pubIp, 0, 60) : null,
+            ':j' => json_encode(array_merge($metadata, ['server_received' => date('c')]), JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES)
+        ]);
+    } catch (Throwable $eTel) {}
+
+    // Persistir presenca na familia
+    $fullMeta = array_merge($metadata, [
+        'battery' => $batt,
+        'charging' => $charging,
+        'wifi_ssid' => $wifiSsid,
+        'rssi' => $rssiWifi,
+        'network_type' => $netType,
+        'model' => $model,
+        'local_ip' => $localIp
+    ]);
+    family_presence($pdo, (int)$channel['id'], $client['nome'], 'mobile', $deviceLabel, $fullMeta);
+
+    // Atualizar dispositivos_cluster
+    try {
+        if ($deviceId) {
+            $stmt = $pdo->prepare("UPDATE dispositivos_cluster SET
+                status='online',
+                ultimo_heartbeat=NOW(),
+                battery_pct=COALESCE(:b, battery_pct),
+                sinal_rssi=COALESCE(:r, sinal_rssi),
+                ip_address=COALESCE(:ip, ip_address),
+                metadata=:m
+                WHERE id=:id");
+            $stmt->execute([
+                ':b' => $batt,
+                ':r' => $rssiWifi,
+                ':ip' => $localIp,
+                ':m' => json_encode($fullMeta, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES),
+                ':id' => $deviceId
+            ]);
+        }
+    } catch (Throwable $e) {}
+
     echo json_encode(['status'=>'ok','server_time'=>date('c')]); exit;
+}
+
+
+if ($acao === 'mobile_status') {
+    try {
+        $stmt = $pdo->query("SELECT cliente, dispositivo, modelo, fabricante, bateria_pct, carregando, tipo_rede, wifi_ssid, rssi_wifi, ip_local, data_hora
+            FROM mobile_telemetria ORDER BY id DESC LIMIT 1");
+        $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        echo json_encode(['status'=>'ok','mobile'=>$row], JSON_UNESCAPED_UNICODE); exit;
+    } catch (Throwable $e) {
+        echo json_encode(['status'=>'ok','mobile'=>null]); exit;
+    }
 }
 
 if ($acao === 'watch_status') {

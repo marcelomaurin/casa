@@ -437,13 +437,16 @@ class JarvisConnectionService : Service(), WatchClient.Listener, WatchEventProce
                         watchOnlineCount = watches.count { it.online }
 
                         runCatching {
+                            val telemetry = MobileTelemetry.collect(
+                                this@JarvisConnectionService,
+                                watchOnlineCount,
+                                watches.size
+                            )
+                            val deviceName = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}".trim()
                             FamilyApi.presence(
                                 this@JarvisConnectionService,
-                                "Casa Mobile",
-                                JSONObject()
-                                    .put("watch_online_count", watchOnlineCount)
-                                    .put("watch_registered_count", watches.size)
-                                    .put("wifi", networkMonitor.snapshot.wifi)
+                                if (deviceName.isNotBlank()) deviceName else "Casa Mobile",
+                                telemetry
                             )
                         }
 

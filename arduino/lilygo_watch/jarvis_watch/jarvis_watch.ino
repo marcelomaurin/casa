@@ -83,7 +83,7 @@ unsigned long lastCasaCommandPoll=0;
 unsigned long lastCasaHeartbeat=0;
 unsigned long lastCasaTelemetry=0;
 static const unsigned long CASA_HEARTBEAT_INTERVAL_MS=30000UL;
-static const unsigned long CASA_TELEMETRY_INTERVAL_MS=60000UL;
+static const unsigned long CASA_TELEMETRY_INTERVAL_MS=30000UL;
 
 static const uint16_t C_BG=0xFFDF,C_TEXT=0x18C3,C_ORANGE=0xFBE0,C_SALMON=0xFB2C;
 static const uint16_t C_LAV=0xB57F,C_BLUE=0x5D7F,C_GREEN=0x6E6B,C_RED=0xF9E7,C_GOLD=0xFE60,C_WHITE=0xFFFF;
@@ -1477,6 +1477,11 @@ void loop(){
     bool casaNow=jarvisWifiCasaOnline();
     bool casaCheckedNow=jarvisWifiCasaChecked();
     if(wifiNow!=lastWifiUiState||casaNow!=lastCasaUiState||casaCheckedNow!=lastCasaCheckedUiState){
+      if(wifiNow && !lastWifiUiState){
+        // Disparar telemetria e heartbeat imediatamente apos conectar
+        lastCasaHeartbeat = 0;
+        lastCasaTelemetry = 0;
+      }
       lastWifiUiState=wifiNow;
       lastCasaUiState=casaNow;
       lastCasaCheckedUiState=casaCheckedNow;

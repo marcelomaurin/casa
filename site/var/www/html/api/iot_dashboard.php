@@ -157,6 +157,16 @@ if ($method === 'GET') {
             }
         } catch (Throwable $e) {}
 
+        $latestWatch = null;
+        try {
+            $latestWatch = $pdo->query("SELECT bateria_pct, passos, wifi_ssid, modo_energia, data_hora FROM watch_telemetria ORDER BY id DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC) ?: null;
+        } catch (Throwable $e) {}
+
+        $latestMobile = null;
+        try {
+            $latestMobile = $pdo->query("SELECT modelo, bateria_pct, carregando, tipo_rede, wifi_ssid, data_hora FROM mobile_telemetria ORDER BY id DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC) ?: null;
+        } catch (Throwable $e) {}
+
         $summary = [
             'total_devices' => count($devices),
             'online_devices' => $onlineDevices,
@@ -167,6 +177,8 @@ if ($method === 'GET') {
             'humidity_pct' => $bestHum,
             'mobiles_online' => $mobilesOnline,
             'watch_online' => $watchOnline,
+            'watch_telemetry' => $latestWatch,
+            'mobile_telemetry' => $latestMobile,
             'system_status' => 'ONLINE'
         ];
 

@@ -142,27 +142,57 @@ if ($action === 'presence') {
 
 if ($action === 'telemetry') {
     $dados = is_array($input['data'] ?? null) ? $input['data'] : [];
+    $rawDevId = (string)($dados['device_id'] ?? ($input['device_id'] ?? ($client['device_id'] !== 'master' ? $client['device_id'] : '')));
+    $batt = isset($input['battery']) ? (int)$input['battery'] : null;
+    $steps = isset($input['steps']) ? (int)$input['steps'] : null;
+    $rssiWifi = isset($input['rssi_wifi']) ? (int)$input['rssi_wifi'] : (isset($input['rssi']) ? (int)$input['rssi'] : null);
+    $wifiSsid = substr((string)($input['wifi_ssid'] ?? ''), 0, 120) ?: null;
+
     try {
-        $stmt=$pdo->prepare("INSERT INTO watch_telemetria
+        $stmt = $pdo->prepare("INSERT INTO watch_telemetria
             (cliente,bateria_pct,passos,rssi_ble,rssi_wifi,wifi_ssid,transporte,minutos_sem_movimento,modo_energia,alerta_ativo,dados)
             VALUES(:c,:b,:p,:rb,:rw,:s,:t,:m,:e,:a,:d)");
         $stmt->execute([
-            ':c'=>$clientName,
-            ':b'=>isset($input['battery'])?(int)$input['battery']:null,
-            ':p'=>isset($input['steps'])?(int)$input['steps']:null,
-            ':rb'=>isset($input['rssi_ble'])?(int)$input['rssi_ble']:null,
-            ':rw'=>isset($input['rssi_wifi'])?(int)$input['rssi_wifi']:null,
-            ':s'=>substr((string)($input['wifi_ssid'] ?? ''),0,120) ?: null,
-            ':t'=>substr((string)($input['transport'] ?? ''),0,20) ?: null,
-            ':m'=>isset($input['minutes_without_movement'])?(int)$input['minutes_without_movement']:null,
-            ':e'=>substr((string)($input['power_mode'] ?? ''),0,20) ?: null,
-            ':a'=>!empty($input['alert_active'])?1:0,
-            ':d'=>json_encode($dados,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES)
+            ':c' => $clientName,
+            ':b' => $batt,
+            ':p' => $steps,
+            ':rb' => isset($input['rssi_ble']) ? (int)$input['rssi_ble'] : null,
+            ':rw' => $rssiWifi,
+            ':s' => $wifiSsid,
+            ':t' => substr((string)($input['transport'] ?? 'wifi'), 0, 20) ?: 'wifi',
+            ':m' => isset($input['minutes_without_movement']) ? (int)$input['minutes_without_movement'] : null,
+            ':e' => substr((string)($input['power_mode'] ?? ''), 0, 20) ?: null,
+            ':a' => !empty($input['alert_active']) ? 1 : 0,
+            ':d' => json_encode($dados, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES)
         ]);
-        api_v1_log($pdo,'WATCH_TELEMETRY','INFO',$clientName,['transport'=>$input['transport'] ?? null]);
-        echo json_encode(['status'=>'ok','id'=>(int)$pdo->lastInsertId()]);
+
+        // Registrar presenca no canal da familia para visibilidade imediata
+        try {
+            $channel = family_channel($pdo, 'familia');
+            $meta = array_merge($dados, [
+                'battery' => $batt,
+                'steps' => $steps,
+                'wifi_ssid' => $wifiSsid,
+                'rssi' => $rssiWifi,
+                'transport' => $input['transport'] ?? 'wifi'
+            ]);
+            family_presence($pdo, (int)$channel['id'], $clientName, 'watch', $rawDevId ?: 'JARVIS Watch', $meta);
+        } catch (Throwable $ePresence) {}
+
+        // Atualizar dispositivos_cluster
+        try {
+            if ($deviceId) {
+                $up = $pdo->prepare("UPDATE dispositivos_cluster SET status='online', battery_pct=COALESCE(:b, battery_pct), sinal_rssi=COALESCE(:r, sinal_rssi), ultimo_heartbeat=NOW(), metadata=:meta WHERE id=:id");
+                $up->execute([':b' => $batt, ':r' => $rssiWifi, ':meta' => json_encode($dados, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES), ':id' => $deviceId]);
+            } elseif (!empty($rawDevId)) {
+                $up = $pdo->prepare("UPDATE dispositivos_cluster SET status='online', battery_pct=COALESCE(:b, battery_pct), sinal_rssi=COALESCE(:r, sinal_rssi), ultimo_heartbeat=NOW(), metadata=:meta WHERE device_id=:d OR nome=:d");
+                $up->execute([':b' => $batt, ':r' => $rssiWifi, ':meta' => json_encode($dados, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES), ':d' => $rawDevId]);
+            }
+        } catch (Throwable $eCluster) {}
+
+        echo json_encode(['status'=>'ok','server_time'=>date('c')]);
     } catch (Throwable $e) {
-        api_v1_json_response(500,['status'=>'erro','mensagem'=>'Falha ao registrar telemetria do relógio']);
+        api_v1_json_response(500,['status'=>'erro','mensagem'=>'Falha ao salvar telemetria']);
     }
     exit;
 }

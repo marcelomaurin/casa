@@ -118,7 +118,61 @@ try {
     $presence=$stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch(Throwable $e){}
 
-try { $watch=$pdo->query("SELECT * FROM watch_telemetria ORDER BY id DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC) ?: null; } catch(Throwable $e){}
+
+$watch = null;
+try { $watch = $pdo->query("SELECT * FROM watch_telemetria ORDER BY id DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC) ?: null; } catch(Throwable $e){}
+try {
+    $wDev = $pdo->query("SELECT * FROM dispositivos_cluster WHERE tipo='watch' OR model LIKE '%Watch%' OR device_id LIKE 'watch%' ORDER BY ultimo_heartbeat DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+    if ($wDev) {
+        if (!$watch) {
+            $m = json_decode($wDev['metadata'] ?? '{}', true) ?: [];
+            $watch = [
+                'cliente' => $wDev['nome'],
+                'bateria_pct' => $wDev['battery_pct'],
+                'passos' => $m['steps'] ?? 0,
+                'rssi_ble' => null,
+                'rssi_wifi' => $wDev['sinal_rssi'],
+                'wifi_ssid' => $m['wifi_ssid'] ?? null,
+                'transporte' => $wDev['transport'] ?: 'wifi',
+                'minutos_sem_movimento' => 0,
+                'modo_energia' => $m['power_mode'] ?? 'NORMAL',
+                'alerta_ativo' => 0,
+                'dados' => $wDev['metadata'],
+                'data_hora' => $wDev['ultimo_heartbeat']
+            ];
+        } elseif (empty($watch['bateria_pct']) && !empty($wDev['battery_pct'])) {
+            $watch['bateria_pct'] = $wDev['battery_pct'];
+        }
+    }
+} catch(Throwable $e){}
+
+$mobile = null;
+try { $mobile = $pdo->query("SELECT * FROM mobile_telemetria ORDER BY id DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC) ?: null; } catch(Throwable $e){}
+try {
+    $mPres = $pdo->query("SELECT * FROM family_presence WHERE plataforma='mobile' ORDER BY ultimo_ping DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+    if ($mPres) {
+        $meta = json_decode($mPres['metadata'] ?? '{}', true) ?: [];
+        if (!$mobile || (strtotime($mPres['ultimo_ping']) > strtotime($mobile['data_hora'] ?? '2000-01-01'))) {
+            $mobile = [
+                'cliente' => $mPres['cliente'],
+                'dispositivo' => $mPres['dispositivo'] ?: 'Casa Mobile',
+                'modelo' => $meta['model'] ?? ($meta['modelo'] ?? ($mPres['dispositivo'] ?: 'Android')),
+                'fabricante' => $meta['manufacturer'] ?? ($meta['fabricante'] ?? null),
+                'bateria_pct' => isset($meta['battery']) ? (int)$meta['battery'] : ($mobile['bateria_pct'] ?? null),
+                'carregando' => !empty($meta['charging']) ? 1 : ($mobile['carregando'] ?? 0),
+                'tipo_rede' => $meta['network_type'] ?? (!empty($meta['wifi']) ? 'Wi-Fi' : 'Celular'),
+                'wifi_ssid' => $meta['wifi_ssid'] ?? ($meta['ssid'] ?? ($mobile['wifi_ssid'] ?? null)),
+                'rssi_wifi' => $meta['rssi'] ?? ($mobile['rssi_wifi'] ?? null),
+                'ip_local' => $meta['local_ip'] ?? ($mobile['ip_local'] ?? null),
+                'ip_publico' => $mobile['ip_publico'] ?? null,
+                'watch_online_count' => $meta['watch_online_count'] ?? 0,
+                'dados' => $mPres['metadata'],
+                'data_hora' => $mPres['ultimo_ping']
+            ];
+        }
+    }
+} catch(Throwable $e){}
+
 try {
     $cols = $pdo->query("SHOW COLUMNS FROM assistencia_eventos")->fetchAll(PDO::FETCH_COLUMN);
     $pCol = in_array('pessoa_ref', $cols, true) ? 'pessoa_ref' : (in_array('pessoa', $cols, true) ? 'pessoa' : "''");
@@ -173,6 +227,17 @@ function ageText($date){ if(!$date)return '--'; $s=time()-strtotime($date); if($
     .pair-status{text-align:center;font-weight:800;padding:8px;border-radius:10px;margin-top:8px}
     .pair-status.waiting{background:#fff3c4}.pair-status.paired{background:#c8f0cf}.pair-status.expired{background:#ffd9d3}
     .small{font-size:.82rem;color:#5b5560}
+
+    .gauge-bar{height:10px;background:#e5e7eb;border-radius:999px;overflow:hidden;margin:4px 0 8px}
+    .gauge-fill{height:100%;transition:width 0.4s ease}
+    .gauge-green{background:#10b981}
+    .gauge-yellow{background:#f59e0b}
+    .gauge-red{background:#ef4444}
+    .pulse-dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:#10b981;margin-right:6px;box-shadow:0 0 0 0 rgba(16,185,129,0.7);animation:pulse 2s infinite}
+    @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(16,185,129,0.7)}70%{box-shadow:0 0 0 8px rgba(16,185,129,0)}100%{box-shadow:0 0 0 0 rgba(16,185,129,0)}}
+    .pulse-dot.off{background:#9ca3af;animation:none;box-shadow:none}
+    .stat-val{font-size:1.4rem;font-weight:900;color:#1e1b4b}
+
   </style>
 </head>
 <body>
@@ -281,6 +346,68 @@ function ageText($date){ if(!$date)return '--'; $s=time()-strtotime($date); if($
         <?php endif;?>
       </div>
     </div>
+
+    
+      <!-- Telemetria Celular -->
+      <div class="card green" id="card-telemetria-celular">
+        <h2><span class="pulse-dot <?= (!empty($mobile['data_hora']) && (time()-strtotime($mobile['data_hora'])<=90)) ? '' : 'off' ?>" id="cel-pulse"></span>📱 Telemetria Celular (Casa Mobile)</h2>
+        <?php if(!$mobile):?>
+          <p id="cel-waiting">Aguardando telemetria do celular via aplicativo <b>Casa Mobile</b>.</p>
+        <?php else:
+          $mbPct = isset($mobile['bateria_pct']) ? max(0, min(100, (int)$mobile['bateria_pct'])) : null;
+          $mbClass = ($mbPct !== null && $mbPct >= 50) ? 'gauge-green' : (($mbPct !== null && $mbPct >= 20) ? 'gauge-yellow' : 'gauge-red');
+          $mbOnline = !empty($mobile['data_hora']) && (time() - strtotime($mobile['data_hora']) <= 90);
+        ?>
+          <div id="cel-content">
+            <table style="margin-top:6px;">
+              <tr>
+                <td style="width:40%;">Bateria</td>
+                <td>
+                  <?php if($mbPct !== null): ?>
+                    <span class="stat-val" id="cel-batt-val"><?=h($mbPct)?>%</span>
+                    <?= !empty($mobile['carregando']) ? ' <span title="Carregando na tomada">⚡ Carregando</span>' : '' ?>
+                    <div class="gauge-bar"><div id="cel-batt-bar" class="gauge-fill <?=$mbClass?>" style="width:<?=$mbPct?>%;"></div></div>
+                  <?php else: ?>
+                    <span id="cel-batt-val">--</span>
+                  <?php endif; ?>
+                </td>
+              </tr>
+              <tr>
+                <td>Conexão / Rede</td>
+                <td id="cel-net-val">
+                  <b><?=h(strtoupper($mobile['tipo_rede'] ?: 'Wi-Fi'))?></b>
+                  <?php if(!empty($mobile['wifi_ssid'])): ?>
+                    · <?=h($mobile['wifi_ssid'])?>
+                  <?php endif; ?>
+                  <?php if(isset($mobile['rssi_wifi']) && $mobile['rssi_wifi'] !== null): ?>
+                    <span class="small">(<?=h($mobile['rssi_wifi'])?> dBm)</span>
+                  <?php endif; ?>
+                </td>
+              </tr>
+              <?php if(!empty($mobile['ip_local'])): ?>
+                <tr><td>IP Local</td><td id="cel-ip-val"><code><?=h($mobile['ip_local'])?></code></td></tr>
+              <?php endif; ?>
+              <tr>
+                <td>Aparelho</td>
+                <td id="cel-device-val">
+                  <b><?=h($mobile['modelo'] ?: ($mobile['dispositivo'] ?: 'Casa Mobile'))?></b>
+                  <?php if(!empty($mobile['fabricante'])): ?> <span class="small">(<?=h($mobile['fabricante'])?>)</span><?php endif; ?>
+                </td>
+              </tr>
+              <?php if(isset($mobile['watch_online_count'])): ?>
+                <tr><td>Watches Pareados</td><td id="cel-watches-val"><?= (int)$mobile['watch_online_count'] ?> relógio(s) conectado(s) via app</td></tr>
+              <?php endif; ?>
+              <tr>
+                <td>Status do Link</td>
+                <td id="cel-status-val">
+                  <span class="pill <?= $mbOnline ? 'ok' : 'off' ?>"><?= $mbOnline ? 'ONLINE' : 'OFFLINE' ?></span>
+                  <span class="small" style="margin-left:6px;">Último ping: <?=h(ageText($mobile['data_hora']))?> atrás</span>
+                </td>
+              </tr>
+            </table>
+          </div>
+        <?php endif;?>
+      </div>
 
     <!-- Notificar Celular -->
       <div class="card">
