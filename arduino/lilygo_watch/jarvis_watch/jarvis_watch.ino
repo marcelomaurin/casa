@@ -681,29 +681,38 @@ void drawEmergency(){
 
 static bool setupShowQr = true;
 
-void drawWatchQrCode(int centerX, int centerY, const char *payload, int scale = 3) {
+void drawWatchQrCode(int centerX, int centerY, const char *payload) {
   if (!payload || !tft) return;
   QRCode qrcode;
-  uint8_t version = 3;
-  size_t len = strlen(payload);
-  if (len > 70) version = 4;
-  if (len > 110) version = 5;
+  uint8_t version = 2;
+  uint8_t *qrcodeData = nullptr;
 
-  uint16_t sz = qrcode_getBufferSize(version);
-  uint8_t *qrcodeData = (uint8_t *)malloc(sz);
+  // Tenta da menor versao (2) ate 8 para manter os modulos o maior possivel
+  for (; version <= 8; version++) {
+    uint16_t sz = qrcode_getBufferSize(version);
+    qrcodeData = (uint8_t *)malloc(sz);
+    if (!qrcodeData) return;
+    if (qrcode_initText(&qrcode, qrcodeData, version, ECC_MEDIUM, payload) == 0) {
+      break;
+    }
+    free(qrcodeData);
+    qrcodeData = nullptr;
+  }
+
   if (!qrcodeData) return;
 
-  if (qrcode_initText(&qrcode, qrcodeData, version, ECC_LOW, payload) != 0) {
-    free(qrcodeData);
-    return;
-  }
+  // Escala para ocupar aprox 110 a 125 pixels no display
+  int scale = 4;
+  if (qrcode.size * 4 > 130) scale = 3;
+  if (qrcode.size * 5 <= 125) scale = 5;
 
   int qrSize = qrcode.size * scale;
   int startX = centerX - qrSize / 2;
   int startY = centerY - qrSize / 2;
+  int margin = 10;
 
-  // Borda branca (quiet zone)
-  tft->fillRect(startX - 6, startY - 6, qrSize + 12, qrSize + 12, C_WHITE);
+  // Margem branca de respiro (Quiet Zone) de 10px em alto contraste
+  tft->fillRect(startX - margin, startY - margin, qrSize + margin * 2, qrSize + margin * 2, C_WHITE);
 
   for (uint8_t y = 0; y < qrcode.size; y++) {
     for (uint8_t x = 0; x < qrcode.size; x++) {
@@ -731,8 +740,8 @@ void drawSetup(){
     lcarsButton(30, 140, 180, 38, C_GREEN, "ATIVAR QRCODE");
   } else if(!phoneOn && !wifiOn){
     if(setupShowQr){
-      String qrPayload = "{\"t\":\"watch\",\"ssid\":\"" + String(jarvisBleApSsid()) + "\",\"pass\":\"" + String(jarvisBleApPass()) + "\",\"ip\":\"192.168.4.1\",\"port\":4040,\"mac\":\"" + jarvisWifiMacAddress() + "\"}";
-      drawWatchQrCode(120, 110, qrPayload.c_str(), 3);
+      String qrPayload = "{\"t\":\"watch\",\"ip\":\"192.168.4.1\",\"p\":4040}";
+      drawWatchQrCode(120, 110, qrPayload.c_str());
       tft->setTextColor(C_TEXT, C_BG);
       tft->drawCentreString("Aponte a camera do celular", 120, 166, 1);
       lcarsButton(10, 182, 108, 26, C_BLUE, "DADOS AP");

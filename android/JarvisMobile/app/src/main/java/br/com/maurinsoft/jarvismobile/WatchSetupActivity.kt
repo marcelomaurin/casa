@@ -353,8 +353,16 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
                     onClick = {
                         onQrScanned = { payload ->
                             try {
-                                val json = JSONObject(payload)
-                                val ip = json.optString("ip", WatchClient.WATCH_HOST).ifBlank { WatchClient.WATCH_HOST }
+                                val clean = payload.trim()
+                                val ip = if (clean.startsWith("{")) {
+                                    val json = JSONObject(clean)
+                                    json.optString("ip", WatchClient.WATCH_HOST).ifBlank { WatchClient.WATCH_HOST }
+                                } else if (clean.contains("192.168.4.1")) {
+                                    "192.168.4.1"
+                                } else {
+                                    WatchClient.WATCH_HOST
+                                }
+                                statusState = "QR Code do relógio lido! Conectando em $ip..."
                                 startDirectConnection(ip)
                             } catch (_: Exception) {
                                 startDirectConnection()
@@ -364,7 +372,9 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
                             ScanOptions().apply {
                                 setPrompt("Aponte para o QR Code na tela do relógio")
                                 setBeepEnabled(true)
+                                setBarcodeImageEnabled(true)
                                 setOrientationLocked(false)
+                                setDesiredBarcodeFormats(ScanOptions.QR_CODE)
                             }
                         )
                     },
