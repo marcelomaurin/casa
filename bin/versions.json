@@ -3,11 +3,11 @@
   "components": {
     "casa-mobile-debug": {
       "enabled": true,
-      "version": "2.8.1",
-      "version_code": 281,
+      "version": "2.8.3",
+      "version_code": 283,
       "package_id": "br.com.maurinsoft.jarvismobile.debug",
-      "apk_url": "https://github.com/marcelomaurin/casa/releases/download/jarvis-mobile-v2.8.1-debug/CasaMobile-v2.8.1-debug.apk",
-      "sha256": "7261689f75e627d2b04a6263b89f268b7636e3482bb350591b13416f84f59f1f"
+      "apk_url": "https://github.com/marcelomaurin/casa/releases/download/jarvis-mobile-v2.8.3-debug/CasaMobile-v2.8.3-debug.apk",
+      "sha256": "7326eeed6d3edc1387ffb8d0f80ef1e9bc2ec976f1325484c8812614bdf33c9d"
     }
   }
 }

@@ -2,8 +2,8 @@
 
 ## Versão atual
 
-- `versionName`: `2.8.1`
-- `versionCode`: `281`
+- `versionName`: `2.8.3`
+- `versionCode`: `283`
 - pacote de desenvolvimento: `br.com.maurinsoft.jarvismobile.debug`
 - pacote de produção: `br.com.maurinsoft.jarvismobile`
 
@@ -101,3 +101,10 @@ Se ainda houver conflito com uma instalação debug anterior, desinstale apenas 
 ## Instrução obrigatória para IA/robô
 
 Toda nova versão deve atualizar também `bin/versions.json`. Consulte [MOBILE_ATUALIZACAO.md](../../docs/MOBILE_ATUALIZACAO.md) antes de compilar/publicar.
+
+## Histórico — 2.8.3
+
+- Telemetria de bateria (nível e carregamento na tomada) transmitida automaticamente pelo serviço em segundo plano.
+- Detecção e envio de rede (Wi-Fi SSID, RSSI dBm, IP local e conectividade celular).
+- Identificação do fabricante e modelo do aparelho para exibição no painel da residência e cluster.
+- Monitoramento e transmissão da contagem de relógios JARVIS Watch conectados via BLE.
