@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkRequest
+import android.net.wifi.WifiManager
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiNetworkSpecifier
 import android.os.Build
@@ -70,6 +71,10 @@ class WatchClient(private val context: Context) {
     }
 
     data class FoundWatch(val name: String, val address: String, val rssi: Int)
+
+    fun interface StepCallback {
+        fun onStep(step: Int, total: Int, message: String, isDone: Boolean, isError: Boolean, errorDetail: String?)
+    }
 
     interface Listener {
         fun onScanResult(watch: FoundWatch) {}
@@ -169,9 +174,9 @@ class WatchClient(private val context: Context) {
         }.getOrNull()
     }
 
-    fun connectDirect(host: String = WATCH_HOST) {
+    fun connectDirect(host: String = WATCH_HOST, stepCallback: StepCallback? = null) {
         val net = watchNetwork ?: findWifiNetwork()
-        connectHost(host, net)
+        connectHost(host, net, stepCallback)
     }
 
     fun connect(address: String) {
@@ -217,9 +222,13 @@ class WatchClient(private val context: Context) {
         connectHost(WATCH_HOST, network)
     }
 
-    private fun connectHost(host: String, network: Network?) {
+    private fun connectHost(host: String, network: Network?, stepCallback: StepCallback? = null) {
         val existing = socket
-        if (existing != null && existing.isConnected && !existing.isClosed) return
+        if (existing != null && existing.isConnected && !existing.isClosed) {
+            stepCallback?.onStep(5, 5, "Já conectado ao relógio.", isDone = true, isError = false, errorDetail = null)
+            markConnected()
+            return
+        }
         synchronized(ioLock) {
             if (connectingHost != null) return
             connectingHost = host
@@ -227,17 +236,28 @@ class WatchClient(private val context: Context) {
 
         Thread {
             try {
+                stepCallback?.onStep(1, 5, "Identificando rede Wi-Fi do celular...", isDone = false, isError = false, errorDetail = null)
+                val wm = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                @Suppress("DEPRECATION")
+                val curSsid = wm?.connectionInfo?.ssid?.trim('"')?.takeUnless { it == "<unknown ssid>" }.orEmpty()
+
                 closeSocketInternal()
                 val net = network ?: findWifiNetwork()
+                val ssidNote = if (curSsid.isNotBlank()) " (Rede atual: " + curSsid + ")" else ""
+                stepCallback?.onStep(2, 5, "Vinculando rota Wi-Fi exclusiva" + ssidNote + "...", isDone = false, isError = false, errorDetail = null)
+
                 val s = if (net != null) {
                     net.socketFactory.createSocket()
                 } else {
                     Socket()
                 }
-                s.connect(InetSocketAddress(host, WATCH_PORT), 5000)
+
+                stepCallback?.onStep(3, 5, "Conectando ao relógio em " + host + ":" + WATCH_PORT + "...", isDone = false, isError = false, errorDetail = null)
+                s.connect(InetSocketAddress(host, WATCH_PORT), 6000)
                 s.tcpNoDelay = true
                 s.keepAlive = true
 
+                stepCallback?.onStep(4, 5, "Enviando handshake de identificação (hello)...", isDone = false, isError = false, errorDetail = null)
                 val w = BufferedWriter(OutputStreamWriter(s.getOutputStream(), Charsets.UTF_8))
                 synchronized(ioLock) {
                     socket = s
@@ -252,11 +272,24 @@ class WatchClient(private val context: Context) {
                     .put("protocol", "TCP-1.0")
                     .put("client", "Casa Mobile"))
                 requestStatus()
+
+                stepCallback?.onStep(5, 5, "Conexão estabelecida com sucesso! Relógio respondendo.", isDone = true, isError = false, errorDetail = null)
             } catch (t: Throwable) {
                 connectingHost = null
                 closeSocket(false)
+                val msg = t.message ?: t.toString()
+                val errDetail = when {
+                    t is java.net.ConnectException ->
+                        "Conexão recusada em " + host + ":" + WATCH_PORT + ". Verifique se o botão 'CELULAR' foi acionado no relógio para ativar o AP JARVIS-WATCH e o servidor socket."
+                    t is java.net.SocketTimeoutException ->
+                        "Tempo limite esgotado ao conectar em " + host + ":" + WATCH_PORT + ". Certifique-se de que o celular está conectado na rede Wi-Fi JARVIS-WATCH (senha JarvisSetup2026)."
+                    t is java.net.NoRouteToHostException ->
+                        "Sem rota para " + host + ". Desative temporariamente os dados móveis (4G/5G) no celular para garantir a rota pelo Wi-Fi do relógio."
+                    else -> "Falha de rede: " + msg
+                }
+                stepCallback?.onStep(3, 5, "Falha na conexão direta", isDone = true, isError = true, errorDetail = errDetail)
                 listeners.forEach {
-                    it.onError("Falha ao conectar ao Watch em $host:$WATCH_PORT: ${t.message}")
+                    it.onError("Falha ao conectar ao Watch em " + host + ":" + WATCH_PORT + ": " + errDetail)
                 }
             }
         }.start()
