@@ -74,14 +74,21 @@ void JarvisNetworkStateMachine::process(const JarvisEvent &event){
 
 void JarvisNetworkStateMachine::update(unsigned long now){
   if(state_ == JARVIS_NET_SCANNING){
+    static int scanRetries = 0;
     int n = jarvisWifiScanPoll(networks_, 12);
     if(n == -1) return;
     if(n < 0){
+      if(scanRetries < 1 && jarvisWifiScanStart()){
+        scanRetries++;
+        return;
+      }
+      scanRetries = 0;
       state_ = JARVIS_NET_ERROR;
-      lastError_ = "Erro durante busca Wi-Fi";
+      lastError_ = "Nenhuma rede Wi-Fi encontrada";
       if(queue_) queue_->push(jarvisEvent(EVT_WIFI_FAILED, JARVIS_PRI_NORMAL, 0, 0, lastError_));
       return;
     }
+    scanRetries = 0;
     networkCount_ = n;
     state_ = JARVIS_NET_SELECTING;
     if(queue_) queue_->push(jarvisEvent(EVT_WIFI_SCAN_DONE, JARVIS_PRI_NORMAL, n));

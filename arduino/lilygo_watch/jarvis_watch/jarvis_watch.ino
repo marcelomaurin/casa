@@ -1,6 +1,7 @@
 #include "config.h"
 #include "jarvis_ble.h"
 #include "jarvis_wifi.h"
+#include "jarvis_qrcode.h"
 #include "jarvis_controller.h"
 #include "jarvis_audio.h"
 #include "jarvis_emergency.h"
@@ -523,7 +524,7 @@ void drawMessage(){tft->fillRoundRect(5,181,230,22,8,C_WHITE);tft->drawRoundRect
 void drawApps(){drawHeader("APPS");lcarsButton(5,62,52,48,C_ORANGE,"VOZ");lcarsButton(62,62,52,48,C_SALMON,"ALM");lcarsButton(119,62,52,48,C_BLUE,"CAM");lcarsButton(176,62,59,48,C_GREEN,"GPS");lcarsButton(5,117,52,48,C_LAV,"CASA");lcarsButton(62,117,52,48,C_GOLD,"PASSOS");lcarsButton(119,117,52,48,C_BLUE,"STATUS");lcarsButton(176,117,59,48,C_SALMON,"CONFIG");tft->setTextColor(C_TEXT,C_BG);tft->drawCentreString("baixo: relogio",120,184,1);drawFooter();}
 void drawVoice(){drawHeader("VOZ IA");tft->setTextColor(C_TEXT,C_BG);tft->drawCentreString(voiceText.c_str(),120,76,2);lcarsButton(35,108,170,34,C_ORANGE,voiceCapturing?"OUVINDO...":"MICROFONE");lcarsButton(35,149,170,28,C_BLUE,("SAIDA: "+voiceOutputLabel()).c_str());drawMessage();drawFooter();}
 void drawAlarm(){drawHeader("ALARME");tft->setTextColor(C_TEXT,C_BG);tft->drawCentreString((twoDigits(alarmHour)+":"+twoDigits(alarmMinute)).c_str(),120,64,4);lcarsButton(12,101,48,32,C_LAV,"H-");lcarsButton(66,101,48,32,C_ORANGE,"H+");lcarsButton(126,101,48,32,C_BLUE,"M-");lcarsButton(180,101,48,32,C_SALMON,"M+");lcarsButton(25,139,190,28,C_GOLD,("TOQUE: "+alarmToneLabel()).c_str());lcarsButton(35,173,170,28,controller.alarm().ringing()?C_RED:(alarmEnabled?C_GREEN:C_RED),controller.alarm().ringing()?"PARAR ALARME":(alarmEnabled?"LIGADO":"DESLIGADO"));drawFooter();}
-void drawCamera(){drawHeader("CAMERA / VIDEO");tft->setTextColor(C_TEXT,C_BG);tft->drawCentreString("Midia pelo celular/site",120,63,1);lcarsButton(30,88,180,30,C_ORANGE,"FOTOGRAFAR");lcarsButton(30,124,180,30,C_BLUE,"VIDEO CELULAR");lcarsButton(30,160,180,30,C_LAV,"VIDEO SITE");drawFooter();}
+void drawCamera(){drawHeader("CAMERA / VIDEO");tft->setTextColor(C_TEXT,C_BG);tft->drawCentreString("Midia pelo celular/site",120,63,1);lcarsButton(30,80,180,28,C_ORANGE,"FOTOGRAFAR");lcarsButton(30,111,180,28,C_BLUE,"VIDEO CELULAR");lcarsButton(30,142,180,28,C_GREEN,"QRCODE REGISTRO");lcarsButton(30,173,180,28,C_LAV,"VIDEO SITE");drawFooter();}
 void drawGps(){drawHeader("GPS");tft->setTextColor(C_TEXT,C_BG);tft->drawCentreString(gpsText.c_str(),120,82,2);lcarsButton(55,128,130,30,C_BLUE,"ATUALIZAR");drawFooter();}
 void drawControls(){drawHeader("CASA");lcarsButton(5,62,111,51,C_SALMON,"LUZ SALA");lcarsButton(124,62,111,51,C_ORANGE,"LUZ QUARTO");lcarsButton(5,119,111,51,C_BLUE,"PORTAO");lcarsButton(124,119,111,51,C_LAV,"CENA NOITE");drawMessage();drawFooter();}
 void drawHealth(){drawHeader("ATIVIDADE");tft->setTextColor(C_TEXT,C_BG);tft->drawCentreString("PASSOS",120,75,2);tft->drawCentreString(String(steps).c_str(),120,103,4);int pct=min(100,(int)(steps*100UL/6000UL));tft->drawRoundRect(27,151,184,14,6,C_TEXT);tft->fillRoundRect(29,153,(180*pct)/100,10,5,C_GREEN);drawFooter();}
@@ -546,7 +547,7 @@ void drawWifi(){
     tft->drawCentreString(selectedWifi.substring(0,22).c_str(),120,103,1);
     tft->drawCentreString("testando senha e rede",120,126,1);
   }
-  else if(ns==JARVIS_NET_SELECTING && wifiNetworkCount>0){
+  else if(wifiNetworkCount>0){
     int start=wifiPage*4;
     for(int row=0;row<4;row++){
       int i=start+row;if(i>=wifiNetworkCount)break;
@@ -677,8 +678,44 @@ void drawEmergency(){
   else tft->drawCentreString("Deslize para baixo: voltar",120,218,1);
 }
 
+static bool setupShowQr = true;
+
+void drawWatchQrCode(int centerX, int centerY, const char *payload, int scale = 3) {
+  if (!payload || !tft) return;
+  QRCode qrcode;
+  uint8_t version = 3;
+  size_t len = strlen(payload);
+  if (len > 70) version = 4;
+  if (len > 110) version = 5;
+
+  uint16_t sz = qrcode_getBufferSize(version);
+  uint8_t *qrcodeData = (uint8_t *)malloc(sz);
+  if (!qrcodeData) return;
+
+  if (qrcode_initText(&qrcode, qrcodeData, version, ECC_LOW, payload) != 0) {
+    free(qrcodeData);
+    return;
+  }
+
+  int qrSize = qrcode.size * scale;
+  int startX = centerX - qrSize / 2;
+  int startY = centerY - qrSize / 2;
+
+  // Borda branca (quiet zone)
+  tft->fillRect(startX - 6, startY - 6, qrSize + 12, qrSize + 12, C_WHITE);
+
+  for (uint8_t y = 0; y < qrcode.size; y++) {
+    for (uint8_t x = 0; x < qrcode.size; x++) {
+      uint16_t col = qrcode_getModule(&qrcode, x, y) ? C_BLACK : C_WHITE;
+      tft->fillRect(startX + x * scale, startY + y * scale, scale, scale, col);
+    }
+  }
+
+  free(qrcodeData);
+}
+
 void drawSetup(){
-  drawHeader("CONFIG CELULAR");
+  drawHeader("REGISTRO / QR");
   tft->setTextColor(C_TEXT,C_BG);
 
   bool apOn = jarvisBleIsProvisioningAp();
@@ -690,17 +727,23 @@ void drawSetup(){
   if(!apOn){
     tft->drawCentreString("AP DESATIVADO", 120, 75, 2);
     tft->drawCentreString("Toque abaixo para ativar", 120, 105, 1);
-    lcarsButton(40, 140, 160, 38, C_GREEN, "ATIVAR AP");
+    lcarsButton(30, 140, 180, 38, C_GREEN, "ATIVAR QRCODE");
   } else if(!phoneOn && !wifiOn){
-    tft->drawCentreString("REDE: JARVIS-WATCH", 120, 68, 2);
-    tft->drawCentreString("Senha: JarvisSetup2026", 120, 92, 1);
-    tft->drawCentreString("Abra JarvisMobile > Watch", 120, 112, 1);
-
-    tft->fillRoundRect(15, 134, 210, 26, 6, C_ORANGE);
-    tft->setTextColor(C_TEXT, C_ORANGE);
-    tft->drawCentreString("Aguardando celular...", 120, 140, 1);
-
-    lcarsButton(40, 166, 160, 34, C_SALMON, "PARAR AP");
+    if(setupShowQr){
+      String qrPayload = "{\"t\":\"watch\",\"ssid\":\"" + String(jarvisBleApSsid()) + "\",\"pass\":\"" + String(jarvisBleApPass()) + "\",\"ip\":\"192.168.4.1\",\"port\":4040,\"mac\":\"" + WiFi.macAddress() + "\"}";
+      drawWatchQrCode(120, 110, qrPayload.c_str(), 3);
+      tft->setTextColor(C_TEXT, C_BG);
+      tft->drawCentreString("Aponte a camera do celular", 120, 166, 1);
+      lcarsButton(10, 182, 108, 26, C_BLUE, "DADOS AP");
+      lcarsButton(122, 182, 108, 26, C_SALMON, "PARAR AP");
+    } else {
+      tft->drawCentreString("REDE: JARVIS-WATCH", 120, 68, 2);
+      tft->drawCentreString("Senha: JarvisSetup2026", 120, 92, 1);
+      tft->drawCentreString("IP: 192.168.4.1 : 4040", 120, 112, 1);
+      tft->drawCentreString("Abra JarvisMobile > Watch", 120, 132, 1);
+      lcarsButton(10, 164, 108, 34, C_GREEN, "VER QRCODE");
+      lcarsButton(122, 164, 108, 34, C_SALMON, "PARAR AP");
+    }
   } else {
     uint16_t headerCol = (wifiOn && casaOnline) ? C_GREEN : C_BLUE;
     tft->fillRoundRect(15, 66, 210, 26, 6, headerCol);
@@ -847,7 +890,7 @@ void handleTap(int x,int y){
     else if(y>=139&&y<=170){alarmTone=(AlarmTone)(((int)alarmTone+1)%4);saveSettings();previewAlarmTone();drawScreen();}
     else if(y>=171&&y<=205){if(controller.alarm().ringing()){controller.emit(jarvisEvent(EVT_ALARM_STOP,JARVIS_PRI_HIGH));lastMessage="Alarme confirmado";drawScreen();}else{alarmEnabled=!alarmEnabled;saveSettings();drawScreen();}}
   }
-  else if(currentScreen==SCREEN_CAMERA){if(y>=84&&y<=121)triggerCamera();else if(y>=122&&y<=157)startVideoCall("mobile");else if(y>=158&&y<=195)startVideoCall("web");}
+  else if(currentScreen==SCREEN_CAMERA){if(y>=76&&y<=106)triggerCamera();else if(y>=107&&y<=137)startVideoCall("mobile");else if(y>=138&&y<=168){jarvisBleStartProvisioningAp(true);setupShowQr=true;navigate(SCREEN_SETUP);}else if(y>=169&&y<=199)startVideoCall("web");}
   else if(currentScreen==SCREEN_GPS){if(y>=120&&y<=170)requestGps();}
   else if(currentScreen==SCREEN_CONTROLS){if(y>=62&&y<=113)sendCommand(x<120?"Alterne a luz da sala":"Alterne a luz do quarto");else if(y>=119&&y<=170)sendCommand(x<120?"Acione o portao":"Ative a cena noite");}
   else if(currentScreen==SCREEN_SETTINGS){if(y>=60&&y<=91){if(x>=110&&x<171)brightnessLevel=max(40,(int)brightnessLevel-20);else if(x>=171)brightnessLevel=min(255,(int)brightnessLevel+20);applyPowerMode();saveSettings();drawScreen();}else if(y>=94&&y<=125&&x>=120){powerMode=(PowerMode)(((int)powerMode+1)%3);screenTimeoutSec=powerMode==POWER_NORMAL?30:powerMode==POWER_ECO?20:10;applyPowerMode();saveSettings();drawScreen();}else if(y>=128&&y<=159&&x>=120){screenTimeoutSec=screenTimeoutSec==10?20:screenTimeoutSec==20?30:screenTimeoutSec==30?60:screenTimeoutSec==60?0:10;saveSettings();drawScreen();}else if(y>=164&&y<=201){if(x<60){navigate(SCREEN_WIFI);startWifiScan();}else if(x<120){vibrationEnabled=!vibrationEnabled;saveSettings();drawScreen();}else if(x<180){jarvisBleStartProvisioningAp(true);navigate(SCREEN_SETUP);}else navigate(SCREEN_CLOCK);}}
@@ -872,14 +915,27 @@ void handleTap(int x,int y){
   else if(currentScreen==SCREEN_SETUP){
     bool apOn = jarvisBleIsProvisioningAp();
     bool phoneOn = jarvisBleIsConnected();
-    if(y>=140&&y<=205){
-      if(!apOn){
+    bool wifiOn = jarvisWifiIsConnected();
+    bool casaOnline = jarvisWifiCasaOnline();
+
+    if(!apOn){
+      if(y>=130&&y<=190){
         jarvisBleStartProvisioningAp(true);
+        setupShowQr = true;
         drawScreen();
-      }else if(!phoneOn){
-        jarvisBleStopProvisioningAp();
-        drawScreen();
-      }else{
+      }
+    } else if(!phoneOn && !wifiOn){
+      if(y>=160&&y<=215){
+        if(x<118){
+          setupShowQr = !setupShowQr;
+          drawScreen();
+        } else {
+          jarvisBleStopProvisioningAp();
+          drawScreen();
+        }
+      }
+    } else {
+      if(y>=155&&y<=205){
         jarvisBleStopProvisioningAp();
         goHome();
       }
@@ -930,7 +986,17 @@ void handleGestureRelease(){
       if(currentScreen==SCREEN_HOME)drawScreen();
     }
     else if(currentScreen==SCREEN_WIFI&&controller.network().state()!=JARVIS_NET_SCANNING&&wifiNetworkCount>4){int pages=(wifiNetworkCount+3)/4;if(dy<0&&wifiPage<pages-1)wifiPage++;if(dy>0&&wifiPage>0)wifiPage--;drawScreen();}
-    else if(dy<0){if(currentScreen==SCREEN_HOME)navigate(SCREEN_EMERGENCY);else if(currentScreen==SCREEN_APPS)navigate(SCREEN_SETTINGS);}
+    else if(dy<0){
+      if(currentScreen==SCREEN_HOME){
+        if(!jarvisWifiHasCasaCredentials()){
+          jarvisBleStartProvisioningAp(true);
+          setupShowQr = true;
+          navigate(SCREEN_SETUP);
+        } else {
+          navigate(SCREEN_APPS);
+        }
+      } else if(currentScreen==SCREEN_APPS) navigate(SCREEN_SETTINGS);
+    }
     else{if(currentScreen==SCREEN_APPS||currentScreen==SCREEN_SETTINGS)goHome();else if(currentScreen!=SCREEN_HOME){ScreenId s=previousScreen;previousScreen=SCREEN_HOME;currentScreen=s;drawScreen();}}
     return;
   }

@@ -243,6 +243,22 @@ function ageText($date){ if(!$date)return '--'; $s=time()-strtotime($date); if($
     <?php endif; ?>
 
     <?php if($aba==='watch' || $aba==='todos'): ?>
+      <!-- Pareamento do JARVIS Watch -->
+      <div class="card orange">
+        <h2>⌚ Parear Relógio (JARVIS Watch)</h2>
+        <ol class="pair-steps">
+          <li><b>No relógio:</b> Quando não configurado, deslize para cima (swipe up) na tela inicial para exibir o <b>QR Code do relógio</b> (ou em <i>CONFIG › CEL</i>).</li>
+          <li><b>No app Casa Mobile:</b> Abra <i>Configuração › Novos Devices › Watch</i> e toque em <b>📷 QR RELÓGIO</b>.</li>
+          <li><b>Conexão Direta:</b> O app mostrará as etapas da conexão em tempo real (1 a 5) até a sincronização.</li>
+          <li>Alternativamente, toque em <b>Gerar QR Code de acesso</b> abaixo e leia com <b>📷 QR DO SITE</b> no app para transferir as chaves.</li>
+        </ol>
+        <button type="button" id="pair-watch-new" style="width:100%">Gerar QR Code de acesso para o Relógio</button>
+        <div id="pair-watch-area" style="display:none">
+          <div class="qr-box"><div id="pair-watch-qr"></div></div>
+          <div id="pair-watch-status" class="pair-status waiting">Aguardando leitura pelo app Casa Mobile…</div>
+          <p class="small" style="text-align:center">Uso único · válido por 10 minutos.</p>
+        </div>
+      </div>
       <!-- Telemetria Watch -->
       <div class="card blue">
         <h2>⌚ Telemetria Watch</h2>
@@ -365,6 +381,37 @@ function ageText($date){ if(!$date)return '--'; $s=time()-strtotime($date); if($
       area.style.display = ''; qr.innerHTML = ''; setStatus('expired', 'Falha ao gerar o QR Code: ' + e.message);
     } finally { btn.disabled = false; btn.textContent = 'Gerar novo QR Code'; }
   };
+  
+  const btnWatch = document.getElementById('pair-watch-new');
+  if (btnWatch) {
+    const areaW = document.getElementById('pair-watch-area'), qrW = document.getElementById('pair-watch-qr'), stW = document.getElementById('pair-watch-status');
+    let timerW = null, countdownW = null;
+    function setStatusW(cls, text){ stW.className = 'pair-status ' + cls; stW.textContent = text; }
+    function stopW(){ clearInterval(timerW); clearInterval(countdownW); timerW = countdownW = null; }
+    btnWatch.onclick = async function(){
+      stopW(); btnWatch.disabled = true; btnWatch.textContent = 'Gerando…';
+      try {
+        const t = await post('create');
+        qrW.innerHTML = '';
+        new QRCode(qrW, {text: t.qr, width: 230, height: 230, colorDark:'#000000', colorLight:'#ffffff', correctLevel: QRCode.CorrectLevel.M});
+        areaW.style.display = '';
+        let left = t.ttl;
+        const tick = () => { const m = Math.floor(left/60), s = String(left%60).padStart(2,'0'); setStatusW('waiting', 'Aguardando leitura pelo app… expira em ' + m + ':' + s); left--; if (left < 0) { stopW(); qrW.innerHTML=''; setStatusW('expired', 'QR Code expirado. Gere um novo.'); } };
+        tick(); countdownW = setInterval(tick, 1000);
+        timerW = setInterval(async () => {
+          try {
+            const r = await fetch('?pair=status&id=' + encodeURIComponent(t.id), {cache:'no-store'});
+            const j = await r.json();
+            if (j.status === 'paired') { stopW(); qrW.innerHTML = ''; setStatusW('paired', '✓ Pareado com sucesso! Atualizando…'); setTimeout(()=>location.reload(), 2500); }
+            else if (j.status === 'expired') { stopW(); qrW.innerHTML=''; setStatusW('expired', 'QR Code expirado. Gere um novo.'); }
+          } catch(e) {}
+        }, 2500);
+      } catch(e) {
+        areaW.style.display = ''; qrW.innerHTML = ''; setStatusW('expired', 'Falha: ' + e.message);
+      } finally { btnWatch.disabled = false; btnWatch.textContent = 'Gerar novo QR Code'; }
+    };
+  }
+
   document.querySelectorAll('.pair-revoke').forEach(b => b.onclick = async () => {
     if (!confirm('Revogar o acesso de "' + b.dataset.name + '"? O app nesse celular deixará de funcionar até ser pareado de novo.')) return;
     b.disabled = true;

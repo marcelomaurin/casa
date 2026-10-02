@@ -3,6 +3,9 @@ package br.com.maurinsoft.jarvismobile
 import android.Manifest
 import android.content.pm.PackageManager
 import android.net.wifi.WifiManager
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
+import org.json.JSONObject
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -36,6 +39,29 @@ import kotlinx.coroutines.withContext
 class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
     private lateinit var watchClient: WatchClient
 
+    private var onQrScanned: ((String) -> Unit)? = null
+    private val qrScanLauncher = registerForActivityResult(ScanContract()) { result ->
+        val text = result.contents
+        if (!text.isNullOrBlank()) {
+            onQrScanned?.invoke(text)
+        }
+    }
+
+    data class DirectStepItem(
+        val index: Int,
+        val total: Int,
+        val text: String,
+        val isDone: Boolean,
+        val isError: Boolean,
+        val errorDetail: String?
+    )
+
+    private var directStepItems by mutableStateOf<List<DirectStepItem>>(emptyList())
+    private var isDirectConnecting by mutableStateOf(false)
+    private var directConnectionSuccess by mutableStateOf(false)
+    private var directConnectionError by mutableStateOf<String?>(null)
+    private var showDirectDialog by mutableStateOf(false)
+
     private var foundState by mutableStateOf<List<WatchClient.FoundWatch>>(emptyList())
     private var statusState by mutableStateOf("Pronto para procurar relógios")
     private var connectedState by mutableStateOf(false)
@@ -62,6 +88,39 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
         watchClient.stopScan()
         watchClient.removeListener(this)
         super.onDestroy()
+    }
+
+    private fun startDirectConnection(host: String = WatchClient.WATCH_HOST) {
+        showDirectDialog = true
+        isDirectConnecting = true
+        directConnectionSuccess = false
+        directConnectionError = null
+        directStepItems = emptyList()
+
+        watchClient.connectDirect(host) { step, total, message, isDone, isError, errorDetail ->
+            runOnUiThread {
+                val item = DirectStepItem(step, total, message, isDone, isError, errorDetail)
+                val current = directStepItems.toMutableList()
+                val idx = current.indexOfFirst { it.index == step }
+                if (idx >= 0) {
+                    current[idx] = item
+                } else {
+                    current.add(item)
+                }
+                directStepItems = current
+
+                if (isDone) {
+                    isDirectConnecting = false
+                    if (isError) {
+                        directConnectionSuccess = false
+                        directConnectionError = errorDetail ?: message
+                    } else {
+                        directConnectionSuccess = true
+                        directConnectionError = null
+                    }
+                }
+            }
+        }
     }
 
     private fun ensureWifiPermissionAndConnect() {
@@ -284,12 +343,61 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
                 ) { Text("CONECTAR") }
 
                 OutlinedButton(
+                    onClick = { startDirectConnection() },
+                    modifier = Modifier.weight(1f)
+                ) { Text("CONEXÃO DIRETA") }
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
                     onClick = {
-                        statusState = "Conectando diretamente em 192.168.4.1:4040..."
-                        watchClient.connectDirect()
+                        onQrScanned = { payload ->
+                            try {
+                                val json = JSONObject(payload)
+                                val ip = json.optString("ip", WatchClient.WATCH_HOST).ifBlank { WatchClient.WATCH_HOST }
+                                startDirectConnection(ip)
+                            } catch (_: Exception) {
+                                startDirectConnection()
+                            }
+                        }
+                        qrScanLauncher.launch(
+                            ScanOptions().apply {
+                                setPrompt("Aponte para o QR Code na tela do relógio")
+                                setBeepEnabled(true)
+                                setOrientationLocked(false)
+                            }
+                        )
                     },
                     modifier = Modifier.weight(1f)
-                ) { Text("CONEX?O DIRETA") }
+                ) { Text("📷 QR RELÓGIO") }
+
+                OutlinedButton(
+                    onClick = {
+                        onQrScanned = { payload ->
+                            try {
+                                val json = JSONObject(payload)
+                                val url = json.optString("url")
+                                val code = json.optString("code")
+                                val token = json.optString("token")
+                                if (token.isNotBlank()) {
+                                    statusState = "Token do site lido com sucesso!"
+                                } else if (code.isNotBlank()) {
+                                    statusState = "Código de pareamento lido ($code)"
+                                }
+                            } catch (e: Exception) {
+                                statusState = "QR Code lido: $payload"
+                            }
+                        }
+                        qrScanLauncher.launch(
+                            ScanOptions().apply {
+                                setPrompt("Aponte para o QR Code gerado no site CASA")
+                                setBeepEnabled(true)
+                                setOrientationLocked(false)
+                            }
+                        )
+                    },
+                    modifier = Modifier.weight(1f)
+                ) { Text("📷 QR DO SITE") }
             }
 
             foundState.forEach { w ->
