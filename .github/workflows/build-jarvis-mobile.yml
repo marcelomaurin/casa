@@ -29,9 +29,7 @@ jobs:
             git rm -r --cached --ignore-unmatch -- "$dir"
           done < <(find android/JarvisMobile -type d -name build -print0 2>/dev/null)
 
-          while IFS= read -r -d '' artifact; do
-            git rm --cached --ignore-unmatch -- "$artifact"
-          done < <(git ls-files -z '*.apk' '*.deb' 2>/dev/null)
+# Mantem binarios APK em bin/android e site/var/www/html/bin/android
 
           if git diff --cached --quiet; then
             echo "Repositorio ja esta limpo."
@@ -145,10 +143,15 @@ jobs:
               entry['enabled'] = True
               path.write_text(json.dumps(manifest, indent=2) + '\n')
           PYTHON
-          if ! git diff --quiet -- bin/versions.json; then
+          mkdir -p bin/android site/var/www/html/bin/android
+          cp "CasaMobile-v${RELEASE_VERSION}-debug.apk" "bin/android/CasaMobile-v${RELEASE_VERSION}-debug.apk"
+          cp "CasaMobile-v${RELEASE_VERSION}-debug.apk" "bin/android/CasaMobile-debug.apk"
+          cp "CasaMobile-v${RELEASE_VERSION}-debug.apk" "site/var/www/html/bin/android/CasaMobile-v${RELEASE_VERSION}-debug.apk"
+          cp "CasaMobile-v${RELEASE_VERSION}-debug.apk" "site/var/www/html/bin/android/CasaMobile-debug.apk"
+          git add bin/versions.json bin/android/ site/var/www/html/bin/android/
+          if ! git diff --cached --quiet; then
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git add bin/versions.json
             git commit -m 'Activate published authorized Casa Mobile APK [skip ci]'
             git push origin HEAD:master
           fi
