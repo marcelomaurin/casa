@@ -310,6 +310,64 @@ void serviceCasaUplink(){
   }
 }
 
+bool processWatchNotificationsOnce(){
+  if(!jarvisWifiIsConnected()||!jarvisWifiHasCasaCredentials())return false;
+  if(jarvisEmergencyBusy()||jarvisEmergencySpeaking())return false;
+
+  String response;
+  if(!jarvisWifiGetJson("/api/v1/watch.php?acao=notificacoes",&response))return false;
+
+  int arrayPos=response.indexOf("\"notificacoes\"");
+  if(arrayPos<0)return false;
+  int open=response.indexOf('[',arrayPos);
+  if(open<0)return false;
+  int close=response.indexOf(']',open);
+  if(close<0||open>=close)return false;
+
+  int first=response.indexOf('{',open);
+  if(first<0||first>close)return false;
+
+  int id=jsonIntField(response,"id",-1);
+  String titulo=jsonStringField(response,"titulo");
+  String msg=jsonStringField(response,"mensagem");
+  String prio=jsonStringField(response,"prioridade");
+  if(titulo.isEmpty())titulo="CASA / WATCH";
+  if(msg.isEmpty())msg="Nova notificacao recebida.";
+
+  Serial.printf("[WATCH] Nova notificacao recebida: #%d - %s: %s (pri: %s)\n", id, titulo.c_str(), msg.c_str(), prio.c_str());
+
+  if(id>0){
+    String ack="{\"id\":"+String(id)+"}";
+    jarvisWifiPostJson("/api/v1/watch.php?acao=ack",ack,nullptr);
+  }
+
+  // Acorda tela se estiver desligada
+  if(!screenAwake){
+    screenAwake=true;
+    if(watch){
+      watch->displayWakeup();
+      watch->openBL();
+    }
+  }
+
+  notificationTitle=titulo;
+  notificationText=msg;
+  previousScreen=currentScreen;
+  currentScreen=SCREEN_NOTIFICATION;
+
+  if(prio=="critica"||prio=="alta"){
+    vibrateShort();
+    delay(120);
+    vibrateShort();
+  }else{
+    vibrateShort();
+  }
+
+  controller.emit(jarvisEvent(EVT_USER_INTERACTION,JARVIS_PRI_HIGH));
+  drawScreen();
+  return true;
+}
+
 bool fetchBackgroundCasaUpdate(){
   if(!jarvisWifiHasCasaCredentials())return false;
   if(!jarvisWifiConnectPreferred(3500))return false;
@@ -325,29 +383,8 @@ bool fetchBackgroundCasaUpdate(){
     }
   }
 
-  // Compatibilidade com notificacoes diretas da API Watch.
-  String response;
-  if(!jarvisWifiGetJson("/api/v1/watch.php?acao=notificacoes",&response))return false;
-
-  int arrayPos=response.indexOf("\"notificacoes\"");
-  if(arrayPos<0)return false;
-  int open=response.indexOf('[',arrayPos);
-  if(open<0)return false;
-  int first=response.indexOf('{',open);
-  int close=response.indexOf(']',open);
-  if(first<0||close<0||first>close)return false;
-
-  int id=jsonIntField(response,"id",-1);
-  notificationTitle=jsonStringField(response,"titulo");
-  notificationText=jsonStringField(response,"mensagem");
-  if(notificationTitle.isEmpty())notificationTitle="CASA";
-  if(notificationText.isEmpty())notificationText="Nova atualizacao recebida.";
-
-  if(id>0){
-    String ack="{\"id\":"+String(id)+"}";
-    jarvisWifiPostJson("/api/v1/watch.php?acao=ack",ack,nullptr);
-  }
-  return true;
+  // Consulta notificacoes diretas da API Watch
+  return processWatchNotificationsOnce();
 }
 
 bool alarmDueNow(){
@@ -1429,9 +1466,10 @@ void loop(){
   if(!jarvisEmergencySpeaking())jarvisWifiLoop();
   if(!jarvisEmergencyBusy())serviceCasaUplink();
 
-  if(!jarvisEmergencySpeaking()&&jarvisWifiIsConnected()&&millis()-lastCasaCommandPoll>=5000UL){
+  if(!jarvisEmergencySpeaking()&&jarvisWifiIsConnected()&&millis()-lastCasaCommandPoll>=4000UL){
     lastCasaCommandPoll=millis();
     processCasaDeviceCommandOnce();
+    processWatchNotificationsOnce();
   }
 
   {

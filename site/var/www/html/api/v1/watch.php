@@ -27,24 +27,44 @@ function watch_input(): array {
 }
 
 function watch_ensure_schema(PDO $pdo): void {
-    $pdo->exec("CREATE TABLE IF NOT EXISTS watch_telemetria (
-      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-      cliente VARCHAR(120) NOT NULL,
-      bateria_pct INT NULL,
-      passos BIGINT UNSIGNED NULL,
-      rssi_ble INT NULL,
-      rssi_wifi INT NULL,
-      wifi_ssid VARCHAR(120) NULL,
-      transporte VARCHAR(20) NULL,
-      minutos_sem_movimento INT NULL,
-      modo_energia VARCHAR(20) NULL,
-      alerta_ativo TINYINT(1) NOT NULL DEFAULT 0,
-      dados JSON NULL,
-      data_hora TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (id),
-      KEY idx_watch_tel_cliente_data (cliente, data_hora),
-      KEY idx_watch_tel_data (data_hora)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS watch_telemetria (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          cliente VARCHAR(120) NOT NULL,
+          bateria_pct INT NULL,
+          passos BIGINT UNSIGNED NULL,
+          rssi_ble INT NULL,
+          rssi_wifi INT NULL,
+          wifi_ssid VARCHAR(120) NULL,
+          transporte VARCHAR(20) NULL,
+          minutos_sem_movimento INT NULL,
+          modo_energia VARCHAR(20) NULL,
+          alerta_ativo TINYINT(1) NOT NULL DEFAULT 0,
+          dados JSON NULL,
+          data_hora TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          KEY idx_watch_tel_cliente_data (cliente, data_hora),
+          KEY idx_watch_tel_data (data_hora)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    } catch (Throwable $e) {}
+
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS watch_notificacoes (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          id_dispositivo BIGINT UNSIGNED NULL,
+          titulo VARCHAR(120) NOT NULL DEFAULT 'JARVIS',
+          mensagem TEXT NOT NULL,
+          audio_url TEXT NULL,
+          prioridade VARCHAR(20) NOT NULL DEFAULT 'normal',
+          lida TINYINT(1) NOT NULL DEFAULT 0,
+          entregue TINYINT(1) NOT NULL DEFAULT 0,
+          data_hora TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          data_entrega DATETIME NULL,
+          data_leitura DATETIME NULL,
+          PRIMARY KEY (id),
+          KEY idx_watch_pendentes (id_dispositivo, entregue, data_hora)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    } catch (Throwable $e) {}
 }
 
 function watch_device_id(PDO $pdo, string $clientName): ?int {
@@ -150,33 +170,36 @@ if ($action === 'telemetry') {
 if ($action === 'notificacoes') {
     try {
         if ($deviceId) {
-            $stmt=$pdo->prepare("SELECT id,titulo,mensagem,audio_url,prioridade,data_hora FROM watch_notificacoes
-                WHERE entregue=0 AND (id_dispositivo IS NULL OR id_dispositivo=:id)
-                ORDER BY CASE prioridade WHEN 'critica' THEN 1 WHEN 'alta' THEN 2 ELSE 3 END,data_hora ASC LIMIT 20");
+            $stmt = $pdo->prepare("SELECT id,titulo,mensagem,audio_url,prioridade,data_hora FROM watch_notificacoes
+                WHERE entregue=0 AND (id_dispositivo IS NULL OR id_dispositivo=0 OR id_dispositivo=:id)
+                ORDER BY CASE prioridade WHEN 'critica' THEN 1 WHEN 'alta' THEN 2 ELSE 3 END, data_hora ASC LIMIT 20");
             $stmt->execute([':id'=>$deviceId]);
         } else {
-            $stmt=$pdo->query("SELECT id,titulo,mensagem,audio_url,prioridade,data_hora FROM watch_notificacoes
-                WHERE entregue=0 AND id_dispositivo IS NULL
-                ORDER BY CASE prioridade WHEN 'critica' THEN 1 WHEN 'alta' THEN 2 ELSE 3 END,data_hora ASC LIMIT 20");
+            $stmt = $pdo->query("SELECT id,titulo,mensagem,audio_url,prioridade,data_hora FROM watch_notificacoes
+                WHERE entregue=0 AND (id_dispositivo IS NULL OR id_dispositivo=0)
+                ORDER BY CASE prioridade WHEN 'critica' THEN 1 WHEN 'alta' THEN 2 ELSE 3 END, data_hora ASC LIMIT 20");
         }
-        echo json_encode(['status'=>'ok','notificacoes'=>$stmt->fetchAll(PDO::FETCH_ASSOC)],JSON_UNESCAPED_UNICODE); exit;
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        echo json_encode(['status'=>'ok','notificacoes'=>$rows], JSON_UNESCAPED_UNICODE);
+        exit;
     } catch (Throwable $e) {
-        api_v1_json_response(500,['status'=>'erro','mensagem'=>'Falha ao consultar notificações do relógio']);
+        error_log('watch notificacoes err: ' . $e->getMessage());
+        api_v1_json_response(500, ['status'=>'erro','mensagem'=>'Falha ao consultar notificações do relógio: ' . $e->getMessage()]);
     }
 }
 
 if ($action === 'ack') {
-    $id=(int)($input['id'] ?? 0);
-    if ($id<=0) api_v1_json_response(400,['status'=>'erro','mensagem'=>'ID inválido']);
-    if ($deviceId) {
-        $stmt=$pdo->prepare("UPDATE watch_notificacoes SET entregue=1,lida=1,data_entrega=NOW(),data_leitura=NOW()
-            WHERE id=:n AND (id_dispositivo IS NULL OR id_dispositivo=:d)");
-        $stmt->execute([':n'=>$id,':d'=>$deviceId]);
-    } else {
-        $stmt=$pdo->prepare("UPDATE watch_notificacoes SET entregue=1,lida=1,data_entrega=NOW(),data_leitura=NOW() WHERE id=:n AND id_dispositivo IS NULL");
+    $id = (int)($input['id'] ?? $_GET['id'] ?? $_POST['id'] ?? 0);
+    if ($id <= 0) api_v1_json_response(400, ['status'=>'erro','mensagem'=>'ID inválido']);
+    try {
+        $stmt = $pdo->prepare("UPDATE watch_notificacoes SET entregue=1, lida=1, data_entrega=NOW(), data_leitura=NOW() WHERE id=:n");
         $stmt->execute([':n'=>$id]);
+        echo json_encode(['status'=>'ok', 'mensagem'=>'Notificação confirmada']);
+        exit;
+    } catch (Throwable $e) {
+        error_log('watch ack err: ' . $e->getMessage());
+        api_v1_json_response(500, ['status'=>'erro','mensagem'=>'Falha ao confirmar notificação']);
     }
-    echo json_encode(['status'=>'ok']); exit;
 }
 
 if ($action === 'assist_event') {

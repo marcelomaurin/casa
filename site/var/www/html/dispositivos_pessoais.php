@@ -59,10 +59,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $text = trim($_POST['message'] ?? '');
                 $priority = in_array($_POST['priority'] ?? 'normal', ['normal','alta','critica'], true) ? $_POST['priority'] : 'normal';
                 if ($text === '') throw new RuntimeException('Informe uma mensagem.');
-                $table = $action === 'notify_watch' ? 'watch_notificacoes' : 'mobile_notificacoes';
-                $stmt = $pdo->prepare("INSERT INTO {$table}(id_dispositivo,titulo,mensagem,prioridade) VALUES(NULL,:t,:m,:p)");
-                $stmt->execute([':t'=>substr($title,0,120),':m'=>$text,':p'=>$priority]);
-                $message = $action === 'notify_watch' ? 'Notificação enviada com sucesso para o relógio!' : 'Notificação enviada com sucesso para o celular!';
+
+                if ($action === 'notify_watch') {
+                    try {
+                        $pdo->exec("CREATE TABLE IF NOT EXISTS watch_notificacoes (
+                          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                          id_dispositivo BIGINT UNSIGNED NULL,
+                          titulo VARCHAR(120) NOT NULL DEFAULT 'JARVIS',
+                          mensagem TEXT NOT NULL,
+                          audio_url TEXT NULL,
+                          prioridade VARCHAR(20) NOT NULL DEFAULT 'normal',
+                          lida TINYINT(1) NOT NULL DEFAULT 0,
+                          entregue TINYINT(1) NOT NULL DEFAULT 0,
+                          data_hora TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                          data_entrega DATETIME NULL,
+                          data_leitura DATETIME NULL
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+                    } catch (Throwable $e) {}
+
+                    $stmt = $pdo->prepare("INSERT INTO watch_notificacoes(id_dispositivo,titulo,mensagem,prioridade) VALUES(NULL,:t,:m,:p)");
+                    $stmt->execute([':t'=>substr($title,0,120),':m'=>$text,':p'=>$priority]);
+
+                    // Enfileira também no command bus para o relógio receber em qualquer canal
+                    try {
+                        $watchDevs = $pdo->query("SELECT device_id FROM dispositivos_cluster WHERE tipo='watch' OR device_id LIKE 'watch-%'")->fetchAll(PDO::FETCH_COLUMN);
+                        if (!empty($watchDevs)) {
+                            $cmdPayload = json_encode(['title'=>$title, 'text'=>$text, 'priority'=>$priority, 'type'=>'phone_notification'], JSON_UNESCAPED_UNICODE);
+                            $cmdPri = $priority === 'critica' ? 'critical' : ($priority === 'alta' ? 'high' : 'normal');
+                            foreach ($watchDevs as $wd) {
+                                $pdo->prepare("INSERT INTO device_commands(device_id, correlation_id, command, payload, priority, status) VALUES(:d, :c, 'notification', :p, :pri, 'enqueued')")
+                                    ->execute([':d'=>$wd, ':c'=>'notif_'.bin2hex(random_bytes(8)), ':p'=>$cmdPayload, ':pri'=>$cmdPri]);
+                            }
+                        }
+                    } catch (Throwable $e) {}
+
+                    $message = 'Notificação enviada com sucesso para o relógio! Aguarde até 5s para vibração.';
+                } else {
+                    $stmt = $pdo->prepare("INSERT INTO mobile_notificacoes(id_dispositivo,titulo,mensagem,prioridade) VALUES(NULL,:t,:m,:p)");
+                    $stmt->execute([':t'=>substr($title,0,120),':m'=>$text,':p'=>$priority]);
+                    $message = 'Notificação enviada com sucesso para o celular!';
+                }
             } elseif ($action === 'ack_assist') {
                 $id=(int)($_POST['id'] ?? 0);
                 if ($id>0) $pdo->prepare("UPDATE assistencia_eventos SET confirmado=1,confirmado_em=NOW() WHERE id=:id")->execute([':id'=>$id]);
@@ -72,7 +108,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$presence=[];$watch=null;$assist=[];$mobileEvents=[];
+$presence=[];$watch=null;$assist=[];$mobileEvents=[];$watchNotifs=[];
 try {
     $channel=family_channel($pdo,'familia');
     $stmt=$pdo->prepare("SELECT cliente,dispositivo,plataforma,metadata,ultimo_ping,
@@ -92,6 +128,7 @@ try {
 $phones=[];
 try { $phones = mobile_pair_list($pdo); } catch(Throwable $e){}
 try { $mobileEvents=$pdo->query("SELECT tipo,descricao,dados,data_hora FROM mobile_eventos ORDER BY id DESC LIMIT 15")->fetchAll(PDO::FETCH_ASSOC); } catch(Throwable $e){}
+try { $watchNotifs=$pdo->query("SELECT id,titulo,mensagem,prioridade,entregue,lida,data_hora,data_entrega FROM watch_notificacoes ORDER BY id DESC LIMIT 6")->fetchAll(PDO::FETCH_ASSOC); } catch(Throwable $e){}
 
 function h($v){ return htmlspecialchars((string)$v,ENT_QUOTES,'UTF-8'); }
 function ageText($date){ if(!$date)return '--'; $s=time()-strtotime($date); if($s<60)return $s.'s'; if($s<3600)return floor($s/60).' min'; return floor($s/3600).' h'; }
@@ -300,18 +337,38 @@ function ageText($date){ if(!$date)return '--'; $s=time()-strtotime($date); if($
 
       <!-- Notificar Watch -->
       <div class="card purple">
-        <h2>🔔 Alerta para o Relógio</h2>
+        <h2>🔔 Alerta para o Relógio (JARVIS Watch)</h2>
         <form method="post">
           <input type="hidden" name="csrf" value="<?=h($csrf)?>">
           <input name="title" value="CASA / WATCH" placeholder="Título">
-          <textarea name="message" rows="3" placeholder="Mensagem para o relógio..."></textarea>
+          <textarea name="message" rows="3" placeholder="Mensagem para exibir no visor do relógio..."></textarea>
           <select name="priority">
-            <option value="normal">Normal</option>
-            <option value="alta">Alta (Vibração)</option>
-            <option value="critica">Crítica (SOS)</option>
+            <option value="normal">Normal (1 vibração)</option>
+            <option value="alta">Alta (2 vibrações)</option>
+            <option value="critica">Crítica (SOS urgente)</option>
           </select>
-          <button name="action" value="notify_watch" style="background:#a855f7;color:#fff;">Enviar para o Relógio</button>
+          <button name="action" value="notify_watch" style="background:#a855f7;color:#fff;width:100%;margin-top:6px;">Enviar para o Relógio</button>
         </form>
+
+        <?php if(!empty($watchNotifs)): ?>
+          <h3 style="font-size:0.95rem;margin-top:14px;border-top:1px solid #e9d5ff;padding-top:10px;">Status das notificações enviadas:</h3>
+          <table style="font-size:0.85rem;">
+            <tr><th>Mensagem</th><th style="text-align:center">Entrega</th></tr>
+            <?php foreach($watchNotifs as $wn): ?>
+              <tr>
+                <td><b><?=h($wn['titulo'])?></b>: <?=h($wn['mensagem'])?>
+                  <br><span class="small"><?=h($wn['data_hora'])?> · <?=h($wn['prioridade'])?></span></td>
+                <td style="text-align:center">
+                  <?php if($wn['entregue']): ?>
+                    <span class="pill ok" title="Entregue em <?=h($wn['data_entrega'])?>">✓ ENTREGUE</span>
+                  <?php else: ?>
+                    <span class="pill warn" title="Aguardando relógio consultar a API">⏳ PENDENTE</span>
+                  <?php endif; ?>
+                </td>
+              </tr>
+            <?php endforeach; ?>
+          </table>
+        <?php endif; ?>
       </div>
     <?php endif; ?>
   </div>
