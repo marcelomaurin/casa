@@ -146,15 +146,165 @@ function topGroupCards(){
   return Object.keys(GROUPS).map(name=>({title:name,description:GROUPS[name].subtitle,id:name,icon:GROUP_ICONS[name]||'•'}));
 }
 
+let dashboardMetrics = null;
+
+async function loadDashboardMetrics(){
+  try {
+    const j = await getJson('/casa/api/iot_dashboard.php');
+    if (j && j.status === 'ok') {
+      dashboardMetrics = j.summary || {};
+      if (!currentGroup && !currentItem) {
+        updateDashboardCardsInDOM(dashboardMetrics);
+      }
+    }
+  } catch (e) {
+    console.warn('Dashboard telemetria:', e);
+  }
+}
+
+function updateDashboardCardsInDOM(summary){
+  if (!summary) return;
+  const cards = document.querySelectorAll('#app .ja-card');
+  cards.forEach(card => {
+    const title = card.querySelector('h3')?.textContent || '';
+    const metric = card.querySelector('.metric');
+    const sub = card.querySelector('.sub');
+    if (!metric) return;
+    if (title.includes('DISPOSITIVOS & IOT')) {
+      const on = summary.online_devices ?? 0;
+      const tot = summary.total_devices ?? 0;
+      const relOn = summary.relays_on ?? 0;
+      metric.textContent = on + ' / ' + tot + ' ONLINE';
+      if (sub) sub.textContent = (summary.relays_count || 0) + ' relés (' + relOn + ' ligados) · Sensores ativos';
+    } else if (title.includes('TEMPERATURA & CLIMA')) {
+      if (summary.temperature_c != null) {
+        metric.textContent = summary.temperature_c + ' °C';
+        if (sub) sub.textContent = 'Umidade: ' + (summary.humidity_pct != null ? summary.humidity_pct + '%' : '—') + ' · Conforto térmico';
+      }
+    } else if (title.includes('CELULAR & PRESENÇA')) {
+      const mobOn = summary.mobiles_online ?? 0;
+      metric.textContent = mobOn > 0 ? (mobOn + ' ONLINE') : 'MONITORANDO';
+      if (sub) sub.textContent = 'Casa Mobile · ' + (mobOn > 0 ? 'Dispositivo conectado' : 'Aguardando ping');
+    } else if (title.includes('JARVIS WATCH')) {
+      const wOn = summary.watch_online ?? 0;
+      metric.textContent = wOn > 0 ? 'CONECTADO' : 'AGUARDANDO';
+      if (sub) sub.textContent = wOn > 0 ? 'LilyGo T-Watch ativo · Telemetria OK' : 'Aguardando telemetria do relógio';
+    }
+  });
+}
+
 function home(updateRoute=true){
   currentGroup=null; currentItem=null;
+  const devMetric = dashboardMetrics ? (dashboardMetrics.online_devices + ' / ' + dashboardMetrics.total_devices + ' ONLINE') : 'ONLINE';
+  const tempMetric = (dashboardMetrics && dashboardMetrics.temperature_c != null) ? (dashboardMetrics.temperature_c + ' °C') : '-- °C';
+  const mobMetric = (dashboardMetrics && dashboardMetrics.mobiles_online > 0) ? (dashboardMetrics.mobiles_online + ' ATIVO(S)') : 'CONECTADO';
+  const watchMetric = (dashboardMetrics && dashboardMetrics.watch_online > 0) ? 'ONLINE' : 'OK';
+
+  const homeRail = [
+    {label:'DASHBOARD',action:'home',level:0,levelNav:true,active:true},
+    {label:'DISPOSITIVOS',action:'open-group:DISPOSITIVOS',level:1},
+    {label:'OPERAÇÕES',action:'open-group:OPERAÇÕES',level:1},
+    {label:'SEGURANÇA',action:'open-group:SEGURANÇA',level:1},
+    {label:'IA & VOZ',action:'open-group:IA & VOZ',level:1},
+    {label:'FAMÍLIA',action:'open-group:FAMÍLIA',level:1},
+    {label:'SISTEMA',action:'open-group:SISTEMA',level:1}
+  ];
+
+  const dashboardCards = [
+    {
+      title: 'DISPOSITIVOS & IOT',
+      description: 'Controle de iluminação, relés e equipamentos ESP32',
+      icon: '▣',
+      value: devMetric,
+      status: 'ONLINE',
+      actions: [{label:'CONTROLAR', action:'open-direct:DISPOSITIVOS:devices', variant:'primary'}]
+    },
+    {
+      title: 'TEMPERATURA & CLIMA',
+      description: 'Leituras ambientais dos sensores IoT da residência',
+      icon: '◈',
+      value: tempMetric,
+      status: 'OK',
+      actions: [{label:'SENSORES', action:'open-direct:OPERAÇÕES:sensores-op', variant:'primary'}]
+    },
+    {
+      title: 'CELULAR & PRESENÇA',
+      description: 'Casa Mobile, credenciais pareadas e presença na residência',
+      icon: '📱',
+      value: mobMetric,
+      status: 'OK',
+      actions: [{label:'CELULARES', action:'open-direct:DISPOSITIVOS:mobile-dev', variant:'primary'}]
+    },
+    {
+      title: 'JARVIS WATCH',
+      description: 'LilyGo T-Watch, telemetria biométrica, SOS e bateria',
+      icon: '⌚',
+      value: watchMetric,
+      status: 'OK',
+      actions: [{label:'WATCH', action:'open-direct:DISPOSITIVOS:watch-dev', variant:'primary'}]
+    },
+    {
+      title: 'DEFESA & PERÍMETRO',
+      description: 'Câmeras de vídeo, anti-intrusão e eventos de segurança',
+      icon: '◆',
+      value: 'ATIVO',
+      status: 'SEGURO',
+      actions: [{label:'CÂMERAS', action:'open-direct:SEGURANÇA:cameras', variant:'primary'}]
+    },
+    {
+      title: 'VOZ & INTELIGÊNCIA IA',
+      description: 'Central de comandos, síntese e reconhecimento de voz',
+      icon: '✦',
+      value: 'PRONTO',
+      status: 'JARVIS',
+      actions: [{label:'FALAR', action:'open-direct:IA & VOZ:jarvis', variant:'primary'}]
+    },
+    {
+      title: 'AUTOMAÇÃO & CENAS',
+      description: 'Rotinas, agendamentos automáticos e regras operacionais',
+      icon: '⚙',
+      value: 'AGENDADO',
+      status: 'ATIVO',
+      actions: [{label:'ROTINAS', action:'open-direct:OPERAÇÕES:agendamentos', variant:'primary'}]
+    },
+    {
+      title: 'SISTEMA & SERVIDORES',
+      description: 'Cluster ARM, saúde da infraestrutura e banco de dados',
+      icon: '⌘',
+      value: '100% OK',
+      status: 'ONLINE',
+      actions: [{label:'SAÚDE', action:'open-direct:SISTEMA:health', variant:'primary'}]
+    },
+    {
+      title: 'EXPLORAR GRUPOS',
+      description: 'Acesse o menu completo de todos os 7 módulos do CASA',
+      icon: '●',
+      value: '7 MÓDULOS',
+      status: 'MENU',
+      actions: [{label:'GRUPOS', action:'open-groups-overview', variant:'primary'}]
+    }
+  ];
+
   CASALcars.render('#app',{
-    layout:'dashboard',group:'GRUPOS',title:'CASA / COMPUTER',subtitle:'Escolha um grupo. A interface adapta o miolo conforme a tarefa.',
-    breadcrumb:[],groups:[{label:'CASA',action:'home',level:0,levelNav:true,active:true}],status:STATUS,columns:3,
+    layout:'dashboard',group:'DASHBOARD',title:'CASA / COMPUTER · DASHBOARD',subtitle:'Painel de controle operacional e monitoramento residencial em tempo real.',
+    breadcrumb:['CASA','DASHBOARD'],groups:homeRail,status:STATUS,columns:3,
+    items:dashboardCards,
+    footer:{hint:'Interface operacional central: use os cartões para ação rápida ou os grupos à esquerda.'}
+  });
+
+  if(updateRoute) setRoute(null,null);
+  loadDashboardMetrics();
+}
+
+function renderGroupsMenu(){
+  currentGroup='GRUPOS'; currentItem=null;
+  CASALcars.render('#app',{
+    layout:'dashboard',group:'GRUPOS',title:'CASA / COMPUTER · MÓDULOS',subtitle:'Escolha um grupo. A interface adapta o miolo conforme a tarefa.',
+    breadcrumb:['CASA','GRUPOS'],groups:[{label:'DASHBOARD',action:'home',level:0,levelNav:true},{label:'GRUPOS',action:'open-groups-overview',level:1,levelNav:true,active:true}],status:STATUS,columns:3,
     items:topGroupCards().map(g=>({title:g.title,description:g.description,icon:g.icon,actions:[{label:'ACESSAR',action:'open-group:'+g.id,variant:'primary'}]})),
     footer:{hint:'Interface em tela cheia: use grupos e paginação, sem rolagem.'}
   });
-  if(updateRoute) setRoute(null,null);
+  setRoute('GRUPOS',null);
 }
 
 function groupRail(group){
@@ -2858,8 +3008,19 @@ function changePassword(){
 
 function handleAction(detail){
   const action=detail.action||'';
-  if(action==='home' || action==='back') return home();
+  if(action==='home' || action==='back' || action==='dashboard') return home();
+  if(action==='open-groups-overview') return renderGroupsMenu();
   if(action==='open-current-group' && currentGroup) return openGroup(currentGroup);
+  if(action.startsWith('open-direct:')){
+    const parts = action.split(':');
+    const grp = parts[1], itId = parts[2];
+    if(GROUPS[grp]){
+      openGroup(grp, false);
+      const it = findItem(grp, itId);
+      if(it) openItem(it);
+    }
+    return;
+  }
   if(action==='open-item'){const it=findItem(currentGroup,detail.id);if(it)openItem(it);return;}
   if(action.startsWith('open-group:')) return openGroup(action.substring(11));
   if(action==='select' || action==='navigate'){const it=findItem(currentGroup,detail.id);if(it)openItem(it);}
@@ -2938,20 +3099,39 @@ function scheduleAdminMount(){
 }
 
 function restoreRoute(){
-  const params=new URLSearchParams(location.search),g=params.get('grupo'),itemId=params.get('item');
+  const params=new URLSearchParams(location.search);
+  const g=params.get('grupo');
+  const itemId=params.get('item');
   suppressHistory=true;
-  if(g&&GROUPS[g]){openGroup(g,false);if(itemId){const it=findItem(g,itemId);if(it)openItem(it,false);}}else home(false);
+  if(itemId==='dashboard' || g==='dashboard' || g==='DASHBOARD' || (!g && !itemId)){
+    home(false);
+  } else if(g && GROUPS[g]){
+    openGroup(g,false);
+    if(itemId){
+      const it=findItem(g,itemId);
+      if(it) openItem(it,false);
+    }
+  } else {
+    home(false);
+  }
   suppressHistory=false;
 }
 
-document.addEventListener('DOMContentLoaded',()=>{
+function bootLCARS(){
   const app=document.getElementById('app');
+  if(!app) return;
   app.addEventListener('ja:action',e=>{handleAction(e.detail||{});scheduleAdminMount();});
   const observer=new MutationObserver(()=>scheduleAdminMount());
   observer.observe(app,{childList:true,subtree:true});
   restoreRoute();
   scheduleAdminMount();
-});
+}
+
+if(document.readyState==='loading'){
+  document.addEventListener('DOMContentLoaded',bootLCARS);
+} else {
+  bootLCARS();
+}
 window.addEventListener('popstate',restoreRoute);
 window.addEventListener('resize',()=>{const f=document.querySelector('.ja-module-frame');if(f)fitFrame(f);});
 window.CASASite={home,openGroup,openItem,changePassword,groups:GROUPS};

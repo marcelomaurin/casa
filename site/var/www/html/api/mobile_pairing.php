@@ -18,20 +18,40 @@ if (!defined('MOBILE_PAIR_TTL_SECONDS')) define('MOBILE_PAIR_TTL_SECONDS', 600);
 function mobile_pair_ensure_schema(PDO $pdo): void {
     static $done = false;
     if ($done) return;
-    $pdo->exec("CREATE TABLE IF NOT EXISTS mobile_pairing_tickets (
-        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-        code_hash CHAR(64) NOT NULL,
-        criado_por VARCHAR(120) NOT NULL,
-        criado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        expira_em DATETIME NOT NULL,
-        usado_em DATETIME NULL,
-        device_id VARCHAR(120) NULL,
-        device_nome VARCHAR(160) NULL,
-        usado_ip VARCHAR(45) NULL,
-        PRIMARY KEY (id),
-        UNIQUE KEY uk_mobile_pair_code (code_hash),
-        KEY idx_mobile_pair_expira (expira_em)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS mobile_pairing_tickets (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            code_hash CHAR(64) NOT NULL,
+            criado_por VARCHAR(120) NOT NULL,
+            criado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            expira_em DATETIME NOT NULL,
+            usado_em DATETIME NULL,
+            device_id VARCHAR(120) NULL,
+            device_nome VARCHAR(160) NULL,
+            usado_ip VARCHAR(45) NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY uk_mobile_pair_code (code_hash),
+            KEY idx_mobile_pair_expira (expira_em)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    } catch (Throwable $e) {}
+
+    try {
+        $dcCols = $pdo->query("SHOW COLUMNS FROM dispositivos_cluster")->fetchAll(PDO::FETCH_COLUMN);
+        if ($dcCols && !in_array('credential_revoked_at', $dcCols, true)) {
+            $pdo->exec("ALTER TABLE dispositivos_cluster ADD COLUMN credential_revoked_at DATETIME NULL AFTER ultimo_heartbeat");
+        }
+        if ($dcCols && !in_array('model', $dcCols, true)) {
+            $pdo->exec("ALTER TABLE dispositivos_cluster ADD COLUMN model VARCHAR(100) NULL AFTER nome");
+        }
+    } catch (Throwable $e) {}
+
+    try {
+        $tokCols = $pdo->query("SHOW COLUMNS FROM api_client_tokens")->fetchAll(PDO::FETCH_COLUMN);
+        if ($tokCols && !in_array('device_id', $tokCols, true)) {
+            $pdo->exec("ALTER TABLE api_client_tokens ADD COLUMN device_id VARCHAR(120) NULL AFTER nome");
+        }
+    } catch (Throwable $e) {}
+
     $done = true;
 }
 
@@ -128,20 +148,182 @@ function mobile_pair_redeem(PDO $pdo, string $code, array $info, ?string $ip = n
 }
 
 function mobile_pair_list(PDO $pdo): array {
-    $rows = $pdo->query("SELECT d.device_id,d.nome,d.model,d.status,d.ultimo_heartbeat,d.metadata,d.credential_revoked_at,d.criado_em,
-            (SELECT MAX(t.ultimo_uso) FROM api_client_tokens t WHERE t.device_id=d.device_id) AS ultimo_uso
-        FROM dispositivos_cluster d WHERE d.tipo='mobile' ORDER BY d.credential_revoked_at IS NOT NULL, COALESCE(d.ultimo_heartbeat,d.criado_em) DESC LIMIT 50")->fetchAll(PDO::FETCH_ASSOC);
-    foreach ($rows as &$r) { $m = json_decode((string)$r['metadata'], true); $r['metadata'] = is_array($m) ? $m : []; }
-    return $rows;
+    mobile_pair_ensure_schema($pdo);
+    $map = [];
+
+    // 1. Dispositivos registrados na tabela dispositivos_cluster
+    try {
+        $cols = $pdo->query("SHOW COLUMNS FROM dispositivos_cluster")->fetchAll(PDO::FETCH_COLUMN);
+        $hasRev = in_array('credential_revoked_at', $cols, true);
+        $hasModel = in_array('model', $cols, true);
+        $hasMeta = in_array('metadata', $cols, true);
+        $hasHb = in_array('ultimo_heartbeat', $cols, true);
+
+        $selRev = $hasRev ? "d.credential_revoked_at" : "NULL AS credential_revoked_at";
+        $selMod = $hasModel ? "d.model" : "NULL AS model";
+        $selMeta = $hasMeta ? "d.metadata" : "'{}' AS metadata";
+        $selHb = $hasHb ? "d.ultimo_heartbeat" : "NULL AS ultimo_heartbeat";
+
+        $sql = "SELECT d.device_id, d.nome, {$selMod}, d.status, {$selHb}, {$selMeta}, {$selRev}, d.criado_em
+                FROM dispositivos_cluster d
+                WHERE (d.tipo IN ('mobile','celular','android','phone')
+                   OR d.device_id LIKE 'mobile-%'
+                   OR (d.capabilities LIKE '%mobile%' AND d.tipo NOT IN ('server','cluster','linux-arm')))
+                ORDER BY {$selRev} IS NOT NULL, COALESCE({$selHb}, d.criado_em) DESC LIMIT 50";
+        $rows = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows as $r) {
+            $m = json_decode((string)$r['metadata'], true);
+            $r['metadata'] = is_array($m) ? $m : [];
+            $r['ultimo_uso'] = null;
+            $r['online'] = (strtolower((string)$r['status']) === 'online');
+            $map[$r['device_id']] = $r;
+        }
+    } catch (Throwable $e) {
+        error_log('mobile_pair_list cluster err: ' . $e->getMessage());
+    }
+
+    // 2. Chaves e celulares cadastrados em api_client_tokens
+    try {
+        $tokCols = $pdo->query("SHOW COLUMNS FROM api_client_tokens")->fetchAll(PDO::FETCH_COLUMN);
+        $hasDevId = in_array('device_id', $tokCols, true);
+        $hasUso = in_array('ultimo_uso', $tokCols, true);
+        $hasRev = in_array('revogado_em', $tokCols, true);
+        $selDev = $hasDevId ? "device_id" : "NULL AS device_id";
+        $selUso = $hasUso ? "ultimo_uso" : "NULL AS ultimo_uso";
+        $selRev = $hasRev ? "revogado_em" : "NULL AS revogado_em";
+
+        $tokSql = "SELECT id, nome, {$selDev}, scopes, ativo, {$selRev}, {$selUso}, criado_em
+                   FROM api_client_tokens
+                   WHERE (scopes LIKE '%mobile%' OR nome LIKE '%Celular%' OR (device_id IS NOT NULL AND device_id LIKE 'mobile-%'))
+                   ORDER BY id DESC LIMIT 50";
+        $tokens = $pdo->query($tokSql)->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($tokens as $t) {
+            $did = trim((string)($t['device_id'] ?? ''));
+            if ($did !== '' && isset($map[$did])) {
+                if (!empty($t['ultimo_uso']) && (empty($map[$did]['ultimo_uso']) || strtotime($t['ultimo_uso']) > strtotime($map[$did]['ultimo_uso']))) {
+                    $map[$did]['ultimo_uso'] = $t['ultimo_uso'];
+                }
+                if (!empty($t['revogado_em']) || empty($t['ativo'])) {
+                    if (empty($map[$did]['credential_revoked_at'])) {
+                        $map[$did]['credential_revoked_at'] = $t['revogado_em'] ?: date('Y-m-d H:i:s');
+                    }
+                }
+            } else {
+                $genId = $did !== '' ? $did : ('token-' . $t['id']);
+                $cleanName = preg_replace('/^Celular:\s*/i', '', (string)$t['nome']);
+                $map[$genId] = [
+                    'device_id' => $genId,
+                    'nome' => $cleanName ?: 'Celular',
+                    'model' => 'Casa Mobile (API)',
+                    'status' => (!empty($t['ativo']) && empty($t['revogado_em'])) ? 'ativo' : 'revoked',
+                    'ultimo_heartbeat' => $t['ultimo_uso'] ?? null,
+                    'metadata' => ['origem' => 'api_token'],
+                    'credential_revoked_at' => (!empty($t['ativo']) && empty($t['revogado_em'])) ? null : ($t['revogado_em'] ?: date('Y-m-d H:i:s')),
+                    'criado_em' => $t['criado_em'] ?? date('Y-m-d H:i:s'),
+                    'ultimo_uso' => $t['ultimo_uso'] ?? null,
+                    'online' => false
+                ];
+            }
+        }
+    } catch (Throwable $e) {
+        error_log('mobile_pair_list tokens err: ' . $e->getMessage());
+    }
+
+    // 3. Tickets de pareamento já consumidos (mobile_pairing_tickets)
+    try {
+        $stTickets = $pdo->query("SELECT id, criado_por, criado_em, usado_em, device_id, device_nome FROM mobile_pairing_tickets WHERE usado_em IS NOT NULL AND device_id IS NOT NULL ORDER BY usado_em DESC LIMIT 20");
+        if ($stTickets) {
+            foreach ($stTickets->fetchAll(PDO::FETCH_ASSOC) as $tk) {
+                $did = trim((string)$tk['device_id']);
+                if ($did === '') continue;
+                if (!isset($map[$did])) {
+                    $map[$did] = [
+                        'device_id' => $did,
+                        'nome' => $tk['device_nome'] ?: 'Celular',
+                        'model' => 'Casa Mobile',
+                        'status' => 'online',
+                        'ultimo_heartbeat' => $tk['usado_em'],
+                        'metadata' => ['paired_by' => $tk['criado_por'], 'pairing' => 'qr'],
+                        'credential_revoked_at' => null,
+                        'criado_em' => $tk['usado_em'],
+                        'ultimo_uso' => $tk['usado_em'],
+                        'online' => false
+                    ];
+                }
+            }
+        }
+    } catch (Throwable $e) {}
+
+    // 4. Cruzar com family_presence para presença em tempo real
+    try {
+        $pRows = $pdo->query("SELECT cliente, dispositivo, plataforma, metadata, ultimo_ping,
+                              (ultimo_ping >= DATE_SUB(NOW(), INTERVAL 90 SECOND)) AS online
+                              FROM family_presence
+                              WHERE (plataforma IN ('mobile','android','ios','pwa') OR dispositivo LIKE '%celular%' OR cliente LIKE '%celular%')
+                              ORDER BY ultimo_ping DESC LIMIT 30")->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($pRows as $p) {
+            $matched = false;
+            $pName = trim((string)($p['dispositivo'] ?: $p['cliente']));
+            foreach ($map as $did => &$item) {
+                if (stripos($item['nome'], $pName) !== false || stripos($pName, $item['nome']) !== false || $item['device_id'] === $pName) {
+                    if ((int)$p['online'] === 1) {
+                        $item['online'] = true;
+                        $item['status'] = 'online';
+                    }
+                    if (empty($item['ultimo_heartbeat']) || strtotime($p['ultimo_ping']) > strtotime($item['ultimo_heartbeat'])) {
+                        $item['ultimo_heartbeat'] = $p['ultimo_ping'];
+                    }
+                    $matched = true;
+                    break;
+                }
+            }
+            unset($item);
+            if (!$matched && $pName !== '') {
+                $genId = 'presenca-' . substr(md5($pName), 0, 8);
+                $map[$genId] = [
+                    'device_id' => $genId,
+                    'nome' => $pName,
+                    'model' => 'Família CASA (' . strtoupper($p['plataforma'] ?: 'MOBILE') . ')',
+                    'status' => ((int)$p['online'] === 1) ? 'online' : 'offline',
+                    'ultimo_heartbeat' => $p['ultimo_ping'],
+                    'metadata' => ['origem' => 'family_presence'],
+                    'credential_revoked_at' => null,
+                    'criado_em' => $p['ultimo_ping'],
+                    'ultimo_uso' => $p['ultimo_ping'],
+                    'online' => ((int)$p['online'] === 1)
+                ];
+            }
+        }
+    } catch (Throwable $e) {}
+
+    $list = array_values($map);
+    usort($list, function($a, $b) {
+        $aRev = !empty($a['credential_revoked_at']);
+        $bRev = !empty($b['credential_revoked_at']);
+        if ($aRev !== $bRev) return $aRev ? 1 : -1;
+        $aTime = strtotime($a['ultimo_heartbeat'] ?: ($a['ultimo_uso'] ?: $a['criado_em']));
+        $bTime = strtotime($b['ultimo_heartbeat'] ?: ($b['ultimo_uso'] ?: $b['criado_em']));
+        return $bTime <=> $aTime;
+    });
+
+    return $list;
 }
 
 function mobile_pair_revoke(PDO $pdo, string $deviceId): bool {
+    mobile_pair_ensure_schema($pdo);
     $started = !$pdo->inTransaction();
     if ($started) $pdo->beginTransaction();
-    $st = $pdo->prepare("UPDATE dispositivos_cluster SET credential_revoked_at=NOW(),status='revoked',health='revoked' WHERE device_id=:d AND tipo='mobile'");
-    $st->execute([':d' => $deviceId]);
-    $ok = $st->rowCount() > 0;
-    if ($ok) $pdo->prepare("UPDATE api_client_tokens SET ativo=0,revogado_em=NOW() WHERE device_id=:d")->execute([':d' => $deviceId]);
+    $ok = false;
+    try {
+        $st = $pdo->prepare("UPDATE dispositivos_cluster SET credential_revoked_at=NOW(),status='revoked',health='revoked' WHERE device_id=:d");
+        $st->execute([':d' => $deviceId]);
+        if ($st->rowCount() > 0) $ok = true;
+    } catch (Throwable $e) {}
+    try {
+        $st2 = $pdo->prepare("UPDATE api_client_tokens SET ativo=0,revogado_em=NOW() WHERE device_id=:d OR nome LIKE :n");
+        $st2->execute([':d' => $deviceId, ':n' => '%:' . $deviceId . '%']);
+        if ($st2->rowCount() > 0) $ok = true;
+    } catch (Throwable $e) {}
     if ($started) $pdo->commit();
     return $ok;
 }

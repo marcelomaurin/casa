@@ -209,23 +209,43 @@ function ageText($date){ if(!$date)return '--'; $s=time()-strtotime($date); if($
       <div class="card blue">
         <h2>🔑 Celulares pareados</h2>
         <?php if(!$phones):?>
-          <p>Nenhum celular pareado ainda.</p>
+          <p>Nenhum celular pareado com credencial própria ainda.</p>
+          <?php if(!empty($celPresence)):?>
+            <p class="small" style="color:#b45309;margin-top:6px;">💡 Há celulares comunicando via presença de rede ao lado. Para controle total e credenciais individuais exclusivas, gere o QR Code de acesso acima.</p>
+          <?php endif;?>
         <?php else:?>
           <table>
-            <tr><th>Celular</th><th></th></tr>
-            <?php foreach($phones as $ph): $rev=!empty($ph['credential_revoked_at']);?>
+            <tr><th>Celular</th><th style="text-align:center">Estado</th><th></th></tr>
+            <?php foreach($phones as $ph):
+              $rev = !empty($ph['credential_revoked_at']);
+              $isOnline = !empty($ph['online']) || (!empty($ph['ultimo_heartbeat']) && strtotime($ph['ultimo_heartbeat']) >= (time() - 120));
+            ?>
               <tr>
                 <td><b><?=h($ph['nome'])?></b><?php if(!empty($ph['model'])):?> <span class="small">· <?=h($ph['model'])?></span><?php endif;?>
-                  <br><span class="small">Pareado <?=h($ph['criado_em'])?><?php if(!empty($ph['metadata']['paired_by'])):?> por <?=h($ph['metadata']['paired_by'])?><?php endif;?></span>
-                  <br><span class="small">Último uso: <?=h($ph['ultimo_uso'] ?: ($ph['ultimo_heartbeat'] ?: '--'))?></span></td>
-                <td style="text-align:right"><?php if($rev):?><span class="pill off">REVOGADO</span><?php else:?><button type="button" class="pair-revoke" data-device="<?=h($ph['device_id'])?>" data-name="<?=h($ph['nome'])?>" style="padding:5px 9px;font-size:.8rem;background:#ef9b92">Revogar</button><?php endif;?></td>
+                  <br><span class="small">Registrado <?=h($ph['criado_em'])?><?php if(!empty($ph['metadata']['paired_by'])):?> por <?=h($ph['metadata']['paired_by'])?><?php endif;?></span>
+                  <br><span class="small">Último contato: <?=h($ph['ultimo_uso'] ?: ($ph['ultimo_heartbeat'] ?: '--'))?> (<?=h(ageText($ph['ultimo_heartbeat'] ?: $ph['ultimo_uso']))?>)</span></td>
+                <td style="text-align:center">
+                  <?php if($rev):?>
+                    <span class="pill off">REVOGADO</span>
+                  <?php elseif($isOnline):?>
+                    <span class="pill ok">ONLINE</span>
+                  <?php else:?>
+                    <span class="pill off">OFFLINE</span>
+                  <?php endif;?>
+                </td>
+                <td style="text-align:right">
+                  <?php if(!$rev):?>
+                    <button type="button" class="pair-revoke" data-device="<?=h($ph['device_id'])?>" data-name="<?=h($ph['nome'])?>" style="padding:5px 9px;font-size:.8rem;background:#ef9b92">Revogar</button>
+                  <?php endif;?>
+                </td>
               </tr>
             <?php endforeach;?>
           </table>
         <?php endif;?>
       </div>
+    </div>
 
-      <!-- Notificar Celular -->
+    <!-- Notificar Celular -->
       <div class="card">
         <h2>🔔 Notificar Celular</h2>
         <form method="post">

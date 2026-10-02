@@ -17,7 +17,7 @@ $authName = !empty($_SESSION['auth_name']) ? $_SESSION['auth_name'] : ($_SESSION
 </head>
 <body>
   <div class="ja-admin-template" id="ja-admin-template" aria-hidden="true">
-    <button class="home" type="button">GRUPOS</button>
+    <button class="home" type="button">DASHBOARD</button>
     <button class="password" type="button">ALTERAR SENHA</button>
     <a class="logout" href="/casa/login.php?logout=1">SAIR · <?= htmlspecialchars($authName, ENT_QUOTES, 'UTF-8') ?></a>
   </div>
@@ -26,7 +26,7 @@ $authName = !empty($_SESSION['auth_name']) ? $_SESSION['auth_name'] : ($_SESSION
   <noscript>O CASA/COMPUTER precisa de JavaScript habilitado para a interface adaptativa.</noscript>
   <script src="/casa/lcars-framework.js?v=1.3.0"></script>
   <script src="/casa/qrcode.min.js"></script>
-  <script src="/casa/lcars-site.js?v=1.5.24"></script>
+  <script src="/casa/lcars-site.js?v=1.5.25"></script>
   <script src="/casa/lcars-iot.js?v=1.1.0"></script>
 </body>
 </html>
