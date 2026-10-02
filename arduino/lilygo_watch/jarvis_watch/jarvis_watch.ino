@@ -1,4 +1,5 @@
 #include "config.h"
+#include <WiFi.h>
 #include "jarvis_ble.h"
 #include "jarvis_wifi.h"
 #include "jarvis_qrcode.h"
@@ -730,7 +731,7 @@ void drawSetup(){
     lcarsButton(30, 140, 180, 38, C_GREEN, "ATIVAR QRCODE");
   } else if(!phoneOn && !wifiOn){
     if(setupShowQr){
-      String qrPayload = "{\"t\":\"watch\",\"ssid\":\"" + String(jarvisBleApSsid()) + "\",\"pass\":\"" + String(jarvisBleApPass()) + "\",\"ip\":\"192.168.4.1\",\"port\":4040,\"mac\":\"" + WiFi.macAddress() + "\"}";
+      String qrPayload = "{\"t\":\"watch\",\"ssid\":\"" + String(jarvisBleApSsid()) + "\",\"pass\":\"" + String(jarvisBleApPass()) + "\",\"ip\":\"192.168.4.1\",\"port\":4040,\"mac\":\"" + jarvisWifiMacAddress() + "\"}";
       drawWatchQrCode(120, 110, qrPayload.c_str(), 3);
       tft->setTextColor(C_TEXT, C_BG);
       tft->drawCentreString("Aponte a camera do celular", 120, 166, 1);

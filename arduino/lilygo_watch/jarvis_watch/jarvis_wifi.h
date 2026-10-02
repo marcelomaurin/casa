@@ -13,6 +13,7 @@ void jarvisWifiBegin();
 void jarvisWifiLoop();
 bool jarvisWifiIsConnected();
 String jarvisWifiSsid();
+String jarvisWifiMacAddress();
 int jarvisWifiRssi();
 
 bool jarvisWifiSetProfile(uint8_t slot, const String &ssid, const String &password);
