@@ -21,4 +21,4 @@ Além do APK nativo, qualquer celular (Android ou iPhone/iOS) pode acessar diret
 ## Geração do APK
 
 O APK debug é gerado automaticamente pelo GitHub Actions (`.github/workflows/build-jarvis-mobile.yml`) a cada push em `android/JarvisMobile/**` e disponibilizado como artefato e release:
-- `CasaMobile-v2.7.0-debug.apk`
+- `CasaMobile-v2.8.0-debug.apk`
