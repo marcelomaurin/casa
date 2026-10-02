@@ -140,23 +140,35 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
                 "wifi_profile_result" ->
                     statusState = if (ok) "Watch confirmou perfil Wi-Fi: $message" else "Falha no perfil Wi-Fi: $message"
                 "wifi_connect_result" ->
-                    statusState = if (ok) "Watch iniciou conexão Wi-Fi: $message" else "Falha ao iniciar Wi-Fi: $message"
+                    statusState = if (ok) "Watch iniciou conex?o Wi-Fi: $message" else "Falha ao iniciar Wi-Fi: $message"
+                "watch_provision_result" ->
+                    statusState = if (ok) "Configura??o aceita pelo Watch! Conectando ao Wi-Fi..." else "Falha no provisionamento: $message"
                 "status" -> {
                     val wifi = json.optBoolean("wifi", false)
                     val casa = json.optBoolean("casa_configured", false)
+                    val casaOnline = json.optBoolean("casa_online", false)
                     val ssid = json.optString("ssid")
                     val deviceId = json.optString("device_id")
+                    val staIp = json.optString("sta_ip")
                     val hardwareId = json.optString("hardware_id").trim()
                     if (hardwareId.isNotBlank()) {
                         hardwareIdState = hardwareId
                         connectedAddressState = hardwareId
                     }
                     statusState = buildString {
-                        append("Watch confirmado")
-                        append(if (wifi) " • Wi-Fi OK" else " • Wi-Fi offline")
-                        if (ssid.isNotBlank()) append(" ($ssid)")
-                        append(if (casa) " • CASA configurada" else " • CASA não configurada")
-                        if (deviceId.isNotBlank()) append(" • $deviceId")
+                        append("Watch: ")
+                        if (wifi) {
+                            append("Wi-Fi OK ($ssid)")
+                            if (staIp.isNotBlank()) append(" ? IP: $staIp")
+                        } else {
+                            append("Conectando ao Wi-Fi...")
+                        }
+                        if (casaOnline) {
+                            append(" ? CASA Online!")
+                        } else if (casa) {
+                            append(" ? Token CASA OK (sincronizando...)")
+                        }
+                        if (deviceId.isNotBlank()) append(" ? $deviceId")
                     }
                 }
                 else -> statusState = "Watch: ${type.ifBlank { "mensagem" }}"
@@ -432,6 +444,9 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
                     }
 
                     provisioning = true
+                    val chosenSsid = ssid.trim()
+                    val chosenPass = password
+
                     statusState = if (existingProvision == null)
                         "Criando identidade e token do Watch no CASA..."
                     else
@@ -439,6 +454,16 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
 
                     scope.launch {
                         try {
+                            if (chosenSsid.isNotBlank()) {
+                                runCatching {
+                                    WifiProfileStore.save(
+                                        this@WatchSetupActivity,
+                                        WifiProfileStore.Profile(slot, chosenSsid, chosenPass)
+                                    )
+                                    savedProfiles = WifiProfileStore.load(this@WatchSetupActivity)
+                                }
+                            }
+
                             val entry = if (existingProvision != null) {
                                 existingProvision
                             } else {
@@ -465,54 +490,36 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
                                 }
                             }
 
-                            val identityQueued = watchClient.provisionDeviceIdentity(
-                                entry.deviceId
-                            )
-                            val casaQueued = watchClient.provisionCasa(
-                                entry.baseUrl,
-                                entry.token
-                            )
-                            if (!identityQueued || !casaQueued) {
-                                statusState =
-                                    "Credencial criada e guardada, mas o Watch não aceitou todo o envio. Reconecte e use REENVIAR."
-                                provisioning = false
-                                return@launch
+                            statusState = "Enviando token e rede $chosenSsid ao Watch..."
+
+                            // Envio at?mico unificado (token, servidor CASA e rede Wi-Fi escolhida)
+                            if (chosenSsid.isNotBlank()) {
+                                watchClient.provisionWatch(
+                                    deviceId = entry.deviceId,
+                                    baseUrl = entry.baseUrl,
+                                    deviceToken = entry.token,
+                                    ssid = chosenSsid,
+                                    password = chosenPass,
+                                    slot = slot
+                                )
                             }
 
-                            val profiles = WifiProfileStore.load(this@WatchSetupActivity)
-                                .sortedBy { it.slot }
+                            // Comandos individuais para garantia de compatibilidade
+                            watchClient.provisionDeviceIdentity(entry.deviceId)
+                            watchClient.provisionCasa(entry.baseUrl, entry.token)
 
-                            var wifiQueued = 0
-                            profiles.forEach { profile ->
-                                if (watchClient.provisionWifi(
-                                        profile.slot,
-                                        profile.ssid,
-                                        profile.password
-                                    )
-                                ) wifiQueued++
+                            if (chosenSsid.isNotBlank()) {
+                                watchClient.provisionWifi(slot, chosenSsid, chosenPass)
+                                watchClient.connectWifiProfile(slot)
                             }
-
-                            val phoneSsid = currentSsid()
-                            val preferred = profiles.firstOrNull {
-                                it.ssid.equals(phoneSsid, ignoreCase = true)
-                            } ?: profiles.firstOrNull()
-
-                            val connectQueued = preferred?.let {
-                                watchClient.connectWifiProfile(it.slot)
-                            } ?: false
-
-                            watchClient.requestStatus()
 
                             statusState =
-                                "Provisionamento enviado para ${entry.deviceId}: " +
-                                "$wifiQueued perfil(is) Wi-Fi" +
-                                (preferred?.let { " • conexão solicitada em ${it.ssid}" } ?: "") +
-                                ". Aguardando confirmação do Watch."
+                                "Configura??o enviada para ${entry.deviceId}! " +
+                                "Conectando ao Wi-Fi e entrando em contato com a API do site..."
 
-                            // A associacao Wi-Fi do ESP32 e assincrona. Uma segunda
-                            // leitura alguns segundos depois confirma o resultado real.
-                            if (connectQueued) {
-                                delay(5_000)
+                            // Consulta periodicamente o status at? confirmar Wi-Fi e CASA Online
+                            repeat(6) {
+                                delay(2_000)
                                 watchClient.requestStatus()
                             }
                         } catch (t: Throwable) {
@@ -527,9 +534,9 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    if (provisioning) "CONFIGURANDO..."
-                    else if (existingProvision == null) "CADASTRAR WATCH NO CASA"
-                    else "REENVIAR ACESSO AO WATCH"
+                    if (provisioning) "CONFIGURANDO E CONECTANDO..."
+                    else if (existingProvision == null) "ENVIAR CONFIGURA??O AO WATCH"
+                    else "REENVIAR CONFIGURA??O AO WATCH"
                 )
             }
 

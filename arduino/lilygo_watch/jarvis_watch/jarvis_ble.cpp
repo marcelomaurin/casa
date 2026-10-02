@@ -229,6 +229,40 @@ static void processIncoming(const String &json){
     return;
   }
 
+    if(type=="watch_provision"){
+    String deviceId=jsonString(json,"device_id","");
+    deviceId.trim();
+    String base=jsonString(json,"base_url","");
+    base.trim();
+    String token=jsonString(json,"device_token","");
+    token.trim();
+    String ssid=jsonString(json,"ssid","");
+    String pass=jsonString(json,"password","");
+    int slot=jsonInt(json,"slot",0);
+    if(slot<0||slot>4) slot=0;
+    bool doConnect=jsonBool(json,"connect",true);
+
+    bool okId=!deviceId.isEmpty();
+    if(okId) jarvisWifiSetDeviceId(deviceId);
+
+    bool okCasa=!base.isEmpty()&&!token.isEmpty();
+    if(okCasa) jarvisWifiSetCasa(base,token);
+
+    bool okWifi=!ssid.isEmpty()&&jarvisWifiSetProfile((uint8_t)slot,ssid,pass);
+
+    bool okConnect=false;
+    if(okWifi&&doConnect){
+      okConnect=jarvisWifiStartProfile((uint8_t)slot);
+    }
+
+    bool allOk=okId&&okCasa&&okWifi;
+    String msg=allOk ? ("Configuracao salva. Conectando a "+ssid) : "Configuracao incompleta";
+    sendResult("watch_provision_result",allOk,msg);
+
+    if(allOk) dispatchExternal(json,type);
+    return;
+  }
+
   if(type=="device_identity"){
     String deviceId=jsonString(json,"device_id","");
     deviceId.trim();
@@ -276,6 +310,8 @@ static void processIncoming(const String &json){
     out+=",\"ap\":"+String(provisioningAp?"true":"false")+",\"ap_ssid\":\""+String(AP_SSID)+"\"";
     out+=",\"casa_configured\":";
     out+=jarvisWifiHasCasaCredentials()?"true":"false";
+    out+=",\"casa_online\":";
+    out+=jarvisWifiCasaOnline()?"true":"false";
     String deviceId=jarvisWifiDeviceId();
     if(!deviceId.isEmpty()) out+=",\"device_id\":\""+jsonEscape(deviceId)+"\"";
     if(jarvisWifiIsConnected()) out+=",\"sta_ip\":\""+WiFi.localIP().toString()+"\"";

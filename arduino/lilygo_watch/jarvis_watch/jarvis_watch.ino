@@ -685,12 +685,13 @@ void drawSetup(){
   bool phoneOn = jarvisBleIsConnected();
   bool wifiOn = jarvisWifiIsConnected();
   bool casaOn = jarvisWifiHasCasaCredentials();
+  bool casaOnline = jarvisWifiCasaOnline();
 
   if(!apOn){
     tft->drawCentreString("AP DESATIVADO", 120, 75, 2);
     tft->drawCentreString("Toque abaixo para ativar", 120, 105, 1);
     lcarsButton(40, 140, 160, 38, C_GREEN, "ATIVAR AP");
-  } else if(!phoneOn){
+  } else if(!phoneOn && !wifiOn){
     tft->drawCentreString("REDE: JARVIS-WATCH", 120, 68, 2);
     tft->drawCentreString("Senha: JarvisSetup2026", 120, 92, 1);
     tft->drawCentreString("Abra JarvisMobile > Watch", 120, 112, 1);
@@ -701,13 +702,22 @@ void drawSetup(){
 
     lcarsButton(40, 166, 160, 34, C_SALMON, "PARAR AP");
   } else {
-    tft->fillRoundRect(15, 66, 210, 26, 6, C_GREEN);
-    tft->setTextColor(C_TEXT, C_GREEN);
-    tft->drawCentreString("CELULAR CONECTADO!", 120, 72, 1);
+    uint16_t headerCol = (wifiOn && casaOnline) ? C_GREEN : C_BLUE;
+    tft->fillRoundRect(15, 66, 210, 26, 6, headerCol);
+    tft->setTextColor(C_TEXT, headerCol);
+    if(wifiOn && casaOnline){
+      tft->drawCentreString("ONLINE COM A CASA!", 120, 72, 1);
+    } else if(wifiOn){
+      tft->drawCentreString("WIFI CONECTADO!", 120, 72, 1);
+    } else {
+      tft->drawCentreString("CELULAR CONECTADO!", 120, 72, 1);
+    }
 
     tft->setTextColor(C_TEXT, C_BG);
-    if(casaOn){
-      tft->drawCentreString("CASA: OK (" + jarvisWifiDeviceId().substring(0, 14) + ")", 120, 98, 1);
+    if(casaOnline){
+      tft->drawCentreString("CASA: ONLINE (" + jarvisWifiDeviceId().substring(0, 12) + ")", 120, 98, 1);
+    } else if(casaOn){
+      tft->drawCentreString("CASA: Configurada", 120, 98, 1);
     } else {
       tft->drawCentreString("CASA: Aguardando token...", 120, 98, 1);
     }
@@ -715,7 +725,7 @@ void drawSetup(){
     if(wifiOn){
       tft->drawCentreString("Wi-Fi: " + jarvisWifiSsid().substring(0, 18), 120, 118, 1);
     } else if(jarvisWifiHasProfiles()){
-      tft->drawCentreString("Wi-Fi: Perfis salvos", 120, 118, 1);
+      tft->drawCentreString("Wi-Fi: Conectando...", 120, 118, 1);
     } else {
       tft->drawCentreString("Wi-Fi: Aguardando rede...", 120, 118, 1);
     }
@@ -724,7 +734,7 @@ void drawSetup(){
       tft->drawCentreString(lastMessage.substring(0, 28).c_str(), 120, 138, 1);
     }
 
-    lcarsButton(40, 164, 160, 34, (wifiOn && casaOn) ? C_GREEN : C_BLUE, (wifiOn && casaOn) ? "CONCLUIR" : "DESCONECTAR");
+    lcarsButton(40, 164, 160, 34, (wifiOn && casaOnline) ? C_GREEN : C_BLUE, (wifiOn && casaOnline) ? "CONCLUIR (PRONTO)" : "FECHAR");
   }
 
   drawFooter();
@@ -941,6 +951,12 @@ void processPowerButton(){
 }
 
 void bleEventHandler(const String &type,const String &title,const String &text){
+  if(type=="watch_provision"){
+    lastMessage="Configuracao recebida!";
+    vibrateShort();
+    if(screenAwake)drawScreen();
+    return;
+  }
   if(type=="device_identity"){
     String id=text.length()?text:title;
     id.trim();

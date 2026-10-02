@@ -383,6 +383,23 @@ class WatchClient(private val context: Context) {
             .put("base_url", baseUrl)
             .put("device_token", watchDeviceToken))
 
+    fun provisionWatch(
+        deviceId: String,
+        baseUrl: String,
+        deviceToken: String,
+        ssid: String,
+        password: String,
+        slot: Int = 0
+    ): Boolean = send(JSONObject()
+        .put("type", "watch_provision")
+        .put("device_id", deviceId)
+        .put("base_url", baseUrl)
+        .put("device_token", deviceToken)
+        .put("ssid", ssid)
+        .put("password", password)
+        .put("slot", slot)
+        .put("connect", true))
+
     fun connectWifiProfile(slot: Int): Boolean =
         send(JSONObject().put("type", "wifi_connect").put("slot", slot))
 
