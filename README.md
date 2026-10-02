@@ -117,7 +117,7 @@ A API utiliza autenticação e foi estruturada para suportar tokens individuais,
 
 ### Casa Mobile
 
-A versão atual na `master` é **2.8.0** (`versionCode 280`). O aplicativo Android está em:
+A versão atual na `master` é **2.8.1** (`versionCode 281`). O aplicativo Android está em:
 
 ```text
 android/JarvisMobile/

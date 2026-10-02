@@ -2,8 +2,8 @@
 
 ## Versão atual
 
-- `versionName`: `2.8.0`
-- `versionCode`: `280`
+- `versionName`: `2.8.1`
+- `versionCode`: `281`
 - pacote de desenvolvimento: `br.com.maurinsoft.jarvismobile.debug`
 - pacote de produção: `br.com.maurinsoft.jarvismobile`
 
