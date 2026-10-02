@@ -258,6 +258,13 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
             HorizontalDivider()
             Text("1. Conectar ao relógio", fontWeight = FontWeight.Bold)
 
+            Text(
+                "Instru??es:\n" +
+                "1. No rel?gio: acesse CONFIG ou WIFI e toque no bot?o 'CELULAR' (ativa o AP JARVIS-WATCH).\n" +
+                "2. No celular: toque em 'CONECTAR' (ou conecte na rede Wi-Fi JARVIS-WATCH / senha JarvisSetup2026 e toque em 'CONEX?O DIRETA').",
+                style = MaterialTheme.typography.bodySmall
+            )
+
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = { ensureWifiPermissionAndConnect() },
@@ -265,9 +272,12 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
                 ) { Text("CONECTAR") }
 
                 OutlinedButton(
-                    onClick = { watchClient.connectSaved() },
+                    onClick = {
+                        statusState = "Conectando diretamente em 192.168.4.1:4040..."
+                        watchClient.connectDirect()
+                    },
                     modifier = Modifier.weight(1f)
-                ) { Text("RECONECTAR") }
+                ) { Text("CONEX?O DIRETA") }
             }
 
             foundState.forEach { w ->

@@ -93,31 +93,49 @@ static void ensureServer(){
   serverStarted=true;
 }
 
-static void startProvisioningAp(){
-  if(provisioningAp) return;
+void jarvisBleStartProvisioningAp(bool force){
+  if(provisioningAp && !force) return;
 
-  // AP+STA permite receber configuração do celular e manter/tentar a rede normal.
   WiFi.mode(WIFI_AP_STA);
-  delay(20);
+  delay(30);
 
   IPAddress apIp(192,168,4,1);
   IPAddress gateway(192,168,4,1);
   IPAddress subnet(255,255,255,0);
   WiFi.softAPConfig(apIp,gateway,subnet);
-  WiFi.softAP(AP_SSID,AP_PASS,1,false,1);
+  WiFi.softAP(AP_SSID,AP_PASS,1,false,4);
   provisioningAp=true;
   ensureServer();
 }
 
+void jarvisBleStopProvisioningAp(){
+  if(!provisioningAp) return;
+  provisioningAp=false;
+  WiFi.softAPdisconnect(true);
+  if(WiFi.status()==WL_CONNECTED){
+    WiFi.mode(WIFI_STA);
+  }
+}
+
+bool jarvisBleIsProvisioningAp(){
+  return provisioningAp;
+}
+
+const char* jarvisBleApSsid(){
+  return AP_SSID;
+}
+
+const char* jarvisBleApPass(){
+  return AP_PASS;
+}
+
 void jarvisBleBegin(){
-  // O SoftAP consome energia continuamente. Depois que existe ao menos um
-  // perfil Wi-Fi salvo, o transporte local funciona apenas pelo STA/LAN.
-  // O AP JARVIS-WATCH permanece reservado ao primeiro provisionamento.
-  if(jarvisWifiHasProfiles()){
-    provisioningAp=false;
-    ensureServer();
+  // Se ainda nao tiver credenciais CASA ou perfis Wi-Fi, ativa o SoftAP
+  // para permitir configuracao imediata pelo celular.
+  if(!jarvisWifiHasCasaCredentials() || !jarvisWifiHasProfiles()){
+    jarvisBleStartProvisioningAp(true);
   }else{
-    startProvisioningAp();
+    ensureServer();
   }
 }
 
@@ -227,6 +245,7 @@ static void processIncoming(const String &json){
     String pass=jsonString(json,"password","");
     bool ok=slot>=0&&slot<5&&jarvisWifiSetProfile((uint8_t)slot,ssid,pass);
     sendResult("wifi_profile_result",ok,ok?("Rede "+ssid+" salva"):"Perfil Wi-Fi invalido");
+    if(ok) dispatchExternal(json,type);
     return;
   }
 
@@ -236,6 +255,7 @@ static void processIncoming(const String &json){
     if(slot>=0&&slot<5) ok=jarvisWifiStartProfile((uint8_t)slot);
     else ok=jarvisWifiStartPreferred();
     sendResult("wifi_connect_result",ok,ok?"Conexao Wi-Fi iniciada":"Nenhum perfil Wi-Fi valido");
+    if(ok) dispatchExternal(json,type);
     return;
   }
 
@@ -245,6 +265,7 @@ static void processIncoming(const String &json){
     bool ok=!base.isEmpty()&&!token.isEmpty();
     if(ok) jarvisWifiSetCasa(base,token);
     sendResult("casa_config_result",ok,ok?"CASA configurada":"Configuracao CASA incompleta");
+    if(ok) dispatchExternal(json,type);
     return;
   }
 
@@ -252,7 +273,7 @@ static void processIncoming(const String &json){
     String out="{\"type\":\"status\",\"ok\":true,\"transport\":\"tcp\",\"protocol\":\"TCP-1.0\",\"hardware_id\":\""+jsonEscape(WiFi.macAddress())+"\",\"wifi\":";
     out+=jarvisWifiIsConnected()?"true":"false";
     if(jarvisWifiIsConnected()) out+=",\"ssid\":\""+jsonEscape(jarvisWifiSsid())+"\"";
-    out+=",\"ap\":true,\"ap_ssid\":\""+String(AP_SSID)+"\"";
+    out+=",\"ap\":"+String(provisioningAp?"true":"false")+",\"ap_ssid\":\""+String(AP_SSID)+"\"";
     out+=",\"casa_configured\":";
     out+=jarvisWifiHasCasaCredentials()?"true":"false";
     String deviceId=jarvisWifiDeviceId();
@@ -269,14 +290,14 @@ static void processIncoming(const String &json){
 void jarvisBleLoop(){
   ensureServer();
 
-  if(!jarvisBleIsConnected()){
-    WiFiClient incoming=socketServer.available();
-    if(incoming){
+  WiFiClient incoming=socketServer.available();
+  if(incoming){
+    if(socketClient && socketClient.connected()){
       socketClient.stop();
-      socketClient=incoming;
-      socketClient.setNoDelay(true);
-      rxBuffer="";
     }
+    socketClient=incoming;
+    socketClient.setNoDelay(true);
+    rxBuffer="";
   }
 
   if(!jarvisBleIsConnected()) return;

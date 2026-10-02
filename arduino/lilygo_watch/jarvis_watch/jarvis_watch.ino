@@ -19,7 +19,7 @@ JarvisController controller;
 enum ScreenId {
   SCREEN_HOME, SCREEN_APPS, SCREEN_VOICE, SCREEN_ALARM, SCREEN_CAMERA,
   SCREEN_GPS, SCREEN_CONTROLS, SCREEN_HEALTH, SCREEN_STATUS,
-  SCREEN_SETTINGS, SCREEN_CLOCK, SCREEN_WIFI, SCREEN_KEYBOARD, SCREEN_NOTIFICATION, SCREEN_EMERGENCY
+  SCREEN_SETTINGS, SCREEN_CLOCK, SCREEN_WIFI, SCREEN_KEYBOARD, SCREEN_NOTIFICATION, SCREEN_EMERGENCY, SCREEN_SETUP
 };
 enum PowerMode { POWER_NORMAL, POWER_ECO, POWER_ULTRA };
 enum VoiceOutput { VOICE_PHONE, VOICE_TEXT, VOICE_BOTH };
@@ -100,7 +100,8 @@ String voiceOutputLabel(){return voiceOutput==VOICE_PHONE?"CELULAR":voiceOutput=
 String alarmToneLabel(){return alarmTone==ALARM_SHORT?"CURTO":alarmTone==ALARM_DOUBLE?"DUPLO":alarmTone==ALARM_URGENT?"URGENTE":"CELULAR";}
 
 void syncControllerConfig(){
-  controller.power().setConfig(jarvisEmergencyBusy()?0:screenTimeoutSec,jarvisEmergencyBusy()?0:(uint8_t)powerMode);
+  bool keepAwake = jarvisEmergencyBusy() || jarvisBleIsProvisioningAp() || currentScreen==SCREEN_SETUP;
+  controller.power().setConfig(keepAwake?0:screenTimeoutSec,keepAwake?0:(uint8_t)powerMode);
   controller.alarm().setConfig(alarmEnabled,alarmHour,alarmMinute,(JarvisAlarmTone)alarmTone);
 }
 
@@ -354,7 +355,7 @@ bool alarmDueNow(){
 }
 
 void enterDeepSleep(){
-  if(!watch||jarvisEmergencyBusy())return;
+  if(!watch||jarvisEmergencyBusy()||jarvisBleIsProvisioningAp()||currentScreen==SCREEN_SETUP)return;
 
   // Não dorme enquanto o touch ainda estiver assertado. O FT6336 usa IRQ
   // ativo em nivel baixo e o GPIO38 será fonte de wake.
@@ -526,9 +527,9 @@ void drawCamera(){drawHeader("CAMERA / VIDEO");tft->setTextColor(C_TEXT,C_BG);tf
 void drawGps(){drawHeader("GPS");tft->setTextColor(C_TEXT,C_BG);tft->drawCentreString(gpsText.c_str(),120,82,2);lcarsButton(55,128,130,30,C_BLUE,"ATUALIZAR");drawFooter();}
 void drawControls(){drawHeader("CASA");lcarsButton(5,62,111,51,C_SALMON,"LUZ SALA");lcarsButton(124,62,111,51,C_ORANGE,"LUZ QUARTO");lcarsButton(5,119,111,51,C_BLUE,"PORTAO");lcarsButton(124,119,111,51,C_LAV,"CENA NOITE");drawMessage();drawFooter();}
 void drawHealth(){drawHeader("ATIVIDADE");tft->setTextColor(C_TEXT,C_BG);tft->drawCentreString("PASSOS",120,75,2);tft->drawCentreString(String(steps).c_str(),120,103,4);int pct=min(100,(int)(steps*100UL/6000UL));tft->drawRoundRect(27,151,184,14,6,C_TEXT);tft->fillRoundRect(29,153,(180*pct)/100,10,5,C_GREEN);drawFooter();}
-void drawStatus(){drawHeader("STATUS");int b=batteryPercent();tft->setTextColor(C_TEXT,C_BG);tft->drawString("BATERIA",20,70,2);tft->drawRightString(b>=0?(String(b)+"%").c_str():"--",220,70,2);tft->drawString("BLE",20,96,2);tft->drawRightString(jarvisBleIsConnected()?"OK":"OFF",220,96,2);tft->drawString("WIFI",20,122,2);tft->drawRightString(jarvisWifiIsConnected()?jarvisWifiSsid().c_str():"OFF",220,122,2);tft->drawString("ENERGIA",20,148,2);tft->drawRightString(powerLabel().c_str(),220,148,2);tft->drawString("IR",20,174,1);tft->drawRightString(jarvisIrIsReady()?(jarvisIrIsBusy()?"TX":"OK"):"OFF",92,174,1);tft->drawString("EVT",118,174,1);tft->drawRightString(String(controller.droppedEvents()).c_str(),220,174,1);drawFooter();}
+void drawStatus(){drawHeader("STATUS");int b=batteryPercent();tft->setTextColor(C_TEXT,C_BG);tft->drawString("BATERIA",20,70,2);tft->drawRightString(b>=0?(String(b)+"%").c_str():"--",220,70,2);tft->drawString("CELULAR",20,96,2);tft->drawRightString(jarvisBleIsConnected()?"CONECTADO":(jarvisBleIsProvisioningAp()?"AP ATIVO":"OFF"),220,96,2);tft->drawString("WIFI",20,122,2);tft->drawRightString(jarvisWifiIsConnected()?jarvisWifiSsid().c_str():"OFF",220,122,2);tft->drawString("ENERGIA",20,148,2);tft->drawRightString(powerLabel().c_str(),220,148,2);tft->drawString("IR",20,174,1);tft->drawRightString(jarvisIrIsReady()?(jarvisIrIsBusy()?"TX":"OK"):"OFF",92,174,1);tft->drawString("EVT",118,174,1);tft->drawRightString(String(controller.droppedEvents()).c_str(),220,174,1);drawFooter();}
 String timeoutLabel(){return screenTimeoutSec==0?"NUNCA":String(screenTimeoutSec)+"s";}
-void drawSettings(){drawHeader("CONFIG");tft->setTextColor(C_TEXT,C_BG);tft->drawString("BRILHO",8,64,2);lcarsButton(110,60,58,30,C_LAV,"-");lcarsButton(174,60,61,30,C_ORANGE,"+");tft->drawString("ENERGIA",8,98,2);lcarsButton(124,94,111,30,C_GREEN,powerLabel().c_str());tft->drawString("TELA",8,132,2);lcarsButton(124,128,111,30,C_BLUE,timeoutLabel().c_str());lcarsButton(5,164,72,36,C_LAV,"WIFI");lcarsButton(82,164,72,36,C_GOLD,vibrationEnabled?"VIB ON":"VIB OFF");lcarsButton(159,164,76,36,C_SALMON,"RELOGIO");drawFooter();}
+void drawSettings(){drawHeader("CONFIG");tft->setTextColor(C_TEXT,C_BG);tft->drawString("BRILHO",8,64,2);lcarsButton(110,60,58,30,C_LAV,"-");lcarsButton(174,60,61,30,C_ORANGE,"+");tft->drawString("ENERGIA",8,98,2);lcarsButton(124,94,111,30,C_GREEN,powerLabel().c_str());tft->drawString("TELA",8,132,2);lcarsButton(124,128,111,30,C_BLUE,timeoutLabel().c_str());lcarsButton(5,164,55,36,C_LAV,"WIFI");lcarsButton(64,164,55,36,vibrationEnabled?C_GOLD:C_DARK,vibrationEnabled?"VIB ON":"VIB OFF");lcarsButton(123,164,55,36,jarvisBleIsProvisioningAp()?C_GREEN:C_BLUE,"CEL");lcarsButton(182,164,53,36,C_SALMON,"HORA");drawFooter();}
 void drawClock(){drawHeader("RELOGIO");RTC_Date n=watch->rtc->getDateTime();tft->setTextColor(C_TEXT,C_BG);tft->drawCentreString((twoDigits(n.hour)+":"+twoDigits(n.minute)).c_str(),120,65,4);tft->drawCentreString((twoDigits(n.day)+"/"+twoDigits(n.month)+"/"+String(n.year)).c_str(),120,95,2);lcarsButton(5,121,52,38,C_LAV,"H-");lcarsButton(62,121,52,38,C_ORANGE,"H+");lcarsButton(124,121,52,38,C_BLUE,"M-");lcarsButton(181,121,54,38,C_SALMON,"M+");drawFooter();}
 
 void drawWifi(){
@@ -573,12 +574,14 @@ void drawWifi(){
     else
       tft->drawCentreString("CASA: SEM RESPOSTA",120,132,1);
 
-    lcarsButton(45,158,150,36,C_BLUE,"BUSCAR");
+    lcarsButton(10,158,105,36,C_BLUE,"BUSCAR");
+    lcarsButton(125,158,105,36,jarvisBleIsProvisioningAp()?C_GREEN:C_ORANGE,"CELULAR");
   }
   else{
     tft->drawCentreString("WIFI DESCONECTADO",120,75,2);
     if(lastMessage.length())tft->drawCentreString(lastMessage.substring(0,30).c_str(),120,101,1);
-    lcarsButton(45,122,150,36,C_BLUE,"BUSCAR");
+    lcarsButton(10,140,105,36,C_BLUE,"BUSCAR");
+    lcarsButton(125,140,105,36,jarvisBleIsProvisioningAp()?C_GREEN:C_ORANGE,"CELULAR");
   }
 
   drawFooter();
@@ -674,8 +677,61 @@ void drawEmergency(){
   else tft->drawCentreString("Deslize para baixo: voltar",120,218,1);
 }
 
+void drawSetup(){
+  drawHeader("CONFIG CELULAR");
+  tft->setTextColor(C_TEXT,C_BG);
+
+  bool apOn = jarvisBleIsProvisioningAp();
+  bool phoneOn = jarvisBleIsConnected();
+  bool wifiOn = jarvisWifiIsConnected();
+  bool casaOn = jarvisWifiHasCasaCredentials();
+
+  if(!apOn){
+    tft->drawCentreString("AP DESATIVADO", 120, 75, 2);
+    tft->drawCentreString("Toque abaixo para ativar", 120, 105, 1);
+    lcarsButton(40, 140, 160, 38, C_GREEN, "ATIVAR AP");
+  } else if(!phoneOn){
+    tft->drawCentreString("REDE: JARVIS-WATCH", 120, 68, 2);
+    tft->drawCentreString("Senha: JarvisSetup2026", 120, 92, 1);
+    tft->drawCentreString("Abra JarvisMobile > Watch", 120, 112, 1);
+
+    tft->fillRoundRect(15, 134, 210, 26, 6, C_ORANGE);
+    tft->setTextColor(C_TEXT, C_ORANGE);
+    tft->drawCentreString("Aguardando celular...", 120, 140, 1);
+
+    lcarsButton(40, 166, 160, 34, C_SALMON, "PARAR AP");
+  } else {
+    tft->fillRoundRect(15, 66, 210, 26, 6, C_GREEN);
+    tft->setTextColor(C_TEXT, C_GREEN);
+    tft->drawCentreString("CELULAR CONECTADO!", 120, 72, 1);
+
+    tft->setTextColor(C_TEXT, C_BG);
+    if(casaOn){
+      tft->drawCentreString("CASA: OK (" + jarvisWifiDeviceId().substring(0, 14) + ")", 120, 98, 1);
+    } else {
+      tft->drawCentreString("CASA: Aguardando token...", 120, 98, 1);
+    }
+
+    if(wifiOn){
+      tft->drawCentreString("Wi-Fi: " + jarvisWifiSsid().substring(0, 18), 120, 118, 1);
+    } else if(jarvisWifiHasProfiles()){
+      tft->drawCentreString("Wi-Fi: Perfis salvos", 120, 118, 1);
+    } else {
+      tft->drawCentreString("Wi-Fi: Aguardando rede...", 120, 118, 1);
+    }
+
+    if(lastMessage.length()){
+      tft->drawCentreString(lastMessage.substring(0, 28).c_str(), 120, 138, 1);
+    }
+
+    lcarsButton(40, 164, 160, 34, (wifiOn && casaOn) ? C_GREEN : C_BLUE, (wifiOn && casaOn) ? "CONCLUIR" : "DESCONECTAR");
+  }
+
+  drawFooter();
+}
+
 void drawScreen(){if(!screenAwake||!tft)return;
-if(jarvisEmergencyState()!=EMERGENCY_GREEN)currentScreen=SCREEN_EMERGENCY;if(currentScreen!=SCREEN_HOME)tft->fillScreen(C_BG);switch(currentScreen){case SCREEN_EMERGENCY:drawEmergency();break;case SCREEN_HOME:drawWatchFace();break;case SCREEN_APPS:drawApps();break;case SCREEN_VOICE:drawVoice();break;case SCREEN_ALARM:drawAlarm();break;case SCREEN_CAMERA:drawCamera();break;case SCREEN_GPS:drawGps();break;case SCREEN_CONTROLS:drawControls();break;case SCREEN_HEALTH:drawHealth();break;case SCREEN_STATUS:drawStatus();break;case SCREEN_SETTINGS:drawSettings();break;case SCREEN_CLOCK:drawClock();break;case SCREEN_WIFI:drawWifi();break;case SCREEN_KEYBOARD:drawKeyboard();break;case SCREEN_NOTIFICATION:drawNotificationScreen();break;}}
+if(jarvisEmergencyState()!=EMERGENCY_GREEN)currentScreen=SCREEN_EMERGENCY;if(currentScreen!=SCREEN_HOME)tft->fillScreen(C_BG);switch(currentScreen){case SCREEN_EMERGENCY:drawEmergency();break;case SCREEN_HOME:drawWatchFace();break;case SCREEN_APPS:drawApps();break;case SCREEN_VOICE:drawVoice();break;case SCREEN_ALARM:drawAlarm();break;case SCREEN_CAMERA:drawCamera();break;case SCREEN_GPS:drawGps();break;case SCREEN_CONTROLS:drawControls();break;case SCREEN_HEALTH:drawHealth();break;case SCREEN_STATUS:drawStatus();break;case SCREEN_SETTINGS:drawSettings();break;case SCREEN_CLOCK:drawClock();break;case SCREEN_WIFI:drawWifi();break;case SCREEN_KEYBOARD:drawKeyboard();break;case SCREEN_NOTIFICATION:drawNotificationScreen();break;case SCREEN_SETUP:drawSetup();break;}}
 void navigate(ScreenId s){previousScreen=currentScreen;currentScreen=s;lastMessage="";drawScreen();}
 void goHome(){previousScreen=currentScreen;currentScreen=SCREEN_HOME;drawScreen();}
 void sendCommand(const String&cmd){
@@ -784,7 +840,7 @@ void handleTap(int x,int y){
   else if(currentScreen==SCREEN_CAMERA){if(y>=84&&y<=121)triggerCamera();else if(y>=122&&y<=157)startVideoCall("mobile");else if(y>=158&&y<=195)startVideoCall("web");}
   else if(currentScreen==SCREEN_GPS){if(y>=120&&y<=170)requestGps();}
   else if(currentScreen==SCREEN_CONTROLS){if(y>=62&&y<=113)sendCommand(x<120?"Alterne a luz da sala":"Alterne a luz do quarto");else if(y>=119&&y<=170)sendCommand(x<120?"Acione o portao":"Ative a cena noite");}
-  else if(currentScreen==SCREEN_SETTINGS){if(y>=60&&y<=91){if(x>=110&&x<171)brightnessLevel=max(40,(int)brightnessLevel-20);else if(x>=171)brightnessLevel=min(255,(int)brightnessLevel+20);applyPowerMode();saveSettings();drawScreen();}else if(y>=94&&y<=125&&x>=120){powerMode=(PowerMode)(((int)powerMode+1)%3);screenTimeoutSec=powerMode==POWER_NORMAL?30:powerMode==POWER_ECO?20:10;applyPowerMode();saveSettings();drawScreen();}else if(y>=128&&y<=159&&x>=120){screenTimeoutSec=screenTimeoutSec==10?20:screenTimeoutSec==20?30:screenTimeoutSec==30?60:screenTimeoutSec==60?0:10;saveSettings();drawScreen();}else if(y>=164&&y<=201){if(x<80){navigate(SCREEN_WIFI);startWifiScan();}else if(x<157){vibrationEnabled=!vibrationEnabled;saveSettings();drawScreen();}else navigate(SCREEN_CLOCK);}}
+  else if(currentScreen==SCREEN_SETTINGS){if(y>=60&&y<=91){if(x>=110&&x<171)brightnessLevel=max(40,(int)brightnessLevel-20);else if(x>=171)brightnessLevel=min(255,(int)brightnessLevel+20);applyPowerMode();saveSettings();drawScreen();}else if(y>=94&&y<=125&&x>=120){powerMode=(PowerMode)(((int)powerMode+1)%3);screenTimeoutSec=powerMode==POWER_NORMAL?30:powerMode==POWER_ECO?20:10;applyPowerMode();saveSettings();drawScreen();}else if(y>=128&&y<=159&&x>=120){screenTimeoutSec=screenTimeoutSec==10?20:screenTimeoutSec==20?30:screenTimeoutSec==30?60:screenTimeoutSec==60?0:10;saveSettings();drawScreen();}else if(y>=164&&y<=201){if(x<60){navigate(SCREEN_WIFI);startWifiScan();}else if(x<120){vibrationEnabled=!vibrationEnabled;saveSettings();drawScreen();}else if(x<180){jarvisBleStartProvisioningAp(true);navigate(SCREEN_SETUP);}else navigate(SCREEN_CLOCK);}}
   else if(currentScreen==SCREEN_CLOCK){if(y>=121&&y<=160){if(x<58)adjustClock(-1,0);else if(x<120)adjustClock(1,0);else if(x<180)adjustClock(0,-1);else adjustClock(0,1);}}
   else if(currentScreen==SCREEN_WIFI){
     JarvisNetworkState ns=controller.network().state();
@@ -794,9 +850,29 @@ void handleTap(int x,int y){
       int row=(y-60)/34;
       selectWifi(wifiPage*4+row);
     }else if(jarvisWifiIsConnected()){
-      if(y>=154&&y<=202)startWifiScan();
-    }else if(y>=112&&y<=165){
-      startWifiScan();
+      if(y>=154&&y<=202){
+        if(x<120)startWifiScan();
+        else{jarvisBleStartProvisioningAp(true);navigate(SCREEN_SETUP);}
+      }
+    }else if(y>=130&&y<=185){
+      if(x<120)startWifiScan();
+      else{jarvisBleStartProvisioningAp(true);navigate(SCREEN_SETUP);}
+    }
+  }
+  else if(currentScreen==SCREEN_SETUP){
+    bool apOn = jarvisBleIsProvisioningAp();
+    bool phoneOn = jarvisBleIsConnected();
+    if(y>=140&&y<=205){
+      if(!apOn){
+        jarvisBleStartProvisioningAp(true);
+        drawScreen();
+      }else if(!phoneOn){
+        jarvisBleStopProvisioningAp();
+        drawScreen();
+      }else{
+        jarvisBleStopProvisioningAp();
+        goHome();
+      }
     }
   }
   else if(currentScreen==SCREEN_KEYBOARD){
@@ -870,6 +946,21 @@ void bleEventHandler(const String &type,const String &title,const String &text){
     id.trim();
     if(!id.isEmpty())jarvisWifiSetDeviceId(id);
     lastMessage=id.isEmpty()?"Device ID invalido":"Device ID salvo";
+    if(screenAwake)drawScreen();
+    return;
+  }
+  if(type=="casa_config"){
+    lastMessage="CASA configurada";
+    if(screenAwake)drawScreen();
+    return;
+  }
+  if(type=="wifi_profile"){
+    lastMessage="Perfil Wi-Fi salvo";
+    if(screenAwake)drawScreen();
+    return;
+  }
+  if(type=="wifi_connect"){
+    lastMessage="Conectando Wi-Fi...";
     if(screenAwake)drawScreen();
     return;
   }

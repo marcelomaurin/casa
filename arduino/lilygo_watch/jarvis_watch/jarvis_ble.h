@@ -23,3 +23,10 @@ bool jarvisBlePhoneInternet();
 void jarvisBleSetEventHandler(JarvisBleEventHandler handler);
 bool jarvisBleSendJson(const String &json);
 bool jarvisBleSendCommand(const String &command);
+
+// Controle do SoftAP para configuracao via celular
+void jarvisBleStartProvisioningAp(bool force = true);
+void jarvisBleStopProvisioningAp();
+bool jarvisBleIsProvisioningAp();
+const char* jarvisBleApSsid();
+const char* jarvisBleApPass();

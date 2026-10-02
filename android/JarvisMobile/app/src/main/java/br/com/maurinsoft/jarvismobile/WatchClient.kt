@@ -159,6 +159,21 @@ class WatchClient(private val context: Context) {
             }
     }
 
+    fun findWifiNetwork(): Network? {
+        if (Build.VERSION.SDK_INT < 23) return null
+        return runCatching {
+            cm.allNetworks.firstOrNull { net ->
+                val caps = cm.getNetworkCapabilities(net)
+                caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+            }
+        }.getOrNull()
+    }
+
+    fun connectDirect(host: String = WATCH_HOST) {
+        val net = watchNetwork ?: findWifiNetwork()
+        connectHost(host, net)
+    }
+
     fun connect(address: String) {
         val existing = socket
         if (existing != null && existing.isConnected && !existing.isClosed) {
@@ -166,18 +181,18 @@ class WatchClient(private val context: Context) {
             return
         }
 
-        val network = watchNetwork
+        val network = watchNetwork ?: findWifiNetwork()
         if (network != null) {
-            connectSocket(network)
+            connectHost(address, network)
         } else if (Build.VERSION.SDK_INT >= 29) {
             requestWatchNetwork()
         } else {
-            connectSocket(null)
+            connectHost(address, null)
         }
     }
 
     fun connectSaved(): Boolean {
-        connect(savedAddress(context))
+        connectDirect(savedAddress(context))
         return true
     }
 
@@ -213,8 +228,9 @@ class WatchClient(private val context: Context) {
         Thread {
             try {
                 closeSocketInternal()
-                val s = if (network != null) {
-                    network.socketFactory.createSocket()
+                val net = network ?: findWifiNetwork()
+                val s = if (net != null) {
+                    net.socketFactory.createSocket()
                 } else {
                     Socket()
                 }
