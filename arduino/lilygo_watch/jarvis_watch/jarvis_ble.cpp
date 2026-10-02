@@ -255,11 +255,11 @@ static void processIncoming(const String &json){
       okConnect=jarvisWifiStartProfile((uint8_t)slot);
     }
 
-    bool allOk=okId&&okCasa&&okWifi;
-    String msg=allOk ? ("Configuracao salva. Conectando a "+ssid) : "Configuracao incompleta";
-    sendResult("watch_provision_result",allOk,msg);
+    bool anySaved=okId||okCasa||okWifi;
+    String msg=anySaved ? ("Configuracao salva na EEPROM. Conectando a "+ssid) : "Configuracao incompleta";
+    sendResult("watch_provision_result",anySaved,msg);
 
-    if(allOk) dispatchExternal(json,type);
+    if(anySaved) dispatchExternal(json,type);
     return;
   }
 

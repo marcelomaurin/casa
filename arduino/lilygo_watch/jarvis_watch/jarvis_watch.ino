@@ -1028,9 +1028,13 @@ void processPowerButton(){
 
 void bleEventHandler(const String &type,const String &title,const String &text){
   if(type=="watch_provision"){
-    lastMessage="Configuracao recebida!";
+    lastMessage="Configurado com sucesso!";
     vibrateShort();
-    if(screenAwake)drawScreen();
+    delay(80);
+    vibrateShort();
+    // Muda o relogio para o modo real configurado e desativa o AP
+    jarvisBleStopProvisioningAp();
+    goHome();
     return;
   }
   if(type=="device_identity"){
@@ -1043,7 +1047,9 @@ void bleEventHandler(const String &type,const String &title,const String &text){
   }
   if(type=="casa_config"){
     lastMessage="CASA configurada";
-    if(screenAwake)drawScreen();
+    vibrateShort();
+    jarvisBleStopProvisioningAp();
+    goHome();
     return;
   }
   if(type=="wifi_profile"){
@@ -1371,6 +1377,7 @@ void setup(){
 
   // Em wake normal tenta o ultimo Wi-Fi conhecido sem scan.
   if(!jarvisWifiIsConnected())jarvisWifiStartPreferred();
+  if(!jarvisWifiHasProfiles() || !jarvisWifiHasCasaCredentials()){ currentScreen=SCREEN_SETUP; setupShowQr=true; }
 
   JarvisPowerHooks powerHooks;
   powerHooks.screenOn=powerScreenOnHook;

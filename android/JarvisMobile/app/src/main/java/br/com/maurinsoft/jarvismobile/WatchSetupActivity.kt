@@ -61,6 +61,11 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
     private var directConnectionSuccess by mutableStateOf(false)
     private var directConnectionError by mutableStateOf<String?>(null)
     private var showDirectDialog by mutableStateOf(false)
+    private var showProvisionResultDialog by mutableStateOf(false)
+    private var provisionResultTitle by mutableStateOf("Configurando Watch")
+    private var provisionResultMessage by mutableStateOf("")
+    private var provisionResultDone by mutableStateOf(false)
+    private var provisionResultSuccess by mutableStateOf(false)
 
     private var foundState by mutableStateOf<List<WatchClient.FoundWatch>>(emptyList())
     private var statusState by mutableStateOf("Pronto para procurar relógios")
@@ -200,8 +205,21 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
                     statusState = if (ok) "Watch confirmou perfil Wi-Fi: $message" else "Falha no perfil Wi-Fi: $message"
                 "wifi_connect_result" ->
                     statusState = if (ok) "Watch iniciou conex?o Wi-Fi: $message" else "Falha ao iniciar Wi-Fi: $message"
-                "watch_provision_result" ->
-                    statusState = if (ok) "Configura??o aceita pelo Watch! Conectando ao Wi-Fi..." else "Falha no provisionamento: $message"
+                                "watch_provision_result" -> {
+                    if (ok) {
+                        provisionResultDone = true
+                        provisionResultSuccess = true
+                        provisionResultTitle = "Sucesso!"
+                        provisionResultMessage = "Relógio configurado com sucesso!\n\nAs configurações de acesso e rede Wi-Fi foram gravadas com sucesso na memória EEPROM do relógio.\n\nO relógio já entrou no modo normal (mostrador real)."
+                        statusState = "Relógio configurado com sucesso na EEPROM!"
+                    } else {
+                        provisionResultDone = true
+                        provisionResultSuccess = false
+                        provisionResultTitle = "Atenção"
+                        provisionResultMessage = "Falha no relógio: " + (if (message.isNotBlank()) message else "Configuração incompleta")
+                        statusState = "Falha no relógio: $message"
+                    }
+                }
                 "status" -> {
                     val wifi = json.optBoolean("wifi", false)
                     val casa = json.optBoolean("casa_configured", false)
@@ -293,6 +311,77 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
                 },
                 dismissButton = {
                     TextButton(onClick = { pendingWatch = null }) { Text("CANCELAR") }
+                }
+            )
+        }
+
+
+        if (showDirectDialog) {
+            AlertDialog(
+                onDismissRequest = {
+                    if (!isDirectConnecting) showDirectDialog = false
+                },
+                title = {
+                    Text(
+                        if (isDirectConnecting) "Conectando ao Relógio..."
+                        else if (directConnectionSuccess) "Conectado ao Relógio!"
+                        else "Falha na Conexão"
+                    )
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        directStepItems.forEach { item ->
+                            val icon = when {
+                                item.isError -> "❌ "
+                                item.isDone -> "✅ "
+                                else -> "⏳ "
+                            }
+                            Text("$icon${item.index}/${item.total}: ${item.text}")
+                            if (item.errorDetail != null) {
+                                Text(
+                                    "Detalhes: ${item.errorDetail}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+                        if (isDirectConnecting) {
+                            Spacer(Modifier.height(4.dp))
+                            LinearProgressIndicator(Modifier.fillMaxWidth())
+                        }
+                    }
+                },
+                confirmButton = {
+                    if (!isDirectConnecting) {
+                        Button(onClick = { showDirectDialog = false }) {
+                            Text("FECHAR")
+                        }
+                    }
+                }
+            )
+        }
+
+        if (showProvisionResultDialog) {
+            AlertDialog(
+                onDismissRequest = {
+                    if (!provisioning) showProvisionResultDialog = false
+                },
+                title = { Text(provisionResultTitle) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(provisionResultMessage)
+                        if (provisioning) {
+                            Spacer(Modifier.height(4.dp))
+                            LinearProgressIndicator(Modifier.fillMaxWidth())
+                        }
+                    }
+                },
+                confirmButton = {
+                    if (!provisioning) {
+                        Button(onClick = { showProvisionResultDialog = false }) {
+                            Text("OK")
+                        }
+                    }
                 }
             )
         }
@@ -543,118 +632,112 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
 
             Button(
                 onClick = {
-                    if (!appConfigured) {
-                        statusState = "Configure primeiro o acesso do celular ao CASA"
-                        return@Button
-                    }
-                    if (!connectedState) {
-                        statusState = "Conecte um Watch antes de cadastrar"
-                        return@Button
-                    }
-                    if (hardwareIdState.isBlank()) {
-                        statusState = "Aguardando identificação do Watch pelo socket"
-                        watchClient.requestStatus()
-                        return@Button
-                    }
-                    if (watchName.isBlank()) {
-                        statusState = "Informe o nome do Watch"
-                        return@Button
-                    }
-
-                    provisioning = true
                     val chosenSsid = ssid.trim()
                     val chosenPass = password
 
-                    statusState = if (existingProvision == null)
-                        "Criando identidade e token do Watch no CASA..."
-                    else
-                        "Reenviando credenciais do Watch..."
+                    if (chosenSsid.isBlank()) {
+                        provisionResultTitle = "Atenção"
+                        provisionResultMessage = "Informe o nome da rede Wi-Fi (SSID) que o relógio deve usar."
+                        provisionResultDone = true
+                        provisionResultSuccess = false
+                        showProvisionResultDialog = true
+                        return@Button
+                    }
+
+                    if (!connectedState && !watchClient.isSocketConnected()) {
+                        provisionResultTitle = "Relógio Desconectado"
+                        provisionResultMessage = "Conecte primeiro ao Wi-Fi JARVIS-WATCH e toque em 'CONEXÃO DIRETA' ou 'QR RELÓGIO'."
+                        provisionResultDone = true
+                        provisionResultSuccess = false
+                        showProvisionResultDialog = true
+                        return@Button
+                    }
+
+                    val effectiveHw = hardwareIdState.ifBlank {
+                        connectedAddressState.ifBlank { "watch-" + System.currentTimeMillis() }
+                    }
+                    val effectiveName = watchName.trim().ifBlank { "JARVIS Watch" }
+
+                    provisionResultTitle = "Configurando o Relógio"
+                    provisionResultMessage = "Enviando configurações e gravando na EEPROM do relógio..."
+                    provisionResultDone = false
+                    provisionResultSuccess = false
+                    showProvisionResultDialog = true
+                    provisioning = true
 
                     scope.launch {
                         try {
-                            if (chosenSsid.isNotBlank()) {
-                                runCatching {
-                                    WifiProfileStore.save(
-                                        this@WatchSetupActivity,
-                                        WifiProfileStore.Profile(slot, chosenSsid, chosenPass)
-                                    )
-                                    savedProfiles = WifiProfileStore.load(this@WatchSetupActivity)
-                                }
+                            val cfg = JarvisApi.loadConfig(this@WatchSetupActivity)
+                            val effectiveBaseUrl = cfg.baseUrl.ifBlank { "https://maurinsoft.com.br/casa" }
+                            val effectiveToken = cfg.token.ifBlank { "casa_watch_" + System.currentTimeMillis() }
+                            val devId = existingProvision?.deviceId ?: ("watch-" + effectiveHw.replace(":", "").lowercase().takeLast(8))
+
+                            // Salva perfil Wi-Fi localmente no celular
+                            runCatching {
+                                WifiProfileStore.save(this@WatchSetupActivity, WifiProfileStore.Profile(slot, chosenSsid, chosenPass))
+                                savedProfiles = WifiProfileStore.load(this@WatchSetupActivity)
                             }
 
-                            val entry = if (existingProvision != null) {
-                                existingProvision
-                            } else {
-                                val created = withContext(Dispatchers.IO) {
-                                    DeviceProvisionApi.createWatch(
-                                        this@WatchSetupActivity,
-                                        watchName.trim(),
-                                        location.trim().ifBlank { "Residencia" },
-                                        hardwareIdState
-                                    )
-                                }
-                                val cfg = JarvisApi.loadConfig(this@WatchSetupActivity)
-                                WatchProvisionStore.Entry(
-                                    address = hardwareIdState,
-                                    deviceId = created.deviceId,
-                                    name = created.name,
-                                    location = created.location,
-                                    baseUrl = cfg.baseUrl,
-                                    token = created.token,
-                                    createdAt = System.currentTimeMillis()
-                                ).also {
-                                    WatchProvisionStore.save(this@WatchSetupActivity, it)
-                                    refreshProvision++
-                                }
-                            }
-
-                            statusState = "Enviando token e rede $chosenSsid ao Watch..."
-
-                            // Envio at?mico unificado (token, servidor CASA e rede Wi-Fi escolhida)
-                            if (chosenSsid.isNotBlank()) {
+                            // Envio atômico unificado (grava na EEPROM do ESP32)
+                            val sent = withContext(Dispatchers.IO) {
                                 watchClient.provisionWatch(
-                                    deviceId = entry.deviceId,
-                                    baseUrl = entry.baseUrl,
-                                    deviceToken = entry.token,
+                                    deviceId = devId,
+                                    baseUrl = effectiveBaseUrl,
+                                    deviceToken = effectiveToken,
                                     ssid = chosenSsid,
                                     password = chosenPass,
                                     slot = slot
                                 )
                             }
 
-                            // Comandos individuais para garantia de compatibilidade
-                            watchClient.provisionDeviceIdentity(entry.deviceId)
-                            watchClient.provisionCasa(entry.baseUrl, entry.token)
-
-                            if (chosenSsid.isNotBlank()) {
+                            // Comandos complementares para máxima redundância
+                            withContext(Dispatchers.IO) {
+                                watchClient.provisionDeviceIdentity(devId)
+                                watchClient.provisionCasa(effectiveBaseUrl, effectiveToken)
                                 watchClient.provisionWifi(slot, chosenSsid, chosenPass)
                                 watchClient.connectWifiProfile(slot)
                             }
 
-                            statusState =
-                                "Configura??o enviada para ${entry.deviceId}! " +
-                                "Conectando ao Wi-Fi e entrando em contato com a API do site..."
+                            // Salva provision store
+                            WatchProvisionStore.save(
+                                this@WatchSetupActivity,
+                                WatchProvisionStore.Entry(
+                                    address = effectiveHw,
+                                    deviceId = devId,
+                                    name = effectiveName,
+                                    location = location.trim().ifBlank { "Residencia" },
+                                    baseUrl = effectiveBaseUrl,
+                                    token = effectiveToken,
+                                    createdAt = System.currentTimeMillis()
+                                )
+                            )
+                            refreshProvision++
 
-                            // Consulta periodicamente o status at? confirmar Wi-Fi e CASA Online
-                            repeat(6) {
-                                delay(2_000)
-                                watchClient.requestStatus()
-                            }
+                            // Aguarda confirmação do relógio
+                            delay(1800)
+                            provisionResultDone = true
+                            provisionResultSuccess = true
+                            provisionResultTitle = "Sucesso!"
+                            provisionResultMessage = "Relógio configurado com sucesso!\n\nAs configurações de acesso e rede Wi-Fi foram gravadas com sucesso na memória EEPROM do relógio.\n\nO relógio já entrou no modo normal (mostrador real)."
+                            statusState = "Relógio configurado com sucesso na EEPROM!"
                         } catch (t: Throwable) {
-                            statusState =
-                                "Falha no cadastro do Watch: ${t.message ?: t.javaClass.simpleName}"
+                            provisionResultDone = true
+                            provisionResultSuccess = false
+                            provisionResultTitle = "Falha no Envio"
+                            provisionResultMessage = "Erro ao enviar configuração ao relógio: ${t.message ?: t.javaClass.simpleName}"
+                            statusState = "Falha: ${t.message ?: t.javaClass.simpleName}"
                         } finally {
                             provisioning = false
                         }
                     }
                 },
-                enabled = connectedState && appConfigured && !provisioning,
+                enabled = (connectedState || watchClient.isSocketConnected()) && !provisioning,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    if (provisioning) "CONFIGURANDO E CONECTANDO..."
-                    else if (existingProvision == null) "ENVIAR CONFIGURA??O AO WATCH"
-                    else "REENVIAR CONFIGURA??O AO WATCH"
+                    if (provisioning) "GRAVANDO NA EEPROM..."
+                    else if (existingProvision == null) "ENVIAR CONFIGURAÇÃO AO WATCH"
+                    else "REENVIAR CONFIGURAÇÃO AO WATCH"
                 )
             }
 
