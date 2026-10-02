@@ -83,7 +83,12 @@ try {
 } catch(Throwable $e){}
 
 try { $watch=$pdo->query("SELECT * FROM watch_telemetria ORDER BY id DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC) ?: null; } catch(Throwable $e){}
-try { $assist=$pdo->query("SELECT id,tipo,severidade,mensagem,pessoa,dispositivo,confirmado,criado_em,confirmado_em FROM assistencia_eventos ORDER BY id DESC LIMIT 20")->fetchAll(PDO::FETCH_ASSOC); } catch(Throwable $e){}
+try {
+    $cols = $pdo->query("SHOW COLUMNS FROM assistencia_eventos")->fetchAll(PDO::FETCH_COLUMN);
+    $pCol = in_array('pessoa_ref', $cols, true) ? 'pessoa_ref' : (in_array('pessoa', $cols, true) ? 'pessoa' : "''");
+    $dCol = in_array('dispositivo_ref', $cols, true) ? 'dispositivo_ref' : (in_array('dispositivo', $cols, true) ? 'dispositivo' : "''");
+    $assist = $pdo->query("SELECT id, tipo, severidade, mensagem, {$pCol} AS pessoa, {$dCol} AS dispositivo, confirmado, criado_em, confirmado_em FROM assistencia_eventos ORDER BY id DESC LIMIT 20")->fetchAll(PDO::FETCH_ASSOC);
+} catch (Throwable $e) {}
 $phones=[];
 try { $phones = mobile_pair_list($pdo); } catch(Throwable $e){}
 try { $mobileEvents=$pdo->query("SELECT tipo,descricao,dados,data_hora FROM mobile_eventos ORDER BY id DESC LIMIT 15")->fetchAll(PDO::FETCH_ASSOC); } catch(Throwable $e){}

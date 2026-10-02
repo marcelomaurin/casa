@@ -204,6 +204,12 @@ try {
         crud_json(['status'=>'sucesso','device'=>['id'=>intval($pdo->lastInsertId()),'device_id'=>$deviceId ?: null,'nome'=>$nome,'tipo'=>$tipo],'token'=>$token]);
     }
 
+    if ($acao === 'status_tunnel') {
+        $url = $pdo->query("SELECT valor FROM configuracoes_sistema WHERE chave='external_tunnel_url' LIMIT 1")->fetchColumn();
+        $status = (!empty($url) && is_string($url)) ? 'ativo' : 'inativo';
+        crud_json(['status'=>'sucesso','tunnel'=>['status'=>$status,'url'=>$url ?: '']]);
+    }
+
     if ($acao === 'obter_external_api_key') {
         $key=$pdo->query("SELECT valor FROM configuracoes_sistema WHERE chave='external_api_key' LIMIT 1")->fetchColumn();
         if (!$key) {
