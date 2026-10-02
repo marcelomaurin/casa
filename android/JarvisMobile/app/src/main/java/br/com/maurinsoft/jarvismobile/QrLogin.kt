@@ -30,10 +30,12 @@ import org.json.JSONObject
  */
 object QrLogin {
     fun scanOptions(): ScanOptions = ScanOptions().apply {
-        setPrompt("Aponte a câmera para o QR Code na tela da CASA")
+        setPrompt("Posicione o QR Code da CASA dentro do quadrado")
         setBeepEnabled(true)
         setBarcodeImageEnabled(true)
         setOrientationLocked(false)
+        setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+        setCaptureActivity(QrCaptureActivity::class.java)
     }
 
     data class Result(val session: MobileAuth.Session, val baseUrl: String, val paired: Boolean)

@@ -459,11 +459,12 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
                         }
                         qrScanLauncher.launch(
                             ScanOptions().apply {
-                                setPrompt("Aponte para o QR Code na tela do relógio")
+                                setPrompt("Posicione o QR Code do relógio dentro do quadrado")
                                 setBeepEnabled(true)
                                 setBarcodeImageEnabled(true)
                                 setOrientationLocked(false)
                                 setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                                setCaptureActivity(QrCaptureActivity::class.java)
                             }
                         )
                     },
@@ -489,9 +490,12 @@ class WatchSetupActivity : ComponentActivity(), WatchClient.Listener {
                         }
                         qrScanLauncher.launch(
                             ScanOptions().apply {
-                                setPrompt("Aponte para o QR Code gerado no site CASA")
+                                setPrompt("Posicione o QR Code do site dentro do quadrado")
                                 setBeepEnabled(true)
+                                setBarcodeImageEnabled(true)
                                 setOrientationLocked(false)
+                                setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                                setCaptureActivity(QrCaptureActivity::class.java)
                             }
                         )
                     },

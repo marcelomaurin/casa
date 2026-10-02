@@ -51,6 +51,12 @@
         </activity>
 
         <activity android:name=".UpdateInstallActivity" android:exported="false" />
+        <activity
+            android:name=".QrCaptureActivity"
+            android:screenOrientation="fullSensor"
+            android:stateNotNeeded="true"
+            android:theme="@style/zxing_CaptureTheme"
+            android:windowSoftInputMode="stateAlwaysHidden" />
 
         <!-- Painel operacional interno: acessado pela interface autenticada. -->
         <activity
