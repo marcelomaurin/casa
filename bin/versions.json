@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "components": {
+    "casa-mobile-debug": {
+      "enabled": false,
+      "version": "2.8.0",
+      "version_code": 280,
+      "package_id": "br.com.maurinsoft.jarvismobile.debug",
+      "apk_url": "https://github.com/marcelomaurin/casa/releases/download/jarvis-mobile-v2.8.0-debug/CasaMobile-v2.8.0-debug.apk",
+      "sha256": ""
+    }
+  }
+}

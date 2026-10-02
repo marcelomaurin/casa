@@ -26,6 +26,7 @@ object MobileAuth {
     private const val KEY_LOGIN = "user_login"
     private const val KEY_PROFILE = "user_profile"
     private const val KEY_EXPIRES = "expires_at"
+    private const val KEY_PAIRED = "installation_paired"
     private const val KEY_DEVICE_ID = "paired_device_id"
 
     private val jsonType = "application/json; charset=utf-8".toMediaType()
@@ -38,7 +39,9 @@ object MobileAuth {
 
     fun savedSession(context: Context): Session? {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val token = p.getString(KEY_TOKEN, "").orEmpty()
+        val token = p.getString(KEY_TOKEN, "").orEmpty().ifBlank {
+            if (hasInstallationLink(context)) AppTokenStore.load(context) else ""
+        }
         if (token.isBlank()) return null
         val expires = p.getString(KEY_EXPIRES, "").orEmpty()
         // A expiracao do token do servidor nao bloqueia a interface local.
@@ -47,7 +50,7 @@ object MobileAuth {
         return Session(
             token = token,
             name = p.getString(KEY_NAME, "").orEmpty(),
-            login = p.getString(KEY_LOGIN, "").orEmpty(),
+            login = p.getString(KEY_LOGIN, if (hasInstallationLink(context)) "api_key" else "").orEmpty(),
             profile = p.getString(KEY_PROFILE, "").orEmpty(),
             expiresAt = expires
         )
@@ -158,6 +161,7 @@ object MobileAuth {
         val resolved = session ?: throw IllegalStateException("Não foi possível autenticar a chave de API.")
         JarvisApi.saveConfig(context, cleanUrl, resolved.token)
         save(context, resolved)
+        markInstallationLinked(context)
         return resolved
     }
 
@@ -223,8 +227,29 @@ object MobileAuth {
                 .putString(KEY_DEVICE_ID, json.optString("device_id"))
                 .apply()
             save(context, session)
+            markInstallationLinked(context)
             return session
         }
+    }
+
+    fun hasInstallationLink(context: Context): Boolean {
+        val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return p.getBoolean(KEY_PAIRED, false) ||
+            p.getString(KEY_DEVICE_ID, "").orEmpty().isNotBlank() ||
+            (p.getString(KEY_LOGIN, "") == "api_key" && AppTokenStore.load(context).isNotBlank())
+    }
+
+    private fun markInstallationLinked(context: Context) {
+        check(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_PAIRED, true).commit()) { "Não foi possível salvar o vínculo do celular" }
+    }
+
+    // Somente uma ação explícita de desvinculação permite novo QR Code.
+    fun forgetInstallation(context: Context) {
+        context.stopService(android.content.Intent(context, JarvisConnectionService::class.java))
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().commit()
+        AppTokenStore.save(context, "")
+        JarvisApi.clearPending(context)
     }
 
     fun pairedDeviceId(context: Context): String =
@@ -275,6 +300,7 @@ object MobileAuth {
     }
 
     fun logout(context: Context) {
+        if (hasInstallationLink(context)) return // Fechar a tela não desfaz o provisionamento.
         val current = savedSession(context)
         val cfg = JarvisApi.loadConfig(context)
         if (current != null && cfg.baseUrl.startsWith("https://")) {
@@ -292,16 +318,18 @@ object MobileAuth {
     }
 
     private fun save(context: Context, session: Session) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        check(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString(KEY_TOKEN, session.token)
             .putString(KEY_NAME, session.name)
             .putString(KEY_LOGIN, session.login)
             .putString(KEY_PROFILE, session.profile)
             .putString(KEY_EXPIRES, session.expiresAt)
-            .apply()
+            .commit()) { "Não foi possível salvar a sessão no aparelho" }
     }
 
     fun clear(context: Context) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().apply()
+        val editor = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        listOf(KEY_TOKEN, KEY_NAME, KEY_LOGIN, KEY_PROFILE, KEY_EXPIRES).forEach { editor.remove(it) }
+        editor.commit()
     }
 }

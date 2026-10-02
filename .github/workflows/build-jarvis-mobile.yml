@@ -71,7 +71,7 @@ jobs:
           key: jarvis-mobile-debug-keystore-v1
 
       - name: Build debug APK
-        run: gradle --no-daemon :app:assembleDebug
+        run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug
 
       - name: Detect version
         id: version
@@ -118,4 +118,37 @@ jobs:
               --title "Casa Mobile v${VERSION} Debug" \
               --notes "Build automatizado de desenvolvimento do Casa Mobile v${VERSION}." \
               --prerelease
+          fi
+
+      # Só ativa a versão já indicada no manifesto, depois de publicar o APK.
+      - name: Complete authorized mobile manifest after APK publication
+        if: github.ref == 'refs/heads/master'
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.name }}
+        run: |
+          git fetch origin master
+          git checkout -B master origin/master
+          python3 - <<'PYTHON'
+          import hashlib, json, os, re
+          from pathlib import Path
+          path = Path('bin/versions.json')
+          manifest = json.loads(path.read_text())
+          entry = manifest['components'].get('casa-mobile-debug', {})
+          version = os.environ['RELEASE_VERSION']
+          apk = Path(f'CasaMobile-v{version}-debug.apk')
+          code = int(re.search(r'versionCode\s*=\s*(\d+)', Path('android/JarvisMobile/app/build.gradle.kts').read_text()).group(1))
+          # Não substitui uma indicação alterada durante a compilação.
+          if entry.get('version') == version and entry.get('version_code') == code:
+              entry['sha256'] = hashlib.sha256(apk.read_bytes()).hexdigest()
+              entry['enabled'] = True
+              path.write_text(json.dumps(manifest, indent=2) + '\n')
+          PYTHON
+          if ! git diff --quiet -- bin/versions.json; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add bin/versions.json
+            git commit -m 'Activate published authorized Casa Mobile APK [skip ci]'
+            git push origin HEAD:master
           fi

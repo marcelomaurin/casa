@@ -51,6 +51,9 @@ object QrLogin {
 
     /** Autentica a partir do conteúdo do QR. Executar fora da thread principal. */
     fun login(context: Context, scannedText: String, fallbackUrl: String): Result {
+        check(!MobileAuth.hasInstallationLink(context)) {
+            "Este celular já está vinculado. Use Ajustes para desvincular antes de ler outro QR Code."
+        }
         MobileAuth.parsePairingQr(scannedText)?.let { qr ->
             return Result(MobileAuth.pairWithCode(context, qr), qr.baseUrl, true)
         }

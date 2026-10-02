@@ -2,8 +2,8 @@
 
 ## Versão atual
 
-- `versionName`: `2.7.1`
-- `versionCode`: `271`
+- `versionName`: `2.8.0`
+- `versionCode`: `280`
 - pacote de desenvolvimento: `br.com.maurinsoft.jarvismobile.debug`
 - pacote de produção: `br.com.maurinsoft.jarvismobile`
 
@@ -89,3 +89,15 @@ Se ainda houver conflito com uma instalação debug anterior, desinstale apenas 
 - Documentação da versão atual sincronizada com o projeto Gradle.
 - Nome exibido atualizado para Casa Mobile no Android, navegação, notificações e identificação do cliente.
 - Identificador do pacote e prefixo das tags de atualização preservados para compatibilidade com instalações existentes.
+
+## Histórico — 2.8.0
+
+- Vínculo de instalação persistente e desvinculação explícita.
+- Navegação inferior; lista geral de dispositivos; voz e texto na mesma conversa com histórico.
+- Falhas HTTP não são tratadas como offline; fila revisada pelo usuário e prazo de cinco minutos.
+- Atualização autorizada por `bin/versions.json`, checada em cada abertura e a cada hora com o serviço ativo.
+- Download automático; hash, pacote, versão e assinatura validados antes do instalador Android.
+
+## Instrução obrigatória para IA/robô
+
+Toda nova versão deve atualizar também `bin/versions.json`. Consulte [MOBILE_ATUALIZACAO.md](../../docs/MOBILE_ATUALIZACAO.md) antes de compilar/publicar.

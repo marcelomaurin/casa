@@ -77,7 +77,7 @@ object AppTokenStore {
         val legacy = prefs.getString(LEGACY_KEY, "")?.trim().orEmpty()
         if (legacy.isNotBlank()) {
             save(context, legacy)
-            prefs.edit().remove(LEGACY_KEY).apply()
+            prefs.edit().remove(LEGACY_KEY).commit()
         }
         return legacy
     }
@@ -86,12 +86,12 @@ object AppTokenStore {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val value = token.trim()
         if (value.isBlank()) {
-            prefs.edit().remove(KEY_ENCRYPTED).remove(LEGACY_KEY).apply()
+            prefs.edit().remove(KEY_ENCRYPTED).remove(LEGACY_KEY).commit()
         } else {
             prefs.edit()
                 .putString(KEY_ENCRYPTED, encrypt(value))
                 .remove(LEGACY_KEY)
-                .apply()
+                .commit()
         }
     }
 }

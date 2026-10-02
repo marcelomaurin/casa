@@ -28,9 +28,13 @@
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
 
+    <queries>
+        <intent><action android:name="android.speech.RecognitionService" /></intent>
+    </queries>
+
     <application
         android:name=".JarvisApplication"
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@drawable/ic_jarvis_launcher"
         android:roundIcon="@drawable/ic_jarvis_launcher"
         android:label="Casa Mobile"
@@ -45,6 +49,8 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity android:name=".UpdateInstallActivity" android:exported="false" />
 
         <!-- Painel operacional interno: acessado pela interface autenticada. -->
         <activity

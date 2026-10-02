@@ -409,6 +409,7 @@ class JarvisConnectionService : Service(), WatchClient.Listener, WatchEventProce
 
             while (isActive) {
                 try {
+                    UpdateManager.checkAndDownloadAsync(this@JarvisConnectionService)
                     if (!localWatchClient.isSocketConnected() && networkMonitor.snapshot.wifi) {
                         localWatchClient.connectLanSaved()
                     }
@@ -427,9 +428,8 @@ class JarvisConnectionService : Service(), WatchClient.Listener, WatchEventProce
                     if (jarvisOnline) {
                         retryDelay = 5_000L
 
-                        runCatching {
-                            JarvisApi.flushPending(this@JarvisConnectionService)
-                        }
+                        // A reconexão não reenvia comandos de resultado desconhecido.
+                        // O operador revisa/cancela a fila na tela JARVIS.
 
                         val watches = runCatching {
                             WatchApi.listWatches(this@JarvisConnectionService)

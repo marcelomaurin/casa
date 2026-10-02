@@ -3,96 +3,102 @@ package br.com.maurinsoft.jarvismobile
 import android.app.DownloadManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
-import android.os.Build
-import android.os.Environment
+import android.content.Intent
+import android.net.Uri
 import androidx.core.app.NotificationCompat
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.json.JSONArray
+import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 object UpdateManager {
-    private const val RELEASES_URL = "https://api.github.com/repos/marcelomaurin/casa/releases?per_page=20"
-    private const val PREFS = "jarvis_updates"
+    // A versão indicada no manifesto é a única autorizada; não seguimos a última release.
+    private const val MANIFEST_URL = "https://raw.githubusercontent.com/marcelomaurin/casa/master/bin/versions.json"
+    const val PREFS = "jarvis_updates"
     private const val CHANNEL = "jarvis_updates"
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(8, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
-        .retryOnConnectionFailure(true)
-        .build()
+    private val client = OkHttpClient.Builder().connectTimeout(8, TimeUnit.SECONDS).readTimeout(15, TimeUnit.SECONDS).build()
+    private var checking = false
+    private var lastCheck = 0L
 
-    data class Release(val version: String, val apkUrl: String, val fileName: String)
+    data class Release(val version: String, val versionCode: Long, val apkUrl: String, val sha256: String)
 
-    fun checkAndDownloadAsync(context: Context) {
+    fun status(context: Context): String = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        .getString("status", "Nenhuma atualização consultada.").orEmpty()
+
+    fun setStatus(context: Context, message: String) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("status", message).apply()
+    }
+
+    @Synchronized
+    fun checkAndDownloadAsync(context: Context, force: Boolean = false) {
+        if (checking || (!force && System.currentTimeMillis() - lastCheck < TimeUnit.HOURS.toMillis(1))) return
+        checking = true
+        lastCheck = System.currentTimeMillis()
+        val app = context.applicationContext
         Thread {
-            runCatching {
-                val release = latestRelease() ?: return@runCatching
-                val current = BuildConfig.VERSION_NAME.substringBefore('-')
-                if (compareVersions(release.version, current) <= 0) return@runCatching
-                val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                val pendingVersion = prefs.getString("pending_version", "").orEmpty()
-                val pendingId = prefs.getLong("download_id", -1L)
-                if (pendingVersion == release.version && pendingId > 0) return@runCatching
-                val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-                val req = DownloadManager.Request(android.net.Uri.parse(release.apkUrl))
+            try {
+                val release = indicatedRelease() ?: run { setStatus(app, "Nenhuma versão autorizada para este pacote."); return@Thread }
+                if (release.versionCode <= BuildConfig.VERSION_CODE) {
+                    setStatus(app, "Aplicativo atualizado para a versão autorizada.")
+                    val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                    if (prefs.getLong("pending_code", 0) <= BuildConfig.VERSION_CODE) {
+                        val oldId = prefs.getLong("download_id", -1)
+                        if (oldId > 0) (app.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).remove(oldId)
+                        prefs.edit().remove("download_id").remove("pending_version").remove("pending_code").remove("sha256").apply()
+                    }
+                    return@Thread
+                }
+                val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                val manager = app.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                val oldId = prefs.getLong("download_id", -1)
+                if (oldId > 0 && prefs.getLong("pending_code", 0) == release.versionCode && prefs.getString("sha256", "") == release.sha256) {
+                    manager.query(DownloadManager.Query().setFilterById(oldId))?.use { cursor ->
+                        if (cursor.moveToFirst() && cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)) != DownloadManager.STATUS_FAILED) return@Thread
+                    }
+                }
+                if (oldId > 0) manager.remove(oldId)
+                val request = DownloadManager.Request(Uri.parse(release.apkUrl))
                     .setTitle("Casa Mobile ${release.version}")
-                    .setDescription("Atualização do Casa Mobile")
+                    .setDescription("Versão autorizada em bin/versions.json")
                     .setMimeType("application/vnd.android.package-archive")
                     .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                    .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, release.fileName)
-                    .setAllowedOverMetered(true)
-                    .setAllowedOverRoaming(false)
-                val id = manager.enqueue(req)
-                prefs.edit().putLong("download_id", id).putString("pending_version", release.version).apply()
-                notify(context, "Atualização ${release.version}", "Download iniciado automaticamente.")
-            }
+                    .setDestinationInExternalFilesDir(app, "updates", "CasaMobile-${release.versionCode}.apk")
+                    .setAllowedOverMetered(true).setAllowedOverRoaming(false)
+                val id = manager.enqueue(request)
+                prefs.edit().putLong("download_id", id).putLong("pending_code", release.versionCode)
+                    .putString("pending_version", release.version).putString("sha256", release.sha256).commit()
+                setStatus(app, "Baixando versão autorizada ${release.version}.")
+            } catch (e: Exception) {
+                setStatus(app, "Falha ao buscar atualização. Nova tentativa na próxima consulta.")
+            } finally { synchronized(this) { checking = false } }
         }.start()
     }
 
-    private fun latestRelease(): Release? {
-        val req = Request.Builder().url(RELEASES_URL)
-            .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "JARVIS-Mobile/${BuildConfig.VERSION_NAME}")
-            .build()
-        client.newCall(req).execute().use { response ->
-            if (!response.isSuccessful) return null
-            val arr = JSONArray(response.body?.string().orEmpty())
-            for (i in 0 until arr.length()) {
-                val r = arr.optJSONObject(i) ?: continue
-                val tag = r.optString("tag_name")
-                if (!tag.startsWith("jarvis-mobile-v") || !tag.endsWith("-debug")) continue
-                val version = tag.removePrefix("jarvis-mobile-v").removeSuffix("-debug")
-                val assets = r.optJSONArray("assets") ?: continue
-                for (j in 0 until assets.length()) {
-                    val a = assets.optJSONObject(j) ?: continue
-                    val name = a.optString("name")
-                    val url = a.optString("browser_download_url")
-                    if (name.endsWith(".apk", true) && url.startsWith("https://")) return Release(version, url, name)
-                }
-            }
+    private fun indicatedRelease(): MobileReleaseManifest.Release? {
+        val request = Request.Builder().url(MANIFEST_URL).header("Cache-Control", "no-cache").build()
+        client.newCall(request).execute().use { response ->
+            check(response.isSuccessful) { "Manifesto indisponível" }
+            val channel = if (BuildConfig.DEBUG) "casa-mobile-debug" else "casa-mobile"
+            return MobileReleaseManifest.parse(response.body?.string().orEmpty(), channel, BuildConfig.APPLICATION_ID)
         }
-        return null
     }
 
-    private fun compareVersions(a: String, b: String): Int {
-        val aa = a.split('.').map { it.toIntOrNull() ?: 0 }
-        val bb = b.split('.').map { it.toIntOrNull() ?: 0 }
-        for (i in 0 until maxOf(aa.size, bb.size)) {
-            val x = aa.getOrElse(i) { 0 }; val y = bb.getOrElse(i) { 0 }
-            if (x != y) return x.compareTo(y)
-        }
-        return 0
+    fun openPendingInstaller(context: Context) {
+        val id = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong("download_id", -1)
+        if (id <= 0) { setStatus(context, "Nenhuma atualização baixada para instalar."); return }
+        context.startActivity(Intent(context, UpdateInstallActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
-    private fun notify(context: Context, title: String, text: String) {
+    fun notifyReady(context: Context) {
+        setStatus(context, "Download concluído. Toque para validar e instalar a atualização.")
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            nm.createNotificationChannel(NotificationChannel(CHANNEL, "Atualizações Casa Mobile", NotificationManager.IMPORTANCE_DEFAULT))
-        }
-        if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) return
-        nm.notify(2606, NotificationCompat.Builder(context, CHANNEL)
-            .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setContentTitle(title).setContentText(text).setAutoCancel(true).build())
+        nm.createNotificationChannel(NotificationChannel(CHANNEL, "Atualizações Casa Mobile", NotificationManager.IMPORTANCE_DEFAULT))
+        if (android.os.Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) return
+        val pending = PendingIntent.getActivity(context, 2800, Intent(context, UpdateInstallActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        nm.notify(2800, NotificationCompat.Builder(context, CHANNEL).setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setContentTitle("Atualização Casa Mobile disponível").setContentText("Toque para validar e instalar sem apagar o vínculo.")
+            .setContentIntent(pending).setAutoCancel(true).build())
     }
 }

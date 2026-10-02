@@ -12,8 +12,8 @@ android {
         applicationId = "br.com.maurinsoft.jarvismobile"
         minSdk = 26
         targetSdk = 35
-        versionCode = 271
-        versionName = "2.7.1"
+        versionCode = 280
+        versionName = "2.8.0"
     }
 
     buildTypes {
@@ -41,6 +41,7 @@ android {
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.activity:activity-compose:1.10.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.0")

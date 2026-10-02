@@ -8,6 +8,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
+import java.io.IOException
 
 object JarvisApi {
     private val jsonType = "application/json; charset=utf-8".toMediaType()
@@ -15,12 +16,14 @@ object JarvisApi {
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(45, TimeUnit.SECONDS)
         .writeTimeout(20, TimeUnit.SECONDS)
-        .retryOnConnectionFailure(true)
+        .retryOnConnectionFailure(false)
         .build()
 
     private const val DEFAULT_BASE_URL = "https://maurinsoft.com.br/casa"
     private const val LEGACY_BASE_URL = "https://casa.maurinsoft.com.br"
     private const val PREFS = "jarvis"
+    private const val MAX_PENDING_AGE_MS = 5 * 60 * 1000L
+    class HttpFailure(val statusCode: Int) : IllegalStateException("HTTP $statusCode")
     private const val PENDING_KEY = "pending_commands"
 
     data class Config(val baseUrl: String, val token: String)
@@ -90,7 +93,7 @@ object JarvisApi {
         if (body != null) b.post(body.toString().toRequestBody(jsonType)) else b.get()
         client.newCall(b.build()).execute().use { response ->
             val raw = response.body?.string().orEmpty()
-            if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code}: ${raw.take(300)}")
+            if (!response.isSuccessful) throw HttpFailure(response.code)
             return raw
         }
     }
@@ -138,13 +141,30 @@ object JarvisApi {
     fun sendOrQueue(context: Context, text: String): SendResult = try {
         val answer = askJarvis(context, text)
         SendResult(true, false, answer, answer.text)
-    } catch (e: Exception) {
+    } catch (e: IOException) {
+        // Timeout pode ocorrer depois da execução: nunca repetir sem revisão do usuário.
         queueCommand(context, text)
-        SendResult(false, true, null, when (LanguageManager.currentLanguage(context)) {
-            "en-US" -> "Offline. Command saved and will be sent automatically."
-            "es-ES" -> "Sin conexión. Comando guardado para envío automático."
-            else -> "Sem conexão. Comando salvo na fila para envio automático."
-        })
+        SendResult(false, true, null, "Envio não confirmado. Solicitação salva para revisão; não será reenviada automaticamente.")
+    } catch (e: HttpFailure) {
+        val message = when (e.statusCode) {
+            401, 403 -> "Acesso recusado. Verifique a autorização do celular no servidor; o vínculo local foi preservado."
+            429 -> "Muitas solicitações. Aguarde antes de tentar novamente."
+            in 500..599 -> "Falha no servidor. O comando não foi colocado na fila."
+            else -> "Solicitação recusada (HTTP ${e.statusCode})."
+        }
+        SendResult(false, false, null, message)
+    } catch (e: Exception) {
+        SendResult(false, false, null, "Não foi possível enviar: ${e.message ?: "resposta inválida"}")
+    }
+
+    fun pendingTexts(context: Context): List<String> {
+        val arr = JSONArray(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(PENDING_KEY, "[]"))
+        return (0 until arr.length()).mapNotNull { arr.optJSONObject(it)?.optString("text") }
+    }
+
+    @Synchronized
+    fun clearPending(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(PENDING_KEY).commit()
     }
 
     @Synchronized
@@ -156,6 +176,9 @@ object JarvisApi {
         val remaining = JSONArray(); var sent = 0
         for (i in 0 until source.length()) {
             val item = source.optJSONObject(i) ?: continue
+            // Solicitações antigas/legadas não devem executar fora do momento desejado.
+            val created = item.optLong("created_at")
+            if (!PendingCommandPolicy.isFresh(created, System.currentTimeMillis())) continue
             val text = item.optString("text")
             if (text.isBlank()) continue
             if (sent == 0 || isOnline(context)) {

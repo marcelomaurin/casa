@@ -27,7 +27,7 @@ O objetivo é permitir que o JARVIS receba comandos em linguagem natural, consul
 | Planejador | Perguntas rastreáveis, subtarefas imediatas/agendadas/condicionais | Experimental |
 | Web Agent | Pesquisa e coleta de conteúdo web com task_context | Experimental |
 | TTS | Serviço Python/FastAPI | Experimental |
-| Casa Mobile | Android Kotlin / Jetpack Compose, versão 2.6.9 | Experimental |
+| Casa Mobile | Android Kotlin / Jetpack Compose, versão 2.8.0 | Experimental |
 | JARVIS TV | Android TV, versão 1.0.0 | Experimental |
 | LILYGO Watch | Firmware + BLE de provisionamento + Wi-Fi/HTTPS em operação | Experimental |
 | ESP32-CAM | Captura e envio de imagens | Experimental |
@@ -117,7 +117,7 @@ A API utiliza autenticação e foi estruturada para suportar tokens individuais,
 
 ### Casa Mobile
 
-A versão atual na `master` é **2.6.9** (`versionCode 269`). O aplicativo Android está em:
+A versão atual na `master` é **2.8.0** (`versionCode 280`). O aplicativo Android está em:
 
 ```text
 android/JarvisMobile/
@@ -297,3 +297,7 @@ A documentação deve acompanhar a evolução do código e distinguir claramente
 O serviço `casa-cluster-update` de cada nó acompanha a branch `master` direto do GitHub (a cada ~2 minutos) e instala os fontes novos dos integradores presentes no nó, preservando as configurações locais. O painel **Segurança › Atualizações** mostra a versão de cada cluster e permite forçar a atualização.
 
 Veja o [passo a passo de instalação, configuração e diagnóstico](clusters/infraestrutura/casa-cluster-update/INSTALACAO.md).
+
+### Atualização do Casa Mobile
+
+O Android consulta `bin/versions.json` em cada abertura e baixa somente a versão maior autorizada para seu pacote. Hash e assinatura são validados antes da confirmação de instalação pelo Android. **Robô/IA: a cada nova versão, atualizar também o JSON.** Veja [o procedimento de publicação e teste](docs/MOBILE_ATUALIZACAO.md).

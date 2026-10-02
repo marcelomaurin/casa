@@ -66,6 +66,7 @@ private val permissionLauncher = registerForActivityResult(
         audioPlayer = JarvisAudioPlayer(this)
         sessionController = MobileSessionController(this)
         commandController = JarvisCommandController(this)
+        UpdateManager.checkAndDownloadAsync(this, true)
         setContent { JarvisApp() }
     }
 
@@ -115,8 +116,11 @@ private val permissionLauncher = registerForActivityResult(
                     pending = appState.pending,
                     session = appState.session!!,
                     onLogout = {
-                        appState.clearLocalSession()
-                        Thread { runCatching { sessionController.logout() } }.start()
+                        if (MobileAuth.hasInstallationLink(this@MainActivity)) finish()
+                        else {
+                            appState.clearLocalSession()
+                            Thread { runCatching { sessionController.logout() } }.start()
+                        }
                     }
                 )
             }
@@ -175,7 +179,7 @@ private val permissionLauncher = registerForActivityResult(
             onHome = {},
             onLogout = {}
         ) {
-            QrAccessSection(
+            if (!MobileAuth.hasInstallationLink(this@MainActivity)) QrAccessSection(
                 busy = busy,
                 onScan = {
                     onQrCodeScannedCallback = { payload -> processQrPayload(payload) }
@@ -270,35 +274,46 @@ private val permissionLauncher = registerForActivityResult(
             else -> "CASA offline • reconexão automática"
         }
 
-        LcarsFrame(
-            title = title,
-            subtitle = subtitle,
-            user = session.name.ifBlank { session.login },
-            canBack = navigation.canBack,
-            onBack = { navigation.back() },
-            onHome = { navigation.home() },
-            onLogout = onLogout
-        ) {
+        androidx.activity.compose.BackHandler(enabled = navigation.canBack) { navigation.back() }
+        Scaffold(
+            bottomBar = {
+                NavigationBar {
+                    listOf(MobileRoute.HOME to "Casa", MobileRoute.VOICE to "JARVIS",
+                        MobileRoute.DEVICES_LIST to "Dispositivos", MobileRoute.CONFIG to "Ajustes").forEach { (target, label) ->
+                        NavigationBarItem(selected = route == target, onClick = { navigation.home(); if (target != MobileRoute.HOME) navigation.open(target) },
+                            icon = { Text(label.take(1)) }, label = { Text(label) })
+                    }
+                }
+            }
+        ) { padding ->
+            Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 12.dp)) {
+                Text(title, style = MaterialTheme.typography.titleLarge)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall)
             when (route) {
                 MobileRoute.HOME -> {
-                    LcarsSectionLabel("MENU PRINCIPAL", LcarsColors.Orange)
+                    Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LcarsSectionLabel("MINHA CASA", LcarsColors.Orange)
+                    LcarsMenuButton("PAINEL DA CASA", "Sensores, dispositivos e cenas", LcarsColors.Gold) {
+                        startActivity(Intent(this@MainActivity, DashboardActivity::class.java))
+                    }
                     LcarsMenuButton("CASA", "Operações, sensores e estado da residência", LcarsColors.Salmon) { navigation.open(MobileRoute.CASA_MENU) }
                     LcarsMenuButton("JARVIS", "Voz, comando manual e respostas", LcarsColors.Lavender) { navigation.open(MobileRoute.JARVIS_MENU) }
                     LcarsMenuButton("WATCH", "Relógio, recursos e configuração", LcarsColors.Blue) { navigation.open(MobileRoute.WATCH_MENU) }
                     LcarsMenuButton("DEVICES", "Equipamentos e novos dispositivos", LcarsColors.Gold) { navigation.open(MobileRoute.DEVICES_MENU) }
                     LcarsMenuButton("SISTEMA", "Conexão, idioma e credenciais", LcarsColors.Green) { navigation.open(MobileRoute.SYSTEM_MENU) }
+                    }
                 }
 
                 MobileRoute.CASA_MENU -> {
                     LcarsSectionLabel("CASA", LcarsColors.Salmon)
                     LcarsMenuButton("OPERAÇÕES", "Controles rápidos e comando manual", LcarsColors.Salmon) { navigation.open(MobileRoute.OPERATIONS) }
-                    LcarsMenuButton("STATUS E SENSORES", "Consulta de estado, temperatura e sensores", LcarsColors.Orange) { navigation.open(MobileRoute.OPERATIONS) }
+                    LcarsMenuButton("STATUS E SENSORES", "Consulta de estado, temperatura e sensores", LcarsColors.Orange) { startActivity(Intent(this@MainActivity, DashboardActivity::class.java)) }
                 }
 
                 MobileRoute.JARVIS_MENU -> {
                     LcarsSectionLabel("JARVIS", LcarsColors.Lavender)
                     LcarsMenuButton("VOZ", "Falar com o JARVIS", LcarsColors.Lavender) { navigation.open(MobileRoute.VOICE) }
-                    LcarsMenuButton("COMANDO MANUAL", "Digitar uma solicitação", LcarsColors.Blue) { navigation.open(MobileRoute.OPERATIONS) }
+                    LcarsMenuButton("COMANDO MANUAL", "Digitar uma solicitação", LcarsColors.Blue) { navigation.open(MobileRoute.VOICE) }
                 }
 
                 MobileRoute.WATCH_MENU -> {
@@ -324,10 +339,13 @@ private val permissionLauncher = registerForActivityResult(
                 }
 
                 MobileRoute.OPERATIONS -> OperationsScreen(online, pending)
-                MobileRoute.VOICE -> VoiceScreen(online)
+                MobileRoute.VOICE -> ConversationScreen(online, speechInput, audioPlayer) {
+                    permissionLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
+                }
                 MobileRoute.WATCH_STATUS -> WatchScreen()
                 MobileRoute.DEVICES_LIST -> DevicesScreen()
                 MobileRoute.CONFIG -> ConfigScreen()
+            }
             }
         }
     }
@@ -350,43 +368,6 @@ private val permissionLauncher = registerForActivityResult(
             OutlinedTextField(command, { command = it }, Modifier.fillMaxWidth(), label = { Text(tr("manual_command")) }, minLines = 2)
             Button(onClick = { val t = command.trim(); command = ""; send(t) }, Modifier.fillMaxWidth(), enabled = command.isNotBlank() && !busy) { Text(if (busy) tr("processing") else if (online) tr("execute") else tr("save_queue")) }
             ElevatedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) { Text(tr("result"), fontWeight = FontWeight.Bold); Spacer(Modifier.height(6.dp)); Text(response) } }
-        }
-    }
-
-    @Composable
-    private fun VoiceScreen(online: Boolean) {
-        val scope = rememberCoroutineScope(); var heard by remember { mutableStateOf("") }; var answer by remember { mutableStateOf(if (online) tr("touch_speak") else tr("offline_speech")) }; var busy by remember { mutableStateOf(false) }; var listening by remember { mutableStateOf(false) }
-        fun submit(text: String) { busy = true; scope.launch { val result = withContext(Dispatchers.IO) { commandController.send(text) }; answer = if (result.delivered) result.text ?: tr("executed") else result.message; if (result.delivered) playAudio(result.audioUrl); busy = false } }
-        Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text(tr("voice"), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text(if (online) tr("connected_jarvis") else tr("offline_voice"))
-            ElevatedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Text(tr("you"), fontWeight = FontWeight.Bold); Text(if (heard.isBlank()) tr("none") else heard); HorizontalDivider(); Text("JARVIS", fontWeight = FontWeight.Bold); Text(answer) } }
-            Button(
-                onClick = {
-                    if (ContextCompat.checkSelfPermission(
-                            this@MainActivity,
-                            Manifest.permission.RECORD_AUDIO
-                        ) != PackageManager.PERMISSION_GRANTED
-                    ) {
-                        answer = "O microfone é necessário somente para usar o comando por voz. Autorize e toque novamente em FALAR."
-                        permissionLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
-                    } else {
-                        listening = true
-                        answer = tr("listening")
-                        listen { text ->
-                            listening = false
-                            if (text.isBlank()) answer = tr("not_recognized")
-                            else {
-                                heard = text
-                                submit(text)
-                            }
-                        }
-                    }
-                },
-                enabled = !busy && !listening,
-                modifier = Modifier.fillMaxWidth().height(64.dp)
-            ) {
-                Text(if (listening) tr("listening") else if (busy) tr("processing") else tr("speak"))
-            }
         }
     }
 
@@ -496,16 +477,16 @@ private val permissionLauncher = registerForActivityResult(
     @Composable
     private fun DevicesScreen() {
         val scope = rememberCoroutineScope()
-        var devices by remember { mutableStateOf<List<WatchApi.WatchDevice>>(emptyList()) }
+        var devices by remember { mutableStateOf<List<ControlPlaneApi.DeviceInfo>>(emptyList()) }
         var loading by remember { mutableStateOf(false) }
+        var error by remember { mutableStateOf<String?>(null) }
 
         fun refreshDevices() {
             if (loading) return
             loading = true
             scope.launch {
-                devices = withContext(Dispatchers.IO) {
-                    runCatching { WatchApi.listWatches(this@MainActivity) }.getOrDefault(emptyList())
-                }
+                val result = withContext(Dispatchers.IO) { runCatching { ControlPlaneApi.listDevices(this@MainActivity) } }
+                result.onSuccess { devices = it; error = null }.onFailure { error = "Falha ao consultar dispositivos. Tente atualizar." }
                 loading = false
             }
         }
@@ -519,9 +500,10 @@ private val permissionLauncher = registerForActivityResult(
             Text("DEVICES", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             Text("Equipamentos cadastrados no ecossistema CASA.")
 
+            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             if (devices.isEmpty()) {
                 ElevatedCard(Modifier.fillMaxWidth()) {
-                    Text(if (loading) "Carregando dispositivos..." else "Nenhum Watch encontrado no CASA.", modifier = Modifier.padding(16.dp))
+                    Text(if (loading) "Carregando dispositivos..." else "Nenhum dispositivo cadastrado no CASA.", modifier = Modifier.padding(16.dp))
                 }
             } else {
                 devices.forEach { d ->
@@ -575,11 +557,12 @@ private val permissionLauncher = registerForActivityResult(
             if (!automatic) LanguageManager.supported.forEach { lang -> Row(verticalAlignment = Alignment.CenterVertically) { RadioButton(selected = selectedLanguage == lang.tag, onClick = { selectedLanguage = lang.tag; LanguageManager.setLanguage(this@MainActivity, lang.tag); recreate() }); Text(lang.label) } }
             Text("${tr("language")}: ${LanguageManager.languageLabel(this@MainActivity)}")
             OutlinedTextField(server, { server = it }, Modifier.fillMaxWidth(), label = { Text(tr("public_url")) }, placeholder = { Text("https://seu-host") }, singleLine = true)
-            OutlinedTextField(token, { token = it }, Modifier.fillMaxWidth(), label = { Text(tr("phone_token")) }, singleLine = true)
+            OutlinedTextField(token, { token = it }, Modifier.fillMaxWidth(), label = { Text(tr("phone_token")) }, singleLine = true, visualTransformation = PasswordVisualTransformation())
             Button(onClick = { JarvisApi.saveConfig(this@MainActivity, server, token); runCatching { startJarvisService() }; status = tr("saved") }, Modifier.fillMaxWidth()) { Text(tr("save")) }
             OutlinedButton(onClick = { JarvisApi.saveConfig(this@MainActivity, server, token); busy = true; scope.launch { status = try { withContext(Dispatchers.IO) { JarvisApi.testConnection(this@MainActivity) } } catch (e: Exception) { "${tr("offline_reconnecting")}. ${e.message ?: ""}" }; busy = false } }, Modifier.fillMaxWidth(), enabled = !busy) { Text(if (busy) tr("testing") else tr("test_now")) }
 
             HorizontalDivider()
+            InstallationSettings { recreate() }
             Text("Sistema", fontWeight = FontWeight.Bold)
             Text("Use as abas WATCH e DEVICES para gerenciar equipamentos e integrações.")
 
