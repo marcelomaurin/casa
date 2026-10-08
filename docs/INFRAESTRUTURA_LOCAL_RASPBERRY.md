@@ -19,7 +19,7 @@ O ecossistema CASA/JARVIS é rigorosamente dividido em três camadas:
          └───────────────▲────────────────┘
                          │ HTTPS / Bearer Token
          ┌───────────────▼────────────────────────────────────────┐
-         │ RASPBERRY PI (192.168.2.12 / Alias 192.168.0.211)      │
+         │ RASPBERRY PI (192.168.2.13 / Alias 192.168.0.211)      │
          │                                                        │
          │ • Apenas scripts NÃO-PHP e serviços de hardware:       │
          │   - casa-node-agent (porta 8098): agente ARM/GPIO/fala │
@@ -48,7 +48,7 @@ O ecossistema CASA/JARVIS é rigorosamente dividido em três camadas:
 * **Sistema Operacional**: Debian GNU/Linux 12 (bookworm) / Kernel `6.12.96+rpt-rpi-v8`
 * **Usuário SSH**: `mmm`
 * **Endereçamento IP**:
-  * **IP Primário Atual (DHCP da LAN)**: `192.168.2.12`
+  * **IP Primário Atual (DHCP da LAN)**: `192.168.2.13`
   * **IP Alias Secundário**: `192.168.0.211` (configurado em `eth0` para compatibilidade com dispositivos ou referências que buscam essa sub-rede histórica).
 * **Portas de Serviços Locais**:
   * `22`: SSH
