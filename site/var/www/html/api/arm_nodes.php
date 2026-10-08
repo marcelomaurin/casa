@@ -55,60 +55,68 @@ if ($method === 'POST') {
         $pdo = get_db_pdo();
 
         $rawNumId = null;
-        if (preg_match('/^(?:legacy|device):(\d+)$/', $nodeId, $m)) {
+        if (preg_match('/^(?:legacy|device):(\\d+)$/', $nodeId, $m)) {
             $rawNumId = (int)$m[1];
         } elseif (is_numeric($nodeId)) {
             $rawNumId = (int)$nodeId;
         }
 
+        $ipVal = $ip !== '' ? $ip : null;
+
         // 1. Atualiza na tabela dispositivos_cluster
-        $whereClust = [];
-        $paramsClust = [':nome' => $nome, ':ip' => $ip !== '' ? $ip : null];
+        if ($deviceId !== '' || $rawNumId !== null) {
+            try {
+                $fields = ['nome = :nome', 'ip_address = :ip_addr', 'local_ip = :local_ip'];
+                $params = [':nome' => $nome, ':ip_addr' => $ipVal, ':local_ip' => $ipVal];
+                if ($papel !== '') {
+                    $fields[] = 'model = :papel';
+                    $params[':papel'] = $papel;
+                }
+                $where = ($deviceId !== '') ? 'device_id = :dev_id' : 'id = :num_id';
+                $params[($deviceId !== '') ? ':dev_id' : ':num_id'] = ($deviceId !== '') ? $deviceId : $rawNumId;
 
-        if ($deviceId !== '') {
-            $whereClust[] = "device_id = :dev_id";
-            $paramsClust[':dev_id'] = $deviceId;
-        }
-        if ($rawNumId !== null) {
-            $whereClust[] = "id = :num_id";
-            $paramsClust[':num_id'] = $rawNumId;
-        }
+                $sqlClust = "UPDATE dispositivos_cluster SET " . implode(', ', $fields) . " WHERE " . $where;
+                $stmt = $pdo->prepare($sqlClust);
+                $stmt->execute($params);
+            } catch (PDOException $ex) {
+                // Se a coluna local_ip nao existir na versao do schema, tenta sem ela
+                if (stripos($ex->getMessage(), 'local_ip') !== false) {
+                    $fields = ['nome = :nome', 'ip_address = :ip_addr'];
+                    $params = [':nome' => $nome, ':ip_addr' => $ipVal];
+                    if ($papel !== '') {
+                        $fields[] = 'model = :papel';
+                        $params[':papel'] = $papel;
+                    }
+                    $where = ($deviceId !== '') ? 'device_id = :dev_id' : 'id = :num_id';
+                    $params[($deviceId !== '') ? ':dev_id' : ':num_id'] = ($deviceId !== '') ? $deviceId : $rawNumId;
 
-        if (!empty($whereClust)) {
-            $sqlClust = "UPDATE dispositivos_cluster SET nome = :nome, ip_address = :ip, local_ip = :ip";
-            if ($papel !== '') {
-                $sqlClust .= ", model = :papel";
-                $paramsClust[':papel'] = $papel;
+                    $sqlClust = "UPDATE dispositivos_cluster SET " . implode(', ', $fields) . " WHERE " . $where;
+                    $stmt = $pdo->prepare($sqlClust);
+                    $stmt->execute($params);
+                } else {
+                    throw $ex;
+                }
             }
-            $sqlClust .= " WHERE " . implode(' OR ', $whereClust);
-            $stmt = $pdo->prepare($sqlClust);
-            $stmt->execute($paramsClust);
         }
 
         // 2. Atualiza na tabela arm_nodes
-        $whereArm = [];
-        $paramsArm = [':ip' => $ip !== '' ? $ip : null];
+        if ($deviceId !== '' || $rawNumId !== null) {
+            $fieldsArm = ['ip_address = :arm_ip'];
+            $paramsArm = [':arm_ip' => $ipVal];
 
-        if ($deviceId !== '') {
-            $whereArm[] = "device_id = :dev_id";
-            $paramsArm[':dev_id'] = $deviceId;
-        }
-        if ($rawNumId !== null) {
-            $whereArm[] = "id = :num_id";
-            $paramsArm[':num_id'] = $rawNumId;
-        }
-
-        if (!empty($whereArm)) {
-            $sqlArm = "UPDATE arm_nodes SET ip_address = :ip";
             if ($hostname !== '') {
-                $sqlArm .= ", hostname = :hostname";
-                $paramsArm[':hostname'] = $hostname;
+                $fieldsArm[] = 'hostname = :arm_host';
+                $paramsArm[':arm_host'] = $hostname;
             }
             if ($papel !== '') {
-                $sqlArm .= ", papel = :papel";
-                $paramsArm[':papel'] = $papel;
+                $fieldsArm[] = 'papel = :arm_papel';
+                $paramsArm[':arm_papel'] = $papel;
             }
-            $sqlArm .= " WHERE " . implode(' OR ', $whereArm);
+
+            $whereArm = ($deviceId !== '') ? 'device_id = :arm_dev_id' : 'id = :arm_num_id';
+            $paramsArm[($deviceId !== '') ? ':arm_dev_id' : ':arm_num_id'] = ($deviceId !== '') ? $deviceId : $rawNumId;
+
+            $sqlArm = "UPDATE arm_nodes SET " . implode(', ', $fieldsArm) . " WHERE " . $whereArm;
             $stmtArm = $pdo->prepare($sqlArm);
             $stmtArm->execute($paramsArm);
         }
@@ -116,8 +124,12 @@ if ($method === 'POST') {
         // 3. Atualiza na tabela devices se existir
         if ($deviceId !== '') {
             try {
-                $stmtDev = $pdo->prepare("UPDATE devices SET nome = :nome, ip_address = :ip WHERE device_id = :dev_id");
-                $stmtDev->execute([':nome' => $nome, ':ip' => $ip !== '' ? $ip : null, ':dev_id' => $deviceId]);
+                $stmtDev = $pdo->prepare("UPDATE devices SET nome = :dev_nome, ip_address = :dev_ip WHERE device_id = :dev_dev_id");
+                $stmtDev->execute([
+                    ':dev_nome' => $nome,
+                    ':dev_ip' => $ipVal,
+                    ':dev_dev_id' => $deviceId
+                ]);
             } catch (Throwable $e) {}
         }
 
