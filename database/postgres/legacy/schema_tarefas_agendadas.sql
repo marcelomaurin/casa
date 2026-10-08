@@ -13,19 +13,25 @@ CREATE TABLE IF NOT EXISTS tarefas_agendadas (
     ativo BOOLEAN DEFAULT TRUE,
     ultima_execucao TIMESTAMP,
     proxima_execucao TIMESTAMP,
-    criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    modo_agendamento VARCHAR(20) DEFAULT 'RECORRENTE',
+    executar_em TIMESTAMP,
+    id_plano BIGINT,
+    id_tarefa_plano BIGINT,
+    executar_uma_vez BOOLEAN NOT NULL DEFAULT FALSE,
+    cron_expr VARCHAR(100)
 );
 
--- Inserir agendamentos padrão caso não existam
+-- Inserir agendamentos padrao caso nao existam
 INSERT INTO tarefas_agendadas (titulo, descricao, horario, dias_semana, tipo_acao, payload, target_node, ativo)
 VALUES
-('Irrigação Matinal', 'Ativação diária da bomba de irrigação do jardim', '06:30', '*', 'comando_jarvis', 'Ligue a irrigacao', 'local', TRUE),
-('Desligar Irrigação', 'Desliga a bomba de irrigação após ciclo matinal', '07:15', '*', 'comando_jarvis', 'Desligue a irrigacao', 'local', TRUE),
-('Aviso Despertador Satélite', 'Saudação do JARVIS e aviso de status no nó do quarto', '07:00', '1,2,3,4,5', 'aviso_fala', 'Bom dia senhor. O sistema JARVIS está online e todos os nós estão operacionais.', '192.168.2.6', TRUE),
-('Apagar Luzes Noturnas', 'Garante o desligamento de lâmpadas após meia-noite', '23:45', '*', 'comando_jarvis', 'Desligue a luz da sala', 'local', TRUE)
+('Irrigacao Matinal', 'Ativacao diaria da bomba de irrigacao do jardim', '06:30', '*', 'comando_jarvis', 'Ligue a irrigacao', 'local', TRUE),
+('Desligar Irrigacao', 'Desliga a bomba de irrigacao apos ciclo matinal', '07:15', '*', 'comando_jarvis', 'Desligue a irrigacao', 'local', TRUE),
+('Aviso Despertador Satelite', 'Saudacao do JARVIS e aviso de status no no do quarto', '07:00', '1,2,3,4,5', 'aviso_fala', 'Bom dia senhor. O sistema JARVIS esta online e todos os nos estao operacionais.', '192.168.2.6', TRUE),
+('Apagar Luzes Noturnas', 'Garante o desligamento de lampadas apos meia-noite', '23:45', '*', 'comando_jarvis', 'Desligue a luz da sala', 'local', TRUE)
 ON CONFLICT DO NOTHING;
 
--- Configuração de token de segurança da API
+-- Configuracao de token de seguranca da API
 INSERT INTO configuracoes_sistema (chave, valor)
 VALUES ('system_api_token', 'jarvis_secret_token_2026')
 ON CONFLICT (chave) DO NOTHING;

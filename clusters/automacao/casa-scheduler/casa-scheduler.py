@@ -35,6 +35,41 @@ def exec_sql(sql, params=()):
             cur.execute(sql, params)
 
 
+def garantir_schema():
+    """Auto-migracao (self-healing): assegura que as colunas necessarias existam no PostgreSQL."""
+    colunas = [
+        ("modo_agendamento", "VARCHAR(20) DEFAULT 'RECORRENTE'"),
+        ("executar_em", "TIMESTAMP"),
+        ("executar_uma_vez", "BOOLEAN DEFAULT FALSE"),
+        ("id_plano", "BIGINT"),
+        ("id_tarefa_plano", "BIGINT"),
+        ("cron_expr", "VARCHAR(100)"),
+    ]
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                for col_nome, col_tipo in colunas:
+                    try:
+                        cur.execute(f"ALTER TABLE tarefas_agendadas ADD COLUMN IF NOT EXISTS {col_nome} {col_tipo};")
+                    except Exception as col_err:
+                        # Ignora se ja existir ou se nao tiver permissao DDL
+                        pass
+            conn.commit()
+        print("[Scheduler] Verificacao de schema PostgreSQL concluida com sucesso.")
+    except Exception as exc:
+        print(f"[Scheduler Aviso Schema] Nao foi possivel auto-migrar o schema: {exc}")
+
+
+def obter_colunas_tarefas():
+    """Retorna o conjunto de colunas disponiveis na tabela tarefas_agendadas."""
+    try:
+        rows = query("""SELECT column_name FROM information_schema.columns 
+                        WHERE table_name = 'tarefas_agendadas'""")
+        return {r[0].lower() for r in rows}
+    except Exception:
+        return set()
+
+
 def post_json(url, payload, timeout=35):
     req = urllib.request.Request(
         url,
@@ -179,14 +214,23 @@ def verificar_agendamentos():
     dow = str((now.weekday() + 1) % 7)
     dow_iso = str(now.isoweekday())
 
-    rows = query("""SELECT ta.id, ta.titulo, ta.horario, ta.dias_semana, ta.tipo_acao,
-                           ta.payload, ta.target_node, ta.ultima_execucao,
-                           COALESCE(ta.modo_agendamento,'RECORRENTE'), ta.executar_em,
-                           COALESCE(ta.executar_uma_vez,FALSE), ta.id_tarefa_plano,
-                           jt.depende_de, ta.cron_expr
-                    FROM tarefas_agendadas ta
-                    LEFT JOIN jarvis_tarefas jt ON jt.id=ta.id_tarefa_plano
-                    WHERE ta.ativo=TRUE""")
+    cols = obter_colunas_tarefas()
+    cron_field = "ta.cron_expr" if "cron_expr" in cols else "NULL::text AS cron_expr"
+    modo_field = "COALESCE(ta.modo_agendamento,'RECORRENTE')" if "modo_agendamento" in cols else "'RECORRENTE'::text"
+    exec_em_field = "ta.executar_em" if "executar_em" in cols else "NULL::timestamp AS executar_em"
+    uma_vez_field = "COALESCE(ta.executar_uma_vez,FALSE)" if "executar_uma_vez" in cols else "FALSE AS executar_uma_vez"
+    id_tarefa_field = "ta.id_tarefa_plano" if "id_tarefa_plano" in cols else "NULL::bigint AS id_tarefa_plano"
+
+    sql = f"""SELECT ta.id, ta.titulo, ta.horario, ta.dias_semana, ta.tipo_acao,
+                     ta.payload, ta.target_node, ta.ultima_execucao,
+                     {modo_field}, {exec_em_field},
+                     {uma_vez_field}, {id_tarefa_field},
+                     jt.depende_de, {cron_field}
+              FROM tarefas_agendadas ta
+              LEFT JOIN jarvis_tarefas jt ON jt.id=ta.id_tarefa_plano
+              WHERE ta.ativo=TRUE"""
+
+    rows = query(sql)
 
     for r in rows:
         (tid, titulo, horario, dias, tipo, payload, target, ultima,
@@ -239,6 +283,7 @@ def atualizar_planos_concluidos():
 
 def main():
     print("=== JARVIS SCHEDULER 2.0 ===")
+    garantir_schema()
     while True:
         try:
             verificar_agendamentos()
