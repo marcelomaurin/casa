@@ -709,6 +709,80 @@ async function renderOperationalTelemetry(page=1){
   document.getElementById('tel-next').onclick=()=>renderOperationalTelemetry(Math.min(pages,page+1));
 }
 
+function openNodeEditor(node){
+  document.getElementById('ja-node-edit-modal')?.remove();
+  const modal=document.createElement('div');
+  modal.id='ja-node-edit-modal';
+  modal.className='ja-schedule-backdrop';
+  modal.innerHTML=
+    '<section class="ja-schedule-modal" style="width:min(580px,96vw);" role="dialog" aria-modal="true">'+
+      '<header><strong>EDITAR NÓ DO CLUSTER</strong><button type="button" data-close>FECHAR</button></header>'+
+      '<div class="ja-schedule-form">'+
+        '<label class="wide"><span>Identificador (Device ID)</span><input id="node-edit-devid" value="'+attr(node.device_id||'')+'" readonly style="opacity:0.7;cursor:not-allowed;background:#181818;"></label>'+
+        '<label class="wide"><span>Nome de Exibição</span><input id="node-edit-nome" value="'+attr(node.nome||'')+'" placeholder="Ex.: Raspberry Pi 4B (Hub Principal)"></label>'+
+        '<label><span>Endereço IP</span><input id="node-edit-ip" value="'+attr(node.ip_address||'')+'" placeholder="Ex.: 192.168.2.14"></label>'+
+        '<label><span>Hostname</span><input id="node-edit-hostname" value="'+attr(node.hostname||'')+'" placeholder="Ex.: cubieboard"></label>'+
+        '<label class="wide"><span>Função / Papel</span><input id="node-edit-papel" value="'+attr(node.papel||'')+'" placeholder="Ex.: Gateway Automacao / Serial"></label>'+
+        '<div id="node-edit-msg" class="ja-schedule-message"></div>'+
+      '</div>'+
+      '<footer><button type="button" data-save style="background:var(--ja-cyan, #38bdf8);color:#000;">SALVAR ALTERAÇÕES</button></footer>'+
+    '</section>';
+  document.body.appendChild(modal);
+
+  const close=()=>modal.remove();
+  modal.querySelector('[data-close]').onclick=close;
+  modal.addEventListener('click',e=>{if(e.target===modal)close();});
+
+  const btnSave=modal.querySelector('[data-save]');
+  const msgBox=modal.querySelector('#node-edit-msg');
+
+  btnSave.onclick=async()=>{
+    const nome=modal.querySelector('#node-edit-nome').value.trim();
+    const ip=modal.querySelector('#node-edit-ip').value.trim();
+    const hostname=modal.querySelector('#node-edit-hostname').value.trim();
+    const papel=modal.querySelector('#node-edit-papel').value.trim();
+
+    if(!nome){
+      msgBox.className='ja-schedule-message error';
+      msgBox.textContent='O nome do nó não pode estar vazio.';
+      return;
+    }
+
+    btnSave.disabled=true;
+    btnSave.textContent='SALVANDO...';
+    msgBox.className='ja-schedule-message';
+    msgBox.textContent='';
+
+    try{
+      const payload={
+        device_id: node.device_id||'',
+        id: node.id||'',
+        nome: nome,
+        ip_address: ip,
+        hostname: hostname,
+        papel: papel
+      };
+      const res=await postJson('/casa/api/arm_nodes.php', payload);
+      if(res && res.status==='ok'){
+        msgBox.className='ja-schedule-message ok';
+        msgBox.style.color='#4ade80';
+        msgBox.textContent='Alterações salvas com sucesso!';
+        setTimeout(()=>{
+          close();
+          renderNodes();
+        }, 800);
+      }else{
+        throw new Error(res?.mensagem||'Erro ao salvar nó.');
+      }
+    }catch(err){
+      msgBox.className='ja-schedule-message error';
+      msgBox.textContent=err.message||'Falha ao salvar.';
+      btnSave.disabled=false;
+      btnSave.textContent='SALVAR ALTERAÇÕES';
+    }
+  };
+}
+
 async function renderNodes(){
   loading('Clusters e agentes Linux ARM');
   try{
@@ -716,8 +790,10 @@ async function renderNodes(){
     const all=j.nodes||[];
     const p=paginate('nodes',all,12);
     const states={online:'ONLINE',offline:'SEM CONTATO RECENTE',registered:'AGUARDANDO CONTATO',revoked:'REVOGADO'};
-    const summary='<p>'+esc(all.length)+' agente(s) registrado(s) · '+esc(all.filter(n=>n.online).length)+' online. Inclui registros atuais e legados. Online: contato nos últimos 120 segundos.</p>';
-    const body=all.length?cards(p.slice,n=>'<article class="ja-native-card"><h3>'+esc(n.nome)+'</h3><dl>'+
+    const summary='<p>'+esc(all.length)+' agente(s) registrado(s) • '+esc(all.filter(n=>n.online).length)+' online. Inclui registros atuais e legados. Online: contato nos últimos 120 segundos.</p>';
+    const body=all.length?cards(p.slice,(n,i)=>'<article class="ja-native-card" style="position:relative;">'+
+      '<button type="button" class="ja-node-edit-btn" data-node-idx="'+attr(String(i))+'" style="position:absolute;top:10px;right:10px;background:#38bdf8;color:#000;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;z-index:2;display:flex;align-items:center;gap:3px;box-shadow:0 2px 4px rgba(0,0,0,0.5);" title="Editar informações chaves do nó">✎ EDITAR</button>'+
+      '<h3>'+esc(n.nome)+'</h3><dl>'+
       '<dt>Identificador</dt><dd>'+esc(n.device_id||'Legado sem identificador')+'</dd>'+
       '<dt>Hostname</dt><dd>'+esc(n.hostname||'—')+'</dd>'+
       '<dt>Programa / função</dt><dd>'+esc(n.papel||'—')+'</dd>'+
@@ -727,11 +803,18 @@ async function renderNodes(){
       '<dt>CPU</dt><dd>'+esc(n.cpu||'Não informada')+'</dd>'+
       '<dt>RAM</dt><dd>'+esc(n.ram||'Não informada')+'</dd>'+
       '<dt>Capacidades</dt><dd>'+esc((n.capabilities||[]).join(', ')||'Não informadas')+'</dd>'+
-      '<dt>Último contato (servidor)</dt><dd>'+esc(n.last_seen||'Ainda não recebido')+'</dd>'+'<dt>Acesso SSH</dt><dd><code style="background:#02070c;border:1px solid #24516b;padding:2px 7px;border-radius:4px;color:#00e5ff;font-family:monospace;font-size:0.85rem;user-select:all;">ssh mmm@'+esc(n.ip_address||'—')+'</code></dd>'+'<dt>Site do Cluster</dt><dd>'+(n.ip_address?'<a href="http://'+esc(n.ip_address)+':8080/" target="_blank" style="display:inline-block;padding:3px 10px;background:#38bdf8;color:#000;border-radius:4px;text-decoration:none;font-weight:bold;font-size:0.8rem;">🌐 ABRIR PORTAL (:8080)</a>':'—')+'</dd>'+'</dl><span class="ja-state '+(n.online?'ok':'')+'">'+esc(states[n.status]||n.status)+'</span></article>')+pager('nodes',p):
+      '<dt>Último contato (servidor)</dt><dd>'+esc(n.last_seen||'Ainda não recebido')+'</dd>'+'<dt>Acesso SSH</dt><dd><code style="background:#02070c;border:1px solid #24516b;padding:2px 7px;border-radius:4px;color:#00e5ff;font-family:monospace;font-size:0.85rem;user-select:all;">ssh mmm@'+esc(n.ip_address||'—')+'</code></dd>'+'<dt>Site do Cluster</dt><dd>'+(n.ip_address?'<a href="http://'+esc(n.ip_address)+':8080/" target="_blank" style="display:inline-block;padding:3px 10px;background:#38bdf8;color:#000;border-radius:4px;text-decoration:none;font-weight:bold;font-size:0.8rem;">🚀 ABRIR PORTAL (:8080)</a>':'—')+'</dd>'+'</dl><span class="ja-state '+(n.online?'ok':'')+'">'+esc(states[n.status]||n.status)+'</span></article>')+pager('nodes',p):
       '<div class="ja-empty">Nenhum agente Linux ARM registrado. Os agentes conectados pela API de dispositivos aparecem aqui ao informar a plataforma linux-arm ou a capacidade arm-agent.</div>';
     moduleShell('Clusters e agentes Linux ARM',summary+body,'<button id="nodes-refresh" class="ja-mini">Atualizar lista</button>');
     bindPager('nodes',p,renderNodes);
     document.getElementById('nodes-refresh').onclick=renderNodes;
+    document.querySelectorAll('.ja-node-edit-btn').forEach(btn=>{
+      btn.onclick=(e)=>{
+        e.stopPropagation();
+        const idx=parseInt(btn.getAttribute('data-node-idx'),10);
+        if(p.slice[idx]) openNodeEditor(p.slice[idx]);
+      };
+    });
   }catch(e){
     moduleShell('Clusters e agentes Linux ARM','<div class="ja-empty">'+esc(e.message||'Falha ao carregar agentes.')+'</div>','<button id="nodes-retry" class="ja-mini">Tentar novamente</button>');
     document.getElementById('nodes-retry').onclick=renderNodes;
