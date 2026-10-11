@@ -903,6 +903,7 @@ async function renderNodes(){
     const summary='<p>'+esc(all.length)+' agente(s) registrado(s) • '+esc(all.filter(n=>n.online).length)+' online. Online: contato nos últimos 40 segundos (heartbeat a cada 20s). Se em 40s não responder, o cluster caiu.</p>';
     const body=all.length?cards(p.slice,(n,i)=>'<article class="ja-native-card" style="position:relative;">'+
       '<div style="position:absolute;top:10px;right:10px;display:flex;gap:5px;z-index:2;">'+
+        (n.online && (n.up_to_date === false) ? '<button type="button" class="ja-node-update-btn" data-node-idx="'+attr(String(i))+'" style="background:#eab308;color:#000;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(234,179,8,0.5);" title="Atualizar versão do nó diretamente do Git">⚡ ATUALIZAR (GIT)</button>' : '')+
         '<button type="button" class="ja-node-edit-btn" data-node-idx="'+attr(String(i))+'" style="background:#38bdf8;color:#000;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.5);" title="Editar informações do nó">EDITAR</button>'+
         '<button type="button" class="ja-node-del-btn" data-node-idx="'+attr(String(i))+'" style="background:#ef4444;color:#fff;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.5);" title="Excluir nó do cluster">EXCLUIR</button>'+
       '</div>'+
@@ -912,7 +913,21 @@ async function renderNodes(){
       '<dt>Programa / função</dt><dd>'+esc(n.papel||'—')+'</dd>'+
       '<dt>Plataforma</dt><dd>'+esc(n.platform||'—')+'</dd>'+
       '<dt>IP</dt><dd>'+esc(n.ip_address||'—')+'</dd>'+
-      '<dt>Versão implantada</dt><dd>'+(n.version?'<strong style="color:#00e5ff;font-family:monospace;font-size:0.95rem;">'+esc(n.version)+'</strong>':'<span style="opacity:0.6;">Não informada</span>')+(n.deployed_at?'<small style="display:block;opacity:0.8;font-size:0.75rem;margin-top:2px;">Atualizado: '+esc(n.deployed_at)+'</small>':'')+'</dd>'+
+      '<dt>Versão Git do Cluster</dt><dd>'+
+        (n.version?'<strong style="color:#00e5ff;font-family:monospace;font-size:0.95rem;">'+esc(n.version)+'</strong>':'<span style="opacity:0.6;">Não informada</span>')+
+        (n.online ? (
+          n.up_to_date === true ?
+            '<div style="margin-top:4px;"><span style="display:inline-block;background:rgba(34,197,94,0.15);border:1px solid #22c55e;color:#22c55e;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:bold;">✓ CLUSTER ATUALIZADO</span></div>' :
+            (n.up_to_date === false ?
+              '<div style="margin-top:5px;padding:6px 8px;background:rgba(234,179,8,0.15);border:1px solid #eab308;border-radius:4px;">'+
+                '<strong style="color:#eab308;font-size:0.75rem;display:block;">⚠ ATUALIZAÇÃO DISPONÍVEL NO GIT</strong>'+
+                '<small style="display:block;color:#cbd5e1;font-size:0.72rem;margin-top:2px;">Remoto: <code style="color:#fde047;">#'+esc(n.remote_commit ? n.remote_commit.substring(0,7) : 'master')+'</code> ('+esc(n.branch||'master')+')</small>'+
+                '<button type="button" class="ja-node-update-btn" data-node-idx="'+attr(String(i))+'" style="margin-top:6px;background:#eab308;color:#000;border:none;border-radius:4px;padding:4px 10px;font-size:0.75rem;font-weight:900;cursor:pointer;display:inline-block;" title="Atualizar nó diretamente do Git">⚡ ATUALIZAR AGORA (GIT)</button>'+
+              '</div>' :
+              '<small style="display:block;opacity:0.6;font-size:0.72rem;margin-top:2px;">Verificação em andamento...</small>')
+        ) : '<div style="margin-top:4px;"><span style="color:#94a3b8;font-size:0.75rem;font-style:italic;">Status indisponível (nó offline)</span></div>')+
+        (n.deployed_at?'<small style="display:block;opacity:0.8;font-size:0.75rem;margin-top:2px;">Atualizado: '+esc(n.deployed_at)+'</small>':'')+
+      '</dd>'+
       '<dt>CPU</dt><dd>'+esc(n.cpu||'Não informada')+'</dd>'+
       '<dt>RAM</dt><dd>'+esc(n.ram||'Não informada')+'</dd>'+
       '<dt>Capacidades</dt><dd>'+esc((n.capabilities||[]).join(', ')||'Não informadas')+'</dd>'+
@@ -930,6 +945,42 @@ async function renderNodes(){
         e.stopPropagation();
         const idx=parseInt(btn.getAttribute('data-node-idx'),10);
         if(p.slice[idx]) openNodeEditor(p.slice[idx]);
+      };
+    });
+    document.querySelectorAll('.ja-node-update-btn').forEach(btn=>{
+      btn.onclick=async(e)=>{
+        e.stopPropagation();
+        const idx=parseInt(btn.getAttribute('data-node-idx'),10);
+        const n=p.slice[idx];
+        if(!n) return;
+        if(!n.online){
+          alert('Este nó está offline. A atualização só pode ser realizada com o equipamento online.');
+          return;
+        }
+        const confirmMsg = 'Deseja atualizar o nó "' + (n.nome||n.device_id) + '" para a versão mais recente do Git?\n\n' +
+          '• Repositório: GitHub (branch ' + (n.branch||'master') + ')\n' +
+          '• Commit remoto: ' + (n.remote_commit ? n.remote_commit.substring(0,7) : 'HEAD') + '\n' +
+          '• A atualização executará o casa-cluster-update diretamente no nó e reiniciará os serviços.\n\n' +
+          'Confirmar atualização agora?';
+        if(!confirm(confirmMsg)) return;
+
+        btn.disabled=true;
+        const oldText = btn.textContent;
+        btn.textContent='ATUALIZANDO (GIT)...';
+        try{
+          const res = await postJson('/casa/api/arm_nodes.php', {
+            acao: 'atualizar',
+            device_id: n.device_id||'',
+            id: n.id||'',
+            ip_address: n.ip_address||''
+          });
+          alert('✓ ' + (res.mensagem || 'Nó atualizado com sucesso!') + '\n\n' + (res.metodo ? 'Método: ' + res.metodo + '\n' : '') + (res.detalhes ? '\n' + res.detalhes.substring(0, 500) : ''));
+          renderNodes();
+        }catch(err){
+          alert('❌ Falha na atualização: ' + (err.message||String(err)));
+          btn.disabled=false;
+          btn.textContent=oldText;
+        }
       };
     });
     document.querySelectorAll('.ja-node-del-btn').forEach(btn=>{

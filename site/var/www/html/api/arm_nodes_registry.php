@@ -59,7 +59,17 @@ function arm_node_normalize(array $row, bool $legacy, int $now): array {
     $online = !$revoked && $age !== null && $age <= 40 && !in_array($status, ['offline', 'error', 'erro'], true);
     $version = (string)($meta['version'] ?? $meta['commit'] ?? $row['firmware_version'] ?? '');
     $commit = (string)($meta['commit'] ?? $meta['git_commit'] ?? '');
+    $remoteCommit = (string)($meta['remote_commit'] ?? '');
+    $branch = (string)($meta['branch'] ?? 'master');
+    $lastCheck = (string)($meta['last_check'] ?? '');
     $deployedAt = (string)($meta['deployed_at'] ?? $meta['last_update'] ?? '');
+
+    $upToDate = null;
+    if (isset($meta['up_to_date'])) {
+        $upToDate = (bool)$meta['up_to_date'];
+    } elseif ($commit !== '' && $remoteCommit !== '') {
+        $upToDate = (substr($commit, 0, 7) === substr($remoteCommit, 0, 7));
+    }
     if ($commit !== '' && !str_contains($version, substr($commit, 0, 7))) {
         $version = ($version !== '' && $version !== '1.1.0' ? $version . ' · ' : '') . '#' . substr($commit, 0, 7);
     }
@@ -76,6 +86,10 @@ function arm_node_normalize(array $row, bool $legacy, int $now): array {
         'platform' => (string)($meta['platform'] ?? 'Linux ARM'),
         'version' => $version,
         'commit' => $commit,
+        'remote_commit' => $remoteCommit,
+        'up_to_date' => $upToDate,
+        'branch' => $branch,
+        'last_check' => $lastCheck,
         'deployed_at' => $deployedAt,
         'cpu' => arm_node_metric($meta['cpu'] ?? $row['cpu_info'] ?? null, 'cpu'),
         'ram' => arm_node_metric($meta['ram'] ?? $row['ram_info'] ?? null, 'ram'),

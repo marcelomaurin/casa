@@ -142,6 +142,9 @@ def api_request(action, method="GET", payload=None, params=None, timeout=10):
         return json.loads(raw) if raw else {}
 
 
+_last_git_check_ts = 0
+
+
 def get_deployed_version():
     """Commit instalado pelo casa-cluster-update (fonte oficial); depois, clone Git local."""
     try:
@@ -165,12 +168,82 @@ def get_deployed_version():
     except Exception:
         pass
 
-    # Sem atualizador nem clone: versão desconhecida (nunca inventar um commit).
     return AGENT_VERSION, None, None
+
+
+def get_update_info(refresh=False):
+    """Obtem situacao do cluster perante o Git remoto e commit atual instalado."""
+    global _last_git_check_ts
+    now = time.time()
+
+    # Se solicitado ou a cada 10 min (600s), roda --check se o binario existir
+    if refresh or (_last_git_check_ts == 0) or (now - _last_git_check_ts > 600):
+        update_bin = "/usr/local/bin/casa-cluster-update"
+        if os.path.isfile(update_bin):
+            try:
+                p = subprocess.Popen([update_bin, "--check"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+                p.communicate(timeout=15)
+                _last_git_check_ts = now
+            except Exception as e:
+                print("[Check Update Aviso]: {0}".format(e))
+
+    state_file = "/var/lib/casa-cluster-update/state.json"
+    state = {}
+    try:
+        if os.path.isfile(state_file):
+            with open(state_file, "r", encoding="utf-8") as f:
+                state = json.load(f)
+    except Exception:
+        pass
+
+    installed = state.get("commit") or (state.get("last_update") or {}).get("commit_after")
+    remote = state.get("remote_commit")
+    branch = state.get("branch") or "master"
+    last_check = state.get("last_check")
+
+    if not installed:
+        _, commit_hash, _ = get_deployed_version()
+        installed = commit_hash
+
+    up_to_date = bool(installed and remote and (installed == remote or installed[:7] == remote[:7]))
+    status_str = "up-to-date" if up_to_date else ("available" if remote else "unknown")
+
+    return {
+        "status": status_str,
+        "up_to_date": up_to_date,
+        "installed": installed,
+        "remote": remote,
+        "branch": branch,
+        "last_check": last_check,
+    }
+
+
+def run_cluster_update():
+    """Executa atualizacao direta do Git no no local via casa-cluster-update --force."""
+    update_bin = "/usr/local/bin/casa-cluster-update"
+    if not os.path.isfile(update_bin):
+        raise RuntimeError("Binario de atualizacao nao encontrado: " + update_bin)
+
+    p = subprocess.Popen([update_bin, "--force"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+    out, err = p.communicate(timeout=180)
+
+    try:
+        get_update_info(refresh=True)
+        send_heartbeat()
+    except Exception as e:
+        print("[Pos-Atualizacao Aviso]: {0}".format(e))
+
+    return {
+        "returncode": p.returncode,
+        "ok": (p.returncode == 0),
+        "stdout": out,
+        "stderr": err,
+    }
 
 
 def send_heartbeat():
     version_str, commit_hash, deployed_at = get_deployed_version()
+    up_info = get_update_info(refresh=False)
     payload = {
         "device_id": DEVICE_ID,
         "transport": "https",
@@ -185,6 +258,10 @@ def send_heartbeat():
             "hostname": socket.gethostname(),
             "version": version_str,
             "commit": commit_hash,
+            "remote_commit": up_info.get("remote"),
+            "up_to_date": up_info.get("up_to_date"),
+            "branch": up_info.get("branch", "master"),
+            "last_check": up_info.get("last_check"),
             "deployed_at": deployed_at,
             "cpu": get_cpu_info(),
             "ram": get_ram_info(),
@@ -309,6 +386,12 @@ def execute_adapter(command, payload):
         )
         return result
 
+    if command in ("cluster.update", "system.update", "atualizar"):
+        return run_cluster_update()
+
+    if command in ("cluster.check_update", "check_update"):
+        return get_update_info(refresh=True)
+
     if command in ("device.discovery", "gateway.discovery"):
         return {
             "device_id": DEVICE_ID,
@@ -403,6 +486,7 @@ class AgentHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path in ("/status", "/", "/health"):
+            up_info = get_update_info(refresh=False)
             self._json(200, {
                 "status": "online",
                 "device_id": DEVICE_ID,
@@ -410,10 +494,24 @@ class AgentHandler(BaseHTTPRequestHandler):
                 "agent_version": AGENT_VERSION,
                 "hostname": socket.gethostname(),
                 "ip": get_ip(),
+                "commit": up_info.get("installed"),
+                "remote_commit": up_info.get("remote"),
+                "up_to_date": up_info.get("up_to_date"),
+                "branch": up_info.get("branch", "master"),
+                "last_check": up_info.get("last_check"),
                 "cpu": get_cpu_info(),
                 "ram": get_ram_info(),
                 "casa": CASA_BASE_URL,
                 "capabilities": CAPABILITIES,
+            })
+            return
+
+        if self.path in ("/check-update", "/update-check"):
+            up_info = get_update_info(refresh=True)
+            self._json(200, {
+                "status": "ok",
+                "device_id": DEVICE_ID,
+                "update": up_info
             })
             return
 
@@ -470,6 +568,22 @@ class AgentHandler(BaseHTTPRequestHandler):
                 })
             return
 
+        if self.path in ("/update", "/atualizar"):
+            try:
+                res = run_cluster_update()
+                self._json(200 if res.get("ok") else 500, {
+                    "status": "ok" if res.get("ok") else "error",
+                    "device_id": DEVICE_ID,
+                    "resultado": res
+                })
+            except Exception as exc:
+                self._json(500, {
+                    "status": "erro",
+                    "device_id": DEVICE_ID,
+                    "erro": str(exc)
+                })
+            return
+
         self._json(404, {"erro": "Endpoint desconhecido"})
 
 
@@ -490,6 +604,7 @@ def main():
     threading.Thread(target=heartbeat_worker, daemon=True).start()
     threading.Thread(target=command_worker, daemon=True).start()
 
+    HTTPServer.allow_reuse_address = True
     server = HTTPServer(("0.0.0.0", AGENT_PORT), AgentHandler)
     try:
         server.serve_forever()

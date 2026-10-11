@@ -54,6 +54,119 @@ if ($method === 'POST' || $method === 'DELETE') {
     }
 
     // ==========================================
+    // 0. ATUALIZACAO DO NO VIA GIT (SOCKET/HTTP OU SSH)
+    // ==========================================
+    if ($acao === 'atualizar' || $acao === 'update') {
+        if ($deviceId === '' && $rawNumId === null && $ip === '') {
+            http_response_code(422);
+            echo json_encode(['status'=>'erro', 'mensagem'=>'Identificador ou IP do no e obrigatorio para atualizacao.'], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        // Obtem informacoes atuais do no no banco
+        $node = null;
+        if ($deviceId !== '') {
+            $st = $pdo->prepare("SELECT * FROM dispositivos_cluster WHERE device_id = :d LIMIT 1");
+            $st->execute([':d' => $deviceId]);
+            $node = $st->fetch(PDO::FETCH_ASSOC);
+        }
+        if (!$node && $rawNumId !== null) {
+            $st = $pdo->prepare("SELECT * FROM dispositivos_cluster WHERE id = :id LIMIT 1");
+            $st->execute([':id' => $rawNumId]);
+            $node = $st->fetch(PDO::FETCH_ASSOC);
+        }
+
+        $targetIp = $ip ?: ($node['local_ip'] ?? $node['ip_address'] ?? '');
+        if (!$targetIp && !empty($node['device_id'])) {
+            $stArm = $pdo->prepare("SELECT ip_address FROM arm_nodes WHERE device_id = :d LIMIT 1");
+            $stArm->execute([':d' => $node['device_id']]);
+            $targetIp = (string)$stArm->fetchColumn();
+        }
+
+        // Verifica status online do equipamento
+        $now = (int)$pdo->query('SELECT UNIX_TIMESTAMP()')->fetchColumn();
+        $lastHb = !empty($node['ultimo_heartbeat']) ? strtotime($node['ultimo_heartbeat']) : null;
+        $isOnline = ($lastHb !== null && ($now - $lastHb) <= 40);
+
+        if (!$isOnline && $targetIp !== '127.0.0.1' && $targetIp !== 'localhost') {
+            http_response_code(400);
+            echo json_encode([
+                'status' => 'erro',
+                'mensagem' => 'O equipamento esta offline. A atualizacao so pode ser executada quando o no estiver conectado.'
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        $updateOutput = '';
+        $updateSuccess = false;
+        $metodoUsado = '';
+
+        // Metodo 1: Comunicacao direta via HTTP/socket no agente do no (porta 8098)
+        if ($targetIp !== '') {
+            $agentUrl = "http://{$targetIp}:8098/update";
+            $ctx = stream_context_create([
+                'http' => [
+                    'method' => 'POST',
+                    'header' => "Content-Type: application/json\r\nConnection: close\r\n",
+                    'content' => json_encode(['origem' => 'painel-lcars', 'forcar' => true]),
+                    'timeout' => 60,
+                    'ignore_errors' => true,
+                ]
+            ]);
+            $agentResp = @file_get_contents($agentUrl, false, $ctx);
+            if ($agentResp !== false) {
+                $decoded = json_decode($agentResp, true);
+                if (is_array($decoded) && ($decoded['status'] ?? '') === 'ok') {
+                    $updateSuccess = true;
+                    $metodoUsado = 'Agente HTTP/Socket (:8098)';
+                    $updateOutput = $decoded['resultado']['stdout'] ?? json_encode($decoded, JSON_UNESCAPED_UNICODE);
+                }
+            }
+        }
+
+        // Metodo 2: Execucao via SSH direto no servidor
+        if (!$updateSuccess && $targetIp !== '') {
+            $sshPass = '226468';
+            $sshUser = 'mmm';
+            if ($targetIp === '127.0.0.1' || $targetIp === 'localhost' || $targetIp === '192.168.2.13') {
+                $cmd = "echo {$sshPass} | sudo -S /usr/local/bin/casa-cluster-update --force 2>&1";
+            } else {
+                $cmd = "sshpass -p '{$sshPass}' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -p 22 {$sshUser}@{$targetIp} 'echo {$sshPass} | sudo -S /usr/local/bin/casa-cluster-update --force' 2>&1";
+            }
+
+            $output = [];
+            $retval = 0;
+            @exec($cmd, $output, $retval);
+            $fullOut = implode("\n", $output);
+
+            if ($retval === 0 || stripos($fullOut, 'up-to-date') !== false || stripos($fullOut, 'updated') !== false || stripos($fullOut, 'unchanged') !== false) {
+                $updateSuccess = true;
+                $metodoUsado = 'SSH direto (casa-cluster-update --force)';
+                $updateOutput = $fullOut;
+            } else {
+                $updateOutput = "Falha no SSH: " . $fullOut;
+            }
+        }
+
+        if ($updateSuccess) {
+            echo json_encode([
+                'status' => 'ok',
+                'mensagem' => 'No atualizado com sucesso diretamente pelo Git!',
+                'metodo' => $metodoUsado,
+                'detalhes' => $updateOutput
+            ], JSON_UNESCAPED_UNICODE);
+        } else {
+            http_response_code(500);
+            echo json_encode([
+                'status' => 'erro',
+                'mensagem' => 'Falha ao executar a atualizacao no no. Verifique os logs e conectividade.',
+                'detalhes' => $updateOutput
+            ], JSON_UNESCAPED_UNICODE);
+        }
+        exit;
+    }
+
+    // ==========================================
     // 1. EXCLUSAO DE NO DO CLUSTER
     // ==========================================
     if ($acao === 'excluir' || $acao === 'remover' || $acao === 'delete') {

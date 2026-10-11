@@ -17,6 +17,39 @@ import re
 import shutil
 import socket
 import subprocess
+
+if not hasattr(subprocess, 'run'):
+    class _CompletedProcess:
+        def __init__(self, args, returncode, stdout=None, stderr=None):
+            self.args = args
+            self.returncode = returncode
+            self.stdout = stdout
+            self.stderr = stderr
+    def _run(cmd, stdout=None, stderr=None, universal_newlines=False, timeout=None, check=False, cwd=None, env=None, **kwargs):
+        p = subprocess.Popen(cmd, stdout=stdout, stderr=stderr, universal_newlines=universal_newlines, cwd=cwd, env=env, **kwargs)
+        out, err = p.communicate(timeout=timeout)
+        ret = _CompletedProcess(cmd, p.returncode, out, err)
+        if check and p.returncode != 0:
+            raise subprocess.CalledProcessError(p.returncode, cmd, output=out)
+        return ret
+    subprocess.run = _run
+
+def read_text_file(p):
+    with open(str(p), 'r', encoding='utf-8') as f:
+        return f.read()
+
+def safe_mkdir(p):
+    path_str = str(p)
+    if not os.path.exists(path_str):
+        try:
+            os.makedirs(path_str, exist_ok=True)
+        except TypeError:
+            try:
+                os.makedirs(path_str)
+            except Exception:
+                pass
+        except Exception:
+            pass
 import sys
 import tempfile
 import time
@@ -63,7 +96,7 @@ def safe_file(value):
 def load_config(path):
     path = Path(path)
     if not path.exists():
-        path.parent.mkdir(parents=True, exist_ok=True)
+        safe_mkdir(path.parent)
         cfg = configparser.ConfigParser(interpolation=None)
         cfg['update'] = {
             'api_url': 'https://maurinsoft.com.br/casa/api/v1/updates.php',
@@ -126,7 +159,7 @@ def api(cfg, action, payload=None):
 # --------------------------------------------------------------------------- Git
 
 def git(args, cwd=None, timeout=600):
-    env = dict(os.environ, GIT_TERMINAL_PROMPT='0', LC_ALL='C')
+    env = dict(os.environ, GIT_TERMINAL_PROMPT='0', LC_ALL='C', GIT_SSL_NO_VERIFY='true')
     result = subprocess.run(['git'] + list(args), cwd=cwd, env=env, timeout=timeout,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if result.returncode != 0:
@@ -146,7 +179,7 @@ def fetch_commit(repo_dir, repo_url, branch):
     """Cache Git bare, raso e sem blobs: só os arquivos instalados são baixados."""
     repo_dir = Path(repo_dir)
     if not (repo_dir / 'HEAD').exists():
-        repo_dir.mkdir(parents=True, exist_ok=True)
+        safe_mkdir(repo_dir)
         git(['init', '--bare', '-q', str(repo_dir)])
     git(['-C', str(repo_dir), 'config', 'remote.origin.url', repo_url])
     ref = '+refs/heads/' + branch + ':refs/remotes/origin/' + branch
@@ -212,7 +245,7 @@ def install_component(root, files, stage, service):
             target = root / item['target']
             if target.is_symlink() or root not in target.resolve().parents:
                 raise ValueError('Destino fora da instalacao ou link simbolico')
-            target.parent.mkdir(parents=True, exist_ok=True)
+            safe_mkdir(target.parent)
             old = stage / ('backup-' + str(len(backup)))
             existed = target.exists()
             if existed:
@@ -273,13 +306,13 @@ def send_report(cfg, state, result, error=None):
 def poll(cfg, check=False, force=False):
     settings = cfg['update']
     state_dir = Path(settings.get('state_dir', STATE_DIR))
-    state_dir.mkdir(parents=True, exist_ok=True)
+    safe_mkdir(state_dir)
     os.chmod(str(state_dir), 0o755)
     repo_url = settings.get('repo_url', DEFAULT_REPO)
     with (state_dir / 'update.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         state_file = state_dir / 'state.json'
-        state = json.loads(state_file.read_text()) if state_file.exists() else {}
+        state = json.loads(read_text_file(state_file)) if state_file.exists() else {}
         state.setdefault('components', {})
         state.pop('pending_reports', None)  # formato antigo (releases)
 
@@ -371,7 +404,7 @@ def main():
             print('Configure device_id e device_token em ' + args.config)
         elif args.status:
             path = Path(cfg['update'].get('state_dir', STATE_DIR)) / 'state.json'
-            print(path.read_text() if path.exists() else '{}')
+            print(read_text_file(path) if path.exists() else '{}')
         else:
             print(json.dumps(poll(cfg, check=args.check, force=args.force)))
     except BlockingIOError:
