@@ -709,6 +709,81 @@ async function renderOperationalTelemetry(page=1){
   document.getElementById('tel-next').onclick=()=>renderOperationalTelemetry(Math.min(pages,page+1));
 }
 
+function openNewNodeModal(){
+  document.getElementById('ja-node-new-modal')?.remove();
+  const modal=document.createElement('div');
+  modal.id='ja-node-new-modal';
+  modal.className='ja-schedule-backdrop';
+  modal.innerHTML=
+    '<section class="ja-schedule-modal" style="width:min(580px,96vw);" role="dialog" aria-modal="true">'+
+      '<header><strong>CADASTRAR NOVO NÓ DO CLUSTER</strong><button type="button" data-close>FECHAR</button></header>'+
+      '<div class="ja-schedule-form">'+
+        '<label class="wide"><span>Identificador (Device ID)</span><input id="node-new-devid" placeholder="Ex.: cluster-rpi4-hub (gerado automaticamente se vazio)"></label>'+
+        '<label class="wide"><span>Nome de Exibição *</span><input id="node-new-nome" placeholder="Ex.: Raspberry Pi 4B (Hub Principal)"></label>'+
+        '<label><span>Endereço IP</span><input id="node-new-ip" placeholder="Ex.: 192.168.2.14"></label>'+
+        '<label><span>Hostname</span><input id="node-new-hostname" placeholder="Ex.: rpi4-hub"></label>'+
+        '<label class="wide"><span>Função / Papel</span><input id="node-new-papel" placeholder="Ex.: Gateway Automacao / Agente ARM"></label>'+
+        '<div id="node-new-msg" class="ja-schedule-message"></div>'+
+      '</div>'+
+      '<footer><button type="button" data-save style="background:var(--ja-cyan, #38bdf8);color:#000;">CADASTRAR NÓ</button></footer>'+
+    '</section>';
+  document.body.appendChild(modal);
+
+  const close=()=>modal.remove();
+  modal.querySelector('[data-close]').onclick=close;
+  modal.addEventListener('click',e=>{if(e.target===modal)close();});
+
+  const btnSave=modal.querySelector('[data-save]');
+  const msgBox=modal.querySelector('#node-new-msg');
+
+  btnSave.onclick=async()=>{
+    const devId=modal.querySelector('#node-new-devid').value.trim();
+    const nome=modal.querySelector('#node-new-nome').value.trim();
+    const ip=modal.querySelector('#node-new-ip').value.trim();
+    const hostname=modal.querySelector('#node-new-hostname').value.trim();
+    const papel=modal.querySelector('#node-new-papel').value.trim();
+
+    if(!nome){
+      msgBox.className='ja-schedule-message error';
+      msgBox.textContent='O nome do nó é obrigatório.';
+      return;
+    }
+
+    btnSave.disabled=true;
+    btnSave.textContent='CADASTRANDO...';
+    msgBox.className='ja-schedule-message';
+    msgBox.textContent='';
+
+    try{
+      const payload={
+        acao: 'criar',
+        device_id: devId,
+        nome: nome,
+        ip_address: ip,
+        hostname: hostname,
+        papel: papel
+      };
+      const res=await postJson('/casa/api/arm_nodes.php', payload);
+      if(res && res.status==='ok'){
+        msgBox.className='ja-schedule-message ok';
+        msgBox.style.color='#4ade80';
+        msgBox.textContent='Nó cadastrado com sucesso!';
+        setTimeout(()=>{
+          close();
+          renderNodes();
+        }, 800);
+      }else{
+        throw new Error(res?.mensagem||'Erro ao cadastrar nó.');
+      }
+    }catch(err){
+      msgBox.className='ja-schedule-message error';
+      msgBox.textContent=err.message||'Falha ao cadastrar nó.';
+      btnSave.disabled=false;
+      btnSave.textContent='CADASTRAR NÓ';
+    }
+  };
+}
+
 function openNodeEditor(node){
   document.getElementById('ja-node-edit-modal')?.remove();
   const modal=document.createElement('div');
@@ -725,7 +800,10 @@ function openNodeEditor(node){
         '<label class="wide"><span>Função / Papel</span><input id="node-edit-papel" value="'+attr(node.papel||'')+'" placeholder="Ex.: Gateway Automacao / Serial"></label>'+
         '<div id="node-edit-msg" class="ja-schedule-message"></div>'+
       '</div>'+
-      '<footer><button type="button" data-save style="background:var(--ja-cyan, #38bdf8);color:#000;">SALVAR ALTERAÇÕES</button></footer>'+
+      '<footer>'+
+        '<button type="button" data-del style="background:#ef4444;color:#fff;margin-right:auto;border:none;border-radius:4px;padding:6px 12px;font-size:0.8rem;font-weight:bold;cursor:pointer;">EXCLUIR NÓ</button>'+
+        '<button type="button" data-save style="background:var(--ja-cyan, #38bdf8);color:#000;">SALVAR ALTERAÇÕES</button>'+
+      '</footer>'+
     '</section>';
   document.body.appendChild(modal);
 
@@ -734,7 +812,39 @@ function openNodeEditor(node){
   modal.addEventListener('click',e=>{if(e.target===modal)close();});
 
   const btnSave=modal.querySelector('[data-save]');
+  const btnDel=modal.querySelector('[data-del]');
   const msgBox=modal.querySelector('#node-edit-msg');
+
+  if(btnDel){
+    btnDel.onclick=async()=>{
+      if(!confirm('Deseja realmente excluir o nó "'+(node.nome||node.device_id)+'" do cluster?\n\nEsta ação removerá o nó permanentemente do cluster e do banco de dados.')) return;
+      btnDel.disabled=true;
+      btnDel.textContent='EXCLUINDO...';
+      try{
+        const res=await postJson('/casa/api/arm_nodes.php', {
+          acao: 'excluir',
+          device_id: node.device_id||'',
+          id: node.id||''
+        });
+        if(res && res.status==='ok'){
+          msgBox.className='ja-schedule-message ok';
+          msgBox.style.color='#4ade80';
+          msgBox.textContent='Nó excluído com sucesso!';
+          setTimeout(()=>{
+            close();
+            renderNodes();
+          }, 600);
+        }else{
+          throw new Error(res?.mensagem||'Erro ao excluir nó.');
+        }
+      }catch(err){
+        msgBox.className='ja-schedule-message error';
+        msgBox.textContent=err.message||'Falha ao excluir nó.';
+        btnDel.disabled=false;
+        btnDel.textContent='EXCLUIR NÓ';
+      }
+    };
+  }
 
   btnSave.onclick=async()=>{
     const nome=modal.querySelector('#node-edit-nome').value.trim();
@@ -790,9 +900,12 @@ async function renderNodes(){
     const all=j.nodes||[];
     const p=paginate('nodes',all,12);
     const states={online:'ONLINE',offline:'SEM CONTATO RECENTE',registered:'AGUARDANDO CONTATO',revoked:'REVOGADO'};
-    const summary='<p>'+esc(all.length)+' agente(s) registrado(s) • '+esc(all.filter(n=>n.online).length)+' online. Inclui registros atuais e legados. Online: contato nos últimos 120 segundos.</p>';
+    const summary='<p>'+esc(all.length)+' agente(s) registrado(s) • '+esc(all.filter(n=>n.online).length)+' online. Online: contato nos últimos 40 segundos (heartbeat a cada 20s). Se em 40s não responder, o cluster caiu.</p>';
     const body=all.length?cards(p.slice,(n,i)=>'<article class="ja-native-card" style="position:relative;">'+
-      '<button type="button" class="ja-node-edit-btn" data-node-idx="'+attr(String(i))+'" style="position:absolute;top:10px;right:10px;background:#38bdf8;color:#000;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;z-index:2;display:flex;align-items:center;gap:3px;box-shadow:0 2px 4px rgba(0,0,0,0.5);" title="Editar informações chaves do nó">✎ EDITAR</button>'+
+      '<div style="position:absolute;top:10px;right:10px;display:flex;gap:5px;z-index:2;">'+
+        '<button type="button" class="ja-node-edit-btn" data-node-idx="'+attr(String(i))+'" style="background:#38bdf8;color:#000;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.5);" title="Editar informações do nó">EDITAR</button>'+
+        '<button type="button" class="ja-node-del-btn" data-node-idx="'+attr(String(i))+'" style="background:#ef4444;color:#fff;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.5);" title="Excluir nó do cluster">EXCLUIR</button>'+
+      '</div>'+
       '<h3>'+esc(n.nome)+'</h3><dl>'+
       '<dt>Identificador</dt><dd>'+esc(n.device_id||'Legado sem identificador')+'</dd>'+
       '<dt>Hostname</dt><dd>'+esc(n.hostname||'—')+'</dd>'+
@@ -803,10 +916,14 @@ async function renderNodes(){
       '<dt>CPU</dt><dd>'+esc(n.cpu||'Não informada')+'</dd>'+
       '<dt>RAM</dt><dd>'+esc(n.ram||'Não informada')+'</dd>'+
       '<dt>Capacidades</dt><dd>'+esc((n.capabilities||[]).join(', ')||'Não informadas')+'</dd>'+
-      '<dt>Último contato (servidor)</dt><dd>'+esc(n.last_seen||'Ainda não recebido')+'</dd>'+'<dt>Acesso SSH</dt><dd><code style="background:#02070c;border:1px solid #24516b;padding:2px 7px;border-radius:4px;color:#00e5ff;font-family:monospace;font-size:0.85rem;user-select:all;">ssh mmm@'+esc(n.ip_address||'—')+'</code></dd>'+'<dt>Site do Cluster</dt><dd>'+(n.ip_address?'<a href="http://'+esc(n.ip_address)+':8080/" target="_blank" style="display:inline-block;padding:3px 10px;background:#38bdf8;color:#000;border-radius:4px;text-decoration:none;font-weight:bold;font-size:0.8rem;">🚀 ABRIR PORTAL (:8080)</a>':'—')+'</dd>'+'</dl><span class="ja-state '+(n.online?'ok':'')+'">'+esc(states[n.status]||n.status)+'</span></article>')+pager('nodes',p):
-      '<div class="ja-empty">Nenhum agente Linux ARM registrado. Os agentes conectados pela API de dispositivos aparecem aqui ao informar a plataforma linux-arm ou a capacidade arm-agent.</div>';
-    moduleShell('Clusters e agentes Linux ARM',summary+body,'<button id="nodes-refresh" class="ja-mini">Atualizar lista</button>');
+      '<dt>Último contato (servidor)</dt><dd>'+esc(n.last_seen||'Ainda não recebido')+'</dd>'+
+      '<dt>Acesso SSH</dt><dd><code style="background:#02070c;border:1px solid #24516b;padding:2px 7px;border-radius:4px;color:#00e5ff;font-family:monospace;font-size:0.85rem;user-select:all;">ssh mmm@'+esc(n.ip_address||'—')+'</code></dd>'+
+      '<dt>Site do Cluster</dt><dd>'+(n.ip_address?'<a href="http://'+esc(n.ip_address)+':8080/" target="_blank" style="display:inline-block;padding:3px 10px;background:#38bdf8;color:#000;border-radius:4px;text-decoration:none;font-weight:bold;font-size:0.8rem;">ABRIR PORTAL (:8080)</a>':'—')+'</dd>'+
+      '</dl><span class="ja-state '+(n.online?'ok':'')+'">'+esc(states[n.status]||n.status)+'</span></article>')+pager('nodes',p):
+      '<div class="ja-empty">Nenhum agente Linux ARM registrado. Clique em <b>+ NOVO NÓ</b> acima ou conecte agentes pela API de dispositivos.</div>';
+    moduleShell('Clusters e agentes Linux ARM',summary+body,'<button id="nodes-add" class="ja-mini primary" style="margin-right:8px;">+ NOVO NÓ</button><button id="nodes-refresh" class="ja-mini">Atualizar lista</button>');
     bindPager('nodes',p,renderNodes);
+    document.getElementById('nodes-add').onclick=openNewNodeModal;
     document.getElementById('nodes-refresh').onclick=renderNodes;
     document.querySelectorAll('.ja-node-edit-btn').forEach(btn=>{
       btn.onclick=(e)=>{
@@ -815,12 +932,32 @@ async function renderNodes(){
         if(p.slice[idx]) openNodeEditor(p.slice[idx]);
       };
     });
+    document.querySelectorAll('.ja-node-del-btn').forEach(btn=>{
+      btn.onclick=async(e)=>{
+        e.stopPropagation();
+        const idx=parseInt(btn.getAttribute('data-node-idx'),10);
+        const n=p.slice[idx];
+        if(!n) return;
+        if(!confirm('Deseja realmente excluir o nó "'+(n.nome||n.device_id)+'" do cluster?\n\nEsta ação removerá o nó permanentemente do cluster e do banco de dados.')) return;
+        btn.disabled=true;
+        try{
+          await postJson('/casa/api/arm_nodes.php', {
+            acao: 'excluir',
+            device_id: n.device_id||'',
+            id: n.id||''
+          });
+          renderNodes();
+        }catch(err){
+          alert('Falha ao excluir nó: ' + (err.message||String(err)));
+          btn.disabled=false;
+        }
+      };
+    });
   }catch(e){
     moduleShell('Clusters e agentes Linux ARM','<div class="ja-empty">'+esc(e.message||'Falha ao carregar agentes.')+'</div>','<button id="nodes-retry" class="ja-mini">Tentar novamente</button>');
     document.getElementById('nodes-retry').onclick=renderNodes;
   }
 }
-
 
 function scheduleExecutorLabel(t){
   const m={executar_cena:'CENA',dispositivo_rele:'RELÉ',aviso_fala:'FALA',comando_jarvis:'IA',dispositivo_devpar:'EQUIPAMENTO'};

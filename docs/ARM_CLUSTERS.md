@@ -1,27 +1,28 @@
-# Clusters e agentes Linux ARM
+﻿# Clusters e agentes Linux ARM
 
-A página `index.php?grupo=DISPOSITIVOS&item=nodes` usa `api/arm_nodes.php`,
-com autenticação da sessão do site. A consulta é somente leitura e não retorna
-credenciais de dispositivos.
+A página `index.php?grupo=DISPOSITIVOS&item=nodes` lista e gerencia os clusters e nós Linux ARM através da API `api/arm_nodes.php`, com autenticação da sessão web ou token de API do Control Plane.
 
-A lista reúne os registros legados de `arm_nodes` e os agentes atuais de
-`dispositivos_cluster`. O `casa-node-agent.py` já envia `data.platform=linux-arm`,
-`data.hostname`, `data.cpu`, `data.ram` e a capacidade `arm-agent` no heartbeat
-universal, portanto não é necessário voltar à API legada nem reinstalar o agente.
+## Arquitetura de Monitoramento: Padrão Invertido (Dead Man's Snitch)
 
-A identificação considera plataforma/arquitetura ARM, tipos ARM e fabricantes
-Raspberry Pi/Orange Pi ou capacidades ARM. Dispositivos comuns (celular, relé etc.)
-não entram apenas por terem capacidade gateway. Um programa sem identificação ARM
-precisa informar essa plataforma ou capacidade no registro/heartbeat.
+1. **Heartbeat Ativo (a cada 20 segundos):**
+   - O agente local nos nós (`casa-node-agent.py`) envia um heartbeat ativo com telemetria (CPU, RAM, temperatura, IP) para o endpoint `/api/v1/device.php?acao=heartbeat` a cada 20 segundos (`HEARTBEAT_INTERVAL = 20`).
+2. **Queda e Timeout (em 40 segundos):**
+   - Se em até **40 segundos** o nó não responder, ele é considerado caído (`offline`).
+   - Um serviço em segundo plano (`casa-cluster-monitor.service` em `clusters/infraestrutura/casa-cluster-monitor/`) avalia continuamente a diferença de tempo e atualiza as tabelas `dispositivos_cluster` e `arm_nodes`, registrando logs e eventos de queda (`NODE_OFFLINE`).
 
-Registros com o mesmo `device_id` aparecem uma vez; o registro atual é a fonte
-autoritativa. Programas com IDs distintos no mesmo hostname permanecem separados.
-Não há corte de 100 registros; a interface pagina a lista completa de 12 em 12.
-Agentes sem contato recente e revogados continuam visíveis. Online indica último
-contato em até 120 segundos, desde que não revogado ou explicitamente offline.
-O botão Atualizar lista recarrega os dados. Horários exibidos são do servidor.
+## Operações na Interface Web (`?grupo=DISPOSITIVOS&item=nodes`)
 
-Testes: `.github/tests/test_arm_nodes.php` cobre união, classificação, estado,
-telemetria e ausência de credenciais; com `JARVIS_DB_NAME=casa_test`, executa também
-a consulta real no banco de CI. `test_arm_nodes_ui.js` cobre paginação, escape,
-lista vazia, erro e nova tentativa. Ambos rodam no fluxo Integration Control Plane.
+- **Inclusão (+ NOVO NÓ):** Permite cadastrar um novo nó manualmente preenchendo Identificador (`device_id`), Nome, IP, Hostname e Papel/Função.
+- **Edição (EDITAR):** Permite ajustar Nome, IP, Hostname e Papel de qualquer nó existente através de formulário modal flutuante.
+- **Exclusão (EXCLUIR):** Botão direto no card e no rodapé do modal de edição com confirmação prévia, excluindo o registro do banco de dados e do cluster.
+- **Acesso SSH e Portal:** Cada nó exibe atalho de comando SSH (`ssh mmm@<IP>`) e link direto para o portal web do nó na porta `:8080` (`http://<IP>:8080/`).
+
+## Nós Mapeados do Cluster
+
+| Device ID | Nome de Exibição | Hostname | Endereço IP | Papel / Função |
+|---|---|---|---|---|
+| `raspberry-pi-local` | Raspberry Pi 4B (Hub Principal) | `raspberrypi` | `192.168.2.13` (Alias `192.168.0.211`) | Hub Central / Servidor Local / TTS Piper / GPIO |
+| `raspberry-pi-node-12` | Raspberry Pi 4B (Cluster Hub) | `rpi4-hub` | `192.168.2.12` | Hub Cluster Primário / Site Porta 8080 |
+| `raspberry-pi-node-13` | Raspberry Pi Node 13 | `raspberrypi` | `192.168.2.13` | Rack Servidores / Nó Secundário |
+| `cubieboard-arm-07` | Cubieboard 2 ARMv7 | `cubieboard` | `192.168.2.7` | Gateway Automação / Serial RS485 / Allwinner A20 |
+| `raspberry-pi-node-08` | Raspberry Pi Node 08 | `raspberrypi-08` | `192.168.2.8` | Quadro de Automação / Relés / Sensores |

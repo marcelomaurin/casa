@@ -1,4 +1,4 @@
--- CASA / JARVIS - Migration 1.30
+﻿-- CASA / JARVIS - Migration 1.30
 -- Registro forcado no banco de dados para os equipamentos existentes do cluster
 -- Elimina a necessidade de IPs chumbados no codigo e centraliza informacoes no banco.
 
@@ -9,6 +9,11 @@ INSERT INTO dispositivos_cluster (
     'raspberry-pi-local', 'Raspberry Pi 4B (Hub Principal)', 'linux-arm', 'Raspberry Pi Foundation', 'Raspberry Pi 4 Model B Rev 1.2', 'Hub Central / Servidor Local', '192.168.2.13', '192.168.2.13', 8080, 'online', 'v2.7.0 (#6f4db51)',
     '["arm-agent","linux-arm","hub","hardware-gateway","serial","rs485","scheduler","tts","cluster-site","ssh-agent"]',
     '{"hostname":"raspberrypi","arch":"aarch64","platform":"Debian 12 (bookworm)","role":"hub","version":"v2.7.0 (#6f4db51)","commit":"6f4db51"}'
+),
+(
+    'raspberry-pi-node-12', 'Raspberry Pi 4B (Cluster Hub)', 'linux-arm', 'Raspberry Pi Foundation', 'Raspberry Pi 4 Model B', 'Hub Cluster Primario', '192.168.2.12', '192.168.2.12', 8080, 'online', 'v2.7.0 (#6f4db51)',
+    '["arm-agent","linux-arm","hub","cluster-site"]',
+    '{"hostname":"rpi4-hub","arch":"aarch64","platform":"Debian 12 (bookworm)","role":"hub","version":"v2.7.0 (#6f4db51)","commit":"6f4db51"}'
 ),
 (
     'raspberry-pi-node-13', 'Raspberry Pi Node 13', 'linux-arm', 'Raspberry Pi Foundation', 'Raspberry Pi 4 Model B Rev 1.2', 'Rack Servidores', '192.168.2.13', '192.168.2.13', 8080, 'online', 'v2.7.0 (#6f4db51)',
@@ -51,6 +56,10 @@ INSERT INTO arm_nodes (
 (
     'raspberry-pi-local', 'raspberrypi', '192.168.2.13', 'Raspberry Pi 4B (Hub Principal)', 'online', '4 núcleos / carga 0.1 / 44.5 °C', '980 MB / 3790 MB',
     '["arm-agent","linux-arm","hub","hardware-gateway","serial","rs485","scheduler","tts","cluster-site","ssh-agent"]', CURRENT_TIMESTAMP
+),
+(
+    'raspberry-pi-node-12', 'rpi4-hub', '192.168.2.12', 'Raspberry Pi 4B (Cluster Hub)', 'online', '4 núcleos / carga 0.15 / 43.0 °C', '1100 MB / 3790 MB',
+    '["arm-agent","linux-arm","hub","cluster-site"]', CURRENT_TIMESTAMP
 ),
 (
     'raspberry-pi-node-13', 'raspberrypi', '192.168.2.13', 'Raspberry Pi Node 13', 'online', '4 núcleos / carga 0.1 / 44.5 °C', '980 MB / 3790 MB',

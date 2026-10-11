@@ -1,0 +1,18 @@
+﻿[Unit]
+Description=CASA Cluster Monitor Daemon (Queda e Healthcheck dos Nos ARM - 40s)
+After=network.target mysql.service mariadb.service
+Wants=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/html/casa
+ExecStart=/usr/bin/php /var/www/html/casa/clusters/infraestrutura/casa-cluster-monitor/casa-cluster-monitor.php --daemon
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

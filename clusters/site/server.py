@@ -474,6 +474,9 @@ class ClusterSiteHandler(SimpleHTTPRequestHandler):
             self.handle_cluster_update_status()
         elif path == "/api/ssh/nodes" or path == "/api/ssh/status":
             self.handle_ssh_mesh()
+        elif path.startswith("/api/services/") or path == "/api/services":
+            svc_name = path.replace("/api/services/", "").replace("/api/services", "").strip()
+            self.handle_service_status(svc_name)
         else:
             super().do_GET()
 
@@ -581,6 +584,63 @@ class ClusterSiteHandler(SimpleHTTPRequestHandler):
                 })
         self.send_json({"ok": True, "nodes": nodes_list, "total": len(nodes_list), "fallback": True})
 
+    def handle_service_status(self, name):
+        if not name or name == "all":
+            all_services = ["casa-node-agent", "casa-tts", "casa-ssh-agent", "casa-cluster-site", "casa-scheduler", "casa-tunnel", "casa-runpod-agent", "ssh"]
+            res = {}
+            for s in all_services:
+                st = check_service(s)
+                res[s] = {"status": "online" if st == "active" else "offline", "active": st == "active"}
+            self.send_json({"ok": True, "services": res, "timestamp": int(time.time())})
+            return
+
+        svc = name if name.endswith(".service") else name + ".service"
+        state = check_service(name)
+
+        ret_show, out_show = run_cmd(["systemctl", "show", svc, "--property=ActiveState,SubState,MainPID,ExecMainStartTimestamp"])
+        details = {}
+        if ret_show == 0:
+            for line in out_show.splitlines():
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    details[k.strip()] = v.strip()
+
+        ports_map = {
+            "casa-node-agent": 8098,
+            "casa-tts": 8097,
+            "casa-ssh-agent": 8095,
+            "casa-cluster-site": PORT,
+            "jarvis-web-agent": 8092,
+        }
+        port = ports_map.get(name.replace(".service", ""))
+        http_check = None
+        if port:
+            endpoint = "/health" if port == 8095 else ("/status" if port != PORT else "/api/status")
+            try:
+                import urllib.request
+                req = urllib.request.Request("http://127.0.0.1:{0}{1}".format(port, endpoint), headers={"User-Agent": "ClusterSiteIntegrity/1.0"})
+                with urllib.request.urlopen(req, timeout=2.0) as r:
+                    http_check = {
+                        "ok": True,
+                        "code": r.status,
+                        "data": json.loads(r.read().decode("utf-8", errors="ignore"))
+                    }
+            except Exception as e:
+                http_check = {"ok": False, "error": str(e)}
+
+        self.send_json({
+            "status": "online" if state == "active" else "offline",
+            "service": name,
+            "active": state == "active",
+            "state": details.get("ActiveState", state),
+            "sub_state": details.get("SubState", "unknown"),
+            "pid": int(details.get("MainPID", 0)) if details.get("MainPID", "").isdigit() else None,
+            "started_at": details.get("ExecMainStartTimestamp", None),
+            "port": port,
+            "http_probe": http_check,
+            "timestamp": int(time.time()),
+        })
+
     def handle_telemetry(self):
         env = get_env_map()
         hostname = socket.gethostname()
@@ -595,6 +655,10 @@ class ClusterSiteHandler(SimpleHTTPRequestHandler):
             "casa-node-agent": check_service("casa-node-agent"),
             "casa-cluster-site": "active",
             "casa-ssh-agent": check_service("casa-ssh-agent"),
+            "casa-tts": check_service("casa-tts"),
+            "casa-scheduler": check_service("casa-scheduler"),
+            "casa-tunnel": check_service("casa-tunnel"),
+            "casa-runpod-agent": check_service("casa-runpod-agent"),
             "apache2": check_service("apache2"),
             "mosquitto": check_service("mosquitto"),
             "ssh": check_service("ssh"),

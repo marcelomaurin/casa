@@ -51,7 +51,7 @@ function registry_get(PDO $pdo, string $deviceId, bool $allowRevoked=false): ?ar
         sinal_rssi,battery_pct,capabilities,metadata,localizacao,manufacturer,model,firmware_version,
         protocol_version,config_version,ultimo_heartbeat,credential_revoked_at,
         CASE WHEN credential_revoked_at IS NULL AND ultimo_heartbeat IS NOT NULL
-          AND ultimo_heartbeat>=DATE_SUB(NOW(),INTERVAL 120 SECOND) THEN 1 ELSE 0 END AS online
+          AND ultimo_heartbeat>=DATE_SUB(NOW(),INTERVAL 40 SECOND) THEN 1 ELSE 0 END AS online
         FROM dispositivos_cluster WHERE device_id=:d";
     if(!$allowRevoked)$sql.=" AND credential_revoked_at IS NULL";
     $sql.=" LIMIT 1";

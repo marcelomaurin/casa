@@ -56,7 +56,7 @@ function arm_node_normalize(array $row, bool $legacy, int $now): array {
     $age = is_numeric($lastSeen) ? max(0, $now - (int)$lastSeen) : null;
     $status = strtolower((string)($row['status'] ?? ''));
     $revoked = !empty($row['credential_revoked_at']) || $status === 'revoked';
-    $online = !$revoked && $age !== null && $age <= 120 && !in_array($status, ['offline', 'error', 'erro'], true);
+    $online = !$revoked && $age !== null && $age <= 40 && !in_array($status, ['offline', 'error', 'erro'], true);
     $version = (string)($meta['version'] ?? $meta['commit'] ?? $row['firmware_version'] ?? '');
     $commit = (string)($meta['commit'] ?? $meta['git_commit'] ?? '');
     $deployedAt = (string)($meta['deployed_at'] ?? $meta['last_update'] ?? '');

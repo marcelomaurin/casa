@@ -467,8 +467,9 @@
         </div>
       </div>
       <div class="card-actions">
-        <button type="button" class="action-btn primary" onclick="sendTestHeartbeat()">FORÇAR HEARTBEAT</button>
-        <button type="button" class="action-btn" onclick="checkAgentLocal()">VER /STATUS LOCAL</button>
+        <a id="srv-link-agent" href="http://192.168.2.13:8098/status" target="_blank" class="action-btn primary" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px;">ABRIR STATUS (:8098) ↗</a>
+        <button type="button" class="action-btn" onclick="sendTestHeartbeat()">FORÇAR HEARTBEAT</button>
+        <button type="button" class="action-btn" onclick="checkAgentLocal()">TESTAR LOCAL</button>
       </div>
     </div>
 
@@ -486,6 +487,9 @@
         </div>
       </div>
       <div>
+        <div class="card-actions" style="margin-bottom:8px;">
+          <a id="srv-link-tts" href="http://192.168.2.13:8097/status" target="_blank" class="action-btn primary" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px;">ABRIR STATUS (:8097) ↗</a>
+        </div>
         <div class="test-box">
           <input type="text" id="tts-input" value="Nó do cluster operacional e conectado." placeholder="Texto para falar no alto-falante">
           <button type="button" class="action-btn primary" onclick="speakText()">FALAR</button>
@@ -507,7 +511,8 @@
         </div>
       </div>
       <div class="card-actions">
-        <a href="https://maurinsoft.com.br/casa/index.php?grupo=OPERA%C3%87%C3%95ES&item=agendamentos" target="_blank" class="action-btn primary" style="text-decoration:none;">VER AGENDAMENTOS ↗</a>
+        <a id="srv-link-scheduler" href="/api/services/casa-scheduler" target="_blank" class="action-btn primary" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px;">ABRIR INTEGRIDADE ↗</a>
+        <a href="https://maurinsoft.com.br/casa/index.php?grupo=OPERA%C3%87%C3%95ES&item=agendamentos" target="_blank" class="action-btn" style="text-decoration:none;">VER NA NUVEM ↗</a>
       </div>
     </div>
 
@@ -543,6 +548,7 @@
         </div>
       </div>
       <div class="card-actions">
+        <a id="srv-link-tunnel" href="/api/services/casa-tunnel" target="_blank" class="action-btn primary" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px;">ABRIR INTEGRIDADE ↗</a>
         <button type="button" class="action-btn" onclick="testCloudConnection()">TESTAR PING CENTRAL</button>
       </div>
     </div>
@@ -561,6 +567,7 @@
         </div>
       </div>
       <div class="card-actions">
+        <a id="srv-link-webagent" href="http://192.168.2.13:8092/docs" target="_blank" class="action-btn primary" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px;">ABRIR FASTAPI (:8092) ↗</a>
         <button type="button" class="action-btn" onclick="viewLogBox('Web Agent disponível para pesquisas sob demanda do COMPUTER.')">INFORMAÇÕES</button>
       </div>
     </div>
@@ -579,11 +586,47 @@
         </div>
       </div>
       <div class="card-actions">
-        <button type="button" class="action-btn primary" id="btn-copy-ssh" onclick="copySshCommand()">COPIAR COMANDO SSH</button>
+        <a id="srv-link-ssh" href="http://192.168.2.13:8095/health" target="_blank" class="action-btn primary" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px;">ABRIR STATUS (:8095) ↗</a>
+        <button type="button" class="action-btn" id="btn-copy-ssh" onclick="copySshCommand()">COPIAR COMANDO SSH</button>
         <button type="button" class="action-btn" id="btn-check-mesh" onclick="fetchMeshNodes()">↻ ATUALIZAR MALHA</button>
       </div>
     </div>
 
+    <!-- RunPod AI Agent Service -->
+    <div class="card" id="card-runpod">
+      <div>
+        <div class="card-header">
+          <div class="card-title">🤖 Agente RunPod & GPU Remota</div>
+          <span class="status-badge ok" id="srv-runpod-badge">ATIVO</span>
+        </div>
+        <p class="card-desc">Túneis e coordenação de instâncias remotas de GPU para processamento de IA.</p>
+        <div class="meta-list" style="margin-top:8px;">
+          <div class="meta-row"><span>Serviço:</span> <b>casa-runpod-agent.service</b></div>
+          <div class="meta-row"><span>Status:</span> <b id="runpod-status">OPERACIONAL</b></div>
+        </div>
+      </div>
+      <div class="card-actions">
+        <a id="srv-link-runpod" href="/api/services/casa-runpod-agent" target="_blank" class="action-btn primary" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px;">ABRIR INTEGRIDADE ↗</a>
+      </div>
+    </div>
+
+    <!-- Cluster Site Portal API -->
+    <div class="card" id="card-site">
+      <div>
+        <div class="card-header">
+          <div class="card-title">🌐 Portal do Cluster (API :8080)</div>
+          <span class="status-badge ok" id="srv-site-badge">PORTA 8080</span>
+        </div>
+        <p class="card-desc">Servidor web local deste nó com telemetria viva, gráfico de CPU e API REST.</p>
+        <div class="meta-list" style="margin-top:8px;">
+          <div class="meta-row"><span>Serviço:</span> <b>casa-cluster-site.service</b></div>
+          <div class="meta-row"><span>Porta:</span> <b>8080</b></div>
+        </div>
+      </div>
+      <div class="card-actions">
+        <a id="srv-link-site" href="/api/status" target="_blank" class="action-btn primary" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px;">ABRIR STATUS (:8080) ↗</a>
+      </div>
+    </div>
       <!-- Cluster Update Service -->
     <div class="card" id="card-update">
       <div>
@@ -599,8 +642,8 @@
         </div>
       </div>
       <div class="card-actions">
+        <a id="srv-link-update" href="/api/cluster/update/status" target="_blank" class="action-btn" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px;">ABRIR STATUS (JSON) ↗</a>
         <button type="button" class="action-btn primary" id="btn-trigger-update" onclick="triggerClusterUpdate()">⚡ ATUALIZAR CLUSTER AGORA</button>
-        <button type="button" class="action-btn" onclick="checkClusterUpdateStatus()">VERIFICAR STATUS</button>
       </div>
     </div>
   </div>
@@ -915,6 +958,23 @@
         document.getElementById('disk-progress').style.width = diskPct + '%';
       }
 
+      // Atualiza links dinamicos de integridade de cada servico usando o IP/Host atual
+      const curHost = window.location.hostname || (d && d.ip) || '127.0.0.1';
+      const srvMap = {
+        'agent': 'http://' + curHost + ':8098/status',
+        'tts': 'http://' + curHost + ':8097/status',
+        'ssh': 'http://' + curHost + ':8095/health',
+        'webagent': 'http://' + curHost + ':8092/docs',
+        'scheduler': '/api/services/casa-scheduler',
+        'tunnel': '/api/services/casa-tunnel',
+        'runpod': '/api/services/casa-runpod-agent',
+        'update': '/api/cluster/update/status',
+        'site': '/api/status'
+      };
+      for (const [key, targetUrl] of Object.entries(srvMap)) {
+        const el = document.getElementById('srv-link-' + key);
+        if (el) el.href = targetUrl;
+      }
       // Uptime
       if (d.uptime) {
         document.getElementById('sum-uptime').textContent = d.uptime;
