@@ -1473,16 +1473,17 @@ async function openBlockedIps(){
     const j=await getJson(SEC_API+'?acao=bloqueados');
     const r=j.regra||{};
     let h='<p class="ja-sec-note">Regra: '+esc(r.falhas)+' falhas em '+esc(r.janela_min)+' min bloqueiam o IP por '+esc(r.bloqueio_min)+' min.</p>';
-    h+='<h4>Bloqueados agora ('+j.ativos.length+')</h4>';
-    h+=j.ativos.length?'<div class="ja-sec-scroll"><table class="ja-sec-table"><thead><tr><th>IP</th><th>Bloqueado em</th><th>Até</th><th>Falhas</th><th>Origem</th><th>Motivo</th><th></th></tr></thead><tbody>'+
+    const atv=Array.isArray(j?.ativos)?j.ativos:[];
+    h+='<h4>Bloqueados agora ('+atv.length+')</h4>';
+    h+=atv.length?'<div class="ja-sec-scroll"><table class="ja-sec-table"><thead><tr><th>IP</th><th>Bloqueado em</th><th>Até</th><th>Falhas</th><th>Origem</th><th>Motivo</th><th></th></tr></thead><tbody>'+
       j.ativos.map(a=>'<tr><td class="mono">'+esc(a.ip)+'</td><td>'+secWhen(a.bloqueado_em)+'</td><td>'+secWhen(a.bloqueado_ate)+'<small> ('+esc(a.restante_min)+' min)</small></td><td>'+esc(a.tentativas)+'</td><td>'+esc(a.origem||'—')+'</td><td>'+esc(a.motivo||'')+'</td><td><button class="ja-mini danger" data-unblock="'+attr(a.ip)+'">DESBLOQUEAR</button></td></tr>').join('')+'</tbody></table></div>'
       :'<p class="ja-sec-empty">Nenhum IP bloqueado no momento.</p>';
-    const obs=j.observacao||[];
+    const obs=Array.isArray(j?.observacao)?j.observacao:[];
     h+='<h4>Em observação ('+obs.length+')</h4><p class="ja-sec-note">IPs com falhas recentes que ainda não atingiram o limite.</p>';
     h+=obs.length?'<div class="ja-sec-scroll"><table class="ja-sec-table"><thead><tr><th>IP</th><th>Falhas</th><th>Última falha</th><th>Origem</th><th>Motivo</th><th></th></tr></thead><tbody>'+
       obs.map(a=>'<tr><td class="mono">'+esc(a.ip)+'</td><td>'+esc(a.tentativas)+'</td><td>'+secWhen(a.ultima_falha)+'</td><td>'+esc(a.origem||'—')+'</td><td>'+esc(a.motivo||'')+'</td><td><button class="ja-mini" data-unblock="'+attr(a.ip)+'">ZERAR</button></td></tr>').join('')+'</tbody></table></div>'
       :'<p class="ja-sec-empty">Nenhum IP em observação.</p>';
-    const hist=j.historico||[];
+    const hist=Array.isArray(j?.historico)?j.historico:[];
     if(hist.length) h+='<h4>Últimos bloqueios automáticos</h4><div class="ja-sec-scroll"><table class="ja-sec-table"><thead><tr><th>Data</th><th>IP</th><th>Detalhes</th></tr></thead><tbody>'+hist.map(x=>'<tr><td>'+secWhen(x.data_hora)+'</td><td class="mono">'+esc(x.ip)+'</td><td>'+esc(x.detalhes||'')+'</td></tr>').join('')+'</tbody></table></div>';
     body.innerHTML=h;
     body.querySelectorAll('[data-unblock]').forEach(b=>b.onclick=async()=>{
@@ -1529,9 +1530,9 @@ async function renderSecurity(){
     document.getElementById('sec-retry').onclick=renderSecurity; return;
   }
   const summary='<div class="ja-native-summary ja-sec-summary">'+
-    '<button type="button" data-open="ips" title="Ver IPs bloqueados"><b>IPs BLOQUEADOS</b><strong>'+esc(j.bloqueados_ativos)+'</strong><small>'+esc(j.em_observacao)+' em observação · ver lista ›</small></button>'+
-    '<button type="button" data-open="eventos" title="Ver lista de eventos"><b>EVENTOS (24 h)</b><strong>'+esc(j.eventos_24h)+'</strong><small>'+esc(j.criticos_24h)+' crítico(s) · ver lista ›</small></button></div>';
-  const rec=j.recentes||[];
+    '<button type="button" data-open="ips" title="Ver IPs bloqueados"><b>IPs BLOQUEADOS</b><strong>'+esc(j?.bloqueados_ativos ?? 0)+'</strong><small>'+esc(j?.em_observacao ?? 0)+' em observação · ver lista ›</small></button>'+
+    '<button type="button" data-open="eventos" title="Ver lista de eventos"><b>EVENTOS (24 h)</b><strong>'+esc(j?.eventos_24h ?? 0)+'</strong><small>'+esc(j?.criticos_24h ?? 0)+' crítico(s) · ver lista ›</small></button></div>';
+  const rec=Array.isArray(j?.recentes)?j.recentes:[];
   const body=rec.length?cards(rec,l=>'<article class="ja-native-card ja-sec-card" data-open="eventos"><h3>'+esc(l.evento||'Evento')+'</h3><p>'+esc(l.detalhes||'')+'</p><dl><dt>IP</dt><dd>'+esc(l.ip||'—')+'</dd><dt>Severidade</dt><dd>'+secSev(l.severidade)+'</dd><dt>Origem</dt><dd>'+esc(l.origem||'—')+(l.usuario?' · '+esc(l.usuario):'')+'</dd><dt>Data</dt><dd>'+secWhen(l.data_hora)+'</dd></dl></article>')
     :'<div class="ja-empty">Nenhum evento de segurança registrado ainda.</div>';
   moduleShell('Defesa & anti-intrusão','<div class="ja-sec-layout">'+summary+body+'</div>','<button class="ja-mini" id="sec-refresh">ATUALIZAR</button>');
