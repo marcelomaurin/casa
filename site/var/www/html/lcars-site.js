@@ -487,9 +487,85 @@ async function renderDevices(){
 
 async function renderSensors(){
   loading('Sensores & telemetria');
-  const j=await crud('sensores_telemetria','listar','&limite=50'); const all=j.dados||[]; const p=paginate('sensors',all,8);
-  moduleShell('Sensores & telemetria',cards(p.slice,s=>'<article class="ja-native-card metric"><h3>'+esc(s.sensor_nome||'Sensor')+'</h3><strong>'+esc(s.valor_numerico??'—')+' '+esc(s.unidade||'')+'</strong><p>'+esc(s.data_hora||'')+'</p></article>')+pager('sensors',p));
-  bindPager('sensors',p,renderSensors);
+  try {
+    let all = [];
+    try {
+      const j = await crud('sensores_telemetria', 'listar', '&limite=50');
+      if (j && Array.isArray(j.dados)) all = j.dados;
+    } catch(errCrud) {
+      console.warn('Falha ao consultar sensores_telemetria:', errCrud);
+    }
+
+    // Se sensores_telemetria nao tiver registros, busca de iot_leituras como fallback
+    if (!all.length) {
+      try {
+        const jEnv = await crud('iot_leituras', 'listar', '&limite=50');
+        if (jEnv && Array.isArray(jEnv.dados) && jEnv.dados.length) {
+          all = jEnv.dados.map(item => ({
+            id: item.id,
+            sensor_nome: (item.tipo_sensor || 'Sensor IoT').toUpperCase(),
+            valor_numerico: item.temperatura_c != null ? item.temperatura_c : (item.umidade_pct != null ? item.umidade_pct : item.rssi),
+            unidade: item.temperatura_c != null ? '°C' : (item.umidade_pct != null ? '%' : (item.rssi != null ? 'dBm' : '')),
+            data_hora: item.data_hora,
+            detalhes: item.temperatura_c != null && item.umidade_pct != null ? (item.temperatura_c + '°C • ' + item.umidade_pct + '% UR') : ''
+          }));
+        }
+      } catch(eEnv) {}
+    }
+
+    const p = paginate('sensors', all, 12);
+    const summary = '<p>' + esc(all.length) + ' leitura(s) de sensores registradas • Exibindo página ' + p.page + ' de ' + p.pages + '</p>';
+
+    const body = all.length ? 
+      cards(p.slice, s => '<article class="ja-native-card metric" style="position:relative;">' +
+        '<div style="position:absolute;top:10px;right:10px;"><span class="ja-state ok" style="font-size:0.7rem;padding:2px 6px;">ATIVO</span></div>' +
+        '<h3>' + esc(s.sensor_nome || 'Sensor') + '</h3>' +
+        '<strong style="font-size:1.6rem;color:#00e5ff;font-family:monospace;display:block;margin:6px 0;">' + esc(s.valor_numerico != null ? s.valor_numerico : '—') + ' ' + esc(s.unidade || '') + '</strong>' +
+        (s.detalhes ? '<div style="font-size:0.8rem;color:#a5f3fc;margin-bottom:4px;">' + esc(s.detalhes) + '</div>' : '') +
+        '<p style="opacity:0.75;font-size:0.75rem;margin:0;">Leitura: ' + esc(s.data_hora || 'Recente') + '</p>' +
+      '</article>') + pager('sensors', p) :
+      '<div class="ja-empty">Nenhuma leitura de sensor registrada ainda no sistema.<br><br>' +
+      'Sensores IoT (temperatura, umidade, presença, luminosidade, DHT22/ESP32) alimentarão este painel automaticamente via telemetria.' +
+      '<div style="margin-top:15px;"><button type="button" id="sensors-add-mock" class="ja-mini primary" style="cursor:pointer;padding:6px 14px;font-weight:bold;">+ REGISTRAR LEITURA DE TESTE</button></div>' +
+      '</div>';
+
+    moduleShell('Sensores & telemetria', summary + body, '<button type="button" id="sensors-refresh" class="ja-mini">Atualizar</button>');
+    bindPager('sensors', p, renderSensors);
+
+    const btnRefresh = document.getElementById('sensors-refresh');
+    if (btnRefresh) btnRefresh.onclick = renderSensors;
+
+    const btnMock = document.getElementById('sensors-add-mock');
+    if (btnMock) {
+      btnMock.onclick = async () => {
+        btnMock.disabled = true;
+        btnMock.textContent = 'Registrando...';
+        try {
+          await crud('sensores_telemetria', 'criar', '', {
+            sensor_nome: 'DHT22 Sala',
+            valor_numerico: 24.5,
+            unidade: '°C',
+            raw_data: JSON.stringify({temperatura: 24.5, umidade: 62.0, status: 'ok'})
+          });
+          await crud('sensores_telemetria', 'criar', '', {
+            sensor_nome: 'Umidade Sala',
+            valor_numerico: 62.0,
+            unidade: '%',
+            raw_data: JSON.stringify({umidade: 62.0})
+          });
+          renderSensors();
+        } catch(err) {
+          alert('Erro ao registrar leitura: ' + (err.message || String(err)));
+          btnMock.disabled = false;
+          btnMock.textContent = '+ REGISTRAR LEITURA DE TESTE';
+        }
+      };
+    }
+  } catch(e) {
+    moduleShell('Sensores & telemetria', '<div class="ja-empty">' + esc(e.message || 'Falha ao carregar sensores.') + '</div>', '<button type="button" id="sensors-retry" class="ja-mini">Tentar novamente</button>');
+    const btnRetry = document.getElementById('sensors-retry');
+    if (btnRetry) btnRetry.onclick = renderSensors;
+  }
 }
 
 

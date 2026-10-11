@@ -3,6 +3,9 @@
 header('Content-Type: application/json; charset=utf-8');
 require_once(__DIR__ . '/db.php');
 verify_api_auth();
+if (!defined('CASA_SEGURANCA_SEM_AUTOCHECK')) {
+    define('CASA_SEGURANCA_SEM_AUTOCHECK', true);
+}
 require_once(__DIR__ . '/seguranca.php');
 require_once(__DIR__ . '/v1/security_v1.php');
 
