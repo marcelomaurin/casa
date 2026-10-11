@@ -3066,56 +3066,768 @@ if('speechSynthesis' in window){
   window.speechSynthesis.addEventListener?.('voiceschanged',()=>window.speechSynthesis.getVoices());
 }
 
+// =============================================================================
+// MODULO: CAMERAS & VISAO (ESP32-CAM, CAMERAS IP, CFTV/DVR/NVR) + WIZARD
+// =============================================================================
+
+let camFilter = 'all';
+let cachedCameras = [];
+
 async function renderCameras(){
   loading('Câmeras & visão');
   try{
-    const j=await crud('dispositivos_cluster');
-    const raw=j.dados||[];
-    // Filtra câmeras dinamicamente do banco de dados (ESP32-CAM, streaming, etc)
-    const cams=raw.filter(d=>{
-      const t=String(d.tipo||'').toLowerCase();
-      const m=String(d.model||'').toLowerCase();
-      const caps=Array.isArray(d.capabilities)?d.capabilities.join(' ').toLowerCase():String(d.capabilities||'').toLowerCase();
-      return t==='camera'||caps.includes('camera')||caps.includes('streaming')||m.includes('cam');
-    });
+    let raw = [];
+    try {
+      const resp = await getJson('/casa/api/camera_discovery.php?acao=listar');
+      if(resp && resp.ok && Array.isArray(resp.cameras)) {
+        raw = resp.cameras;
+      }
+    } catch(e) { /* fallback para crud */ }
 
-    if(!cams.length){
-      moduleShell('Câmeras & visão','<div class="ja-empty">Nenhuma câmera registrada no momento. Registre novos módulos ESP32-CAM no banco para visualização dinâmica.</div>');
-      return;
+    if(!raw.length) {
+      try {
+        const j = await crud('dispositivos_cluster');
+        raw = j.dados || [];
+      } catch(e) {}
     }
 
-    const cardsHtml=cams.map(cam=>{
-      const ip=cam.ip_address||cam.local_ip||'';
-      const name=esc(cam.nome||cam.device_id||'Câmera');
-      const loc=esc(cam.localizacao||'Ambiente monitorado');
-      let actions='';
-      if(ip){
-        actions='<div class="ja-row-actions" style="margin-top:10px;">'+
-          '<button class="ja-btn primary" onclick="window.open(\'http://'+esc(ip)+'/capture?t=\'+Date.now(),\'_blank\')">📸 CAPTURAR</button>'+
-          '<button class="ja-btn" onclick="window.open(\'http://'+esc(ip)+'/stream\',\'_blank\')">📹 STREAM</button>'+
-          '<button class="ja-btn" onclick="fetch(\'http://'+esc(ip)+'/flash/on\').catch(()=>{})">💡 FLASH</button>'+
-          '<button class="ja-btn" onclick="postJson(\'/casa/api/jarvis.php\',{comando:\'/cloud Analise a imagem recente da câmera '+name+'\'}).catch(()=>{})">🤖 IA VISÃO</button>'+
-        '</div>';
-      }else{
-        actions='<div style="opacity:0.6;font-size:0.85rem;margin-top:8px;">Aguardando IP atribuído pelo registro central.</div>';
+    // Normaliza cameras e classifica tipos
+    cachedCameras = raw.filter(d => {
+      const t = String(d.tipo||'').toLowerCase();
+      const m = String(d.model||d.modelo||'').toLowerCase();
+      const caps = Array.isArray(d.capabilities)?d.capabilities.join(' ').toLowerCase():String(d.capabilities||'').toLowerCase();
+      return t==='camera'||t==='espcam'||t==='esp32_cam'||t==='ip_camera'||t==='camera_ip'||t==='cftv'||t==='dvr'||t==='nvr'||
+             caps.includes('camera')||caps.includes('streaming')||caps.includes('rtsp')||caps.includes('cftv')||caps.includes('onvif')||
+             m.includes('cam')||m.includes('dvr')||m.includes('cftv')||m.includes('nvr');
+    }).map(c => {
+      const t = String(c.tipo||'').toLowerCase();
+      const caps = Array.isArray(c.capabilities)?c.capabilities.join(' ').toLowerCase():String(c.capabilities||'').toLowerCase();
+      const m = String(c.model||c.modelo||'').toLowerCase();
+      let norm = 'espcam';
+      let normLabel = 'ESP32-CAM';
+      let normBadge = 'background:#f59e0b;color:#111;';
+
+      if (t==='cftv'||t==='dvr'||t==='nvr'||caps.includes('cftv')||m.includes('dvr')||m.includes('cftv')||m.includes('nvr')) {
+        norm = 'cftv';
+        normLabel = 'CFTV / DVR';
+        normBadge = 'background:#c084fc;color:#111;';
+      } else if (t==='ip_camera'||t==='camera_ip'||caps.includes('rtsp')||caps.includes('onvif')||caps.includes('ip_camera')) {
+        norm = 'ip_camera';
+        normLabel = 'CÂMERA IP';
+        normBadge = 'background:#38bdf8;color:#111;';
+      } else {
+        norm = 'espcam';
+        normLabel = 'ESP32-CAM';
+        normBadge = 'background:#f59e0b;color:#111;';
       }
 
-      return '<article class="ja-native-card">'+
-        '<h3>'+name+'</h3>'+
-        '<p>'+loc+' · <i>'+esc(cam.model||'ESP32-CAM')+'</i></p>'+
-        '<dl>'+
-          '<dt>Identificador</dt><dd>'+esc(cam.device_id)+'</dd>'+
-          '<dt>Endereço IP</dt><dd>'+(ip?'<a href="http://'+esc(ip)+'/" target="_blank" style="color:#38bdf8;text-decoration:none;font-weight:bold;">'+esc(ip)+'</a>':'—')+'</dd>'+
-          '<dt>Status</dt><dd><span class="ja-state '+(cam.status==='online'?'ok':'off')+'">'+esc((cam.status||'OFFLINE').toUpperCase())+'</span></dd>'+
-        '</dl>'+
-        actions+
-      '</article>';
-    }).join('');
+      let meta = {};
+      if (typeof c.metadata === 'object' && c.metadata !== null) {
+        meta = c.metadata;
+      } else if (typeof c.metadata === 'string' && c.metadata.trim()) {
+        try { meta = JSON.parse(c.metadata); } catch(e) {}
+      }
 
-    moduleShell('Câmeras & visão','<div class="ja-camera-grid">'+cardsHtml+'</div>','<button id="cam-refresh" class="ja-mini">Atualizar Câmeras</button>');
-    document.getElementById('cam-refresh').onclick=renderCameras;
+      return {
+        ...c,
+        tipo_norm: norm,
+        tipo_label: normLabel,
+        tipo_badge: normBadge,
+        meta: meta
+      };
+    });
+
+    const totalAll = cachedCameras.length;
+    const totalEsp = cachedCameras.filter(c => c.tipo_norm === 'espcam').length;
+    const totalIp = cachedCameras.filter(c => c.tipo_norm === 'ip_camera').length;
+    const totalCftv = cachedCameras.filter(c => c.tipo_norm === 'cftv').length;
+
+    // Filtra por categoria selecionada
+    const visibleCams = cachedCameras.filter(c => {
+      if (camFilter === 'espcam') return c.tipo_norm === 'espcam';
+      if (camFilter === 'ip_camera') return c.tipo_norm === 'ip_camera';
+      if (camFilter === 'cftv') return c.tipo_norm === 'cftv';
+      return true;
+    });
+
+    // Toolbar de Acoes & Abas de Filtro
+    const filterTabsHtml =
+      '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #1e293b;">'+
+        '<button class="ja-mini '+(camFilter==='all'?'primary':'')+'" onclick="setCamFilter(\'all\')">TODAS ('+totalAll+')</button>'+
+        '<button class="ja-mini '+(camFilter==='espcam'?'primary':'')+'" onclick="setCamFilter(\'espcam\')">📷 ESP32-CAM ('+totalEsp+')</button>'+
+        '<button class="ja-mini '+(camFilter==='ip_camera'?'primary':'')+'" onclick="setCamFilter(\'ip_camera\')">🌐 CÂMERAS IP ('+totalIp+')</button>'+
+        '<button class="ja-mini '+(camFilter==='cftv'?'primary':'')+'" onclick="setCamFilter(\'cftv\')">📼 CFTV / DVR ('+totalCftv+')</button>'+
+      '</div>';
+
+    let bodyHtml = '';
+
+    if (!visibleCams.length) {
+      bodyHtml = filterTabsHtml +
+        '<div class="ja-empty" style="padding:28px 16px;text-align:center;">'+
+          '<p style="font-size:1.1rem;margin-bottom:12px;color:#cbd5e1;">Nenhuma câmera encontrada na categoria selecionada.</p>'+
+          '<div style="display:flex;gap:10px;justify-content:center;margin-top:14px;">'+
+            '<button class="ja-btn primary" onclick="openCameraDiscoveryWizard()">🔍 BUSCAR CÂMERAS NA REDE</button>'+
+            '<button class="ja-btn" onclick="openCameraEditorModal()">+ ADICIONAR MANUAL</button>'+
+          '</div>'+
+        '</div>';
+    } else {
+      const cardsHtml = visibleCams.map(cam => {
+        const ip = cam.ip_address || cam.local_ip || '';
+        const name = esc(cam.nome || cam.device_id || 'Câmera');
+        const loc = esc(cam.localizacao || 'Ambiente monitorado');
+        const canal = cam.meta?.canal || 1;
+        const modelo = esc(cam.meta?.modelo || cam.model || cam.modelo || cam.tipo_label);
+        const webPort = cam.meta?.web_port || 80;
+        const camId = cam.id || cam.device_id;
+        const status = String(cam.status || 'OFFLINE').toUpperCase();
+        const isOnline = status === 'ONLINE';
+
+        // Badges do Header
+        let badges = '<span class="ja-state" style="'+cam.tipo_badge+'font-weight:bold;">'+cam.tipo_label+'</span>';
+        if (cam.tipo_norm === 'cftv') {
+          badges += '<span class="ja-state" style="background:#818cf8;color:#111;margin-left:4px;font-weight:bold;">CH '+canal+'</span>';
+        }
+
+        // Acoes por tipo de camera
+        let actions = '';
+        if (ip) {
+          if (cam.tipo_norm === 'espcam') {
+            actions =
+              '<div class="ja-row-actions" style="margin-top:10px;flex-wrap:wrap;gap:5px;">'+
+                '<button class="ja-btn primary" style="font-size:0.75rem;padding:5px 9px;" onclick="openCameraSnapshotModal(\''+attr(camId)+'\')">📸 FOTO</button>'+
+                '<button class="ja-btn" style="font-size:0.75rem;padding:5px 9px;" onclick="openCameraStreamModal(\''+attr(camId)+'\')">▶ STREAM</button>'+
+                '<button class="ja-btn" style="font-size:0.75rem;padding:5px 9px;" onclick="fetch(\'http://'+esc(ip)+'/flash/on\').catch(()=>{})">💡 FLASH</button>'+
+                '<button class="ja-btn" style="font-size:0.75rem;padding:5px 9px;" onclick="postJson(\'/casa/api/jarvis.php\',{comando:\'/cloud Analise a imagem recente da câmera '+name+'\'}).catch(()=>{})">🤖 IA VISÃO</button>'+
+                '<button class="ja-mini" style="font-size:0.75rem;padding:5px 8px;" onclick="openCameraEditorModal(\''+attr(camId)+'\')">⚙</button>'+
+                '<button class="ja-mini danger" style="font-size:0.75rem;padding:5px 8px;" onclick="deleteCamera(\''+attr(camId)+'\')">🗑</button>'+
+              '</div>';
+          } else if (cam.tipo_norm === 'ip_camera') {
+            actions =
+              '<div class="ja-row-actions" style="margin-top:10px;flex-wrap:wrap;gap:5px;">'+
+                '<button class="ja-btn primary" style="font-size:0.75rem;padding:5px 9px;" onclick="openCameraStreamModal(\''+attr(camId)+'\')">▶ VER STREAM</button>'+
+                '<button class="ja-btn" style="font-size:0.75rem;padding:5px 9px;" onclick="openCameraSnapshotModal(\''+attr(camId)+'\')">📸 SNAPSHOT</button>'+
+                '<button class="ja-btn" style="font-size:0.75rem;padding:5px 9px;" onclick="window.open(\'http://'+esc(ip)+':'+webPort+'/\',\'_blank\')">🌐 PAINEL</button>'+
+                '<button class="ja-btn" style="font-size:0.75rem;padding:5px 9px;" onclick="postJson(\'/casa/api/jarvis.php\',{comando:\'/cloud Analise a imagem da câmera '+name+'\'}).catch(()=>{})">🤖 IA VISÃO</button>'+
+                '<button class="ja-mini" style="font-size:0.75rem;padding:5px 8px;" onclick="openCameraEditorModal(\''+attr(camId)+'\')">⚙</button>'+
+                '<button class="ja-mini danger" style="font-size:0.75rem;padding:5px 8px;" onclick="deleteCamera(\''+attr(camId)+'\')">🗑</button>'+
+              '</div>';
+          } else { // cftv
+            actions =
+              '<div class="ja-row-actions" style="margin-top:10px;flex-wrap:wrap;gap:5px;">'+
+                '<button class="ja-btn primary" style="font-size:0.75rem;padding:5px 9px;" onclick="openCameraStreamModal(\''+attr(camId)+'\')">▶ RTSP CANAL '+canal+'</button>'+
+                '<button class="ja-btn" style="font-size:0.75rem;padding:5px 9px;" onclick="openCameraSnapshotModal(\''+attr(camId)+'\')">📸 SNAPSHOT</button>'+
+                '<button class="ja-btn" style="font-size:0.75rem;padding:5px 9px;" onclick="window.open(\'http://'+esc(ip)+':'+webPort+'/\',\'_blank\')">📼 PAINEL DVR</button>'+
+                '<button class="ja-btn" style="font-size:0.75rem;padding:5px 9px;" onclick="postJson(\'/casa/api/jarvis.php\',{comando:\'/cloud Analise a imagem do canal '+canal+' do DVR '+name+'\'}).catch(()=>{})">🤖 IA VISÃO</button>'+
+                '<button class="ja-mini" style="font-size:0.75rem;padding:5px 8px;" onclick="openCameraEditorModal(\''+attr(camId)+'\')">⚙</button>'+
+                '<button class="ja-mini danger" style="font-size:0.75rem;padding:5px 8px;" onclick="deleteCamera(\''+attr(camId)+'\')">🗑</button>'+
+              '</div>';
+          }
+        } else {
+          actions = '<div style="opacity:0.6;font-size:0.85rem;margin-top:8px;">Aguardando IP / Offline</div>';
+        }
+
+        return '<article class="ja-native-card" style="display:flex;flex-direction:column;justify-content:space-between;">'+
+          '<div>'+
+            '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px;">'+
+              '<h3 style="margin:0;font-size:1.05rem;">'+name+'</h3>'+
+              '<div>'+badges+'</div>'+
+            '</div>'+
+            '<p style="margin:2px 0 6px;color:#94a3b8;font-size:0.85rem;">'+loc+' · <i>'+modelo+'</i></p>'+
+            '<dl>'+
+              '<dt>Dispositivo</dt><dd>'+esc(cam.device_id)+'</dd>'+
+              '<dt>Endereço IP</dt><dd>'+(ip?'<a href="http://'+esc(ip)+':'+webPort+'/" target="_blank" style="color:#38bdf8;text-decoration:none;font-weight:bold;">'+esc(ip)+'</a>':'—')+'</dd>'+
+              '<dt>Protocolo</dt><dd>'+(cam.tipo_norm==='espcam'?'HTTP / MJPEG':(cam.tipo_norm==='cftv'?'RTSP Multi-Canal (Porta 554)':'RTSP / ONVIF (Porta 554)'))+'</dd>'+
+              '<dt>Status</dt><dd><span class="ja-state '+(isOnline?'ok':'off')+'">'+esc(status)+'</span></dd>'+
+            '</dl>'+
+          '</div>'+
+          actions+
+        '</article>';
+      }).join('');
+
+      bodyHtml = filterTabsHtml + '<div class="ja-camera-grid">'+cardsHtml+'</div>';
+    }
+
+    const headActions =
+      '<button id="cam-discover" class="ja-mini primary" style="font-weight:900;" onclick="openCameraDiscoveryWizard()">🔍 BUSCAR CÂMERAS</button>'+
+      '<button id="cam-add-btn" class="ja-mini" onclick="openCameraEditorModal()">+ NOVA CÂMERA</button>'+
+      '<button id="cam-refresh" class="ja-mini" onclick="renderCameras()">ATUALIZAR</button>';
+
+    moduleShell('Câmeras & visão', bodyHtml, headActions);
   }catch(e){
-    moduleShell('Câmeras & visão','<div class="ja-empty">Falha ao carregar câmeras do registro: '+esc(e.message||'Erro')+'</div>');
+    moduleShell('Câmeras & visão','<div class="ja-empty">Falha ao carregar câmeras: '+esc(e.message||'Erro')+'</div>');
+  }
+}
+
+function setCamFilter(filter) {
+  camFilter = filter;
+  renderCameras();
+}
+
+function findCamById(idOrDeviceId) {
+  return cachedCameras.find(c => String(c.id) === String(idOrDeviceId) || String(c.device_id) === String(idOrDeviceId)) || null;
+}
+
+// -------------------------------------------------------------
+// WIZARD DE BUSCA E DETECCAO DE CAMERAS (LCARS)
+// -------------------------------------------------------------
+let wizardState = {
+  step: 1,
+  mode: 'range', // 'range' ou 'single'
+  subnet: '192.168.2.',
+  start: 1,
+  end: 30,
+  singleIp: '192.168.2.9',
+  user: 'admin',
+  pass: '',
+  foundCameras: []
+};
+
+function openCameraDiscoveryWizard() {
+  document.getElementById('ja-cam-wizard-modal')?.remove();
+  wizardState.step = 1;
+  wizardState.foundCameras = [];
+
+  const modal = document.createElement('div');
+  modal.id = 'ja-cam-wizard-modal';
+  modal.className = 'ja-schedule-backdrop';
+  modal.innerHTML =
+    '<section class="ja-schedule-modal" style="width:min(820px,96vw);" role="dialog" aria-modal="true">'+
+      '<header style="background:var(--ja-orange);color:#111;display:flex;justify-content:space-between;align-items:center;padding:12px 16px;">'+
+        '<strong style="font-size:1.1rem;letter-spacing:1px;">🔍 ASSISTENTE DE BUSCA DE CÂMERAS (WIZARD)</strong>'+
+        '<button type="button" onclick="document.getElementById(\'ja-cam-wizard-modal\').remove()" style="background:#111;color:#fff;border:0;border-radius:10px;padding:6px 12px;font-weight:bold;cursor:pointer;">FECHAR</button>'+
+      '</header>'+
+      '<div id="ja-wizard-content" class="ja-schedule-form" style="padding:16px;">'+
+        renderWizardStep1()+
+      '</div>'+
+    '</section>';
+
+  document.body.appendChild(modal);
+}
+
+function renderWizardStepper(step) {
+  return '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px;text-align:center;font-size:0.8rem;font-weight:bold;">'+
+    '<div style="padding:8px;border-radius:10px;background:'+(step===1?'var(--ja-orange);color:#111':'#1e293b;color:#94a3b8')+';">1. PARÂMETROS</div>'+
+    '<div style="padding:8px;border-radius:10px;background:'+(step===2?'var(--ja-orange);color:#111':'#1e293b;color:#94a3b8')+';">2. VARREDURA</div>'+
+    '<div style="padding:8px;border-radius:10px;background:'+(step===3?'var(--ja-orange);color:#111':'#1e293b;color:#94a3b8')+';">3. REVISÃO & TIPO</div>'+
+    '<div style="padding:8px;border-radius:10px;background:'+(step===4?'var(--ja-orange);color:#111':'#1e293b;color:#94a3b8')+';">4. CONCLUÍDO</div>'+
+  '</div>';
+}
+
+function renderWizardStep1() {
+  return renderWizardStepper(1) +
+    '<div style="background:#111;border:1px solid #334155;border-radius:14px;padding:16px;margin-bottom:16px;">'+
+      '<h4 style="margin:0 0 10px;color:#38bdf8;text-transform:uppercase;">Identificação de Câmeras na Rede Local</h4>'+
+      '<p style="margin:0 0 14px;color:#cbd5e1;font-size:0.9rem;line-height:1.4;">'+
+        'Este assistente faz a varredura automática da rede para identificar dispositivos de vídeo e classificar seus tipos: '+
+        '<strong>ESP32-CAM</strong> (MJPEG), <strong>Câmeras IP</strong> (RTSP/ONVIF) e <strong>Gravadores CFTV / DVR</strong> (Intelbras, Hikvision, Dahua).'+
+      '</p>'+
+      '<div style="display:flex;gap:16px;margin-bottom:14px;">'+
+        '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;">'+
+          '<input type="radio" name="wiz-mode" value="range" '+(wizardState.mode==='range'?'checked':'')+' onchange="wizardState.mode=\'range\';document.getElementById(\'wiz-range-box\').style.display=\'block\';document.getElementById(\'wiz-single-box\').style.display=\'none\';">'+
+          '<span>Varredura por Faixa de IP</span>'+
+        '</label>'+
+        '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;">'+
+          '<input type="radio" name="wiz-mode" value="single" '+(wizardState.mode==='single'?'checked':'')+' onchange="wizardState.mode=\'single\';document.getElementById(\'wiz-range-box\').style.display=\'none\';document.getElementById(\'wiz-single-box\').style.display=\'block\';">'+
+          '<span>Sondar IP Específico</span>'+
+        '</label>'+
+      '</div>'+
+      '<div id="wiz-range-box" style="display:'+(wizardState.mode==='range'?'block':'none')+';">'+
+        '<div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:10px;margin-bottom:12px;">'+
+          '<label><span>Sub-rede</span><input id="wiz-subnet" type="text" value="'+esc(wizardState.subnet)+'" placeholder="192.168.2."></label>'+
+          '<label><span>IP Inicial</span><input id="wiz-start" type="number" min="1" max="254" value="'+wizardState.start+'"></label>'+
+          '<label><span>IP Final</span><input id="wiz-end" type="number" min="1" max="254" value="'+wizardState.end+'"></label>'+
+        '</div>'+
+        '<div style="display:flex;gap:6px;margin-bottom:12px;">'+
+          '<button type="button" class="ja-mini" onclick="document.getElementById(\'wiz-start\').value=1;document.getElementById(\'wiz-end\').value=30;">Faixa Rápida (1-30)</button>'+
+          '<button type="button" class="ja-mini" onclick="document.getElementById(\'wiz-start\').value=1;document.getElementById(\'wiz-end\').value=100;">Faixa Ampla (1-100)</button>'+
+          '<button type="button" class="ja-mini" onclick="document.getElementById(\'wiz-start\').value=1;document.getElementById(\'wiz-end\').value=254;">Rede Completa (1-254)</button>'+
+        '</div>'+
+      '</div>'+
+      '<div id="wiz-single-box" style="display:'+(wizardState.mode==='single'?'block':'none')+';margin-bottom:12px;">'+
+        '<label><span>Endereço IP do Dispositivo / Câmera</span><input id="wiz-single-ip" type="text" value="'+esc(wizardState.singleIp)+'" placeholder="Ex: 192.168.2.9"></label>'+
+      '</div>'+
+      '<div style="background:#0a0f1d;border:1px solid #1e293b;border-radius:10px;padding:12px;margin-bottom:12px;">'+
+        '<strong style="font-size:0.85rem;color:#94a3b8;display:block;margin-bottom:8px;">Protocolos e Portas Verificados:</strong>'+
+        '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:0.85rem;color:#cbd5e1;">'+
+          '<div>✔ <strong>ESP32-CAM:</strong> Portas 80, 81</div>'+
+          '<div>✔ <strong>Câmeras IP:</strong> RTSP (554), ONVIF (8899)</div>'+
+          '<div>✔ <strong>CFTV / DVR:</strong> 554, 8000 (Hik), 37777 (Intelbras)</div>'+
+        '</div>'+
+      '</div>'+
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">'+
+        '<label><span>Usuário padrão para teste</span><input id="wiz-user" type="text" value="'+esc(wizardState.user)+'" placeholder="admin"></label>'+
+        '<label><span>Senha padrão (opcional)</span><input id="wiz-pass" type="password" value="'+esc(wizardState.pass)+'" placeholder="Senha do stream"></label>'+
+      '</div>'+
+    '</div>'+
+    '<div style="display:flex;justify-content:flex-end;gap:10px;">'+
+      '<button type="button" class="ja-btn" onclick="document.getElementById(\'ja-cam-wizard-modal\').remove()">CANCELAR</button>'+
+      '<button type="button" class="ja-btn primary" onclick="startCameraWizardScan()">🔍 INICIAR VARREDURA</button>'+
+    '</div>';
+}
+
+async function startCameraWizardScan() {
+  wizardState.mode = document.querySelector('input[name="wiz-mode"]:checked')?.value || 'range';
+  if (wizardState.mode === 'range') {
+    wizardState.subnet = document.getElementById('wiz-subnet')?.value || '192.168.2.';
+    wizardState.start = parseInt(document.getElementById('wiz-start')?.value || '1', 10);
+    wizardState.end = parseInt(document.getElementById('wiz-end')?.value || '30', 10);
+  } else {
+    wizardState.singleIp = document.getElementById('wiz-single-ip')?.value?.trim() || '';
+  }
+  wizardState.user = document.getElementById('wiz-user')?.value || 'admin';
+  wizardState.pass = document.getElementById('wiz-pass')?.value || '';
+
+  const content = document.getElementById('ja-wizard-content');
+  if (!content) return;
+
+  wizardState.step = 2;
+  content.innerHTML = renderWizardStepper(2) +
+    '<div style="background:#111;border:1px solid #334155;border-radius:14px;padding:32px 16px;text-align:center;">'+
+      '<div style="font-size:2.8rem;margin-bottom:12px;animation:ja-pulse 1.5s infinite;">📡</div>'+
+      '<h3 style="margin:0 0 8px;color:#38bdf8;">VARREDURA DE REDE EM EXECUÇÃO...</h3>'+
+      '<p id="wiz-scan-status" style="margin:0 0 16px;color:#cbd5e1;font-size:0.95rem;">Sondando portas de vídeo (80, 81, 554, 8000, 37777, 8899)...</p>'+
+      '<div style="width:100%;height:10px;background:#1e293b;border-radius:6px;overflow:hidden;margin:0 auto 16px;max-width:500px;">'+
+        '<div id="wiz-progress-bar" style="width:15%;height:100%;background:var(--ja-orange);transition:width 0.3s;"></div>'+
+      '</div>'+
+      '<small style="color:#64748b;">Aguarde alguns instantes enquanto os dispositivos respondem...</small>'+
+    '</div>';
+
+  const pBar = document.getElementById('wiz-progress-bar');
+  const pStatus = document.getElementById('wiz-scan-status');
+
+  try {
+    let cameras = [];
+    if (wizardState.mode === 'single') {
+      if (pBar) pBar.style.width = '60%';
+      const resp = await postJson('/casa/api/camera_discovery.php?acao=probe_ip', {
+        ip: wizardState.singleIp,
+        user: wizardState.user,
+        pass: wizardState.pass
+      });
+      if (resp && resp.ok && resp.is_camera && resp.camera) {
+        cameras.push(resp.camera);
+      }
+    } else {
+      if (pBar) pBar.style.width = '45%';
+      // Chama backend scan
+      try {
+        const resp = await postJson('/casa/api/camera_discovery.php?acao=scan', {
+          subnet: wizardState.subnet,
+          start: wizardState.start,
+          end: wizardState.end,
+          user: wizardState.user,
+          pass: wizardState.pass
+        });
+        if (resp && resp.ok && Array.isArray(resp.cameras)) {
+          cameras = resp.cameras;
+        }
+      } catch(errScan) {
+        console.warn('Scan backend falhou, tentando fallback:', errScan);
+      }
+
+      // Probing client-side fallback caso scan backend tenha retornado vazio
+      if (!cameras.length && wizardState.subnet.startsWith('192.168.2.')) {
+        if (pStatus) pStatus.textContent = 'Verificando nós do cluster e dispositivos ativos conhecidos...';
+        // Checa especificamente IPs conhecidos da sub-rede local
+        const knownTestIps = ['192.168.2.9', '192.168.2.13', '192.168.2.14', '192.168.2.16'];
+        for (const testIp of knownTestIps) {
+          try {
+            const probe = await postJson('/casa/api/camera_discovery.php?acao=probe_ip', {
+              ip: testIp,
+              user: wizardState.user,
+              pass: wizardState.pass
+            });
+            if (probe && probe.ok && probe.is_camera && probe.camera) {
+              cameras.push(probe.camera);
+            }
+          } catch(e) {}
+        }
+      }
+    }
+
+    if (pBar) pBar.style.width = '100%';
+    wizardState.foundCameras = cameras;
+
+    setTimeout(() => {
+      renderWizardStep3();
+    }, 600);
+
+  } catch(e) {
+    if (content) {
+      content.innerHTML = renderWizardStepper(2) +
+        '<div class="ja-empty" style="padding:24px;text-align:center;">'+
+          '<p style="color:#ef4444;font-size:1.1rem;margin-bottom:12px;">Falha na execução da varredura: '+esc(e.message||'Erro de rede')+'</p>'+
+          '<button class="ja-btn" onclick="openCameraDiscoveryWizard()">VOLTAR E TENTAR NOVAMENTE</button>'+
+        '</div>';
+    }
+  }
+}
+
+function renderWizardStep3() {
+  const content = document.getElementById('ja-wizard-content');
+  if (!content) return;
+  wizardState.step = 3;
+
+  if (!wizardState.foundCameras.length) {
+    content.innerHTML = renderWizardStepper(3) +
+      '<div style="background:#111;border:1px solid #334155;border-radius:14px;padding:24px;text-align:center;">'+
+        '<h3 style="color:#f59e0b;margin:0 0 10px;">NENHUMA NOVA CÂMERA DETECTADA NA FAIXA</h3>'+
+        '<p style="color:#cbd5e1;font-size:0.95rem;margin:0 0 16px;">'+
+          'Não encontramos portas ativas de vídeo na faixa pesquisada ('+wizardState.subnet+wizardState.start+' - '+wizardState.end+').'+
+        '</p>'+
+        '<div style="display:flex;justify-content:center;gap:10px;">'+
+          '<button class="ja-btn" onclick="openCameraDiscoveryWizard()">RECONFIGURAR BUSCA</button>'+
+          '<button class="ja-btn primary" onclick="openCameraEditorModal()">+ ADICIONAR MANUALMENTE</button>'+
+        '</div>'+
+      '</div>';
+    return;
+  }
+
+  const itemsHtml = wizardState.foundCameras.map((cam, idx) => {
+    const ip = esc(cam.ip);
+    const ports = esc((cam.portas_abertas||[]).join(', '));
+    const suggestedName = esc(cam.tipo_label + ' (' + ip + ')');
+    const stream = esc(cam.stream_url||'');
+    const snapshot = esc(cam.snapshot_url||'');
+    const canal = cam.canal || 1;
+
+    return '<div class="ja-wizard-cam-item" style="background:#0b1120;border:1px solid #1e293b;border-radius:12px;padding:14px;margin-bottom:12px;">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">'+
+        '<label style="display:flex;align-items:center;gap:8px;font-size:1rem;font-weight:bold;cursor:pointer;">'+
+          '<input type="checkbox" id="wiz-chk-'+idx+'" checked>'+
+          '<span style="color:#38bdf8;">'+ip+'</span>'+
+          '<span style="font-size:0.8rem;background:#1e293b;padding:3px 8px;border-radius:6px;color:#94a3b8;">Portas: '+ports+'</span>'+
+        '</label>'+
+        '<div style="font-size:0.85rem;color:#cbd5e1;">Fabricante provável: <strong>'+esc(cam.fabricante||'Genérico')+'</strong></div>'+
+      '</div>'+
+      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px;">'+
+        '<label><span>Nome da Câmera</span><input type="text" id="wiz-name-'+idx+'" value="'+suggestedName+'"></label>'+
+        '<label><span>Tipo de Câmera</span>'+
+          '<select id="wiz-type-'+idx+'">'+
+            '<option value="espcam" '+(cam.tipo==='espcam'?'selected':'')+'>📷 ESP32-CAM (MJPEG)</option>'+
+            '<option value="ip_camera" '+(cam.tipo==='ip_camera'?'selected':'')+'>🌐 Câmera IP (RTSP/ONVIF)</option>'+
+            '<option value="cftv" '+(cam.tipo==='cftv'?'selected':'')+'>📼 CFTV / DVR / NVR</option>'+
+          '</select>'+
+        '</label>'+
+        '<label><span>Localização</span>'+
+          '<input type="text" id="wiz-loc-'+idx+'" value="Residência" placeholder="Ex: Entrada, Garagem, Sala">'+
+        '</label>'+
+      '</div>'+
+      '<div style="display:grid;grid-template-columns:1fr 3fr;gap:10px;">'+
+        '<label><span>Canal (CFTV)</span><input type="number" id="wiz-channel-'+idx+'" min="1" max="64" value="'+canal+'"></label>'+
+        '<label><span>URL de Stream (RTSP / HTTP)</span><input type="text" id="wiz-stream-'+idx+'" value="'+stream+'"></label>'+
+      '</div>'+
+    '</div>';
+  }).join('');
+
+  content.innerHTML = renderWizardStepper(3) +
+    '<div style="background:#111;border:1px solid #334155;border-radius:14px;padding:16px;margin-bottom:16px;">'+
+      '<h4 style="margin:0 0 8px;color:#38bdf8;text-transform:uppercase;">Câmeras Detectadas ('+wizardState.foundCameras.length+')</h4>'+
+      '<p style="margin:0 0 14px;color:#cbd5e1;font-size:0.9rem;">'+
+        'Selecione as câmeras que deseja cadastrar no CASA. Você pode ajustar o nome, tipo, canal e URLs de stream sugeridas antes de salvar.'+
+      '</p>'+
+      itemsHtml+
+    '</div>'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;">'+
+      '<button type="button" class="ja-btn" onclick="openCameraDiscoveryWizard()">VOLTAR</button>'+
+      '<button type="button" class="ja-btn primary" onclick="saveWizardCameras()">✔ ADICIONAR CÂMERAS AO CASA</button>'+
+    '</div>';
+}
+
+async function saveWizardCameras() {
+  const content = document.getElementById('ja-wizard-content');
+  if (!content) return;
+
+  const toSave = [];
+  wizardState.foundCameras.forEach((cam, idx) => {
+    const chk = document.getElementById('wiz-chk-' + idx);
+    if (chk && chk.checked) {
+      const name = document.getElementById('wiz-name-' + idx)?.value?.trim() || cam.nome || ('Câmera ' + cam.ip);
+      const tipo = document.getElementById('wiz-type-' + idx)?.value || cam.tipo;
+      const loc = document.getElementById('wiz-loc-' + idx)?.value?.trim() || 'Residência';
+      const canal = parseInt(document.getElementById('wiz-channel-' + idx)?.value || '1', 10);
+      const stream = document.getElementById('wiz-stream-' + idx)?.value?.trim() || cam.stream_url;
+
+      toSave.push({
+        ip_address: cam.ip,
+        nome: name,
+        tipo: tipo,
+        localizacao: loc,
+        canal: canal,
+        stream_url: stream,
+        snapshot_url: cam.snapshot_url || '',
+        modelo: cam.modelo || '',
+        fabricante: cam.fabricante || '',
+        user: wizardState.user,
+        pass: wizardState.pass,
+        web_port: cam.web_port || 80
+      });
+    }
+  });
+
+  if (!toSave.length) {
+    alert('Selecione pelo menos uma câmera para salvar.');
+    return;
+  }
+
+  content.innerHTML = renderWizardStepper(4) +
+    '<div style="background:#111;border:1px solid #334155;border-radius:14px;padding:32px 16px;text-align:center;">'+
+      '<div style="font-size:2.8rem;margin-bottom:12px;">💾</div>'+
+      '<h3 style="margin:0 0 8px;color:#38bdf8;">SALVANDO CÂMERAS NO CLUSTER...</h3>'+
+      '<p style="margin:0;color:#cbd5e1;">Gravando registros e atualizando catálogo de vídeo do JARVIS...</p>'+
+    '</div>';
+
+  try {
+    const resp = await postJson('/casa/api/camera_discovery.php?acao=salvar_cameras', { cameras: toSave });
+    content.innerHTML = renderWizardStepper(4) +
+      '<div style="background:#111;border:1px solid #334155;border-radius:14px;padding:32px 16px;text-align:center;">'+
+        '<div style="font-size:2.8rem;margin-bottom:12px;">🎉</div>'+
+        '<h3 style="margin:0 0 8px;color:#34d399;">CÂMERAS CADASTRADAS COM SUCESSO!</h3>'+
+        '<p style="margin:0 0 16px;color:#cbd5e1;font-size:0.95rem;">'+
+          esc(resp.mensagem || (toSave.length + ' câmera(s) foram adicionadas ao sistema.'))+
+        '</p>'+
+        '<button class="ja-btn primary" onclick="document.getElementById(\'ja-cam-wizard-modal\').remove();renderCameras();">VER CÂMERAS NO PAINEL</button>'+
+      '</div>';
+  } catch(e) {
+    content.innerHTML = renderWizardStepper(4) +
+      '<div class="ja-empty" style="padding:24px;text-align:center;">'+
+        '<p style="color:#ef4444;font-size:1.1rem;margin-bottom:12px;">Falha ao salvar câmeras: '+esc(e.message||'Erro')+'</p>'+
+        '<button class="ja-btn" onclick="renderWizardStep3()">VOLTAR E TENTAR NOVAMENTE</button>'+
+      '</div>';
+  }
+}
+
+// -------------------------------------------------------------
+// MODAL DE STREAM / VISUALIZACAO (MJPEG ou RTSP)
+// -------------------------------------------------------------
+function openCameraStreamModal(camId) {
+  const cam = findCamById(camId);
+  if (!cam) return;
+
+  document.getElementById('ja-cam-stream-modal')?.remove();
+  const ip = cam.ip_address || cam.local_ip || '';
+  const name = esc(cam.nome || cam.device_id);
+  const streamUrl = cam.meta?.stream_url || (cam.tipo_norm==='espcam' ? 'http://'+ip+':81/stream' : 'rtsp://'+ip+':554/stream1');
+  const webPort = cam.meta?.web_port || 80;
+
+  const isMjpeg = cam.tipo_norm === 'espcam' || streamUrl.startsWith('http');
+
+  let playerHtml = '';
+  if (isMjpeg) {
+    playerHtml =
+      '<div style="background:#000;border-radius:12px;overflow:hidden;text-align:center;margin-bottom:14px;min-height:260px;display:flex;align-items:center;justify-content:center;">'+
+        '<img src="'+esc(streamUrl)+'" alt="'+name+'" style="max-width:100%;max-height:480px;object-fit:contain;" onerror="this.onerror=null;this.src=\'http://'+esc(ip)+'/stream\';">'+
+      '</div>'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;">'+
+        '<small style="color:#94a3b8;">Stream HTTP MJPEG ao vivo</small>'+
+        '<button class="ja-mini" onclick="window.open(\''+esc(streamUrl)+'\',\'_blank\')">ABRIR EM NOVA ABA</button>'+
+      '</div>';
+  } else {
+    // RTSP Stream (Camera IP / CFTV)
+    playerHtml =
+      '<div style="background:#0b1120;border:1px solid #1e293b;border-radius:14px;padding:16px;margin-bottom:14px;">'+
+        '<h4 style="margin:0 0 10px;color:#38bdf8;">Fluxo de Vídeo RTSP (H.264 / H.265)</h4>'+
+        '<p style="margin:0 0 12px;color:#cbd5e1;font-size:0.9rem;line-height:1.4;">'+
+          'Navegadores web modernos requerem um cliente ou reprodutor compatível (como VLC, OBS Studio, aplicativo mobile ou proxy WebRTC/HLS) para decodificar fluxos diretos RTSP.'+
+        '</p>'+
+        '<div style="background:#050811;border:1px solid #38bdf8;border-radius:10px;padding:12px;margin-bottom:12px;word-break:break-all;font-family:monospace;font-size:0.9rem;color:#38bdf8;">'+
+          esc(streamUrl)+
+        '</div>'+
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;">'+
+          '<button class="ja-btn primary" onclick="navigator.clipboard.writeText(\''+esc(streamUrl)+'\').then(()=>alert(\'URL RTSP copiada para a área de transferência!\'))">📋 COPIAR LINK RTSP</button>'+
+          '<button class="ja-btn" onclick="window.open(\'http://'+esc(ip)+':'+webPort+'/\',\'_blank\')">🌐 ABRIR PAINEL WEB DA CÂMERA</button>'+
+          '<button class="ja-btn" onclick="openCameraSnapshotModal(\''+attr(camId)+'\')">📸 VER FOTO SNAPSHOT</button>'+
+        '</div>'+
+      '</div>';
+  }
+
+  const modal = document.createElement('div');
+  modal.id = 'ja-cam-stream-modal';
+  modal.className = 'ja-schedule-backdrop';
+  modal.innerHTML =
+    '<section class="ja-schedule-modal" style="width:min(780px,96vw);" role="dialog">'+
+      '<header style="background:var(--ja-orange);color:#111;display:flex;justify-content:space-between;align-items:center;padding:12px 16px;">'+
+        '<strong style="font-size:1.05rem;">▶ STREAM: '+name+'</strong>'+
+        '<button type="button" onclick="document.getElementById(\'ja-cam-stream-modal\').remove()" style="background:#111;color:#fff;border:0;border-radius:10px;padding:6px 12px;font-weight:bold;cursor:pointer;">FECHAR</button>'+
+      '</header>'+
+      '<div style="padding:16px;">'+
+        playerHtml+
+      '</div>'+
+    '</section>';
+
+  document.body.appendChild(modal);
+}
+
+// -------------------------------------------------------------
+// MODAL DE SNAPSHOT / FOTO COM IA
+// -------------------------------------------------------------
+function openCameraSnapshotModal(camId) {
+  const cam = findCamById(camId);
+  if (!cam) return;
+
+  document.getElementById('ja-cam-snapshot-modal')?.remove();
+  const ip = cam.ip_address || cam.local_ip || '';
+  const name = esc(cam.nome || cam.device_id);
+  const snapUrl = cam.meta?.snapshot_url || (cam.tipo_norm==='espcam' ? 'http://'+ip+'/capture' : 'http://'+ip+'/snapshot.jpg');
+  const cacheBustUrl = snapUrl + (snapUrl.includes('?') ? '&' : '?') + 't=' + Date.now();
+
+  const modal = document.createElement('div');
+  modal.id = 'ja-cam-snapshot-modal';
+  modal.className = 'ja-schedule-backdrop';
+  modal.innerHTML =
+    '<section class="ja-schedule-modal" style="width:min(720px,96vw);" role="dialog">'+
+      '<header style="background:var(--ja-orange);color:#111;display:flex;justify-content:space-between;align-items:center;padding:12px 16px;">'+
+        '<strong style="font-size:1.05rem;">📸 SNAPSHOT: '+name+'</strong>'+
+        '<button type="button" onclick="document.getElementById(\'ja-cam-snapshot-modal\').remove()" style="background:#111;color:#fff;border:0;border-radius:10px;padding:6px 12px;font-weight:bold;cursor:pointer;">FECHAR</button>'+
+      '</header>'+
+      '<div style="padding:16px;text-align:center;">'+
+        '<div style="background:#000;border-radius:12px;overflow:hidden;margin-bottom:14px;min-height:240px;display:flex;align-items:center;justify-content:center;">'+
+          '<img id="ja-snap-img" src="'+esc(cacheBustUrl)+'" alt="'+name+'" style="max-width:100%;max-height:450px;object-fit:contain;" onerror="this.onerror=null;this.parentElement.innerHTML=\'<p style=padding:20px;color:#ef4444;>Não foi possível carregar o snapshot direto. Verifique se a câmera permite requisições HTTP locais na porta.</p>\';">'+
+        '</div>'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">'+
+          '<button class="ja-btn primary" onclick="const img=document.getElementById(\'ja-snap-img\');if(img)img.src=\''+esc(snapUrl)+'\'+\'?t=\'+Date.now();">🔄 RECARREGAR FOTO</button>'+
+          '<button class="ja-btn" onclick="window.open(\''+esc(snapUrl)+'\',\'_blank\')">💾 ABRIR ORIGINAL</button>'+
+          '<button class="ja-btn" onclick="postJson(\'/casa/api/jarvis.php\',{comando:\'/cloud Analise a imagem da câmera '+name+'\'}).then(()=>alert(\'Análise solicitada ao Jarvis!\'))">🤖 ANALISAR COM IA</button>'+
+        '</div>'+
+      '</div>'+
+    '</section>';
+
+  document.body.appendChild(modal);
+}
+
+// -------------------------------------------------------------
+// MODAL DE CADASTRO / EDICAO MANUAL DE CAMERA
+// -------------------------------------------------------------
+function openCameraEditorModal(camId = null) {
+  document.getElementById('ja-cam-edit-modal')?.remove();
+  const cam = camId ? findCamById(camId) : null;
+  const isEdit = !!cam;
+
+  const id = cam?.id || '';
+  const did = cam?.device_id || ('cam-' + Date.now().toString(36));
+  const nome = cam?.nome || '';
+  const tipo = cam?.tipo_norm || 'ip_camera';
+  const ip = cam?.ip_address || cam?.local_ip || '';
+  const loc = cam?.localizacao || 'Residência';
+  const canal = cam?.meta?.canal || 1;
+  const stream = cam?.meta?.stream_url || '';
+  const snap = cam?.meta?.snapshot_url || '';
+  const user = cam?.meta?.user || 'admin';
+  const pass = cam?.meta?.pass || '';
+
+  const modal = document.createElement('div');
+  modal.id = 'ja-cam-edit-modal';
+  modal.className = 'ja-schedule-backdrop';
+  modal.innerHTML =
+    '<section class="ja-schedule-modal" style="width:min(680px,96vw);" role="dialog">'+
+      '<header style="background:var(--ja-orange);color:#111;display:flex;justify-content:space-between;align-items:center;padding:12px 16px;">'+
+        '<strong style="font-size:1.05rem;">'+(isEdit?'⚙ EDITAR CÂMERA':'➕ ADICIONAR NOVA CÂMERA')+'</strong>'+
+        '<button type="button" onclick="document.getElementById(\'ja-cam-edit-modal\').remove()" style="background:#111;color:#fff;border:0;border-radius:10px;padding:6px 12px;font-weight:bold;cursor:pointer;">FECHAR</button>'+
+      '</header>'+
+      '<div class="ja-schedule-form" style="padding:16px;">'+
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">'+
+          '<label><span>Nome da Câmera</span><input id="ce-nome" type="text" value="'+esc(nome)+'" placeholder="Ex: Câmera Portão"></label>'+
+          '<label><span>Tipo de Câmera</span>'+
+            '<select id="ce-tipo">'+
+              '<option value="espcam" '+(tipo==='espcam'?'selected':'')+'>📷 ESP32-CAM (MJPEG Stream)</option>'+
+              '<option value="ip_camera" '+(tipo==='ip_camera'?'selected':'')+'>🌐 Câmera IP (RTSP/ONVIF)</option>'+
+              '<option value="cftv" '+(tipo==='cftv'?'selected':'')+'>📼 CFTV / DVR / NVR Multi-Canal</option>'+
+            '</select>'+
+          '</label>'+
+        '</div>'+
+        '<div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:12px;">'+
+          '<label><span>Endereço IP / Host</span><input id="ce-ip" type="text" value="'+esc(ip)+'" placeholder="192.168.2.X"></label>'+
+          '<label><span>Localização</span><input id="ce-loc" type="text" value="'+esc(loc)+'" placeholder="Garagem, Entrada..."></label>'+
+        '</div>'+
+        '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px;">'+
+          '<label><span>Canal (CFTV)</span><input id="ce-canal" type="number" min="1" max="64" value="'+canal+'"></label>'+
+          '<label><span>Usuário Stream</span><input id="ce-user" type="text" value="'+esc(user)+'"></label>'+
+          '<label><span>Senha Stream</span><input id="ce-pass" type="password" value="'+esc(pass)+'"></label>'+
+        '</div>'+
+        '<div style="margin-bottom:12px;">'+
+          '<label><span>URL de Stream (RTSP ou HTTP)</span><input id="ce-stream" type="text" value="'+esc(stream)+'" placeholder="rtsp://admin:senha@192.168.2.X:554/..."></label>'+
+        '</div>'+
+        '<div style="margin-bottom:16px;">'+
+          '<label><span>URL de Snapshot (Foto)</span><input id="ce-snap" type="text" value="'+esc(snap)+'" placeholder="http://192.168.2.X/capture"></label>'+
+        '</div>'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;">'+
+          '<div>'+
+            (isEdit ? '<button type="button" class="ja-btn danger" onclick="deleteCamera(\''+attr(camId)+'\');document.getElementById(\'ja-cam-edit-modal\').remove();">EXCLUIR</button>' : '')+
+          '</div>'+
+          '<div style="display:flex;gap:10px;">'+
+            '<button type="button" class="ja-btn" onclick="document.getElementById(\'ja-cam-edit-modal\').remove()">CANCELAR</button>'+
+            '<button type="button" class="ja-btn primary" onclick="saveCameraEditor(\''+attr(id)+'\',\''+attr(did)+'\')">SALVAR CÂMERA</button>'+
+          '</div>'+
+        '</div>'+
+      '</div>'+
+    '</section>';
+
+  document.body.appendChild(modal);
+}
+
+async function saveCameraEditor(id, deviceId) {
+  const nome = document.getElementById('ce-nome')?.value?.trim();
+  const tipo = document.getElementById('ce-tipo')?.value;
+  const ip = document.getElementById('ce-ip')?.value?.trim();
+  const loc = document.getElementById('ce-loc')?.value?.trim() || 'Residência';
+  const canal = parseInt(document.getElementById('ce-canal')?.value || '1', 10);
+  const user = document.getElementById('ce-user')?.value || '';
+  const pass = document.getElementById('ce-pass')?.value || '';
+  let stream = document.getElementById('ce-stream')?.value?.trim();
+  let snap = document.getElementById('ce-snap')?.value?.trim();
+
+  if (!ip) {
+    alert('O endereço IP da câmera é obrigatório.');
+    return;
+  }
+
+  // Gera stream padrao se vazio
+  if (!stream) {
+    if (tipo === 'espcam') stream = 'http://' + ip + ':81/stream';
+    else if (tipo === 'cftv') stream = 'rtsp://' + (user ? user + (pass ? ':' + pass : '') + '@' : '') + ip + ':554/cam/realmonitor?channel=' + canal + '&subtype=0';
+    else stream = 'rtsp://' + (user ? user + (pass ? ':' + pass : '') + '@' : '') + ip + ':554/stream1';
+  }
+  if (!snap && tipo === 'espcam') {
+    snap = 'http://' + ip + '/capture';
+  }
+
+  const payload = {
+    id: id ? parseInt(id, 10) : undefined,
+    device_id: deviceId || ('cam-' + ip.replace(/\./g, '-')),
+    nome: nome || ('Câmera ' + ip),
+    tipo: tipo,
+    ip_address: ip,
+    localizacao: loc,
+    canal: canal,
+    stream_url: stream,
+    snapshot_url: snap,
+    user: user,
+    pass: pass
+  };
+
+  try {
+    const resp = await postJson('/casa/api/camera_discovery.php?acao=salvar', payload);
+    document.getElementById('ja-cam-edit-modal')?.remove();
+    renderCameras();
+  } catch(e) {
+    alert('Erro ao salvar câmera: ' + (e.message || 'Falha de rede'));
+  }
+}
+
+async function deleteCamera(camId) {
+  const cam = findCamById(camId);
+  const name = cam?.nome || camId;
+  if (!confirm('Deseja realmente excluir a câmera "' + name + '" do CASA?')) {
+    return;
+  }
+  try {
+    await postJson('/casa/api/camera_discovery.php?acao=excluir', {
+      id: cam?.id || undefined,
+      device_id: cam?.device_id || camId
+    });
+    renderCameras();
+  } catch(e) {
+    alert('Erro ao excluir câmera: ' + (e.message || 'Falha'));
   }
 }
 

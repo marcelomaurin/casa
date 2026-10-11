@@ -1764,3 +1764,17 @@ body{overscroll-behavior:none}
 .ja-sec-more{display:flex;justify-content:space-between;align-items:center;color:#8b98a5;font-size:11px}
 @media(max-width:700px){.ja-sec-filters{grid-template-columns:1fr}}
 .ja-native-body>.ja-sec-layout{height:100%;min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr);gap:4px}
+
+/* LCARS Camera Discovery Wizard & Streaming Controls */
+@keyframes ja-pulse {
+  0% { transform: scale(1); opacity: 0.8; }
+  50% { transform: scale(1.12); opacity: 1; }
+  100% { transform: scale(1); opacity: 0.8; }
+}
+.ja-wizard-cam-item {
+  transition: border-color 0.2s, background-color 0.2s;
+}
+.ja-wizard-cam-item:hover {
+  border-color: #38bdf8 !important;
+  background-color: #0e1726 !important;
+}
