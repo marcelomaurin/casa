@@ -18,13 +18,30 @@ import urllib.parse
 import urllib.request
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
+def load_env_file(path="/etc/casa-node-agent.env"):
+    if os.path.isfile(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        k = k.strip()
+                        v = v.strip().strip('"').strip("'")
+                        if k:
+                            os.environ[k] = v
+        except Exception:
+            pass
+
+load_env_file()
+
 CASA_BASE_URL = os.environ.get(
     "CASA_BASE_URL", "https://maurinsoft.com.br/casa"
 ).rstrip("/")
 DEVICE_API = CASA_BASE_URL + "/api/v1/device.php"
 
-DEVICE_ID = os.environ.get("JARVIS_DEVICE_ID", socket.gethostname()).strip()
-DEVICE_TOKEN = os.environ.get("JARVIS_DEVICE_TOKEN", "").strip()
+DEVICE_ID = os.environ.get("JARVIS_DEVICE_ID", os.environ.get("DEVICE_ID", socket.gethostname())).strip()
+DEVICE_TOKEN = os.environ.get("JARVIS_DEVICE_TOKEN", os.environ.get("DEVICE_TOKEN", "casa_sec_a4c5a1a2fea405d668edf5934f67d9eb9df23d4c89c5c616")).strip()
 CAPABILITIES = [
     x.strip() for x in os.environ.get(
         "JARVIS_CAPABILITIES",
