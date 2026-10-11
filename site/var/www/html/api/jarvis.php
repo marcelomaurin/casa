@@ -781,7 +781,7 @@ computer_telemetry_finish(
     $telemetryStarted
 );
 echo json_encode(te_attach_context([
-    'status'=>'sucesso','comando'=>$comando,'resposta'=>$respostaLimpa,
+    'status'=>'sucesso','comando'=>$comando,'resposta'=>$respostaLimpa,'data_hora'=>date('Y-m-d H:i:s'),
     'historico'=>$historicoTexto,'historico_chars'=>strlen($historicoTexto),'historico_mensagens'=>count($historicoConversa),
     'rag_fontes'=>$ragFontes,'rag_matches'=>count($ragFontes),
     'provedor'=>$provedor,'target_ia'=>$target_ia,'tipo_tarefa'=>$tipo_tarefa,

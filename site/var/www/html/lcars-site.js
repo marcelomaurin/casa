@@ -2736,10 +2736,11 @@ async function renderJarvis(){
     if(!history.length){
       appendChat('COMPUTER','Pronto.','ai');
     }else{
-      history.forEach(h=>{
+            history.forEach(h=>{
         const userMsg=String(h.user_msg||'').trim(), botMsg=String(h.bot_msg||'').trim();
-        appendChat('Você',userMsg,'user',false);
-        appendChat('COMPUTER',botMsg,'ai',false);
+        const dt = h.data_hora || null;
+        if(userMsg) appendChat('Você',userMsg,'user',false,dt);
+        if(botMsg) appendChat('COMPUTER',botMsg,'ai',false,dt);
         if(userMsg) conversationHistory.push({role:'user',content:userMsg});
         if(botMsg) conversationHistory.push({role:'assistant',content:botMsg});
       });
@@ -2757,15 +2758,17 @@ async function renderJarvis(){
     computerRequestInFlight=true;
     lastComputerSubmission={text:cmd,at:now};
 
-    input.value='';
-    appendChat('Você',cmd,'user');
+        input.value='';
+    const userTime = new Date();
+    appendChat('Você',cmd,'user',true,userTime);
     const sendBtn=document.getElementById('ja-command-send');
     if(sendBtn)sendBtn.disabled=true;
     try{
       const historicoTexto=conversationHistory.map(m=>(m.role==='assistant'?'ASSISTANT':'USER')+': '+m.content).join('\n\n');
       const r=await postJson('/casa/api/jarvis.php',{comando:cmd,ia_mode:'auto',historico:historicoTexto,historico_mensagens:conversationHistory});
       const resposta=r.resposta||r.mensagem||'Sem resposta.';
-      appendChat('COMPUTER',resposta,'ai');
+      const botTime = r.data_hora || new Date();
+      appendChat('COMPUTER',resposta,'ai',true,botTime);
       conversationHistory.push({role:'user',content:cmd},{role:'assistant',content:String(resposta)});
       if(!speakComputer(resposta)){
         appendChat('Sistema','Voz pt-BR não disponível neste navegador.','error');
@@ -2856,19 +2859,52 @@ async function renderJarvis(){
 
   scheduleAdminMount();
 }
-function appendChat(who,text,cls,scroll=true){
+function formatChatTimestamp(dt){
+  if(!dt) dt = new Date();
+  if(typeof dt === 'string'){
+    const match = dt.match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2})(?::(\d{2}))?/);
+    if(match){
+      const [, y, m, d, hr, min, sec] = match;
+      return `${d}/${m}/${y} ${hr}:${min}${sec ? ':' + sec : ''}`;
+    }
+    const parsed = new Date(dt);
+    if(!isNaN(parsed.getTime())) dt = parsed;
+    else return dt;
+  }
+  if(dt instanceof Date){
+    const pad = n => String(n).padStart(2, '0');
+    return `${pad(dt.getDate())}/${pad(dt.getMonth()+1)}/${dt.getFullYear()} ${pad(dt.getHours())}:${pad(dt.getMinutes())}:${pad(dt.getSeconds())}`;
+  }
+  return String(dt);
+}
+
+function appendChat(who,text,cls,scroll=true,timestamp=null){
   const l=document.getElementById('ja-chat-log');
   if(!l)return;
   const d=document.createElement('div');
   d.className='ja-chat-line '+cls;
+
+  const timeStr = formatChatTimestamp(timestamp || new Date());
+  const timeEl = document.createElement('div');
+  timeEl.className = 'ja-chat-timestamp';
+  timeEl.textContent = timeStr;
+
+  const contentEl = document.createElement('div');
+  contentEl.className = 'ja-chat-content';
+
   const name=document.createElement('strong');
   name.className='ja-chat-who';
-  name.textContent=who+':';
+  name.textContent=who+': ';
+
   const body=document.createElement('span');
   body.className='ja-chat-text';
   body.textContent=String(text??'');
-  d.appendChild(name);
-  d.appendChild(body);
+
+  contentEl.appendChild(name);
+  contentEl.appendChild(body);
+
+  d.appendChild(timeEl);
+  d.appendChild(contentEl);
   l.appendChild(d);
 
   // Mantém o DOM limitado sem perder o histórico persistido no banco.

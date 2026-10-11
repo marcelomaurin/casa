@@ -1778,3 +1778,24 @@ body{overscroll-behavior:none}
   border-color: #38bdf8 !important;
   background-color: #0e1726 !important;
 }
+
+/* Timestamp reduzido no canto superior esquerdo das mensagens do COMPUTER */
+.ja-chat-timestamp {
+  font-size: clamp(8px, 0.72vw, 10px);
+  color: rgba(0, 0, 0, 0.62);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin-bottom: 3px;
+  line-height: 1.1;
+  text-align: left;
+  user-select: none;
+}
+.ja-chat-line.user .ja-chat-timestamp {
+  color: rgba(0, 0, 0, 0.72);
+}
+.ja-chat-line.error .ja-chat-timestamp {
+  color: rgba(0, 0, 0, 0.75);
+}
+.ja-chat-content {
+  display: block;
+}
