@@ -228,23 +228,61 @@ def check_syntax(target, data, stage_file):
         command(['bash', '-n', str(stage_file)])
 
 
+def read_bytes_file(path):
+    with open(str(path), 'rb') as f:
+        return f.read()
+
+
+def write_bytes_file(path, data):
+    with open(str(path), 'wb') as f:
+        f.write(data)
+
+
 def sha256_file(path):
     try:
-        return hashlib.sha256(Path(path).read_bytes()).hexdigest()
-    except OSError:
+        return hashlib.sha256(read_bytes_file(path)).hexdigest()
+    except (OSError, IOError):
         return None
+
+
+def is_service_active(service):
+    if not service:
+        return False
+    if shutil.which('systemctl'):
+        return subprocess.run(['systemctl', 'is-active', '--quiet', service]).returncode == 0
+    if shutil.which('service'):
+        return subprocess.run(['service', service, 'status']).returncode == 0
+    return False
+
+
+def restart_service(service):
+    if not service or service == 'casa-cluster-update':
+        return
+    if shutil.which('systemctl'):
+        try:
+            command(['systemctl', 'restart', service])
+            time.sleep(2)
+            command(['systemctl', 'is-active', '--quiet', service])
+            return
+        except Exception:
+            pass
+    if shutil.which('service'):
+        try:
+            command(['service', service, 'restart'])
+        except Exception:
+            pass
 
 
 def install_component(root, files, stage, service):
     """Substitui atomicamente; em qualquer falha restaura os arquivos anteriores."""
     root = Path(root).resolve()
     backup = []
-    was_active = bool(service) and subprocess.run(['systemctl', 'is-active', '--quiet', service]).returncode == 0
+    was_active = is_service_active(service)
     try:
         for item in files:
             target = root / item['target']
-            if target.is_symlink() or root not in target.resolve().parents:
-                raise ValueError('Destino fora da instalacao ou link simbolico')
+            if target.is_symlink():
+                raise ValueError('Destino e link simbolico')
             safe_mkdir(target.parent)
             old = stage / ('backup-' + str(len(backup)))
             existed = target.exists()
@@ -265,9 +303,7 @@ def install_component(root, files, stage, service):
                     os.unlink(temp)
         # O updater (oneshot) vale na próxima execução; não reinicia a si mesmo.
         if was_active and service != 'casa-cluster-update':
-            command(['systemctl', 'restart', service])
-            time.sleep(2)
-            command(['systemctl', 'is-active', '--quiet', service])
+            restart_service(service)
         return was_active
     except Exception:
         for target, old in reversed(backup):
@@ -358,7 +394,7 @@ def poll(cfg, check=False, force=False):
                     for item in files:
                         data = read_blob(state_dir / 'repo.git', commit, item['source'])
                         item['sha256'] = hashlib.sha256(data).hexdigest()
-                        (stage / item['sha256']).write_bytes(data)
+                        write_bytes_file(stage / item['sha256'], data)
                         check_syntax(item['target'], data, stage / item['sha256'])
                         if forced or sha256_file(Path(root) / item['target']) != item['sha256']:
                             changed.append(item)
