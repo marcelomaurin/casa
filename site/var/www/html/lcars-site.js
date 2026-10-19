@@ -3363,6 +3363,7 @@ async function renderCameras(){
               '<div class="ja-row-actions" style="margin-top:10px;flex-wrap:wrap;gap:5px;">'+
                 '<button class="ja-btn primary" style="font-size:0.75rem;padding:5px 9px;" onclick="openCameraSnapshotModal(\''+attr(camId)+'\')">📸 FOTO</button>'+
                 '<button class="ja-btn" style="font-size:0.75rem;padding:5px 9px;" onclick="openCameraStreamModal(\''+attr(camId)+'\')">▶ STREAM</button>'+
+                '<button class="ja-btn" style="font-size:0.75rem;padding:5px 9px;background:#0369a1;color:#fff;" onclick="openCameraPropertiesModal(\''+attr(camId)+'\')">ℹ PROPRIEDADES</button>'+
                 '<button class="ja-btn" style="font-size:0.75rem;padding:5px 9px;" onclick="fetch(\'http://'+esc(ip)+'/flash/on\').catch(()=>{})">💡 FLASH</button>'+
                 '<button class="ja-btn" style="font-size:0.75rem;padding:5px 9px;" onclick="postJson(\'/casa/api/jarvis.php\',{comando:\'/cloud Analise a imagem recente da câmera '+name+'\'}).catch(()=>{})">🤖 IA VISÃO</button>'+
                 '<button class="ja-mini" style="font-size:0.75rem;padding:5px 8px;" onclick="openCameraEditorModal(\''+attr(camId)+'\')">⚙</button>'+
@@ -3372,6 +3373,7 @@ async function renderCameras(){
             actions =
               '<div class="ja-row-actions" style="margin-top:10px;flex-wrap:wrap;gap:5px;">'+
                 '<button class="ja-btn primary" style="font-size:0.75rem;padding:5px 9px;" onclick="openCameraStreamModal(\''+attr(camId)+'\')">▶ VER STREAM</button>'+
+                '<button class="ja-btn" style="font-size:0.75rem;padding:5px 9px;background:#0369a1;color:#fff;" onclick="openCameraPropertiesModal(\''+attr(camId)+'\')">ℹ PROPRIEDADES</button>'+
                 '<button class="ja-btn" style="font-size:0.75rem;padding:5px 9px;" onclick="openCameraSnapshotModal(\''+attr(camId)+'\')">📸 SNAPSHOT</button>'+
                 '<button class="ja-btn" style="font-size:0.75rem;padding:5px 9px;" onclick="window.open(\'http://'+esc(ip)+':'+webPort+'/\',\'_blank\')">🌐 PAINEL</button>'+
                 '<button class="ja-btn" style="font-size:0.75rem;padding:5px 9px;" onclick="postJson(\'/casa/api/jarvis.php\',{comando:\'/cloud Analise a imagem da câmera '+name+'\'}).catch(()=>{})">🤖 IA VISÃO</button>'+
@@ -3382,6 +3384,7 @@ async function renderCameras(){
             actions =
               '<div class="ja-row-actions" style="margin-top:10px;flex-wrap:wrap;gap:5px;">'+
                 '<button class="ja-btn primary" style="font-size:0.75rem;padding:5px 9px;" onclick="openCameraStreamModal(\''+attr(camId)+'\')">▶ RTSP CANAL '+canal+'</button>'+
+                '<button class="ja-btn" style="font-size:0.75rem;padding:5px 9px;background:#0369a1;color:#fff;" onclick="openCameraPropertiesModal(\''+attr(camId)+'\')">ℹ PROPRIEDADES</button>'+
                 '<button class="ja-btn" style="font-size:0.75rem;padding:5px 9px;" onclick="openCameraSnapshotModal(\''+attr(camId)+'\')">📸 SNAPSHOT</button>'+
                 '<button class="ja-btn" style="font-size:0.75rem;padding:5px 9px;" onclick="window.open(\'http://'+esc(ip)+':'+webPort+'/\',\'_blank\')">📼 PAINEL DVR</button>'+
                 '<button class="ja-btn" style="font-size:0.75rem;padding:5px 9px;" onclick="postJson(\'/casa/api/jarvis.php\',{comando:\'/cloud Analise a imagem do canal '+canal+' do DVR '+name+'\'}).catch(()=>{})">🤖 IA VISÃO</button>'+
@@ -3672,6 +3675,246 @@ window.openHouseWifiModal = openHouseWifiModal;
 window.saveHouseWifi = saveHouseWifi;
 window.deleteHouseWifi = deleteHouseWifi;
 window.openWifiSurveyHistoryModal = openWifiSurveyHistoryModal;
+
+
+// -------------------------------------------------------------
+// VISAO DE PROPRIEDADES DA CAMERA & SINAL WI-FI (LCARS)
+// -------------------------------------------------------------
+async function openCameraPropertiesModal(camId) {
+  const cam = findCamById(camId);
+  if (!cam) return;
+
+  document.getElementById('ja-cam-props-modal')?.remove();
+
+  const name = esc(cam.nome || cam.device_id || 'Câmera');
+  const did = esc(cam.device_id || cam.id);
+  const ip = cam.ip_address || cam.local_ip || '';
+  const mac = esc(cam.mac_address || cam.meta?.mac || '—');
+  const loc = esc(cam.localizacao || 'Residência');
+  const modelo = esc(cam.meta?.modelo || cam.model || cam.tipo_label || 'ESP32-CAM');
+  const webPort = cam.meta?.web_port || 80;
+  const isOnline = Boolean(cam.is_online || String(cam.status||'').toUpperCase() === 'ONLINE');
+  const statusText = isOnline ? 'ONLINE' : 'OFFLINE';
+  const statusColor = isOnline ? '#22c55e' : '#ef4444';
+  const lastSeen = esc(cam.visto_por_ultimo || (cam.ultimo_heartbeat ? 'Último sinal: ' + cam.ultimo_heartbeat : 'Nunca comunicou'));
+  const token = cam.meta?.token || '';
+  const maskedToken = token ? token.substring(0, 6) + '••••••••••••••••' + token.substring(token.length - 4) : 'Não registrado';
+
+  const wifiSsid = cam.meta?.wifi_ssid || cam.meta?.wifi || 'Não detectado';
+  const wifiRssi = (typeof cam.sinal_rssi === 'number' && cam.sinal_rssi !== 0) ? cam.sinal_rssi : (cam.meta?.wifi_rssi || null);
+  const wifiSurvey = Array.isArray(cam.meta?.wifi_survey) ? cam.meta.wifi_survey : [];
+  const wifiUpdatedAt = cam.meta?.wifi_updated_at || cam.ultimo_heartbeat || 'Aguardando telemetria';
+
+  // Renderiza tabela visual das redes da casa detectadas pela camera
+  let wifiTableHtml = '';
+  if (wifiSurvey.length > 0) {
+    wifiTableHtml = wifiSurvey.map(ws => {
+      const sSsid = esc(ws.ssid || 'Wi-Fi');
+      const sRssi = parseInt(ws.rssi, 10);
+      const isConn = Boolean(ws.connected || (wifiSsid && ws.ssid === wifiSsid));
+
+      let qualLabel = 'Excelente';
+      let qualColor = '#22c55e';
+      let pct = 95;
+
+      if (sRssi <= -85 || isNaN(sRssi) || sRssi <= -900) {
+        qualLabel = 'Fraco / Fora de alcance';
+        qualColor = '#ef4444';
+        pct = 15;
+      } else if (sRssi <= -75) {
+        qualLabel = 'Regular';
+        qualColor = '#f59e0b';
+        pct = 45;
+      } else if (sRssi <= -65) {
+        qualLabel = 'Bom';
+        qualColor = '#38bdf8';
+        pct = 75;
+      }
+
+      const rssiStr = (sRssi > -200 && sRssi < 0) ? sRssi + ' dBm' : 'Sem sinal';
+
+      return '<div style="background:#0b1120;border:1px solid '+(isConn?'#38bdf8':'#1e293b')+';border-radius:10px;padding:10px 14px;margin-bottom:8px;">'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'+
+          '<div style="display:flex;align-items:center;gap:8px;">'+
+            '<strong style="font-size:0.95rem;color:'+(isConn?'#38bdf8':'#cbd5e1')+';">📶 '+sSsid+'</strong>'+
+            (isConn ? '<span class="ja-state ok" style="font-size:0.7rem;padding:2px 8px;">CONECTADA (ATIVA)</span>' : '<span style="font-size:0.75rem;color:#94a3b8;">No alcance</span>')+
+          '</div>'+
+          '<div style="text-align:right;">'+
+            '<span style="font-weight:bold;font-size:0.95rem;color:'+qualColor+';">'+rssiStr+'</span>'+
+            '<small style="margin-left:6px;color:#94a3b8;font-size:0.75rem;">('+qualLabel+')</small>'+
+          '</div>'+
+        '</div>'+
+        '<div style="background:#1e293b;border-radius:6px;height:6px;overflow:hidden;">'+
+          '<div style="background:'+qualColor+';width:'+pct+'%;height:100%;transition:width 0.4s;"></div>'+
+        '</div>'+
+      '</div>';
+    }).join('');
+  } else {
+    wifiTableHtml =
+      '<div style="background:#0b1120;border:1px dashed #334155;border-radius:10px;padding:18px;text-align:center;color:#94a3b8;font-size:0.9rem;">'+
+        'Nenhum relatório de sinal recebido ainda para esta câmera.<br>'+
+        '<small style="color:#64748b;margin-top:4px;display:block;">O Daemon da Casa coleta as forças de Wi-Fi a cada 1 minuto e grava automaticamente na nuvem.</small>'+
+      '</div>';
+  }
+
+  const modal = document.createElement('div');
+  modal.id = 'ja-cam-props-modal';
+  modal.className = 'ja-schedule-backdrop';
+  modal.innerHTML =
+    '<section class="ja-schedule-modal" style="width:min(780px,96vw);max-height:90vh;display:flex;flex-direction:column;" role="dialog">'+
+      '<header style="background:var(--ja-blue,#0284c7);color:#fff;display:flex;justify-content:space-between;align-items:center;padding:12px 18px;flex-shrink:0;">'+
+        '<div style="display:flex;align-items:center;gap:10px;">'+
+          '<strong style="font-size:1.1rem;">ℹ PROPRIEDADES DA CÂMERA: '+name+'</strong>'+
+          '<span class="ja-state" style="background:'+statusColor+';color:#111;font-weight:bold;font-size:0.75rem;padding:3px 8px;">'+statusText+'</span>'+
+        '</div>'+
+        '<button type="button" onclick="document.getElementById(\'ja-cam-props-modal\').remove()" style="background:#111;color:#fff;border:0;border-radius:10px;padding:6px 12px;font-weight:bold;cursor:pointer;">FECHAR</button>'+
+      '</header>'+
+      '<div style="padding:18px;overflow-y:auto;display:flex;flex-direction:column;gap:16px;">'+
+
+        '<!-- SEÇÃO 1: REDES WI-FI DA CASA & INTENSIDADE DE SINAL -->'+
+        '<div style="background:#050811;border:1px solid #38bdf8;border-radius:14px;padding:16px;">'+
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">'+
+            '<div>'+
+              '<h3 style="margin:0;color:#38bdf8;font-size:1.05rem;display:flex;align-items:center;gap:8px;">📶 REDES WI-FI DA CASA & FORÇA DO SINAL</h3>'+
+              '<small style="color:#94a3b8;font-size:0.8rem;">Coleta automática do Daemon da Casa (1x por minuto) para gravação contínua</small>'+
+            '</div>'+
+            '<div style="display:flex;gap:6px;">'+
+              '<button type="button" class="ja-btn primary" style="font-size:0.75rem;padding:5px 10px;" onclick="refreshCameraWifiLive(\''+attr(camId)+'\')">🔄 MEDIR SINAL AGORA</button>'+
+              '<button type="button" class="ja-btn" style="font-size:0.75rem;padding:5px 10px;" onclick="openWifiSurveyHistoryModal(\''+attr(camId)+'\')">📊 HISTÓRICO</button>'+
+              '<button type="button" class="ja-btn" style="font-size:0.75rem;padding:5px 10px;" onclick="openHouseWifiModal()">⚙ WI-FI DA CASA</button>'+
+            '</div>'+
+          '</div>'+
+
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">'+
+            '<div style="background:#0b1120;border:1px solid #1e293b;border-radius:10px;padding:10px;">'+
+              '<small style="color:#94a3b8;display:block;">Wi-Fi Atualmente Conectado</small>'+
+              '<strong style="font-size:1.1rem;color:#38bdf8;">'+esc(wifiSsid)+'</strong>'+
+            '</div>'+
+            '<div style="background:#0b1120;border:1px solid #1e293b;border-radius:10px;padding:10px;">'+
+              '<small style="color:#94a3b8;display:block;">Intensidade da Conexão Ativa</small>'+
+              '<strong style="font-size:1.1rem;color:'+(wifiRssi&&wifiRssi>-75?'#22c55e':'#f59e0b')+';">'+(wifiRssi?wifiRssi+' dBm':'—')+'</strong>'+
+            '</div>'+
+          '</div>'+
+
+          '<div>'+
+            '<div style="margin-bottom:8px;font-size:0.85rem;color:#cbd5e1;font-weight:bold;">Força Detectada em Cada Rede Wi-Fi da Residência:</div>'+
+            '<div id="ja-cam-props-wifilist">'+wifiTableHtml+'</div>'+
+            '<div style="margin-top:8px;text-align:right;font-size:0.75rem;color:#64748b;">Última telemetria: '+esc(wifiUpdatedAt)+'</div>'+
+          '</div>'+
+        '</div>'+
+
+        '<!-- SEÇÃO 2: IDENTIFICAÇÃO E HARDWARE -->'+
+        '<div style="background:#050811;border:1px solid #1e293b;border-radius:14px;padding:16px;">'+
+          '<h3 style="margin:0 0 12px;color:#f59e0b;font-size:1rem;">📋 DADOS TÉCNICOS & REDE</h3>'+
+          '<dl style="display:grid;grid-template-columns:140px 1fr;row-gap:8px;column-gap:12px;margin:0;font-size:0.88rem;">'+
+            '<dt style="color:#94a3b8;">Dispositivo ID:</dt><dd style="margin:0;font-family:monospace;color:#fff;">'+did+'</dd>'+
+            '<dt style="color:#94a3b8;">Endereço IP:</dt><dd style="margin:0;font-family:monospace;">'+(ip?'<a href="http://'+esc(ip)+':'+webPort+'/" target="_blank" style="color:#38bdf8;text-decoration:none;font-weight:bold;">'+esc(ip)+'</a> (Porta: '+webPort+')':'—')+'</dd>'+
+            '<dt style="color:#94a3b8;">Endereço MAC:</dt><dd style="margin:0;font-family:monospace;color:#cbd5e1;">'+mac+'</dd>'+
+            '<dt style="color:#94a3b8;">Modelo / Tipo:</dt><dd style="margin:0;color:#cbd5e1;">'+modelo+'</dd>'+
+            '<dt style="color:#94a3b8;">Localização:</dt><dd style="margin:0;color:#cbd5e1;">'+loc+'</dd>'+
+            '<dt style="color:#94a3b8;">Status Online:</dt><dd style="margin:0;"><span class="ja-state" style="background:'+statusColor+';color:#111;font-weight:bold;padding:2px 6px;">'+statusText+'</span> ('+lastSeen+')</dd>'+
+            '<dt style="color:#94a3b8;">Token Serial (Cofre):</dt><dd style="margin:0;font-family:monospace;color:#e2e8f0;"><span id="token-mask-'+did+'">'+esc(maskedToken)+'</span> '+(token?'<button type="button" class="ja-mini" style="margin-left:8px;padding:1px 6px;" onclick="toggleTokenView(\''+did+'\',\''+esc(token)+'\')">Ver</button>':'')+'</dd>'+
+          '</dl>'+
+        '</div>'+
+
+        '<!-- SEÇÃO 3: TRANSMISSÃO & STREAMING -->'+
+        '<div style="background:#050811;border:1px solid #1e293b;border-radius:14px;padding:16px;">'+
+          '<h3 style="margin:0 0 12px;color:#c084fc;font-size:1rem;">🎥 FLUXOS & CAPTURA</h3>'+
+          '<dl style="display:grid;grid-template-columns:140px 1fr;row-gap:8px;column-gap:12px;margin:0;font-size:0.88rem;">'+
+            '<dt style="color:#94a3b8;">Stream de Vídeo:</dt><dd style="margin:0;font-family:monospace;word-break:break-all;color:#38bdf8;">'+esc(cam.meta?.stream_url || (cam.tipo_norm==='espcam'?'http://'+ip+':81/stream':'rtsp://'+ip+':554/stream1'))+'</dd>'+
+            '<dt style="color:#94a3b8;">Snapshot (Foto):</dt><dd style="margin:0;font-family:monospace;word-break:break-all;color:#cbd5e1;">'+esc(cam.meta?.snapshot_url || '/casa/api/camera_discovery.php?acao=get_snapshot&device_id='+encodeURIComponent(did))+'</dd>'+
+          '</dl>'+
+          '<div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end;">'+
+            '<button type="button" class="ja-btn" onclick="openCameraEditorModal(\''+attr(camId)+'\');document.getElementById(\'ja-cam-props-modal\').remove();">⚙ EDITAR CONFIGURAÇÕES</button>'+
+            '<button type="button" class="ja-btn primary" onclick="openCameraStreamModal(\''+attr(camId)+'\')">▶ ABRIR STREAM AO VIVO</button>'+
+          '</div>'+
+        '</div>'+
+
+      '</div>'+
+    '</section>';
+
+  document.body.appendChild(modal);
+}
+
+function toggleTokenView(did, fullToken) {
+  const el = document.getElementById('token-mask-' + did);
+  if (!el) return;
+  if (el.textContent.includes('••')) {
+    el.textContent = fullToken;
+  } else {
+    el.textContent = fullToken.substring(0, 6) + '••••••••••••••••' + fullToken.substring(fullToken.length - 4);
+  }
+}
+
+async function refreshCameraWifiLive(camId) {
+  const cam = findCamById(camId);
+  if (!cam) return;
+  const ip = cam.ip_address || cam.local_ip || '';
+  const did = cam.device_id || camId;
+  const listEl = document.getElementById('ja-cam-props-wifilist');
+  if (listEl) {
+    listEl.innerHTML = '<div style="color:#38bdf8;padding:12px;text-align:center;">🔄 Solicitando escaneamento de sinal de Wi-Fi da câmera em tempo real...</div>';
+  }
+
+  // Tenta requisitar da camera diretamente via LAN ou via API
+  let data = null;
+  if (ip) {
+    try {
+      const tok = cam.meta?.token || '';
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 3500);
+      const res = await fetch('http://' + ip + '/wifi_survey?refresh=1' + (tok ? '&token=' + encodeURIComponent(tok) : ''), {
+        headers: tok ? {'X-Camera-Token': tok} : {},
+        signal: ctrl.signal
+      });
+      clearTimeout(t);
+      if (res.ok) {
+        data = await res.json();
+      }
+    } catch(e) {}
+  }
+
+  if (data && Array.isArray(data.wifis)) {
+    // Atualiza cache em memoria
+    if (!cam.meta) cam.meta = {};
+    cam.meta.wifi_survey = data.wifis;
+    cam.meta.wifi_ssid = data.connected_ssid || cam.meta.wifi_ssid;
+    cam.meta.wifi_rssi = data.connected_rssi || cam.meta.wifi_rssi;
+    cam.meta.wifi_updated_at = new Date().toLocaleTimeString();
+
+    // Notifica backend
+    postJson('/casa/api/camera_discovery.php?acao=report_wifi_scan', {
+      device_id: did,
+      ip: ip,
+      wifi_conectado: data.connected_ssid,
+      rssi_conectado: data.connected_rssi,
+      redes_detectadas: data.wifis
+    }).catch(() => {});
+
+    openCameraPropertiesModal(camId);
+  } else {
+    // Se falhou medicao direta na LAN, consulta o historico mais recente da API
+    try {
+      const resp = await getJson('/casa/api/camera_discovery.php?acao=get_wifi_survey&device_id=' + encodeURIComponent(did) + '&limit=1');
+      if (resp && resp.surveys && resp.surveys.length > 0) {
+        const last = resp.surveys[0];
+        if (!cam.meta) cam.meta = {};
+        cam.meta.wifi_survey = last.redes_detectadas || [];
+        cam.meta.wifi_ssid = last.wifi_conectado;
+        cam.meta.wifi_rssi = last.rssi_conectado;
+        cam.meta.wifi_updated_at = last.coletado_em;
+        openCameraPropertiesModal(camId);
+        return;
+      }
+    } catch(e) {}
+    alert('Não foi possível obter resposta em tempo real da câmera em ' + (ip || 'IP indefinido') + '. Verifique se a câmera está conectada à rede local.');
+    openCameraPropertiesModal(camId);
+  }
+}
+
+window.openCameraPropertiesModal = openCameraPropertiesModal;
+window.refreshCameraWifiLive = refreshCameraWifiLive;
+window.toggleTokenView = toggleTokenView;
 
 function setCamFilter(filter) {
   camFilter = filter;
