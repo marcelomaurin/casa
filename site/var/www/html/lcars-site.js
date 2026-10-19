@@ -4230,5 +4230,23 @@ if(document.readyState==='loading'){
 }
 window.addEventListener('popstate',restoreRoute);
 window.addEventListener('resize',()=>{const f=document.querySelector('.ja-module-frame');if(f)fitFrame(f);});
-window.CASASite={home,openGroup,openItem,changePassword,groups:GROUPS};
+// Expor funcoes globais para acoes de eventos onclick nos templates HTML do LCARS
+window.renderCameras = renderCameras;
+window.setCamFilter = setCamFilter;
+window.openCameraStreamModal = openCameraStreamModal;
+window.openCameraSnapshotModal = openCameraSnapshotModal;
+window.openCameraEditorModal = openCameraEditorModal;
+window.saveCameraEditor = saveCameraEditor;
+window.deleteCamera = deleteCamera;
+window.openCameraDiscoveryWizard = openCameraDiscoveryWizard;
+window.startCameraWizardScan = startCameraWizardScan;
+window.saveWizardCameras = saveWizardCameras;
+window.renderWizardStep1 = renderWizardStep1;
+window.renderWizardStep2 = renderWizardStep2;
+window.renderWizardStep3 = renderWizardStep3;
+window.postJson = postJson;
+window.getJson = getJson;
+window.findCamById = findCamById;
+
+window.CASASite={home,openGroup,openItem,changePassword,groups:GROUPS,openCameraSnapshotModal,openCameraStreamModal,openCameraEditorModal,renderCameras};
 })();
