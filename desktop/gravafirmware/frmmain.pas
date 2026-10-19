@@ -135,33 +135,10 @@ end;
 
 procedure TFormMain.UpdateBoardDefaults;
 begin
-  case cbBoard.ItemIndex of
-    0: // ESP32-CAM
-    begin
-      cbBaudRate.Text := '921600';
-      edtAddress.Text := '0x0';
-    end;
-    1: // ESP32 Dev Module
-    begin
-      cbBaudRate.Text := '921600';
-      edtAddress.Text := '0x10000';
-    end;
-    2: // Arduino Uno
-    begin
-      cbBaudRate.Text := '115200';
-      edtAddress.Text := 'N/A';
-    end;
-    3: // Arduino Nano
-    begin
-      cbBaudRate.Text := '115200';
-      edtAddress.Text := 'N/A';
-    end;
-    4: // Arduino Mega
-    begin
-      cbBaudRate.Text := '115200';
-      edtAddress.Text := 'N/A';
-    end;
-  end;
+  cbBoard.ItemIndex := 0;
+  cbBaudRate.Text := '460800';
+  edtAddress.Text := '0x0';
+  edtAddress.ReadOnly := True;
 end;
 
 procedure TFormMain.cbBoardChange(Sender: TObject);
@@ -186,24 +163,18 @@ end;
 
 procedure TFormMain.btnFlashClick(Sender: TObject);
 begin
-  case cbBoard.ItemIndex of
-    0: FFlasher.BoardType := fbtESP32CAM;
-    1: FFlasher.BoardType := fbtESP32;
-    2: FFlasher.BoardType := fbtArduinoUno;
-    3: FFlasher.BoardType := fbtArduinoNano;
-    4: FFlasher.BoardType := fbtArduinoMega;
-  end;
-
+  FFlasher.BoardType := fbtESP32CAM;
   FFlasher.Port := Trim(cbPort.Text);
-  FFlasher.BaudRate := StrToIntDef(cbBaudRate.Text, 921600);
+  FFlasher.BaudRate := StrToIntDef(cbBaudRate.Text, 460800);
   FFlasher.FirmwareFile := Trim(edtFirmwarePath.Text);
-  FFlasher.FlashAddress := Trim(edtAddress.Text);
+  FFlasher.FlashAddress := '0x0';
 
   btnFlash.Enabled := False;
   btnGetToken.Enabled := False;
+  btnGenNewToken.Enabled := False;
   btnSendDaemon.Enabled := False;
   pbProgress.Position := 0;
-  lblProgress.Caption := 'Gravando...';
+  lblProgress.Caption := 'Gravando firmware ESP32-CAM...';
 
   Screen.Cursor := crHourGlass;
   try
@@ -213,6 +184,7 @@ begin
     Screen.Cursor := crDefault;
     btnFlash.Enabled := True;
     btnGetToken.Enabled := True;
+    btnGenNewToken.Enabled := True;
     btnSendDaemon.Enabled := True;
   end;
 end;
@@ -231,7 +203,7 @@ begin
     memLog.Lines.Add('[INFO] ATENCAO: Certifique-se de que o jumper IO0 -> GND foi removido e aperte o botao RST da placa.');
     Application.ProcessMessages;
 
-    Ret := FFlasher.RequestSerialToken(6000);
+    Ret := FFlasher.RequestSerialToken(10000);
     edtToken.Text := FFlasher.CapturedToken;
     edtDeviceId.Text := FFlasher.CapturedDeviceId;
     edtMac.Text := FFlasher.CapturedMac;
@@ -268,7 +240,7 @@ begin
     memLog.Lines.Add('[INFO] Gerando e gravando NOVO TOKEN ALEATORIO na camera via serial...');
     Application.ProcessMessages;
 
-    Ret := FFlasher.GenerateNewToken(6000);
+    Ret := FFlasher.GenerateNewToken(10000);
     edtToken.Text := FFlasher.CapturedToken;
     edtDeviceId.Text := FFlasher.CapturedDeviceId;
     edtMac.Text := FFlasher.CapturedMac;

@@ -467,10 +467,11 @@ void handleSerialCommands() {
       saveToken(device_token);
       Serial.printf("CAM_SECRET:DEVICE_ID=%s:MAC=%s:TOKEN=%s:IP=%s:VER=%s\n",
         device_id.c_str(), physicalMac().c_str(), device_token.c_str(), WiFi.localIP().toString().c_str(), FW_VERSION);
-    } else if (cmd == "GET_TOKEN" || cmd == "TOKEN" || cmd == "IDENTIFY") {
+    } else if (cmd == "GET_TOKEN" || cmd == "TOKEN" || cmd == "IDENTIFY" || cmd == "CAM_SECRET" || cmd == "INFO") {
       // O token so e fornecido via conexao fisica Serial
       Serial.printf("CAM_SECRET:DEVICE_ID=%s:MAC=%s:TOKEN=%s:IP=%s:VER=%s\n",
         device_id.c_str(), physicalMac().c_str(), device_token.c_str(), WiFi.localIP().toString().c_str(), FW_VERSION);
+      Serial.printf("TOKEN=%s\n", device_token.c_str());
     } else if (cmd.startsWith("SET_TOKEN:")) {
       String newToken = cmd.substring(10);
       newToken.trim();
@@ -554,9 +555,13 @@ void setup(){
   loadConfig();
   startCamera();
 
-  // Anuncia token imediatamente pela Serial ao ligar
-  Serial.printf("CAM_SECRET:DEVICE_ID=%s:MAC=%s:TOKEN=%s\n",
-    device_id.c_str(), physicalMac().c_str(), device_token.c_str());
+  // Anuncia token imediatamente pela Serial ao ligar (repetido para sincronizacao garantida)
+  for (int i = 0; i < 3; i++) {
+    Serial.printf("CAM_SECRET:DEVICE_ID=%s:MAC=%s:TOKEN=%s:IP=%s:VER=%s\n",
+      device_id.c_str(), physicalMac().c_str(), device_token.c_str(), WiFi.localIP().toString().c_str(), FW_VERSION);
+    Serial.printf("TOKEN=%s\n", device_token.c_str());
+    delay(40);
+  }
 
   if (autoConnectWifi()) {
     startCameraHttp();
@@ -568,9 +573,13 @@ void setup(){
 void loop(){
   handleSerialCommands();
 
+  static unsigned long lastWifiRetry = 0;
   if(WiFi.status()!=WL_CONNECTED){
-    if (autoConnectWifi()) {
-      startCameraHttp();
+    if (millis() - lastWifiRetry >= 25000UL) {
+      lastWifiRetry = millis();
+      if (autoConnectWifi()) {
+        startCameraHttp();
+      }
     }
   }
 

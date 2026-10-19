@@ -29,7 +29,7 @@ object FormMain: TFormMain
       Height = 25
       Top = 10
       Width = 530
-      Caption = 'CASA - Gravador de Firmware & Chave de Seguranca'
+      Caption = 'CASA - Gravador de Firmware ESP32-CAM'
       Font.Color = clWhite
       Font.Height = -19
       Font.Name = 'Segoe UI'
@@ -42,7 +42,7 @@ object FormMain: TFormMain
       Height = 17
       Top = 38
       Width = 690
-      Caption = 'Gravacao de firmware (ESP32-CAM, ESP32, Arduino) + Captura de Token via Serial + Repasse ao Daemon'
+      Caption = 'Gravacao do firmware unico merged.bin (offset 0x0) e captura/geracao de token de seguranca'
       Font.Color = 13816530
       Font.Height = -13
       Font.Name = 'Segoe UI'
@@ -76,10 +76,6 @@ object FormMain: TFormMain
       ItemIndex = 0
       Items.Strings = (
         'ESP32-CAM (AI Thinker)'
-        'ESP32 Generic Dev Board'
-        'Arduino Uno (ATmega328P)'
-        'Arduino Nano (ATmega328P)'
-        'Arduino Mega 2560'
       )
       OnChange = cbBoardChange
       Style = csDropDownList
