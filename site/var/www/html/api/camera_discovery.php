@@ -47,6 +47,110 @@ if ($method === 'POST') {
 $acao = $_GET['acao'] ?? ($input['acao'] ?? 'listar');
 
 // -------------------------------------------------------------
+// Acao: GET_SNAPSHOT (Servico de imagem em tempo real para web/mobile externo)
+// -------------------------------------------------------------
+if ($acao === 'get_snapshot') {
+    $did = preg_replace('/[^a-zA-Z0-9_-]/', '', (string)($_GET['device_id'] ?? ''));
+    if ($did === '') {
+        header('Content-Type: text/plain');
+        http_response_code(400);
+        exit('device_id obrigatorio');
+    }
+    $uploadDir = __DIR__ . '/../uploads/cameras';
+    $file = $uploadDir . '/' . $did . '.jpg';
+    if (file_exists($file) && filesize($file) > 100) {
+        header('Content-Type: image/jpeg');
+        header('Content-Length: ' . filesize($file));
+        header('Cache-Control: no-cache, must-revalidate, max-age=0');
+        header('Access-Control-Allow-Origin: *');
+        readfile($file);
+        exit;
+    }
+    // Retorna placeholder SVG informando status caso o daemon ainda nao tenha enviado frame
+    header('Content-Type: image/svg+xml; charset=utf-8');
+    header('Access-Control-Allow-Origin: *');
+    header('Cache-Control: no-cache');
+    echo '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" viewBox="0 0 640 400">
+        <rect width="640" height="400" fill="#0b1120"/>
+        <rect x="20" y="20" width="600" height="360" rx="16" fill="none" stroke="#f59e0b" stroke-width="2" stroke-dasharray="8 6"/>
+        <circle cx="320" cy="160" r="45" fill="none" stroke="#f59e0b" stroke-width="4"/>
+        <circle cx="320" cy="160" r="14" fill="#f59e0b"/>
+        <text x="320" y="250" font-family="Arial,sans-serif" font-size="20" fill="#f59e0b" text-anchor="middle" font-weight="900">LCARS SENSOR ÓPTICO</text>
+        <text x="320" y="285" font-family="Arial,sans-serif" font-size="14" fill="#94a3b8" text-anchor="middle">Aguardando telemetria visual do Daemon da Casa</text>
+        <text x="320" y="315" font-family="monospace" font-size="12" fill="#38bdf8" text-anchor="middle">NÓ: ' . htmlspecialchars($did) . '</text>
+    </svg>';
+    exit;
+}
+
+// -------------------------------------------------------------
+// Acao: UPLOAD_SNAPSHOT (Enviado pelo Daemon unico de visao da casa)
+// -------------------------------------------------------------
+if ($acao === 'upload_snapshot') {
+    $did = preg_replace('/[^a-zA-Z0-9_-]/', '', (string)($input['device_id'] ?? $_GET['device_id'] ?? ''));
+    if ($did === '') {
+        cam_json(['ok' => false, 'erro' => 'device_id obrigatorio'], 400);
+    }
+    
+    $imgData = null;
+    if (!empty($_FILES['image']['tmp_name'])) {
+        $imgData = file_get_contents($_FILES['image']['tmp_name']);
+    } elseif (!empty($input['image_base64'])) {
+        $cleanB64 = preg_replace('#^data:image/\w+;base64,#i', '', (string)$input['image_base64']);
+        $imgData = base64_decode($cleanB64);
+    } elseif ($method === 'POST') {
+        $rawPost = file_get_contents('php://input');
+        if (!empty($rawPost) && strlen($rawPost) > 100) {
+            $imgData = $rawPost;
+        }
+    }
+
+    if (!$imgData || strlen($imgData) < 100) {
+        cam_json(['ok' => false, 'erro' => 'Nenhum dado de imagem JPEG valido recebido'], 400);
+    }
+
+    $uploadDir = __DIR__ . '/../uploads/cameras';
+    if (!is_dir($uploadDir)) {
+        @mkdir($uploadDir, 0775, true);
+    }
+    $file = $uploadDir . '/' . $did . '.jpg';
+    file_put_contents($file, $imgData);
+
+    $ip = trim((string)($input['ip'] ?? $_GET['ip'] ?? ''));
+    $nome = trim((string)($input['nome'] ?? ''));
+    $tipo = 'espcam';
+
+    // Atualiza status e heartbeat do dispositivo no banco
+    try {
+        $stmt = $pdo->prepare("SELECT id FROM dispositivos_cluster WHERE device_id = :did LIMIT 1");
+        $stmt->execute([':did' => $did]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row) {
+            $stmtUp = $pdo->prepare("UPDATE dispositivos_cluster SET status = 'online', ultimo_heartbeat = NOW(), ip_address = COALESCE(NULLIF(:ip, ''), ip_address) WHERE id = :id");
+            $stmtUp->execute([':ip' => $ip, ':id' => $row['id']]);
+        } else {
+            $stmtIn = $pdo->prepare("INSERT INTO dispositivos_cluster (device_id, nome, tipo, ip_address, status, ultimo_heartbeat, capabilities, metadata) VALUES (:did, :nome, :tipo, :ip, 'online', NOW(), :caps, :meta)");
+            $stmtIn->execute([
+                ':did' => $did,
+                ':nome' => $nome ?: ("ESP32-CAM " . ($ip ?: $did)),
+                ':tipo' => $tipo,
+                ':ip' => $ip,
+                ':caps' => json_encode(['camera', 'snapshot', 'mjpeg', 'flash', 'ai_vision']),
+                ':meta' => json_encode(['snapshot_url' => "/casa/api/camera_discovery.php?acao=get_snapshot&device_id={$did}"])
+            ]);
+        }
+    } catch (Throwable $e) {}
+
+    cam_json([
+        'ok' => true,
+        'mensagem' => 'Frame recebido e publicado com sucesso',
+        'device_id' => $did,
+        'bytes' => strlen($imgData),
+        'url' => "/casa/api/camera_discovery.php?acao=get_snapshot&device_id={$did}"
+    ]);
+}
+
+
+// -------------------------------------------------------------
 // Helper: Sondagem rapida de portas TCP
 // -------------------------------------------------------------
 function probe_port(string $ip, int $port, float $timeout = 0.35): bool

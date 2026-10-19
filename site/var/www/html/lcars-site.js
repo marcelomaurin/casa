@@ -3832,7 +3832,10 @@ function openCameraSnapshotModal(camId) {
   document.getElementById('ja-cam-snapshot-modal')?.remove();
   const ip = cam.ip_address || cam.local_ip || '';
   const name = esc(cam.nome || cam.device_id);
-  const snapUrl = cam.meta?.snapshot_url || (cam.tipo_norm==='espcam' ? 'http://'+ip+'/capture' : 'http://'+ip+'/snapshot.jpg');
+  const did = cam.device_id || camId;
+  const cloudSnapUrl = '/casa/api/camera_discovery.php?acao=get_snapshot&device_id=' + encodeURIComponent(did);
+  const localSnapUrl = cam.meta?.snapshot_url || (cam.tipo_norm==='espcam' ? 'http://'+ip+'/capture' : 'http://'+ip+'/snapshot.jpg');
+  const snapUrl = cloudSnapUrl;
   const cacheBustUrl = snapUrl + (snapUrl.includes('?') ? '&' : '?') + 't=' + Date.now();
 
   const modal = document.createElement('div');
@@ -4242,7 +4245,6 @@ window.openCameraDiscoveryWizard = openCameraDiscoveryWizard;
 window.startCameraWizardScan = startCameraWizardScan;
 window.saveWizardCameras = saveWizardCameras;
 window.renderWizardStep1 = renderWizardStep1;
-window.renderWizardStep2 = renderWizardStep2;
 window.renderWizardStep3 = renderWizardStep3;
 window.postJson = postJson;
 window.getJson = getJson;
