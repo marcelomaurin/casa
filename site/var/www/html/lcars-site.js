@@ -3345,6 +3345,9 @@ async function renderCameras(){
         const camId = cam.id || cam.device_id;
         const status = String(cam.status || 'OFFLINE').toUpperCase();
         const isOnline = status === 'ONLINE';
+        const statusBoxId = 'cam-status-box-' + String(camId).replace(/[^a-zA-Z0-9_-]/g, '_');
+        const badgeId = 'cam-badge-' + String(camId).replace(/[^a-zA-Z0-9_-]/g, '_');
+        const lastSeenText = cam.visto_por_ultimo || (cam.ultimo_heartbeat ? 'Último sinal: ' + esc(cam.ultimo_heartbeat) : 'Sem sinal');
 
         // Badges do Header
         let badges = '<span class="ja-state" style="'+cam.tipo_badge+'font-weight:bold;">'+cam.tipo_label+'</span>';
@@ -3401,7 +3404,7 @@ async function renderCameras(){
               '<dt>Dispositivo</dt><dd>'+esc(cam.device_id)+'</dd>'+
               '<dt>Endereço IP</dt><dd>'+(ip?'<a href="http://'+esc(ip)+':'+webPort+'/" target="_blank" style="color:#38bdf8;text-decoration:none;font-weight:bold;">'+esc(ip)+'</a>':'—')+'</dd>'+
               '<dt>Protocolo</dt><dd>'+(cam.tipo_norm==='espcam'?'HTTP / MJPEG':(cam.tipo_norm==='cftv'?'RTSP Multi-Canal (Porta 554)':'RTSP / ONVIF (Porta 554)'))+'</dd>'+
-              '<dt>Status</dt><dd><span class="ja-state '+(isOnline?'ok':'off')+'">'+esc(status)+'</span></dd>'+
+              '<dt>Status</dt><dd id="'+statusBoxId+'" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><span id="'+badgeId+'" class="ja-state '+(isOnline?'ok':'off')+'">'+esc(status)+'</span><span style="font-size:0.75rem;color:#94a3b8;">('+esc(lastSeenText)+')</span>'+(ip?'<button type="button" class="ja-mini" style="font-size:0.68rem;padding:2px 6px;" onclick="testCameraDirect(\''+attr(camId)+'\')">Testar</button>':'')+'</dd>'+
             '</dl>'+
           '</div>'+
           actions+
@@ -3417,10 +3420,78 @@ async function renderCameras(){
       '<button id="cam-refresh" class="ja-mini" onclick="renderCameras()">ATUALIZAR</button>';
 
     moduleShell('Câmeras & visão', bodyHtml, headActions);
+
+    // Dispara teste de conectividade nao-bloqueante para cameras com IP
+    visibleCams.forEach(cam => {
+      const cid = cam.id || cam.device_id;
+      if (cam.ip_address) {
+        setTimeout(() => testCameraDirect(cid), 150);
+      }
+    });
   }catch(e){
     moduleShell('Câmeras & visão','<div class="ja-empty">Falha ao carregar câmeras: '+esc(e.message||'Erro')+'</div>');
   }
 }
+
+async function testCameraDirect(camId) {
+  const cam = findCamById(camId);
+  if (!cam) return;
+  const ip = cam.ip_address || cam.local_ip || '';
+  if (!ip) return;
+
+  const badgeId = 'cam-badge-' + String(camId).replace(/[^a-zA-Z0-9_-]/g, '_');
+  const badgeEl = document.getElementById(badgeId);
+  if (badgeEl) {
+    badgeEl.className = 'ja-state';
+    badgeEl.style.background = '#64748b';
+    badgeEl.style.color = '#fff';
+    badgeEl.textContent = 'TESTANDO...';
+  }
+
+  let online = false;
+  // 1. Tenta teste direto na LAN com timeout curto de 2s
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 2000);
+    await fetch('http://' + ip + (cam.tipo_norm === 'espcam' ? '/status' : '/'), {
+      mode: 'no-cors',
+      cache: 'no-store',
+      signal: ctrl.signal
+    });
+    clearTimeout(t);
+    online = true;
+  } catch(e) {
+    online = false;
+  }
+
+  // 2. Se falhou na LAN (ou acessando da nuvem externa), consulta probe da API
+  if (!online) {
+    try {
+      const resp = await getJson('/casa/api/camera_discovery.php?acao=probe_ip&ip=' + encodeURIComponent(ip));
+      if (resp && resp.ok && resp.camera && resp.camera.portas_abertas && resp.camera.portas_abertas.length > 0) {
+        online = true;
+      }
+    } catch(e) {}
+  }
+
+  if (badgeEl) {
+    if (online) {
+      badgeEl.className = 'ja-state ok';
+      badgeEl.removeAttribute('style');
+      badgeEl.textContent = 'ONLINE';
+      // Registra heartbeat na nuvem
+      postJson('/casa/api/camera_discovery.php?acao=heartbeat', {
+        device_id: cam.device_id || camId,
+        ip: ip
+      }).catch(() => {});
+    } else {
+      badgeEl.className = 'ja-state off';
+      badgeEl.removeAttribute('style');
+      badgeEl.textContent = 'OFFLINE';
+    }
+  }
+}
+window.testCameraDirect = testCameraDirect;
 
 function setCamFilter(filter) {
   camFilter = filter;

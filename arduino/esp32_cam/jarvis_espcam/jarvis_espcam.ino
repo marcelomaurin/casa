@@ -236,6 +236,26 @@ void handleStatus(){
   server.send(200, "application/json", j);
 }
 
+unsigned long lastHeartbeatMillis = 0;
+
+void sendHeartbeatToCasa() {
+  if (WiFi.status() != WL_CONNECTED || casa_url.isEmpty()) return;
+  HTTPClient http;
+  String url = casa_url + "/api/camera_discovery.php?acao=heartbeat&device_id=" + device_id 
+             + "&ip=" + WiFi.localIP().toString() 
+             + "&mac=" + physicalMac() 
+             + "&rssi=" + String(WiFi.RSSI());
+  http.begin(url);
+  http.setTimeout(3500);
+  int httpCode = http.GET();
+  if (httpCode > 0) {
+    Serial.printf("[HEARTBEAT] OK HTTP %d\n", httpCode);
+  } else {
+    Serial.printf("[HEARTBEAT] Erro: %s\n", http.errorToString(httpCode).c_str());
+  }
+  http.end();
+}
+
 void startCameraHttp(){
   server.stop();
   const char * headerkeys[] = {"X-Camera-Token", "User-Agent"} ;
@@ -260,6 +280,7 @@ void startCameraHttp(){
   server.begin();
   httpStarted = true;
   Serial.printf("[CASA-CAM-ONLINE] IP=%s DEVICE=%s\n", WiFi.localIP().toString().c_str(), device_id.c_str());
+  sendHeartbeatToCasa();
 }
 
 void handleSerialCommands() {
@@ -385,6 +406,11 @@ void loop(){
   if(millis() - lastSerialAnnounce >= 15000UL) {
     lastSerialAnnounce = millis();
     Serial.printf("[CASA-CAM-ONLINE] DEVICE=%s IP=%s\n", device_id.c_str(), WiFi.localIP().toString().c_str());
+  }
+
+  if(millis() - lastHeartbeatMillis >= 30000UL) {
+    lastHeartbeatMillis = millis();
+    sendHeartbeatToCasa();
   }
 
   delay(2);

@@ -22,6 +22,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.request
 from pathlib import Path
 
 try:
@@ -70,9 +71,9 @@ def sync_tokens_from_site():
         log_lcars(f"Tentativa de sincronizar tokens do site: {e}", "DEBUG")
 
 
-def load_token_vault()
-    sync_tokens_from_site():
+def load_token_vault():
     global camera_tokens
+    sync_tokens_from_site()
     if TOKEN_VAULT_FILE.exists():
         try:
             data = json.loads(TOKEN_VAULT_FILE.read_text(encoding="utf-8"))
@@ -162,7 +163,16 @@ def check_camera_node(ip: str, timeout: float = 0.4):
 
 
 def scan_network_cameras(subnet: str = SUBNET_PREFIX):
-    candidates = [f"{subnet}{i}" for i in range(1, 255)]
+    candidates = set([f"{subnet}{i}" for i in range(1, 255)])
+    # Adiciona tambem sub-rede 192.168.0.x se a padrao for 192.168.2.x
+    candidates.update([f"192.168.0.{i}" for i in range(1, 255)])
+    # Adiciona IPs conhecidos do cofre de tokens
+    for k, v in camera_tokens.items():
+        if isinstance(v, dict) and "ip" in v and v["ip"]:
+            candidates.add(v["ip"])
+        elif isinstance(k, str) and re.match(r'^\d+\.\d+\.\d+\.\d+$', k):
+            candidates.add(k)
+    candidates = list(candidates)
     found = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=40) as ex:
         results = ex.map(check_camera_node, candidates)

@@ -434,6 +434,32 @@ if ($acao === 'listar') {
                 $c['tipo_normalizado'] = 'espcam';
                 $c['tipo_label'] = 'ESP32-CAM';
             }
+
+            // Calcula status dinamico real com base no ultimo heartbeat (tolerancia de 90 segundos)
+            $now = time();
+            $lastHbTs = !empty($c['ultimo_heartbeat']) ? strtotime((string)$c['ultimo_heartbeat']) : null;
+            $diff = $lastHbTs !== null ? ($now - $lastHbTs) : null;
+            
+            // Considera online se comunicou nos ultimos 90 segundos
+            $isOnline = ($diff !== null && $diff >= 0 && $diff <= 90);
+            
+            $c['is_online'] = $isOnline;
+            $c['status'] = $isOnline ? 'online' : 'offline';
+            $c['segundos_atras'] = $diff;
+            if ($diff === null) {
+                $c['visto_por_ultimo'] = 'Nunca comunicou';
+            } elseif ($diff < 60) {
+                $c['visto_por_ultimo'] = "Há {$diff}s";
+            } elseif ($diff < 3600) {
+                $min = floor($diff / 60);
+                $c['visto_por_ultimo'] = "Há {$min}min";
+            } elseif ($diff < 86400) {
+                $h = floor($diff / 3600);
+                $c['visto_por_ultimo'] = "Há {$h}h";
+            } else {
+                $d = floor($diff / 86400);
+                $c['visto_por_ultimo'] = "Há {$d}d";
+            }
         }
         unset($c);
 
@@ -450,6 +476,68 @@ if ($acao === 'listar') {
 // -------------------------------------------------------------
 // Acao: PROBE_IP (Sondagem individual de IP)
 // -------------------------------------------------------------
+// -------------------------------------------------------------
+// Acao: HEARTBEAT (Enviado periodicamente pela ESP32-CAM ou Daemon)
+// -------------------------------------------------------------
+if ($acao === 'heartbeat') {
+    $did = preg_replace('/[^a-zA-Z0-9_-]/', '', (string)($input['device_id'] ?? $_GET['device_id'] ?? ''));
+    $ip = trim((string)($input['ip'] ?? $_GET['ip'] ?? ''));
+    $mac = trim((string)($input['mac'] ?? $_GET['mac'] ?? ''));
+    $rssi = (int)($input['rssi'] ?? $_GET['rssi'] ?? 0);
+
+    if ($did === '') {
+        cam_json(['ok' => false, 'erro' => 'device_id obrigatorio'], 400);
+    }
+
+    try {
+        $stmt = $pdo->prepare("SELECT id FROM dispositivos_cluster WHERE device_id = :did LIMIT 1");
+        $stmt->execute([':did' => $did]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($row) {
+            $stmtUp = $pdo->prepare("UPDATE dispositivos_cluster SET 
+                status = 'online', 
+                ultimo_heartbeat = NOW(), 
+                ip_address = COALESCE(NULLIF(:ip, ''), ip_address),
+                mac_address = COALESCE(NULLIF(:mac, ''), mac_address),
+                sinal_rssi = CASE WHEN :rssi != 0 THEN :rssi ELSE sinal_rssi END
+                WHERE id = :id");
+            $stmtUp->execute([
+                ':ip' => $ip,
+                ':mac' => $mac,
+                ':rssi' => $rssi,
+                ':id' => $row['id']
+            ]);
+        } else {
+            $caps = json_encode(['camera', 'espcam', 'streaming', 'mjpeg', 'flash', 'visao-ia']);
+            $meta = json_encode([
+                'stream_url' => $ip ? "http://{$ip}:80/stream" : '',
+                'snapshot_url' => $ip ? "http://{$ip}:80/capture" : ''
+            ]);
+            $stmtIn = $pdo->prepare("INSERT INTO dispositivos_cluster 
+                (device_id, nome, tipo, subtipo, ip_address, mac_address, status, sinal_rssi, ultimo_heartbeat, metadata, capabilities)
+                VALUES (:did, :nome, 'espcam', 'esp32_cam', :ip, :mac, 'online', :rssi, NOW(), :meta, :caps)");
+            $stmtIn->execute([
+                ':did' => $did,
+                ':nome' => "ESP32-CAM ({$did})",
+                ':ip' => $ip,
+                ':mac' => $mac,
+                ':rssi' => $rssi,
+                ':meta' => $meta,
+                ':caps' => $caps
+            ]);
+        }
+        cam_json([
+            'ok' => true,
+            'mensagem' => 'Heartbeat registrado com sucesso',
+            'device_id' => $did,
+            'timestamp' => date('Y-m-d H:i:s')
+        ]);
+    } catch (Throwable $e) {
+        cam_json(['ok' => false, 'erro' => $e->getMessage()], 500);
+    }
+}
+
 if ($acao === 'probe_ip') {
     $ip = trim((string)($input['ip'] ?? $_GET['ip'] ?? ''));
     if (!filter_var($ip, FILTER_VALIDATE_IP)) {
