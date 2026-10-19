@@ -434,13 +434,16 @@ def hardware_gpio_write(pin, value):
 
     # Fallback gpioset (libgpiod)
     for chip in ("0", "1", "2"):
-        p = subprocess.run(["gpioset", chip, "{0}={1}".format(pin, val)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
-        if p.returncode == 0:
-            try:
-                publish_event("gpio.changed", {"pin": pin, "value": val, "method": "gpiod_chip{0}".format(chip)})
-            except Exception:
-                pass
-            return {"pin": pin, "value": val, "ok": True, "method": "gpiod_chip{0}".format(chip)}
+        try:
+            p = subprocess.run(["gpioset", chip, "{0}={1}".format(pin, val)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            if p.returncode == 0:
+                try:
+                    publish_event("gpio.changed", {"pin": pin, "value": val, "method": "gpiod_chip{0}".format(chip)})
+                except Exception:
+                    pass
+                return {"pin": pin, "value": val, "ok": True, "method": "gpiod_chip{0}".format(chip)}
+        except (FileNotFoundError, OSError):
+            break
 
     return {"pin": pin, "value": val, "ok": False, "error": "Interface GPIO nao acessivel neste no"}
 
@@ -452,18 +455,33 @@ def hardware_gpio_read(pin):
     except Exception:
         raise ValueError("Pino GPIO invalido: {0}".format(pin))
 
-    val_file = "/sys/class/gpio/gpio{0}/value".format(pin)
+    gpio_dir = "/sys/class/gpio/gpio{0}".format(pin)
+    if not os.path.exists(gpio_dir) and os.path.exists("/sys/class/gpio/export"):
+        try:
+            with open("/sys/class/gpio/export", "w") as f:
+                f.write(str(pin))
+            time.sleep(0.05)
+        except Exception:
+            pass
+
+    val_file = "{0}/value".format(gpio_dir)
     if os.path.exists(val_file):
-        with open(val_file, "r") as f:
-            v = int(f.read().strip())
-        return {"pin": pin, "value": v, "ok": True, "method": "sysfs"}
+        try:
+            with open(val_file, "r") as f:
+                v = int(f.read().strip())
+            return {"pin": pin, "value": v, "ok": True, "method": "sysfs"}
+        except Exception as e:
+            return {"pin": pin, "value": None, "ok": False, "error": str(e)}
 
     for chip in ("0", "1", "2"):
-        p = subprocess.run(["gpioget", chip, str(pin)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, check=False)
-        if p.returncode == 0 and p.stdout.strip().isdigit():
-            return {"pin": pin, "value": int(p.stdout.strip()), "ok": True, "method": "gpiod_chip{0}".format(chip)}
+        try:
+            p = subprocess.run(["gpioget", chip, str(pin)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, check=False)
+            if p.returncode == 0 and p.stdout.strip().isdigit():
+                return {"pin": pin, "value": int(p.stdout.strip()), "ok": True, "method": "gpiod_chip{0}".format(chip)}
+        except (FileNotFoundError, OSError):
+            break
 
-    return {"pin": pin, "value": None, "ok": False, "error": "Pino GPIO nao legivel"}
+    return {"pin": pin, "value": None, "ok": False, "error": "Pino GPIO nao exportado ou sem suporte no kernel"}
 
 
 def hardware_serial_send(port, data, baudrate=9600, timeout=2.0):
