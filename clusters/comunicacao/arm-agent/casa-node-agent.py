@@ -11,6 +11,16 @@ import json
 import os
 import socket
 import subprocess
+
+
+def run_cmd(cmd, timeout=10):
+    """Executa comando externo compativel com todas as versoes de Python (2.7, 3.4+)."""
+    try:
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        out, err = p.communicate(timeout=timeout)
+        return p.returncode, out, err
+    except Exception as e:
+        return -1, "", str(e)
 import threading
 import time
 import urllib.error
@@ -349,16 +359,10 @@ def play_audio(text="", audio_url=""):
     ]
     for command in players:
         try:
-            proc = subprocess.run(
-                command,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=120,
-                check=False,
-            )
-            if proc.returncode == 0:
+            rc, _, _ = run_cmd(command, timeout=120)
+            if rc == 0:
                 return {"played": True, "player": command[0]}
-        except FileNotFoundError:
+        except Exception:
             continue
 
     raise RuntimeError("Nenhum player de audio disponivel")
@@ -435,14 +439,14 @@ def hardware_gpio_write(pin, value):
     # Fallback gpioset (libgpiod)
     for chip in ("0", "1", "2"):
         try:
-            p = subprocess.run(["gpioset", chip, "{0}={1}".format(pin, val)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
-            if p.returncode == 0:
+            rc, _, _ = run_cmd(["gpioset", chip, "{0}={1}".format(pin, val)], timeout=5)
+            if rc == 0:
                 try:
                     publish_event("gpio.changed", {"pin": pin, "value": val, "method": "gpiod_chip{0}".format(chip)})
                 except Exception:
                     pass
                 return {"pin": pin, "value": val, "ok": True, "method": "gpiod_chip{0}".format(chip)}
-        except (FileNotFoundError, OSError):
+        except Exception:
             break
 
     return {"pin": pin, "value": val, "ok": False, "error": "Interface GPIO nao acessivel neste no"}
@@ -475,10 +479,10 @@ def hardware_gpio_read(pin):
 
     for chip in ("0", "1", "2"):
         try:
-            p = subprocess.run(["gpioget", chip, str(pin)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, check=False)
-            if p.returncode == 0 and p.stdout.strip().isdigit():
-                return {"pin": pin, "value": int(p.stdout.strip()), "ok": True, "method": "gpiod_chip{0}".format(chip)}
-        except (FileNotFoundError, OSError):
+            rc, out, _ = run_cmd(["gpioget", chip, str(pin)], timeout=5)
+            if rc == 0 and out.strip().isdigit():
+                return {"pin": pin, "value": int(out.strip()), "ok": True, "method": "gpiod_chip{0}".format(chip)}
+        except Exception:
             break
 
     return {"pin": pin, "value": None, "ok": False, "error": "Pino GPIO nao exportado ou sem suporte no kernel"}
