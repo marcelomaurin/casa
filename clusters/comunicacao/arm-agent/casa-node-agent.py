@@ -364,6 +364,165 @@ def play_audio(text="", audio_url=""):
     raise RuntimeError("Nenhum player de audio disponivel")
 
 
+import glob
+
+
+def hardware_scan():
+    """Descobre portas seriais, barramentos I2C, SPI e pinos de hardware no Linux."""
+    serials = sorted(glob.glob('/dev/ttyUSB*') + glob.glob('/dev/ttyACM*') + glob.glob('/dev/ttyAMA*') + glob.glob('/dev/ttyS*'))
+    i2c_devs = sorted(glob.glob('/dev/i2c*'))
+    spi_devs = sorted(glob.glob('/dev/spidev*'))
+    gpio_chips = sorted(glob.glob('/dev/gpiochip*'))
+
+    thermal_zones = {}
+    for tz in sorted(glob.glob('/sys/class/thermal/thermal_zone*')):
+        try:
+            with open(os.path.join(tz, 'type'), 'r') as f:
+                name = f.read().strip()
+            with open(os.path.join(tz, 'temp'), 'r') as f:
+                temp_val = float(f.read().strip()) / 1000.0
+            thermal_zones[name] = round(temp_val, 1)
+        except Exception:
+            pass
+
+    return {
+        "device_id": DEVICE_ID,
+        "capabilities": CAPABILITIES,
+        "serial_ports": serials,
+        "i2c_busses": i2c_devs,
+        "spi_devices": spi_devs,
+        "gpio_chips": gpio_chips,
+        "has_sysfs_gpio": os.path.isdir('/sys/class/gpio'),
+        "thermal_zones": thermal_zones,
+    }
+
+
+def hardware_gpio_write(pin, value):
+    """Aciona saida digital GPIO ou rele via Linux sysfs ou gpiod."""
+    try:
+        pin = int(pin)
+    except Exception:
+        raise ValueError("Pino GPIO invalido: {0}".format(pin))
+    val = 1 if value in (1, True, "1", "true", "on", "ON", "ligado") else 0
+
+    gpio_dir = "/sys/class/gpio/gpio{0}".format(pin)
+    if not os.path.exists(gpio_dir) and os.path.exists("/sys/class/gpio/export"):
+        try:
+            with open("/sys/class/gpio/export", "w") as f:
+                f.write(str(pin))
+            time.sleep(0.05)
+        except Exception:
+            pass
+
+    dir_file = "{0}/direction".format(gpio_dir)
+    if os.path.exists(dir_file):
+        try:
+            with open(dir_file, "w") as f:
+                f.write("out")
+        except Exception:
+            pass
+
+    val_file = "{0}/value".format(gpio_dir)
+    if os.path.exists(val_file):
+        with open(val_file, "w") as f:
+            f.write(str(val))
+        try:
+            publish_event("gpio.changed", {"pin": pin, "value": val, "status": "ok"})
+        except Exception:
+            pass
+        return {"pin": pin, "value": val, "ok": True, "method": "sysfs"}
+
+    # Fallback gpioset (libgpiod)
+    for chip in ("0", "1", "2"):
+        p = subprocess.run(["gpioset", chip, "{0}={1}".format(pin, val)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+        if p.returncode == 0:
+            try:
+                publish_event("gpio.changed", {"pin": pin, "value": val, "method": "gpiod_chip{0}".format(chip)})
+            except Exception:
+                pass
+            return {"pin": pin, "value": val, "ok": True, "method": "gpiod_chip{0}".format(chip)}
+
+    return {"pin": pin, "value": val, "ok": False, "error": "Interface GPIO nao acessivel neste no"}
+
+
+def hardware_gpio_read(pin):
+    """Le entrada digital GPIO via Linux sysfs ou gpiod."""
+    try:
+        pin = int(pin)
+    except Exception:
+        raise ValueError("Pino GPIO invalido: {0}".format(pin))
+
+    val_file = "/sys/class/gpio/gpio{0}/value".format(pin)
+    if os.path.exists(val_file):
+        with open(val_file, "r") as f:
+            v = int(f.read().strip())
+        return {"pin": pin, "value": v, "ok": True, "method": "sysfs"}
+
+    for chip in ("0", "1", "2"):
+        p = subprocess.run(["gpioget", chip, str(pin)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, check=False)
+        if p.returncode == 0 and p.stdout.strip().isdigit():
+            return {"pin": pin, "value": int(p.stdout.strip()), "ok": True, "method": "gpiod_chip{0}".format(chip)}
+
+    return {"pin": pin, "value": None, "ok": False, "error": "Pino GPIO nao legivel"}
+
+
+def hardware_serial_send(port, data, baudrate=9600, timeout=2.0):
+    """Envia quadro de comando via Serial ou RS485 (Arduino/ESP/Rele) e le resposta."""
+    if not port or port == "auto":
+        candidates = sorted(glob.glob('/dev/ttyUSB*') + glob.glob('/dev/ttyACM*') + glob.glob('/dev/ttyS*'))
+        if not candidates:
+            return {"ok": False, "error": "Nenhuma porta serial detectada no gateway"}
+        port = candidates[0]
+
+    if isinstance(data, dict):
+        data = json.dumps(data)
+    text_data = str(data)
+    if not text_data.endswith('\n'):
+        text_data += '\n'
+
+    # 1. Tentar via biblioteca serial (pyserial)
+    try:
+        import serial
+        with serial.Serial(port, int(baudrate), timeout=float(timeout)) as ser:
+            ser.write(text_data.encode("utf-8"))
+            ser.flush()
+            response = ser.readline().decode("utf-8", errors="replace").strip()
+            try:
+                publish_event("serial.exchange", {"port": port, "command": text_data.strip(), "response": response})
+            except Exception:
+                pass
+            return {"port": port, "baudrate": baudrate, "sent": text_data.strip(), "response": response, "ok": True}
+    except ImportError:
+        pass
+    except Exception as e:
+        return {"port": port, "error": str(e), "ok": False}
+
+    # 2. Fallback via descritor de arquivo POSIX Linux
+    try:
+        fd = os.open(port, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+        try:
+            os.write(fd, text_data.encode("utf-8"))
+            time.sleep(0.15)
+            buf = b""
+            start = time.time()
+            while time.time() - start < float(timeout):
+                try:
+                    chunk = os.read(fd, 256)
+                    if chunk:
+                        buf += chunk
+                        if b"\n" in chunk:
+                            break
+                    time.sleep(0.05)
+                except (OSError, BlockingIOError):
+                    time.sleep(0.05)
+            resp = buf.decode("utf-8", errors="replace").strip()
+            return {"port": port, "baudrate": baudrate, "sent": text_data.strip(), "response": resp, "ok": True, "method": "posix"}
+        finally:
+            os.close(fd)
+    except Exception as e:
+        return {"port": port, "error": str(e), "ok": False}
+
+
 def execute_adapter(command, payload):
     """
     Dispatcher deterministico. A IA escolhe a intencao; este agente executa
@@ -392,12 +551,55 @@ def execute_adapter(command, payload):
     if command in ("cluster.check_update", "check_update"):
         return get_update_info(refresh=True)
 
-    if command in ("device.discovery", "gateway.discovery"):
-        return {
+    # Descoberta de Hardware do Gateway e No:
+    if command in ("device.discovery", "gateway.discovery", "hardware.scan", "hardware.telemetry"):
+        return hardware_scan()
+
+    # Controle de Rele e GPIO Digital:
+    if command in ("relay.set", "rele.set", "rele.ligar", "rele.desligar", "gpio.set", "gpio.write"):
+        pin = payload.get("pin", payload.get("relay", payload.get("rele", 17)))
+        state = payload.get("state", payload.get("estado", payload.get("valor", 1)))
+        if command == "rele.desligar":
+            state = 0
+        elif command == "rele.ligar":
+            state = 1
+        protocol = str(payload.get("protocol", "gpio")).lower()
+        if protocol in ("serial", "rs485"):
+            port = payload.get("port", "auto")
+            frame = "RELAY:{0}:{1}\n".format(pin, state)
+            return hardware_serial_send(port, frame)
+        return hardware_gpio_write(pin, state)
+
+    if command in ("relay.get", "rele.get", "gpio.get", "gpio.read"):
+        pin = payload.get("pin", payload.get("relay", payload.get("rele", 17)))
+        return hardware_gpio_read(pin)
+
+    # Comunicacao Serial e RS485:
+    if command in ("serial.send", "serial.command", "rs485.send", "rs485.command"):
+        port = payload.get("port", "auto")
+        data = payload.get("data", payload.get("comando", payload.get("frame", "")))
+        baudrate = int(payload.get("baudrate", 9600))
+        timeout = float(payload.get("timeout", 2.0))
+        return hardware_serial_send(port, data, baudrate=baudrate, timeout=timeout)
+
+    # Computador de Bordo - Jornada nas Estrelas (LCARS Computer):
+    if command in ("computer.command", "lcars.command", "star_trek.command"):
+        status_data = {
             "device_id": DEVICE_ID,
-            "capabilities": CAPABILITIES,
-            "message": "Discovery de adapters especificos ainda nao configurado",
+            "system": "LCARS Online",
+            "telemetry": hardware_scan(),
+            "cpu": get_cpu_info(),
+            "ram": get_ram_info(),
+            "status": "Todos os subsistemas operando nominalmente.",
         }
+        speech = payload.get("falar", False)
+        text_resp = "Computador operacional. Sensores e subsistemas respondendo nominalmente."
+        if speech:
+            try:
+                play_audio(text=text_resp)
+            except Exception:
+                pass
+        return {"status": "ok", "lcars": status_data, "resposta": text_resp}
 
     raise RuntimeError("Comando sem adapter autorizado: {0}".format(command))
 

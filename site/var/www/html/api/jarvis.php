@@ -592,11 +592,18 @@ if (strpos($comando, '/cloud') === 0 || strpos($comando, '/runpod') === 0) {
     }
 }
 
-$systemLocal = "Voce e o JARVIS, IA residencial. Seja conciso e seguro. " .
-    "Para automacao, use apenas estas tags quando realmente solicitado: " .
-    "[[CMD:LIGAR_LUZ_SALA]], [[CMD:DESLIGAR_LUZ_SALA]], [[CMD:LIGAR_IRRIGACAO]], [[CMD:DESLIGAR_IRRIGACAO]].";
-$systemCloud = "Voce e o JARVIS em modo de alta capacidade. Responda em portugues com clareza tecnica. " .
-    "Nao invente fatos atuais; quando contexto de fontes for fornecido, baseie-se nele.";
+$systemLocal = "Você é o Computador de Bordo do sistema residencial CASA/JARVIS, operando estritamente nos padrões de inteligência e interface LCARS da Frota Estelar (Star Trek: The Next Generation). " .
+    "Seja formal, objetivo, técnico e conciso como a voz clássica do Computador da Enterprise. " .
+    "Use confirmações padronizadas quando pertinente: 'Afirmativo.', 'Trabalhando...', 'Comando executado.', 'Impossível atender à solicitação: [motivo]'. " .
+    "Para automação e controle de hardware, utilize as tags: " .
+    "[[CMD:LIGAR_LUZ_SALA]], [[CMD:DESLIGAR_LUZ_SALA]], [[CMD:LIGAR_IRRIGACAO]], [[CMD:DESLIGAR_IRRIGACAO]], " .
+    "[[CMD:RELE:NUMERO:ESTADO]] (ex: [[CMD:RELE:1:1]] ou [[CMD:RELE:2:0]]), " .
+    "[[CMD:CENA:SLUG]] (ex: [[CMD:CENA:boa-noite]]), " .
+    "[[CMD:STATUS_SISTEMA]].";
+
+$systemCloud = "Você é o Computador Central de Bordo do sistema CASA/JARVIS operando em alta capacidade (Núcleo LCARS Star Trek). " .
+    "Responda em português com precisão técnica absoluta nos padrões do computador de Jornada nas Estrelas: A Nova Geração. " .
+    "Gerencie subsistemas de bordo, rede de sensores de telemetria, relés e regras determinísticas com máxima eficiência e clareza.";
 
 $resposta = false;
 $provedor = '';
@@ -733,6 +740,55 @@ if (!$resposta) {
 
 $cmdLower = mb_strtolower($comando, 'UTF-8');
 $acao = null;
+
+// Star Trek LCARS: Relatório de Status do Computador
+if (strpos($resposta, '[[CMD:STATUS_SISTEMA]]') !== false || preg_match('/(status.*sistema|relat[oó]rio.*(sistema|sensores|n[oó]s)|diagn[oó]stico)/ui', $cmdLower)) {
+    try {
+        $stNodes = $pdo->query("SELECT nome, status, ip_address FROM dispositivos_cluster WHERE status='online'");
+        $onlineNodes = $stNodes->fetchAll(PDO::FETCH_ASSOC);
+        $nomes = array_map(function($n) { return $n['nome'] . " (" . $n['ip_address'] . ")"; }, $onlineNodes);
+        $totalOnline = count($onlineNodes);
+        $resposta = "Afirmativo. Varredura do sistema concluída: {$totalOnline} subsistemas online: " . implode(', ', $nomes) . ". Todos os sensores e barramentos de automação operando nominalmente.";
+        $acao = 'Relatório LCARS de Status do Sistema';
+    } catch (Throwable $e) {}
+}
+
+// Star Trek LCARS: Acionamento Dinâmico de Relés e Atuadores de Hardware
+if (preg_match('/\[\[CMD:RELE:([a-zA-Z0-9_\-]+):([01])\]\]/', $resposta, $mRele) || preg_match('/(lig|acion|deslig|apag).*rel[eé]\s*(\d+)/ui', $cmdLower, $mReleText)) {
+    $releNum = isset($mRele[1]) ? (int)$mRele[1] : (int)$mReleText[2];
+    $releState = isset($mRele[2]) ? (int)$mRele[2] : (preg_match('/(deslig|apag)/ui', $cmdLower) ? 0 : 1);
+    try {
+        $stDev = $pdo->query("SELECT device_id FROM dispositivos_cluster WHERE capabilities LIKE '%hardware-gateway%' OR capabilities LIKE '%relay%' ORDER BY id ASC LIMIT 1");
+        $targetDev = $stDev->fetchColumn() ?: 'cubieboard-arm-07';
+        $stCmd = $pdo->prepare("INSERT INTO device_commands (device_id, correlation_id, comando, payload, status, lifecycle_status, requested_by) VALUES (:d, :c, 'relay.set', :p, 'PENDENTE', 'ENQUEUED', 'COMPUTER')");
+        $stCmd->execute([
+            ':d' => $targetDev,
+            ':c' => (string)$taskContext['correlation_id'],
+            ':p' => json_encode(['relay' => $releNum, 'state' => $releState], JSON_UNESCAPED_UNICODE)
+        ]);
+        $acao = "Relé {$releNum} definido como " . ($releState ? "LIGADO" : "DESLIGADO") . " no nó {$targetDev}";
+        if (strpos($resposta, 'Afirmativo') === false) {
+            $resposta = "Afirmativo. Comando transmitido ao nó {$targetDev}. " . $resposta;
+        }
+    } catch (Throwable $e) {}
+}
+
+// Star Trek LCARS: Disparo de Cenas Operacionais
+if (preg_match('/\[\[CMD:CENA:([a-zA-Z0-9_\-]+)\]\]/', $resposta, $mCena) || preg_match('/(ativar|executar|iniciar)\s*cena\s*([a-zA-Z0-9_\-]+)/ui', $cmdLower, $mCenaText) || preg_match('/modo\s*(boa[\s\-]noite)/ui', $cmdLower)) {
+    $cenaSlug = isset($mCena[1]) ? $mCena[1] : (isset($mCenaText[2]) ? $mCenaText[2] : 'boa-noite');
+    try {
+        require_once(__DIR__ . '/automation_common.php');
+        $stCena = $pdo->prepare("SELECT id, nome FROM cenas WHERE slug = :s OR slug LIKE :s2 LIMIT 1");
+        $stCena->execute([':s' => $cenaSlug, ':s2' => "%{$cenaSlug}%"]);
+        $cenaRow = $stCena->fetch(PDO::FETCH_ASSOC);
+        if ($cenaRow) {
+            au_execute_scene($pdo, (int)$cenaRow['id'], 'COMPUTER');
+            $acao = "Cena executada: " . $cenaRow['nome'];
+            $resposta = "Afirmativo. Protocolo da cena '" . $cenaRow['nome'] . "' iniciado em todos os setores.";
+        }
+    } catch (Throwable $e) {}
+}
+
 if (strpos($resposta, '[[CMD:LIGAR_LUZ_SALA]]') !== false || (preg_match('/(lig|acend).*(luz|sala)/u', $cmdLower) && !preg_match('/deslig|apag/u', $cmdLower))) {
     qryExec("UPDATE devpar SET devvalue='1', atualizado_em=CURRENT_TIMESTAMP WHERE iddevice=1 AND devparname='dev1'");
     qryExec("INSERT INTO comandos_log (iddevice,comando,origem,resultado) VALUES (1,'Ligar Luz Sala','JARVIS_AI','Executado')");
