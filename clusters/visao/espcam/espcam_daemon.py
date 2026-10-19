@@ -43,6 +43,10 @@ CONTROL_PORT = 8088
 is_leader = True
 camera_tokens = {}  # {device_id: {"token": ..., "ip": ...}}
 known_cameras = {}  # {device_id: {"ip": ..., "last_seen": ...}}
+HOUSE_WIFIS_FILE = Path(os.path.expanduser("~/.casa/house_wifis.json"))
+house_wifis = []
+last_wifi_survey_time = 0
+last_wifi_sync_time = 0
 
 
 def log_lcars(message: str, level: str = "INFO"):
@@ -199,6 +203,94 @@ def fetch_camera_snapshot(ip: str, token: str) -> bytes:
     return None
 
 
+
+def sync_house_wifis_from_site():
+    global house_wifis
+    try:
+        url = f"{CASA_SERVER.rstrip('/')}/api/camera_discovery.php?acao=get_house_wifis"
+        req = urllib.request.Request(url, headers={"User-Agent": "CASA-VisionDaemon/1.0"})
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            wifis = data.get("wifis", [])
+            if isinstance(wifis, list) and wifis:
+                house_wifis = wifis
+                try:
+                    HOUSE_WIFIS_FILE.parent.mkdir(parents=True, exist_ok=True)
+                    HOUSE_WIFIS_FILE.write_text(json.dumps(house_wifis, indent=2, ensure_ascii=False), encoding="utf-8")
+                except Exception:
+                    pass
+                log_lcars(f"Redes Wi-Fi da casa sincronizadas do site: {len(house_wifis)} rede(s) ativa(s).", "WIFI_SYNC")
+    except Exception as e:
+        log_lcars(f"Tentativa de sincronizar Wi-Fi da casa do site: {e}", "DEBUG")
+        if HOUSE_WIFIS_FILE.exists():
+            try:
+                house_wifis = json.loads(HOUSE_WIFIS_FILE.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+
+
+def push_wifis_to_camera(ip: str, token: str):
+    """Envia a lista de redes Wi-Fi da casa para a ESP32-CAM."""
+    if not house_wifis:
+        return
+    url = f"http://{ip}/config/wifis"
+    headers = {"X-Camera-Token": token, "Content-Type": "application/json"}
+    payload = json.dumps({"wifis": house_wifis})
+    try:
+        if requests:
+            r = requests.post(url, headers=headers, data=payload, timeout=3.0)
+            if r.status_code == 200:
+                log_lcars(f"Redes Wi-Fi da casa ({len(house_wifis)}) repassadas para cÃ¢mera em {ip}.", "WIFI_PUSH")
+        else:
+            req = urllib.request.Request(url, data=payload.encode("utf-8"), headers=headers, method="POST")
+            with urllib.request.urlopen(req, timeout=3.0) as resp:
+                pass
+    except Exception as e:
+        log_lcars(f"Falha ao repassar redes Wi-Fi para {ip}: {e}", "DEBUG")
+
+
+def collect_and_report_wifi_survey(device_id: str, ip: str, token: str):
+    """Coleta o survey de sinal das redes Wi-Fi da camera e repassa para a CASA gravar a cada minuto."""
+    url = f"http://{ip}/wifi_survey"
+    headers = {"X-Camera-Token": token}
+    survey_data = None
+    try:
+        if requests:
+            r = requests.get(url, headers=headers, timeout=4.0)
+            if r.status_code == 200:
+                survey_data = r.json()
+        else:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=4.0) as resp:
+                survey_data = json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        log_lcars(f"Falha ao coletar survey Wi-Fi de [{device_id}] em {ip}: {e}", "DEBUG")
+        return
+
+    if not survey_data:
+        return
+
+    report_url = f"{CASA_SERVER.rstrip('/')}/api/camera_discovery.php?acao=report_wifi_scan"
+    payload = {
+        "device_id": device_id,
+        "ip": ip,
+        "wifi_conectado": survey_data.get("connected_ssid", ""),
+        "rssi_conectado": survey_data.get("connected_rssi", 0),
+        "redes_detectadas": survey_data.get("wifis", [])
+    }
+    try:
+        if requests:
+            res = requests.post(report_url, json=payload, timeout=5.0, verify=False)
+            if res.status_code == 200:
+                log_lcars(f"Telemetria de forca Wi-Fi de [{device_id}] gravada no CASA (Ativo: {payload['wifi_conectado']} {payload['rssi_conectado']} dBm, Redes: {len(payload['redes_detectadas'])}).", "WIFI_SURVEY")
+        else:
+            post_data = json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(report_url, data=post_data, headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=5.0) as resp:
+                pass
+    except Exception as e:
+        log_lcars(f"Erro ao enviar relatorio de Wi-Fi para CASA: {e}", "WARN")
+
 def upload_snapshot_to_casa(device_id: str, ip: str, img_bytes: bytes):
     """Envia o frame capturado para o site central CASA (maurinsoft.com.br)."""
     url = f"{CASA_SERVER}/api/camera_discovery.php?acao=upload_snapshot"
@@ -226,6 +318,7 @@ def run_daemon_loop(interval_sec: float = 8.0):
     global is_leader
     log_lcars("=== COMPUTADOR CENTRAL LCARS - DAEMON ÚNICO DE CÂMERAS ATIVADO ===", "START")
     load_token_vault()
+    sync_house_wifis_from_site()
     start_control_server()
 
     # Diretorio local de gravacao temporaria
@@ -269,6 +362,26 @@ def run_daemon_loop(interval_sec: float = 8.0):
 
                     # Envia para a Nuvem CASA
                     upload_snapshot_to_casa(did, ip, frame_data)
+
+            # 3. Coleta e repassa survey de sinal Wi-Fi a cada 1 minuto (60s)
+            now = time.time()
+            if now - last_wifi_survey_time >= 60.0:
+                last_wifi_survey_time = now
+                sync_house_wifis_from_site()
+                for did, info in known_cameras.items():
+                    c_ip = info.get("ip")
+                    tok_entry = camera_tokens.get(did)
+                    if not tok_entry:
+                        for k, v in camera_tokens.items():
+                            if k in did or did in k:
+                                tok_entry = v
+                                break
+                    if tok_entry and c_ip:
+                        t = tok_entry.get("token")
+                        # Repassa redes cadastradas da casa para a camera
+                        push_wifis_to_camera(c_ip, t)
+                        # Coleta medicao de sinal e grava na nuvem CASA
+                        collect_and_report_wifi_survey(did, c_ip, t)
 
         except Exception as e:
             log_lcars(f"Anomalia no ciclo do daemon: {e}", "ERRO")

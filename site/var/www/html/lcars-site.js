@@ -3393,6 +3393,42 @@ async function renderCameras(){
           actions = '<div style="opacity:0.6;font-size:0.85rem;margin-top:8px;">Aguardando IP / Offline</div>';
         }
 
+        // Telemetria de Wi-Fi da Casa e Medicao
+        const wifiSsid = cam.meta?.wifi_ssid || cam.meta?.wifi || '';
+        const wifiRssi = (typeof cam.sinal_rssi === 'number' && cam.sinal_rssi !== 0) ? cam.sinal_rssi : (cam.meta?.wifi_rssi || null);
+        const wifiSurvey = Array.isArray(cam.meta?.wifi_survey) ? cam.meta.wifi_survey : [];
+
+        let wifiMeterHtml = '';
+        if (wifiSsid || wifiSurvey.length > 0 || cam.tipo_norm === 'espcam') {
+          let surveyItems = wifiSurvey.map(ws => {
+            const sName = esc(ws.ssid || 'Wi-Fi');
+            const sRssi = parseInt(ws.rssi, 10);
+            const isConn = Boolean(ws.connected || (wifiSsid && ws.ssid === wifiSsid));
+            let color = '#22c55e';
+            if (sRssi <= -80 || isNaN(sRssi) || sRssi <= -900) {
+              color = '#ef4444';
+            } else if (sRssi <= -70) {
+              color = '#f59e0b';
+            } else if (sRssi <= -60) {
+              color = '#38bdf8';
+            }
+            const rssiDisp = (sRssi > -200 && sRssi < 0) ? sRssi + ' dBm' : 'Sem sinal';
+            return '<div style="display:flex;justify-content:space-between;align-items:center;background:#050811;border:1px solid '+(isConn?'#38bdf8':'#1e293b')+';padding:4px 8px;border-radius:6px;font-size:0.75rem;margin-bottom:3px;">'+
+              '<span style="color:'+(isConn?'#38bdf8':'#cbd5e1')+';font-weight:'+(isConn?'bold':'normal')+';">📶 '+sName+(isConn?' <span style="color:#22c55e;font-size:0.68rem;">(Conectado)</span>':'')+'</span>'+
+              '<span style="color:'+color+';font-weight:bold;">'+rssiDisp+'</span>'+
+            '</div>';
+          }).join('');
+
+          wifiMeterHtml =
+            '<div style="margin-top:8px;padding-top:6px;border-top:1px dashed #1e293b;">'+
+              '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">'+
+                '<strong style="font-size:0.78rem;color:#f59e0b;">SINAL WI-FI DA CASA (GRAVAÇÃO)</strong>'+
+                '<button type="button" class="ja-mini" style="font-size:0.65rem;padding:1px 5px;" onclick="openWifiSurveyHistoryModal(\''+attr(camId)+'\')">Histórico</button>'+
+              '</div>'+
+              (surveyItems || '<div style="font-size:0.75rem;color:#94a3b8;">Aguardando telemetria de sinal da câmera...</div>')+
+            '</div>';
+        }
+
         return '<article class="ja-native-card" style="display:flex;flex-direction:column;justify-content:space-between;">'+
           '<div>'+
             '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px;">'+
@@ -3406,6 +3442,7 @@ async function renderCameras(){
               '<dt>Protocolo</dt><dd>'+(cam.tipo_norm==='espcam'?'HTTP / MJPEG':(cam.tipo_norm==='cftv'?'RTSP Multi-Canal (Porta 554)':'RTSP / ONVIF (Porta 554)'))+'</dd>'+
               '<dt>Status</dt><dd id="'+statusBoxId+'" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><span id="'+badgeId+'" class="ja-state '+(isOnline?'ok':'off')+'">'+esc(status)+'</span><span style="font-size:0.75rem;color:#94a3b8;">('+esc(lastSeenText)+')</span>'+(ip?'<button type="button" class="ja-mini" style="font-size:0.68rem;padding:2px 6px;" onclick="testCameraDirect(\''+attr(camId)+'\')">Testar</button>':'')+'</dd>'+
             '</dl>'+
+            wifiMeterHtml+
           '</div>'+
           actions+
         '</article>';
@@ -3415,6 +3452,7 @@ async function renderCameras(){
     }
 
     const headActions =
+      '<button id="cam-wifi-btn" class="ja-mini" style="background:#0284c7;color:#fff;font-weight:bold;margin-right:4px;" onclick="openHouseWifiModal()">📶 WI-FI DA CASA</button>'+
       '<button id="cam-discover" class="ja-mini primary" style="font-weight:900;" onclick="openCameraDiscoveryWizard()">🔍 BUSCAR CÂMERAS</button>'+
       '<button id="cam-add-btn" class="ja-mini" onclick="openCameraEditorModal()">+ NOVA CÂMERA</button>'+
       '<button id="cam-refresh" class="ja-mini" onclick="renderCameras()">ATUALIZAR</button>';
@@ -3492,6 +3530,148 @@ async function testCameraDirect(camId) {
   }
 }
 window.testCameraDirect = testCameraDirect;
+
+
+// -------------------------------------------------------------
+// GESTAO DAS REDES WI-FI DA CASA (LCARS)
+// -------------------------------------------------------------
+async function openHouseWifiModal() {
+  document.getElementById('ja-house-wifi-modal')?.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'ja-house-wifi-modal';
+  modal.className = 'ja-schedule-backdrop';
+  modal.innerHTML =
+    '<section class="ja-schedule-modal" style="width:min(680px,96vw);" role="dialog">'+
+      '<header style="background:var(--ja-blue,#0284c7);color:#fff;display:flex;justify-content:space-between;align-items:center;padding:12px 16px;">'+
+        '<strong style="font-size:1.05rem;">📶 REDES WI-FI DA CASA (DISTRIBUIÇÃO AUTOMÁTICA)</strong>'+
+        '<button type="button" onclick="document.getElementById(\'ja-house-wifi-modal\').remove()" style="background:#111;color:#fff;border:0;border-radius:10px;padding:6px 12px;font-weight:bold;cursor:pointer;">FECHAR</button>'+
+      '</header>'+
+      '<div style="padding:16px;">'+
+        '<div style="background:#0b1120;border:1px solid #1e293b;border-radius:10px;padding:12px;margin-bottom:14px;font-size:0.85rem;color:#cbd5e1;line-height:1.4;">'+
+          'ℹ <b>Como funciona:</b> Todas as redes Wi-Fi cadastradas aqui são consultadas pelo Daemon da Casa e repassadas automaticamente para cada ESP32-CAM. '+
+          'Antes de se conectar, a câmera escaneia o ambiente e seleciona automaticamente a rede com o <b>melhor sinal RSSI</b> para garantir transmissão fluida sem congelamentos.'+
+        '</div>'+
+        '<div id="ja-house-wifi-list" style="margin-bottom:16px;">Carregando redes da casa...</div>'+
+        '<div style="background:#0f172a;border:1px solid #334155;border-radius:10px;padding:14px;">'+
+          '<h4 style="margin:0 0 10px;color:#38bdf8;font-size:0.95rem;">+ Adicionar Nova Rede Wi-Fi</h4>'+
+          '<form id="ja-form-add-wifi" onsubmit="saveHouseWifi(event)" style="display:flex;flex-direction:column;gap:10px;">'+
+            '<div style="display:flex;gap:10px;flex-wrap:wrap;">'+
+              '<input type="text" id="wifi-new-ssid" placeholder="Nome da Rede (SSID)" required style="flex:1;min-width:180px;background:#050811;border:1px solid #38bdf8;color:#fff;padding:8px 12px;border-radius:8px;">'+
+              '<input type="text" id="wifi-new-pass" placeholder="Senha do Wi-Fi" required style="flex:1;min-width:180px;background:#050811;border:1px solid #38bdf8;color:#fff;padding:8px 12px;border-radius:8px;">'+
+              '<button type="submit" class="ja-btn primary" style="padding:8px 16px;">SALVAR REDE</button>'+
+            '</div>'+
+          '</form>'+
+        '</div>'+
+      '</div>'+
+    '</section>';
+
+  document.body.appendChild(modal);
+  await loadHouseWifiList();
+}
+
+async function loadHouseWifiList() {
+  const container = document.getElementById('ja-house-wifi-list');
+  if (!container) return;
+  try {
+    const resp = await getJson('/casa/api/camera_discovery.php?acao=get_house_wifis');
+    const wifis = resp?.wifis || [];
+    if (!wifis.length) {
+      container.innerHTML = '<div style="color:#94a3b8;font-size:0.9rem;">Nenhuma rede Wi-Fi cadastrada. Adicione uma rede abaixo.</div>';
+      return;
+    }
+    const html = wifis.map(w => {
+      return '<div style="display:flex;justify-content:space-between;align-items:center;background:#050811;border:1px solid #1e293b;padding:10px 14px;border-radius:8px;margin-bottom:8px;">'+
+        '<div>'+
+          '<strong style="color:#38bdf8;font-size:0.95rem;">📶 '+esc(w.ssid)+'</strong>'+
+          '<div style="font-size:0.75rem;color:#94a3b8;margin-top:2px;">Senha: <span style="font-family:monospace;color:#cbd5e1;">'+esc(w.senha || '••••••••')+'</span> · Prioridade: '+esc(w.prioridade)+'</div>'+
+        '</div>'+
+        '<button type="button" class="ja-mini danger" onclick="deleteHouseWifi('+w.id+',\''+esc(w.ssid)+'\')">EXCLUIR</button>'+
+      '</div>';
+    }).join('');
+    container.innerHTML = html;
+  } catch(e) {
+    container.innerHTML = '<div style="color:#ef4444;">Erro ao carregar redes: '+esc(e.message||'Falha')+'</div>';
+  }
+}
+
+async function saveHouseWifi(e) {
+  e.preventDefault();
+  const ssid = document.getElementById('wifi-new-ssid')?.value?.trim();
+  const senha = document.getElementById('wifi-new-pass')?.value?.trim();
+  if (!ssid) return;
+  try {
+    await postJson('/casa/api/camera_discovery.php?acao=save_house_wifi', { ssid, senha, prioridade: 1 });
+    document.getElementById('wifi-new-ssid').value = '';
+    document.getElementById('wifi-new-pass').value = '';
+    await loadHouseWifiList();
+    alert('Rede Wi-Fi "' + ssid + '" salva com sucesso! O Daemon da casa irá distribuí-la para as câmeras.');
+  } catch(err) {
+    alert('Erro ao salvar rede Wi-Fi: ' + (err.message || 'Falha'));
+  }
+}
+
+async function deleteHouseWifi(id, ssid) {
+  if (!confirm('Deseja realmente remover a rede Wi-Fi "' + ssid + '" da casa?')) return;
+  try {
+    await postJson('/casa/api/camera_discovery.php?acao=delete_house_wifi', { id, ssid });
+    await loadHouseWifiList();
+  } catch(err) {
+    alert('Erro ao remover rede: ' + (err.message || 'Falha'));
+  }
+}
+
+async function openWifiSurveyHistoryModal(camId) {
+  document.getElementById('ja-wifi-survey-modal')?.remove();
+  const modal = document.createElement('div');
+  modal.id = 'ja-wifi-survey-modal';
+  modal.className = 'ja-schedule-backdrop';
+  modal.innerHTML =
+    '<section class="ja-schedule-modal" style="width:min(720px,96vw);" role="dialog">'+
+      '<header style="background:var(--ja-orange,#f59e0b);color:#111;display:flex;justify-content:space-between;align-items:center;padding:12px 16px;">'+
+        '<strong style="font-size:1.05rem;">📊 HISTÓRICO DE SINAL WI-FI (COLETA A CADA 1 MINUTO)</strong>'+
+        '<button type="button" onclick="document.getElementById(\'ja-wifi-survey-modal\').remove()" style="background:#111;color:#fff;border:0;border-radius:10px;padding:6px 12px;font-weight:bold;cursor:pointer;">FECHAR</button>'+
+      '</header>'+
+      '<div id="ja-wifi-survey-body" style="padding:16px;max-height:65vh;overflow-y:auto;">'+
+        'Carregando histórico gravado...'+
+      '</div>'+
+    '</section>';
+  document.body.appendChild(modal);
+
+  try {
+    const resp = await getJson('/casa/api/camera_discovery.php?acao=get_wifi_survey&device_id=' + encodeURIComponent(camId));
+    const list = resp?.surveys || [];
+    const body = document.getElementById('ja-wifi-survey-body');
+    if (!list.length) {
+      body.innerHTML = '<div style="color:#94a3b8;padding:20px;text-align:center;">Nenhuma medição registrada ainda para este dispositivo pelo daemon.</div>';
+      return;
+    }
+    const rows = list.map(s => {
+      const redesHtml = (s.redes_detectadas || []).map(r => {
+        return '<span style="background:#1e293b;padding:2px 6px;border-radius:4px;font-size:0.75rem;margin-right:4px;">'+esc(r.ssid)+': <b>'+esc(r.rssi)+' dBm</b></span>';
+      }).join(' ');
+      return '<tr style="border-bottom:1px solid #1e293b;">'+
+        '<td style="padding:8px;font-size:0.8rem;color:#cbd5e1;">'+esc(s.coletado_em)+'</td>'+
+        '<td style="padding:8px;font-size:0.8rem;color:#38bdf8;font-weight:bold;">'+esc(s.wifi_conectado || '—')+' ('+esc(s.rssi_conectado)+' dBm)</td>'+
+        '<td style="padding:8px;">'+redesHtml+'</td>'+
+      '</tr>';
+    }).join('');
+    body.innerHTML =
+      '<table style="width:100%;border-collapse:collapse;font-size:0.85rem;">'+
+        '<thead><tr style="border-bottom:2px solid #334155;text-align:left;color:#94a3b8;">'+
+          '<th style="padding:8px;">Data/Hora</th><th style="padding:8px;">Conectado</th><th style="padding:8px;">Força das Redes da Casa</th>'+
+        '</tr></thead>'+
+        '<tbody>'+rows+'</tbody>'+
+      '</table>';
+  } catch(e) {
+    document.getElementById('ja-wifi-survey-body').innerHTML = '<div style="color:#ef4444;">Erro ao carregar telemetria: '+esc(e.message||'Falha')+'</div>';
+  }
+}
+
+window.openHouseWifiModal = openHouseWifiModal;
+window.saveHouseWifi = saveHouseWifi;
+window.deleteHouseWifi = deleteHouseWifi;
+window.openWifiSurveyHistoryModal = openWifiSurveyHistoryModal;
 
 function setCamFilter(filter) {
   camFilter = filter;

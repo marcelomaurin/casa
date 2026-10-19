@@ -28,10 +28,42 @@ function cam_json(array $payload, int $status = 200): never
 
 $pdo = get_db_pdo();
 
-// Assegura colunas necessarias em dispositivos_cluster
+// Assegura tabelas necessarias para Redes Wi-Fi da Casa e Medicao/Survey
 try {
     $pdo->exec("ALTER TABLE dispositivos_cluster ADD COLUMN IF NOT EXISTS metadata JSON NULL");
     $pdo->exec("ALTER TABLE dispositivos_cluster ADD COLUMN IF NOT EXISTS capabilities JSON NULL");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS redes_wifi_casa (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        ssid VARCHAR(64) NOT NULL,
+        senha VARCHAR(64) NOT NULL,
+        prioridade INT NOT NULL DEFAULT 1,
+        ativo TINYINT(1) NOT NULL DEFAULT 1,
+        criado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        atualizado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uk_redes_wifi_ssid (ssid)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS camera_wifi_survey (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        device_id VARCHAR(120) NOT NULL,
+        ip_address VARCHAR(45) NULL,
+        wifi_conectado VARCHAR(64) NULL,
+        rssi_conectado INT NULL,
+        redes_detectadas JSON NOT NULL,
+        coletado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        KEY idx_cws_device (device_id, coletado_em)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+    // Popula com redes padrao caso esteja vazia
+    $cnt = (int)$pdo->query("SELECT COUNT(*) FROM redes_wifi_casa")->fetchColumn();
+    if ($cnt === 0) {
+        $pdo->exec("INSERT IGNORE INTO redes_wifi_casa (ssid, senha, prioridade, ativo) VALUES
+            ('JARVIS_NET', 'senha123', 1, 1),
+            ('MaurinSoft', 'senha123', 2, 1),
+            ('CASA_VISITANTES', 'senha123', 3, 1)");
+    }
 } catch (Throwable $ignored) {}
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
@@ -474,6 +506,175 @@ if ($acao === 'listar') {
 }
 
 // -------------------------------------------------------------
+
+// -------------------------------------------------------------
+// Acao: GET_HOUSE_WIFIS (Retorna todas as redes Wi-Fi da casa para o daemon distribuir)
+// -------------------------------------------------------------
+if ($acao === 'get_house_wifis') {
+    $wifis = [];
+    try {
+        $stmt = $pdo->query("SELECT id, ssid, senha, prioridade, ativo, atualizado_em FROM redes_wifi_casa WHERE ativo = 1 ORDER BY prioridade ASC, id ASC");
+        $wifis = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) {}
+
+    cam_json([
+        'ok' => true,
+        'total' => count($wifis),
+        'wifis' => $wifis
+    ]);
+}
+
+// -------------------------------------------------------------
+// Acao: SAVE_HOUSE_WIFI (Cadastra ou edita uma rede Wi-Fi da casa)
+// -------------------------------------------------------------
+if ($acao === 'save_house_wifi') {
+    $id = (int)($input['id'] ?? $_GET['id'] ?? 0);
+    $ssid = trim((string)($input['ssid'] ?? $_GET['ssid'] ?? ''));
+    $senha = trim((string)($input['senha'] ?? $input['pass'] ?? $_GET['senha'] ?? ''));
+    $prio = (int)($input['prioridade'] ?? $_GET['prioridade'] ?? 1);
+    $ativo = (int)($input['ativo'] ?? $_GET['ativo'] ?? 1);
+
+    if ($ssid === '') {
+        cam_json(['ok' => false, 'erro' => 'SSID obrigatorio'], 400);
+    }
+
+    try {
+        if ($id > 0) {
+            $stmt = $pdo->prepare("UPDATE redes_wifi_casa SET ssid = :ssid, senha = :senha, prioridade = :prio, ativo = :ativo WHERE id = :id");
+            $stmt->execute([':ssid' => $ssid, ':senha' => $senha, ':prio' => $prio, ':ativo' => $ativo, ':id' => $id]);
+        } else {
+            $stmt = $pdo->prepare("INSERT INTO redes_wifi_casa (ssid, senha, prioridade, ativo) VALUES (:ssid, :senha, :prio, :ativo)
+                ON DUPLICATE KEY UPDATE senha = VALUES(senha), prioridade = VALUES(prioridade), ativo = VALUES(ativo)");
+            $stmt->execute([':ssid' => $ssid, ':senha' => $senha, ':prio' => $prio, ':ativo' => $ativo]);
+        }
+        cam_json(['ok' => true, 'mensagem' => 'Rede Wi-Fi salva com sucesso']);
+    } catch (Throwable $e) {
+        cam_json(['ok' => false, 'erro' => $e->getMessage()], 500);
+    }
+}
+
+// -------------------------------------------------------------
+// Acao: DELETE_HOUSE_WIFI (Remove uma rede Wi-Fi da casa)
+// -------------------------------------------------------------
+if ($acao === 'delete_house_wifi') {
+    $id = (int)($input['id'] ?? $_GET['id'] ?? 0);
+    $ssid = trim((string)($input['ssid'] ?? $_GET['ssid'] ?? ''));
+
+    try {
+        if ($id > 0) {
+            $stmt = $pdo->prepare("DELETE FROM redes_wifi_casa WHERE id = :id");
+            $stmt->execute([':id' => $id]);
+        } elseif ($ssid !== '') {
+            $stmt = $pdo->prepare("DELETE FROM redes_wifi_casa WHERE ssid = :ssid");
+            $stmt->execute([':ssid' => $ssid]);
+        } else {
+            cam_json(['ok' => false, 'erro' => 'id ou ssid obrigatorio'], 400);
+        }
+        cam_json(['ok' => true, 'mensagem' => 'Rede Wi-Fi excluida com sucesso']);
+    } catch (Throwable $e) {
+        cam_json(['ok' => false, 'erro' => $e->getMessage()], 500);
+    }
+}
+
+// -------------------------------------------------------------
+// Acao: REPORT_WIFI_SCAN (Recebe medicao de sinal de Wi-Fi coletada pelo daemon a cada minuto)
+// -------------------------------------------------------------
+if ($acao === 'report_wifi_scan') {
+    $did = preg_replace('/[^a-zA-Z0-9_-]/', '', (string)($input['device_id'] ?? $_GET['device_id'] ?? ''));
+    $ip = trim((string)($input['ip'] ?? $_GET['ip'] ?? ''));
+    $wifiConectado = trim((string)($input['wifi_conectado'] ?? $input['connected_ssid'] ?? ''));
+    $rssiConectado = (int)($input['rssi_conectado'] ?? $input['connected_rssi'] ?? $input['rssi'] ?? 0);
+    $redes = $input['redes_detectadas'] ?? $input['wifis'] ?? [];
+
+    if ($did === '') {
+        cam_json(['ok' => false, 'erro' => 'device_id obrigatorio'], 400);
+    }
+
+    $redesJson = json_encode(is_array($redes) ? $redes : [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    try {
+        // Grava telemetria historica de medicao de wifi da casa
+        $stmtHist = $pdo->prepare("INSERT INTO camera_wifi_survey (device_id, ip_address, wifi_conectado, rssi_conectado, redes_detectadas, coletado_em)
+            VALUES (:did, :ip, :wifi, :rssi, :redes, NOW())");
+        $stmtHist->execute([
+            ':did' => $did,
+            ':ip' => $ip,
+            ':wifi' => $wifiConectado,
+            ':rssi' => $rssiConectado,
+            ':redes' => $redesJson
+        ]);
+
+        // Atualiza metadata e sinal do dispositivo
+        $stmtDev = $pdo->prepare("SELECT id, metadata FROM dispositivos_cluster WHERE device_id = :did LIMIT 1");
+        $stmtDev->execute([':did' => $did]);
+        $rowDev = $stmtDev->fetch(PDO::FETCH_ASSOC);
+
+        if ($rowDev) {
+            $meta = json_decode($rowDev['metadata'] ?: '{}', true) ?: [];
+            $meta['wifi_survey'] = is_array($redes) ? $redes : [];
+            $meta['wifi_ssid'] = $wifiConectado;
+            $meta['wifi_rssi'] = $rssiConectado;
+            $meta['wifi_updated_at'] = date('Y-m-d H:i:s');
+            $metaJson = json_encode($meta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+            $stmtUp = $pdo->prepare("UPDATE dispositivos_cluster SET
+                sinal_rssi = :rssi,
+                ultimo_heartbeat = NOW(),
+                status = 'online',
+                metadata = :meta
+                WHERE id = :id");
+            $stmtUp->execute([
+                ':rssi' => $rssiConectado,
+                ':meta' => $metaJson,
+                ':id' => $rowDev['id']
+            ]);
+        }
+
+        cam_json([
+            'ok' => true,
+            'mensagem' => 'Medicao de Wi-Fi gravada com sucesso no CASA',
+            'device_id' => $did,
+            'wifi_conectado' => $wifiConectado,
+            'rssi' => $rssiConectado,
+            'redes_detectadas' => is_array($redes) ? count($redes) : 0
+        ]);
+    } catch (Throwable $e) {
+        cam_json(['ok' => false, 'erro' => $e->getMessage()], 500);
+    }
+}
+
+// -------------------------------------------------------------
+// Acao: GET_WIFI_SURVEY (Consulta historico de forca das redes Wi-Fi)
+// -------------------------------------------------------------
+if ($acao === 'get_wifi_survey') {
+    $did = preg_replace('/[^a-zA-Z0-9_-]/', '', (string)($_GET['device_id'] ?? ''));
+    $limit = min(50, max(1, (int)($_GET['limit'] ?? 20)));
+
+    try {
+        if ($did !== '') {
+            $stmt = $pdo->prepare("SELECT id, device_id, ip_address, wifi_conectado, rssi_conectado, redes_detectadas, coletado_em
+                FROM camera_wifi_survey WHERE device_id = :did ORDER BY coletado_em DESC LIMIT :lim");
+            $stmt->bindValue(':did', $did);
+            $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
+            $stmt->execute();
+        } else {
+            $stmt = $pdo->prepare("SELECT id, device_id, ip_address, wifi_conectado, rssi_conectado, redes_detectadas, coletado_em
+                FROM camera_wifi_survey ORDER BY coletado_em DESC LIMIT :lim");
+            $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
+            $stmt->execute();
+        }
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows as &$r) {
+            $r['redes_detectadas'] = json_decode($r['redes_detectadas'] ?: '[]', true);
+        }
+        unset($r);
+        cam_json(['ok' => true, 'total' => count($rows), 'surveys' => $rows]);
+    } catch (Throwable $e) {
+        cam_json(['ok' => false, 'erro' => $e->getMessage()], 500);
+    }
+}
+
+
 // Acao: PROBE_IP (Sondagem individual de IP)
 // -------------------------------------------------------------
 // -------------------------------------------------------------

@@ -58,6 +58,116 @@ const char* DEFAULT_SSIDS[] = {"maurinsrv_1", "maurin_pwl", "maurin-cinema"};
 const char* DEFAULT_PASSWORDS[] = {"1425361425", "1425361425", ""};
 const int NUM_DEFAULT_NETWORKS = 3;
 
+struct HouseWifiNetwork {
+  String ssid;
+  String pass;
+  int priority;
+};
+
+#define MAX_HOUSE_WIFIS 12
+HouseWifiNetwork houseWifis[MAX_HOUSE_WIFIS];
+int numHouseWifis = 0;
+unsigned long lastWifiSurveyTime = 0;
+String cachedSurveyJson = "[]";
+
+void loadHouseWifis() {
+  preferences.begin(NVS_NAMESPACE, true);
+  String jsonStr = preferences.getString("house_wifis", "");
+  preferences.end();
+
+  numHouseWifis = 0;
+  if (!jsonStr.isEmpty()) {
+    int pos = 0;
+    while (numHouseWifis < MAX_HOUSE_WIFIS) {
+      int sIdx = jsonStr.indexOf("\"ssid\":\"", pos);
+      if (sIdx < 0) sIdx = jsonStr.indexOf("\"ssid\": \"", pos);
+      sIdx = jsonStr.indexOf("\"", sIdx + 7) + 1;
+      if (sIdx < 0) break;
+      sIdx = jsonStr.indexOf("\"", sIdx + 7) + 1;
+      int sEnd = jsonStr.indexOf("\"", sIdx);
+      if (sEnd < 0) break;
+      String s = jsonStr.substring(sIdx, sEnd);
+
+      String p = "";
+      int pIdx = jsonStr.indexOf("\"senha\":\"", sEnd);
+      if (pIdx < 0) pIdx = jsonStr.indexOf("\"pass\":\"", sEnd);
+      if (pIdx < 0) pIdx = jsonStr.indexOf("\"senha\": \"", sEnd);
+      if (pIdx < 0) pIdx = jsonStr.indexOf("\"pass\": \"", sEnd);
+        pIdx = jsonStr.indexOf("\"", pIdx + 7) + 1;
+        pIdx = jsonStr.indexOf("\"", pIdx + 7) + 1;
+        pIdx = jsonStr.indexOf("\"", pIdx + 7) + 1;
+      if (pIdx >= 0) {
+        pIdx = jsonStr.indexOf("\"", pIdx + 7) + 1;
+        int pEnd = jsonStr.indexOf("\"", pIdx);
+        if (pEnd >= 0) p = jsonStr.substring(pIdx, pEnd);
+      }
+
+      if (!s.isEmpty()) {
+        houseWifis[numHouseWifis].ssid = s;
+        houseWifis[numHouseWifis].pass = p;
+        houseWifis[numHouseWifis].priority = numHouseWifis + 1;
+        numHouseWifis++;
+      }
+      pos = sEnd + 1;
+    }
+  }
+
+  // Carrega redes padrão se nenhuma foi gravada
+  if (numHouseWifis == 0) {
+    for (int i = 0; i < NUM_DEFAULT_NETWORKS && numHouseWifis < MAX_HOUSE_WIFIS; i++) {
+      houseWifis[numHouseWifis].ssid = DEFAULT_SSIDS[i];
+      houseWifis[numHouseWifis].pass = DEFAULT_PASSWORDS[i];
+      houseWifis[numHouseWifis].priority = i + 1;
+      numHouseWifis++;
+    }
+  }
+}
+
+void saveHouseWifisJson(const String& jsonStr) {
+  preferences.begin(NVS_NAMESPACE, false);
+  preferences.putString("house_wifis", jsonStr);
+  preferences.end();
+  loadHouseWifis();
+}
+
+String performWifiSurvey(bool forceScan = false) {
+  if (!forceScan && millis() - lastWifiSurveyTime < 45000UL && cachedSurveyJson != "[]") {
+    return cachedSurveyJson;
+  }
+  lastWifiSurveyTime = millis();
+
+  String connectedSsid = WiFi.SSID();
+  int connectedRssi = WiFi.RSSI();
+
+  int n = WiFi.scanNetworks(false, true, false, 300);
+  String json = "[";
+  bool first = true;
+
+  for (int j = 0; j < numHouseWifis; ++j) {
+    String s = houseWifis[j].ssid;
+    int rssi = -999;
+    bool isConn = (s == connectedSsid);
+    if (isConn) {
+      rssi = connectedRssi;
+    } else {
+      for (int i = 0; i < n; ++i) {
+        if (WiFi.SSID(i) == s) {
+          if (WiFi.RSSI(i) > rssi) rssi = WiFi.RSSI(i);
+        }
+      }
+    }
+
+    if (!first) json += ",";
+    first = false;
+    json += "{\"ssid\":\"" + s + "\",\"rssi\":" + String(rssi) + ",\"connected\":" + (isConn ? "true" : "false") + "}";
+  }
+  json += "]";
+  WiFi.scanDelete();
+  cachedSurveyJson = json;
+  return json;
+}
+
+
 String jsonEscape(const String& v) {
   String o; o.reserve(v.length()+8);
   for (size_t i=0;i<v.length();i++) {
@@ -125,6 +235,7 @@ void loadConfig() {
   }
   preferences.end();
   operational = !wifi_ssid.isEmpty() && !casa_url.isEmpty() && !device_token.isEmpty();
+  loadHouseWifis();
 }
 
 void saveNetwork(const String& ssid, const String& pass, const String& base, const String& name, const String& location) {
@@ -181,17 +292,60 @@ bool tryConnect(const String& ssid, const String& pass, unsigned long timeoutMs=
   return false;
 }
 
-bool autoConnectWifi() {
-  if (!wifi_ssid.isEmpty()) {
-    if (tryConnect(wifi_ssid, wifi_password)) return true;
+bool scanAndConnectBestWifi() {
+  Serial.printf("[WIFI] Escaneando ambiente para verificar a melhor das %d redes da casa...\n", numHouseWifis);
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect();
+  delay(120);
+
+  int n = WiFi.scanNetworks(false, false, false, 350);
+  Serial.printf("[WIFI] Scan concluido: %d redes detectadas.\n", n);
+
+  int bestRssi = -999;
+  String bestSsid = "";
+  String bestPass = "";
+
+  for (int i = 0; i < n; ++i) {
+    String foundSsid = WiFi.SSID(i);
+    int foundRssi = WiFi.RSSI(i);
+
+    for (int j = 0; j < numHouseWifis; ++j) {
+      if (foundSsid == houseWifis[j].ssid) {
+        Serial.printf("[WIFI-MATCH] Rede da casa '%s' encontrada (RSSI: %d dBm)\n", foundSsid.c_str(), foundRssi);
+        if (foundRssi > bestRssi) {
+          bestRssi = foundRssi;
+          bestSsid = foundSsid;
+          bestPass = houseWifis[j].pass;
+        }
+      }
+    }
   }
-  for (int i=0; i<NUM_DEFAULT_NETWORKS; i++) {
-    if (tryConnect(DEFAULT_SSIDS[i], DEFAULT_PASSWORDS[i])) {
-      saveNetwork(DEFAULT_SSIDS[i], DEFAULT_PASSWORDS[i], casa_url, device_name, device_location);
+
+  if (!bestSsid.isEmpty()) {
+    Serial.printf("[WIFI] MELHOR SINAL: '%s' (%d dBm). Conectando...\n", bestSsid.c_str(), bestRssi);
+    if (tryConnect(bestSsid, bestPass, 9000UL)) {
+      wifi_ssid = bestSsid;
+      wifi_password = bestPass;
+      saveNetwork(bestSsid, bestPass, casa_url, device_name, device_location);
+      return true;
+    }
+  }
+
+  // Fallback sequencial se o scan nao casou nenhuma rede
+  Serial.println("[WIFI] Tentando conexao sequencial das redes cadastradas...");
+  for (int j = 0; j < numHouseWifis; ++j) {
+    if (tryConnect(houseWifis[j].ssid, houseWifis[j].pass, 7000UL)) {
+      wifi_ssid = houseWifis[j].ssid;
+      wifi_password = houseWifis[j].pass;
+      saveNetwork(houseWifis[j].ssid, houseWifis[j].pass, casa_url, device_name, device_location);
       return true;
     }
   }
   return false;
+}
+
+bool autoConnectWifi() {
+  return scanAndConnectBestWifi();
 }
 
 void handleStream(){
@@ -232,7 +386,8 @@ void handleCapture(){
 void handleStatus(){
   server.sendHeader("Access-Control-Allow-Origin","*");
   bool auth = isAuthorized();
-  String j = "{\"status\":\"online\",\"type\":\"esp32cam\",\"device_id\":\""+jsonEscape(device_id)+"\",\"name\":\""+jsonEscape(device_name)+"\",\"location\":\""+jsonEscape(device_location)+"\",\"ip\":\""+WiFi.localIP().toString()+"\",\"rssi\":"+String(WiFi.RSSI())+",\"authenticated\":"+(auth?"true":"false")+"}";
+  String survey = performWifiSurvey(false);
+  String j = "{\"status\":\"online\",\"type\":\"esp32cam\",\"device_id\":\""+jsonEscape(device_id)+"\",\"name\":\""+jsonEscape(device_name)+"\",\"location\":\""+jsonEscape(device_location)+"\",\"ip\":\""+WiFi.localIP().toString()+"\",\"rssi\":"+String(WiFi.RSSI())+",\"wifi_ssid\":\""+WiFi.SSID()+"\",\"wifi_survey\":"+survey+",\"authenticated\":"+(auth?"true":"false")+"}";
   server.send(200, "application/json", j);
 }
 
@@ -265,6 +420,26 @@ void startCameraHttp(){
   server.on("/stream", handleStream);
   server.on("/capture", handleCapture);
   server.on("/status", handleStatus);
+  server.on("/wifi_survey", []{
+    if (!isAuthorized()) { rejectUnauthorized(); return; }
+    String survey = performWifiSurvey(server.hasArg("refresh"));
+    String resp = "{\"device_id\":\"" + device_id + "\",\"connected_ssid\":\"" + WiFi.SSID() 
+                + "\",\"connected_rssi\":" + String(WiFi.RSSI()) 
+                + ",\"wifis\":" + survey + ",\"timestamp\":" + String(millis()) + "}";
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.send(200, "application/json", resp);
+  });
+  server.on("/config/wifis", HTTP_POST, []{
+    if (!isAuthorized()) { rejectUnauthorized(); return; }
+    if (!server.hasArg("plain")) {
+      server.send(400, "application/json", "{\"ok\":false,\"erro\":\"Corpo JSON obrigatorio\"}");
+      return;
+    }
+    String body = server.arg("plain");
+    saveHouseWifisJson(body);
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.send(200, "application/json", "{\"ok\":true,\"count\":" + String(numHouseWifis) + ",\"mensagem\":\"Redes Wi-Fi da casa salvas com sucesso\"}");
+  });
   server.on("/flash/on", []{
     if (!isAuthorized()) { rejectUnauthorized(); return; }
     digitalWrite(FLASH_LED_PIN, HIGH);
