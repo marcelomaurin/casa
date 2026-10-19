@@ -281,6 +281,8 @@ void handleSerialCommands() {
       if (!newToken.isEmpty()) {
         saveToken(newToken);
         Serial.printf("OK:TOKEN_UPDATED:TOKEN=%s\n", device_token.c_str());
+        Serial.printf("CAM_SECRET:DEVICE_ID=%s:MAC=%s:TOKEN=%s:IP=%s:VER=%s\n",
+          device_id.c_str(), physicalMac().c_str(), device_token.c_str(), WiFi.localIP().toString().c_str(), FW_VERSION);
       }
     } else if (cmd == "STATUS" || cmd == "DISCOVER") {
       Serial.printf("CASA-CAM:TYPE=esp32cam:DEVICE=%s:MAC=%s:IP=%s:RSSI=%d\n",

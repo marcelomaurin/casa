@@ -208,11 +208,11 @@ object FormMain: TFormMain
       TabOrder = 0
     end
     object btnGetToken: TButton
-      Left = 215
+      Left = 210
       Height = 32
       Top = 8
-      Width = 230
-      Caption = '2. Capturar Token (Serial)'
+      Width = 155
+      Caption = '2. Ler Token Serial'
       Font.Height = -13
       Font.Name = 'Segoe UI'
       Font.Style = [fsBold]
@@ -220,11 +220,24 @@ object FormMain: TFormMain
       ParentFont = False
       TabOrder = 1
     end
-    object btnSendDaemon: TButton
-      Left = 458
+    object btnGenNewToken: TButton
+      Left = 380
       Height = 32
       Top = 8
-      Width = 200
+      Width = 190
+      Caption = 'Gerar Novo Token'
+      Font.Height = -12
+      Font.Name = 'Segoe UI'
+      Font.Style = [fsBold]
+      OnClick = btnGenNewTokenClick
+      ParentFont = False
+      TabOrder = 5
+    end
+    object btnSendDaemon: TButton
+      Left = 580
+      Height = 32
+      Top = 8
+      Width = 150
       Caption = '3. Enviar ao Site / Daemon'
       Font.Height = -13
       Font.Name = 'Segoe UI'

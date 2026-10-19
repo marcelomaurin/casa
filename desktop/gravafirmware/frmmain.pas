@@ -34,6 +34,7 @@ type
     grpActions: TGroupBox;
     btnFlash: TButton;
     btnGetToken: TButton;
+    btnGenNewToken: TButton;
     btnSendDaemon: TButton;
     pbProgress: TProgressBar;
     lblProgress: TLabel;
@@ -59,6 +60,7 @@ type
     procedure btnBrowseClick(Sender: TObject);
     procedure btnFlashClick(Sender: TObject);
     procedure btnGetTokenClick(Sender: TObject);
+    procedure btnGenNewTokenClick(Sender: TObject);
     procedure btnSendDaemonClick(Sender: TObject);
     procedure btnCopyTokenClick(Sender: TObject);
     procedure btnClearLogClick(Sender: TObject);
@@ -249,6 +251,44 @@ begin
   finally
     Screen.Cursor := crDefault;
     btnGetToken.Enabled := True;
+  end;
+end;
+
+procedure TFormMain.btnGenNewTokenClick(Sender: TObject);
+var
+  Ret: string;
+begin
+  FFlasher.Port := Trim(cbPort.Text);
+  FFlasher.SerialBaudRate := 115200;
+
+  btnGenNewToken.Enabled := False;
+  Screen.Cursor := crHourGlass;
+  try
+    memLog.Lines.Add('----------------------------------------------------');
+    memLog.Lines.Add('[INFO] Gerando e gravando NOVO TOKEN ALEATORIO na camera via serial...');
+    Application.ProcessMessages;
+
+    Ret := FFlasher.GenerateNewToken(6000);
+    edtToken.Text := FFlasher.CapturedToken;
+    edtDeviceId.Text := FFlasher.CapturedDeviceId;
+    edtMac.Text := FFlasher.CapturedMac;
+    edtIp.Text := FFlasher.CapturedIp;
+
+    if Ret <> '' then
+    begin
+      ShowMessage('Novo Token Aleatorio gerado e gravado com sucesso!' + LineEnding +
+                  'Dispositivo: ' + FFlasher.CapturedDeviceId + LineEnding +
+                  'MAC: ' + FFlasher.CapturedMac + LineEnding +
+                  'Novo Token: ' + FFlasher.CapturedToken);
+    end
+    else
+    begin
+      ShowMessage('Nao foi possivel gravar novo token.' + LineEnding +
+                  'Erro: ' + FFlasher.LastError);
+    end;
+  finally
+    Screen.Cursor := crDefault;
+    btnGenNewToken.Enabled := True;
   end;
 end;
 
