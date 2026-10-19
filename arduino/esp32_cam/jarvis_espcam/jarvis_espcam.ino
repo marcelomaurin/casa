@@ -75,9 +75,21 @@ String physicalMac(){
 }
 
 String generateRandomToken() {
+  // Garante entropia forte e unica combinando MAC fisico do chip, ciclo de clock,
+  // microssegundos e leituras do gerador de hardware esp_random.
+  uint64_t chipMac = ESP.getEfuseMac();
+  uint32_t cyc = ESP.getCycleCount();
+  uint32_t us = (uint32_t)micros();
+
+  // Seed do random do C++ com hardware unico
+  randomSeed((uint32_t)(chipMac & 0xFFFFFFFF) ^ cyc ^ us);
+
   String t = "";
   for (int i = 0; i < 4; i++) {
-    uint32_t r = esp_random();
+    uint32_t r1 = esp_random();
+    uint32_t r2 = (uint32_t)random(1, 0x7FFFFFFF);
+    uint32_t r3 = (uint32_t)((chipMac >> (i * 8)) & 0xFF);
+    uint32_t r = r1 ^ r2 ^ (r3 << 24) ^ (ESP.getCycleCount() + (uint32_t)micros());
     char buf[9];
     snprintf(buf, sizeof(buf), "%08x", r);
     t += buf;
@@ -254,7 +266,12 @@ void handleSerialCommands() {
   if (Serial.available()) {
     String cmd = Serial.readStringUntil('\n');
     cmd.trim();
-    if (cmd == "GET_TOKEN" || cmd == "TOKEN" || cmd == "IDENTIFY") {
+    if (cmd == "NEW_TOKEN" || cmd == "REGEN_TOKEN" || cmd == "RESET_TOKEN") {
+      device_token = generateRandomToken();
+      saveToken(device_token);
+      Serial.printf("CAM_SECRET:DEVICE_ID=%s:MAC=%s:TOKEN=%s:IP=%s:VER=%s\n",
+        device_id.c_str(), physicalMac().c_str(), device_token.c_str(), WiFi.localIP().toString().c_str(), FW_VERSION);
+    } else if (cmd == "GET_TOKEN" || cmd == "TOKEN" || cmd == "IDENTIFY") {
       // O token so e fornecido via conexao fisica Serial
       Serial.printf("CAM_SECRET:DEVICE_ID=%s:MAC=%s:TOKEN=%s:IP=%s:VER=%s\n",
         device_id.c_str(), physicalMac().c_str(), device_token.c_str(), WiFi.localIP().toString().c_str(), FW_VERSION);

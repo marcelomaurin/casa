@@ -1,0 +1,403 @@
+object FormMain: TFormMain
+  Left = 320
+  Height = 740
+  Top = 120
+  Width = 860
+  Caption = 'CASA - Gravador de Firmware & Seguranca de Cameras (Lazarus + CHATGPT)'
+  ClientHeight = 740
+  ClientWidth = 860
+  Color = clBtnFace
+  Font.Color = clWindowText
+  Font.Height = -12
+  Font.Name = 'Segoe UI'
+  OnCreate = FormCreate
+  OnDestroy = FormDestroy
+  Position = poScreenCenter
+  object pnlHeader: TPanel
+    Left = 0
+    Height = 65
+    Top = 0
+    Width = 860
+    Align = alTop
+    BevelOuter = bvNone
+    Color = 2171169
+    ParentBackground = False
+    ParentColor = False
+    TabOrder = 0
+    object lblTitle: TLabel
+      Left = 16
+      Height = 25
+      Top = 10
+      Width = 530
+      Caption = 'CASA - Gravador de Firmware & Chave de Seguranca'
+      Font.Color = clWhite
+      Font.Height = -19
+      Font.Name = 'Segoe UI'
+      Font.Style = [fsBold]
+      ParentColor = False
+      ParentFont = False
+    end
+    object lblSubtitle: TLabel
+      Left = 16
+      Height = 17
+      Top = 38
+      Width = 690
+      Caption = 'Gravacao de firmware (ESP32-CAM, ESP32, Arduino) + Captura de Token via Serial + Repasse ao Daemon'
+      Font.Color = 13816530
+      Font.Height = -13
+      Font.Name = 'Segoe UI'
+      ParentColor = False
+      ParentFont = False
+    end
+  end
+  object grpDevice: TGroupBox
+    Left = 16
+    Height = 85
+    Top = 75
+    Width = 828
+    Caption = ' 1. Dispositivo & Conexao Serial '
+    ClientHeight = 63
+    ClientWidth = 824
+    TabOrder = 1
+    object lblBoard: TLabel
+      Left = 12
+      Height = 15
+      Top = 8
+      Width = 79
+      Caption = 'Placa / Modelo:'
+      ParentColor = False
+    end
+    object cbBoard: TComboBox
+      Left = 12
+      Height = 23
+      Top = 28
+      Width = 210
+      ItemHeight = 15
+      ItemIndex = 0
+      Items.Strings = (
+        'ESP32-CAM (AI Thinker)'
+        'ESP32 Generic Dev Board'
+        'Arduino Uno (ATmega328P)'
+        'Arduino Nano (ATmega328P)'
+        'Arduino Mega 2560'
+      )
+      OnChange = cbBoardChange
+      Style = csDropDownList
+      TabOrder = 0
+      Text = 'ESP32-CAM (AI Thinker)'
+    end
+    object lblPort: TLabel
+      Left = 235
+      Height = 15
+      Top = 8
+      Width = 63
+      Caption = 'Porta Serial:'
+      ParentColor = False
+    end
+    object cbPort: TComboBox
+      Left = 235
+      Height = 23
+      Top = 28
+      Width = 110
+      ItemHeight = 15
+      TabOrder = 1
+    end
+    object btnRefreshPorts: TButton
+      Left = 352
+      Height = 25
+      Top = 27
+      Width = 90
+      Caption = 'Atualizar'
+      OnClick = btnRefreshPortsClick
+      TabOrder = 2
+    end
+    object lblBaud: TLabel
+      Left = 460
+      Height = 15
+      Top = 8
+      Width = 92
+      Caption = 'Baud Gravacao:'
+      ParentColor = False
+    end
+    object cbBaudRate: TComboBox
+      Left = 460
+      Height = 23
+      Top = 28
+      Width = 130
+      ItemHeight = 15
+      ItemIndex = 0
+      Items.Strings = (
+        '921600'
+        '115200'
+        '57600'
+      )
+      TabOrder = 3
+      Text = '921600'
+    end
+    object lblAddress: TLabel
+      Left = 605
+      Height = 15
+      Top = 8
+      Width = 86
+      Caption = 'Offset (ESP32):'
+      ParentColor = False
+    end
+    object edtAddress: TEdit
+      Left = 605
+      Height = 23
+      Top = 28
+      Width = 90
+      TabOrder = 4
+      Text = '0x0'
+    end
+  end
+  object grpFirmware: TGroupBox
+    Left = 16
+    Height = 70
+    Top = 168
+    Width = 828
+    Caption = ' 2. Arquivo de Firmware (.bin ou .hex) '
+    ClientHeight = 48
+    ClientWidth = 824
+    TabOrder = 2
+    object lblFirmware: TLabel
+      Left = 12
+      Height = 15
+      Top = 18
+      Width = 47
+      Caption = 'Arquivo:'
+      ParentColor = False
+    end
+    object edtFirmwarePath: TEdit
+      Left = 68
+      Height = 23
+      Top = 14
+      Width = 640
+      TabOrder = 0
+    end
+    object btnBrowse: TButton
+      Left = 716
+      Height = 25
+      Top = 13
+      Width = 95
+      Caption = 'Procurar...'
+      OnClick = btnBrowseClick
+      TabOrder = 1
+    end
+  end
+  object grpActions: TGroupBox
+    Left = 16
+    Height = 100
+    Top = 246
+    Width = 828
+    Caption = ' 3. Fluxo de Seguranca: Gravacao & Token '
+    ClientHeight = 78
+    ClientWidth = 824
+    TabOrder = 3
+    object btnFlash: TButton
+      Left = 12
+      Height = 32
+      Top = 8
+      Width = 190
+      Caption = '1. Gravar Firmware'
+      Font.Height = -13
+      Font.Name = 'Segoe UI'
+      Font.Style = [fsBold]
+      OnClick = btnFlashClick
+      ParentFont = False
+      TabOrder = 0
+    end
+    object btnGetToken: TButton
+      Left = 215
+      Height = 32
+      Top = 8
+      Width = 230
+      Caption = '2. Capturar Token (Serial)'
+      Font.Height = -13
+      Font.Name = 'Segoe UI'
+      Font.Style = [fsBold]
+      OnClick = btnGetTokenClick
+      ParentFont = False
+      TabOrder = 1
+    end
+    object btnSendDaemon: TButton
+      Left = 458
+      Height = 32
+      Top = 8
+      Width = 200
+      Caption = '3. Enviar ao Site / Daemon'
+      Font.Height = -13
+      Font.Name = 'Segoe UI'
+      Font.Style = [fsBold]
+      OnClick = btnSendDaemonClick
+      ParentFont = False
+      TabOrder = 2
+    end
+    object pbProgress: TProgressBar
+      Left = 12
+      Height = 16
+      Top = 50
+      Width = 646
+      TabOrder = 3
+    end
+    object lblProgress: TLabel
+      Left = 668
+      Height = 15
+      Top = 50
+      Width = 21
+      Caption = '0%'
+      Font.Height = -12
+      Font.Name = 'Segoe UI'
+      Font.Style = [fsBold]
+      ParentColor = False
+      ParentFont = False
+    end
+    object lblDaemonUrl: TLabel
+      Left = 668
+      Height = 15
+      Top = 12
+      Width = 28
+      Caption = 'URL:'
+      ParentColor = False
+    end
+    object edtDaemonUrl: TEdit
+      Left = 590
+      Height = 23
+      Top = 8
+      Width = 220
+      TabOrder = 4
+      Text = 'https://maurinsoft.com.br/casa/api/camera_discovery.php?acao=register_token'
+    end
+  end
+  object grpCaptured: TGroupBox
+    Left = 16
+    Height = 85
+    Top = 354
+    Width = 828
+    Caption = ' 4. Identidade & Chave de Seguranca Capturada via Serial (Fisica) '
+    ClientHeight = 63
+    ClientWidth = 824
+    TabOrder = 4
+    object lblToken: TLabel
+      Left = 12
+      Height = 15
+      Top = 8
+      Width = 79
+      Caption = 'Chave / Token:'
+      Font.Style = [fsBold]
+      ParentColor = False
+      ParentFont = False
+    end
+    object edtToken: TEdit
+      Left = 12
+      Height = 23
+      Top = 28
+      Width = 280
+      Color = 15132390
+      Font.Color = clNavy
+      Font.Style = [fsBold]
+      ParentFont = False
+      ReadOnly = True
+      TabOrder = 0
+    end
+    object btnCopyToken: TButton
+      Left = 298
+      Height = 24
+      Top = 27
+      Width = 70
+      Caption = 'Copiar'
+      OnClick = btnCopyTokenClick
+      TabOrder = 1
+    end
+    object lblDeviceId: TLabel
+      Left = 380
+      Height = 15
+      Top = 8
+      Width = 49
+      Caption = 'Device ID:'
+      ParentColor = False
+    end
+    object edtDeviceId: TEdit
+      Left = 380
+      Height = 23
+      Top = 28
+      Width = 145
+      Color = 15921906
+      ReadOnly = True
+      TabOrder = 2
+    end
+    object lblMac: TLabel
+      Left = 535
+      Height = 15
+      Top = 8
+      Width = 30
+      Caption = 'MAC:'
+      ParentColor = False
+    end
+    object edtMac: TEdit
+      Left = 535
+      Height = 23
+      Top = 28
+      Width = 135
+      Color = 15921906
+      ReadOnly = True
+      TabOrder = 3
+    end
+    object lblIp: TLabel
+      Left = 680
+      Height = 15
+      Top = 8
+      Width = 13
+      Caption = 'IP:'
+      ParentColor = False
+    end
+    object edtIp: TEdit
+      Left = 680
+      Height = 23
+      Top = 28
+      Width = 132
+      Color = 15921906
+      ReadOnly = True
+      TabOrder = 4
+    end
+  end
+  object grpLogs: TGroupBox
+    Left = 16
+    Height = 275
+    Top = 447
+    Width = 828
+    Caption = ' 5. Terminal de Execucao & Logs '
+    ClientHeight = 253
+    ClientWidth = 824
+    TabOrder = 5
+    object memLog: TMemo
+      Left = 12
+      Height = 205
+      Top = 8
+      Width = 800
+      Color = 1973790
+      Font.Color = 12632256
+      Font.Height = -12
+      Font.Name = 'Consolas'
+      ParentFont = False
+      ReadOnly = True
+      ScrollBars = ssAutoBoth
+      TabOrder = 0
+    end
+    object btnClearLog: TButton
+      Left = 12
+      Height = 25
+      Top = 220
+      Width = 100
+      Caption = 'Limpar Logs'
+      OnClick = btnClearLogClick
+      TabOrder = 1
+    end
+  end
+  object dlgOpenFirmware: TOpenDialog
+    Title = 'Selecione o arquivo de firmware'
+    Filter = 'Firmware (*.bin;*.hex)|*.bin;*.hex|Todos os Arquivos (*.*)|*.*'
+    Left = 780
+    Top = 180
+  end
+end

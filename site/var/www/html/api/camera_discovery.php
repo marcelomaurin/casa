@@ -83,6 +83,145 @@ if ($acao === 'get_snapshot') {
 }
 
 // -------------------------------------------------------------
+// Acao: REGISTER_TOKEN (Enviado pelo gravafirmware com token fisico da camera)
+// -------------------------------------------------------------
+if ($acao === 'register_token') {
+    $did = preg_replace('/[^a-zA-Z0-9_-]/', '', (string)($input['device_id'] ?? $_GET['device_id'] ?? ''));
+    $token = trim((string)($input['token'] ?? $_GET['token'] ?? ''));
+    $mac = trim((string)($input['mac'] ?? $_GET['mac'] ?? ''));
+    $ip = trim((string)($input['ip'] ?? $_GET['ip'] ?? ''));
+    $nome = trim((string)($input['nome'] ?? ''));
+
+    if ($did === '' && $token === '') {
+        cam_json(['ok' => false, 'erro' => 'device_id e token obrigatorios'], 400);
+    }
+    if ($did === '') {
+        $did = 'esp32cam-' . substr(preg_replace('/[^a-zA-Z0-9]/', '', $mac), -6);
+    }
+    if ($nome === '') {
+        $nome = 'ESP32-CAM ' . ($ip ?: $did);
+    }
+
+    // Persiste no arquivo local seguro de tokens do site
+    $tokenVaultFile = __DIR__ . '/../data/camera_tokens.json';
+    $vaultDir = dirname($tokenVaultFile);
+    if (!is_dir($vaultDir)) {
+        @mkdir($vaultDir, 0775, true);
+    }
+    $tokensData = [];
+    if (file_exists($tokenVaultFile)) {
+        $tokensData = json_decode(@file_get_contents($tokenVaultFile) ?: '{}', true) ?: [];
+    }
+    if ($token !== '') {
+        $tokensData[$did] = $token;
+        if ($mac !== '') $tokensData[$mac] = $token;
+        if ($ip !== '') $tokensData[$ip] = $token;
+        @file_put_contents($tokenVaultFile, json_encode($tokensData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    }
+
+    // Salva ou atualiza em dispositivos_cluster
+    try {
+        $stmt = $pdo->prepare("SELECT id, metadata FROM dispositivos_cluster WHERE device_id = :did LIMIT 1");
+        $stmt->execute([':did' => $did]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        $meta = [];
+        if ($row && !empty($row['metadata'])) {
+            $meta = json_decode($row['metadata'], true) ?: [];
+        }
+        $meta['token'] = $token;
+        $meta['mac'] = $mac;
+        $meta['tipo'] = 'espcam';
+        $meta['stream_url'] = "http://{$ip}:80/stream";
+        $meta['snapshot_url'] = "http://{$ip}:80/capture";
+        $metaJson = json_encode($meta, JSON_UNESCAPED_SLASHES);
+
+        $caps = json_encode(['camera', 'espcam', 'streaming', 'mjpeg', 'flash', 'visao-ia']);
+
+        if ($row) {
+            $stmtUp = $pdo->prepare("UPDATE dispositivos_cluster SET 
+                status = 'online',
+                ultimo_heartbeat = NOW(),
+                ip_address = COALESCE(NULLIF(:ip, ''), ip_address),
+                mac_address = COALESCE(NULLIF(:mac, ''), mac_address),
+                metadata = :meta,
+                capabilities = :caps
+                WHERE id = :id");
+            $stmtUp->execute([
+                ':ip' => $ip,
+                ':mac' => $mac,
+                ':meta' => $metaJson,
+                ':caps' => $caps,
+                ':id' => $row['id']
+            ]);
+        } else {
+            $stmtIns = $pdo->prepare("INSERT INTO dispositivos_cluster 
+                (device_id, nome, tipo, subtipo, ip_address, mac_address, status, ultimo_heartbeat, metadata, capabilities)
+                VALUES (:did, :nome, 'espcam', 'esp32_cam', :ip, :mac, 'online', NOW(), :meta, :caps)");
+            $stmtIns->execute([
+                ':did' => $did,
+                ':nome' => $nome,
+                ':ip' => $ip,
+                ':mac' => $mac,
+                ':meta' => $metaJson,
+                ':caps' => $caps
+            ]);
+        }
+    } catch (Throwable $e) {}
+
+    cam_json([
+        'ok' => true,
+        'status' => 'sucesso',
+        'mensagem' => 'Token registrado com sucesso no site CASA',
+        'device_id' => $did,
+        'token' => $token,
+        'ip' => $ip,
+        'mac' => $mac
+    ]);
+}
+
+// -------------------------------------------------------------
+// Acao: GET_TOKENS (Consultado pelo Daemon da casa para sincronizar tokens)
+// -------------------------------------------------------------
+if ($acao === 'get_tokens') {
+    $tokenVaultFile = __DIR__ . '/../data/camera_tokens.json';
+    $tokensData = [];
+    if (file_exists($tokenVaultFile)) {
+        $tokensData = json_decode(@file_get_contents($tokenVaultFile) ?: '{}', true) ?: [];
+    }
+
+    $cams = [];
+    try {
+        $stmt = $pdo->query("SELECT device_id, ip_address, mac_address, metadata FROM dispositivos_cluster WHERE tipo IN ('espcam', 'esp32_cam', 'camera')");
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            $did = $row['device_id'];
+            $ip = $row['ip_address'];
+            $mac = $row['mac_address'];
+            $meta = json_decode($row['metadata'] ?: '{}', true) ?: [];
+            $tok = $meta['token'] ?? '';
+            if ($tok !== '') {
+                $tokensData[$did] = $tok;
+                if ($ip) $tokensData[$ip] = $tok;
+                if ($mac) $tokensData[$mac] = $tok;
+                $cams[] = [
+                    'device_id' => $did,
+                    'ip' => $ip,
+                    'mac' => $mac,
+                    'token' => $tok
+                ];
+            }
+        }
+    } catch (Throwable $e) {}
+
+    cam_json([
+        'ok' => true,
+        'status' => 'sucesso',
+        'tokens' => $tokensData,
+        'cameras' => $cams
+    ]);
+}
+
+// -------------------------------------------------------------
 // Acao: UPLOAD_SNAPSHOT (Enviado pelo Daemon unico de visao da casa)
 // -------------------------------------------------------------
 if ($acao === 'upload_snapshot') {

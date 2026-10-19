@@ -50,7 +50,28 @@ def log_lcars(message: str, level: str = "INFO"):
     print(f"[{timestamp}] [STARDATE {stardate}] [LCARS-{level}] {message}", flush=True)
 
 
-def load_token_vault():
+def sync_tokens_from_site():
+    global camera_tokens
+    try:
+        url = f"{CASA_SERVER.rstrip('/')}/api/camera_discovery.php?acao=get_tokens"
+        req = urllib.request.Request(url, headers={"User-Agent": "CASA-VisionDaemon/1.0"})
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            tokens = data.get("tokens", {})
+            if isinstance(tokens, dict) and tokens:
+                for k, v in tokens.items():
+                    if isinstance(v, str):
+                        camera_tokens[k] = {"token": v, "updated_at": time.time()}
+                    elif isinstance(v, dict) and "token" in v:
+                        camera_tokens[k] = v
+                save_token_vault()
+                log_lcars(f"Tokens sincronizados com sucesso do site ({CASA_SERVER}): {len(tokens)} chave(s) ativas.", "SYNC")
+    except Exception as e:
+        log_lcars(f"Tentativa de sincronizar tokens do site: {e}", "DEBUG")
+
+
+def load_token_vault()
+    sync_tokens_from_site():
     global camera_tokens
     if TOKEN_VAULT_FILE.exists():
         try:

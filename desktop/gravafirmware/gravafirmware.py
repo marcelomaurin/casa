@@ -44,7 +44,7 @@ BIN_FILE = BUILD_DIR / "jarvis_espcam.ino.bin"
 ESPTOOL_PATH = os.path.expandvars(r"%USERPROFILE%\AppData\Local\Arduino15\packages\esp32\tools\esptool_py\5.3.1\esptool.exe")
 TOKEN_VAULT_DIR = Path(os.path.expanduser("~/.casa"))
 TOKEN_VAULT_FILE = TOKEN_VAULT_DIR / "camera_tokens.json"
-DAEMON_URL = "http://127.0.0.1:8088/token"
+DAEMON_URL = "https://maurinsoft.com.br/casa/api/camera_discovery.php?acao=register_token"
 
 # Cores Star Trek LCARS
 C_BG = "#060913"
