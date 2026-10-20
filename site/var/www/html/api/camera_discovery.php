@@ -524,7 +524,7 @@ if ($acao === 'listar') {
             'cameras' => $cams
         ]);
     } catch (Throwable $e) {
-        cam_json(['ok' => false, 'erro' => $e->getMessage()], 500);
+        cam_json(['ok' => false, 'erro' => $e->getMessage(), 'err_line' => $e->getLine(), 'file' => basename($e->getFile())], 500);
     }
 }
 
@@ -572,7 +572,7 @@ if ($acao === 'save_house_wifi') {
         }
         cam_json(['ok' => true, 'mensagem' => 'Rede Wi-Fi salva com sucesso']);
     } catch (Throwable $e) {
-        cam_json(['ok' => false, 'erro' => $e->getMessage()], 500);
+        cam_json(['ok' => false, 'erro' => $e->getMessage(), 'err_line' => $e->getLine(), 'file' => basename($e->getFile())], 500);
     }
 }
 
@@ -595,7 +595,7 @@ if ($acao === 'delete_house_wifi') {
         }
         cam_json(['ok' => true, 'mensagem' => 'Rede Wi-Fi excluida com sucesso']);
     } catch (Throwable $e) {
-        cam_json(['ok' => false, 'erro' => $e->getMessage()], 500);
+        cam_json(['ok' => false, 'erro' => $e->getMessage(), 'err_line' => $e->getLine(), 'file' => basename($e->getFile())], 500);
     }
 }
 
@@ -662,7 +662,7 @@ if ($acao === 'report_wifi_scan') {
             'redes_detectadas' => is_array($redes) ? count($redes) : 0
         ]);
     } catch (Throwable $e) {
-        cam_json(['ok' => false, 'erro' => $e->getMessage()], 500);
+        cam_json(['ok' => false, 'erro' => $e->getMessage(), 'err_line' => $e->getLine(), 'file' => basename($e->getFile())], 500);
     }
 }
 
@@ -693,7 +693,7 @@ if ($acao === 'get_wifi_survey') {
         unset($r);
         cam_json(['ok' => true, 'total' => count($rows), 'surveys' => $rows]);
     } catch (Throwable $e) {
-        cam_json(['ok' => false, 'erro' => $e->getMessage()], 500);
+        cam_json(['ok' => false, 'erro' => $e->getMessage(), 'err_line' => $e->getLine(), 'file' => basename($e->getFile())], 500);
     }
 }
 
@@ -768,7 +768,7 @@ if ($acao === 'heartbeat') {
             'timestamp' => date('Y-m-d H:i:s')
         ]);
     } catch (Throwable $e) {
-        cam_json(['ok' => false, 'erro' => $e->getMessage()], 500);
+        cam_json(['ok' => false, 'erro' => $e->getMessage(), 'err_line' => $e->getLine(), 'file' => basename($e->getFile())], 500);
     }
 }
 
