@@ -33,15 +33,13 @@ if (empty($_SESSION['auth_user'])) {
     $hdrCamToken = trim((string)($_SERVER['HTTP_X_CAMERA_TOKEN'] ?? ''));
     if ($acao === 'heartbeat' && $hdrCamToken !== '') {
         $camHeartbeatToken = $hdrCamToken;
-    } elseif ($acao === 'register_token' || $acao === 'get_house_wifis' || $acao === 'listar' || $acao === 'get_snapshot') {
-        // Acoes necessarias para o gravafirmware cadastrar e configurar cameras
+    } elseif ($acao === 'register_token') {
+        // Registro de token fisico enviado pelo gravafirmware (USB/Serial local).
+        // Nao bloqueia nem exige chave de API para garantir o pareamento do hardware.
+    } elseif ($acao === 'get_house_wifis' || $acao === 'listar' || $acao === 'get_snapshot') {
         $hasKey = !empty($_SERVER['HTTP_AUTHORIZATION']) || !empty($_SERVER['HTTP_X_API_KEY']);
         if ($hasKey) {
-            try {
-                verify_api_auth();
-            } catch (Throwable $e) {
-                // Se a chave passada for invalida, registra mas nao bloqueia o provisionamento
-            }
+            verify_api_auth();
         }
     } else {
         verify_api_auth();

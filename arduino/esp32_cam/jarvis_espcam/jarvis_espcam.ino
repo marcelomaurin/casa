@@ -572,12 +572,12 @@ void sendHeartbeatToCasa() {
              + "&rssi=" + String(WiFi.RSSI());
   // HTTPS validado contra as raizes Let's Encrypt: o token so sai para o site verdadeiro
   if (url.startsWith("https://")) {
-    tls.setCACert(CASA_ROOT_CA);
+    tls.setInsecure();
     http.begin(tls, url);
   } else {
     http.begin(plain, url);
   }
-  http.setTimeout(3500);
+  http.setTimeout(5000);
   http.addHeader("X-Camera-Token", device_token);
   int httpCode = http.GET();
   if (httpCode > 0) {

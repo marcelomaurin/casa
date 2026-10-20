@@ -434,18 +434,13 @@ var
     end;
 
     // 3. REGISTRA NO SITE CASA
-    if ApiKey <> '' then
-    begin
-      ProvStage('Registrando a camera no site CASA...');
-      FProv.DeviceId := Trim(edtDeviceId.Text);
-      FProv.Mac := Trim(edtMac.Text);
-      FProv.Ip := Trim(edtIp.Text);
-      if FProv.Porta = 0 then FProv.Porta := 80;
-      if FProv.PortaStream = 0 then FProv.PortaStream := 80;
-      Registrada := FProv.RegisterOnSite(Trim(edtDaemonUrl.Text), ApiKey, Token);
-    end
-    else
-      ProvLog('[AVISO] Sem Chave API: a camera nao foi registrada no site.');
+    ProvStage('Registrando a camera no site CASA...');
+    FProv.DeviceId := Trim(edtDeviceId.Text);
+    FProv.Mac := Trim(edtMac.Text);
+    FProv.Ip := Trim(edtIp.Text);
+    if FProv.Porta = 0 then FProv.Porta := 80;
+    if FProv.PortaStream = 0 then FProv.PortaStream := 80;
+    Registrada := FProv.RegisterOnSite(Trim(edtDaemonUrl.Text), ApiKey, Token);
 
     Result := True;
   end;

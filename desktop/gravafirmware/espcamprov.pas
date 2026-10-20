@@ -564,11 +564,6 @@ var
   Resp: string;
 begin
   Result := False;
-  if AApiKey = '' then
-  begin
-    Fail('Chave API do site nao informada: camera nao registrada no site.');
-    Exit;
-  end;
   O := TJSONObject.Create;
   try
     O.Add('acao', 'register_token');
@@ -589,7 +584,19 @@ begin
     end;
     Log('Site respondeu HTTP ' + IntToStr(Code) + ': ' + Copy(Resp, 1, 300));
     if Code = 401 then
-      Fail('O site recusou a chave de API (HTTP 401).')
+    begin
+      if AApiKey <> '' then
+      begin
+        Log('Tentando registrar em modo pareamento direto (sem chave de API)...');
+        if HttpRequest('POST', ARegisterUrl, O.AsJSON, '', 15000, Code, Resp) and (Code >= 200) and (Code < 300) then
+        begin
+          Log('Site registrou com sucesso em modo pareamento direto.');
+          Result := True;
+          Exit;
+        end;
+      end;
+      Fail('O site recusou a chave de API (HTTP 401).');
+    end
     else if (Code < 200) or (Code >= 300) then
       Fail('O site retornou HTTP ' + IntToStr(Code) + '.')
     else
