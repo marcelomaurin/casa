@@ -205,34 +205,18 @@ if ($acao === 'register_token') {
             $stmtUp = $pdo->prepare("UPDATE dispositivos_cluster SET 
                 status = 'online',
                 ultimo_heartbeat = NOW(),
-                ip_address = COALESCE(NULLIF(:ip, ''), ip_address),
-                mac_address = COALESCE(NULLIF(:mac, ''), mac_address),
-                device_token = :token,
-                metadata = :meta,
-                capabilities = :caps
-                WHERE id = :id");
-            $stmtUp->execute([
-                ':ip' => $ip,
-                ':mac' => $mac,
-                ':token' => $token,
-                ':meta' => $metaJson,
-                ':caps' => $caps,
-                ':id' => $row['id']
-            ]);
+                ip_address = COALESCE(NULLIF(?, ''), ip_address),
+                mac_address = COALESCE(NULLIF(?, ''), mac_address),
+                device_token = ?,
+                metadata = ?,
+                capabilities = ?
+                WHERE id = ?");
+            $stmtUp->execute([$ip, $mac, $token, $metaJson, $caps, $row['id']]);
         } else {
             $stmtIns = $pdo->prepare("INSERT INTO dispositivos_cluster 
                 (device_id, nome, tipo, ip_address, mac_address, device_token, status, ultimo_heartbeat, metadata, capabilities)
-                VALUES (:did, :nome, :tipo, :ip, :mac, :token, 'online', NOW(), :meta, :caps)");
-            $stmtIns->execute([
-                ':did' => $did,
-                ':nome' => $nome,
-                ':tipo' => $tipo,
-                ':ip' => $ip,
-                ':mac' => $mac,
-                ':token' => $token,
-                ':meta' => $metaJson,
-                ':caps' => $caps
-            ]);
+                VALUES (?, ?, ?, ?, ?, ?, 'online', NOW(), ?, ?)");
+            $stmtIns->execute([$did, $nome, $tipo, $ip, $mac, $token, $metaJson, $caps]);
         }
     } catch (Throwable $e) {
         cam_json(['ok' => false, 'erro' => 'Falha ao gravar token no cofre: ' . $e->getMessage()], 500);
@@ -752,16 +736,11 @@ if ($acao === 'heartbeat') {
             $stmtUp = $pdo->prepare("UPDATE dispositivos_cluster SET
                 status = 'online',
                 ultimo_heartbeat = NOW(), 
-                ip_address = COALESCE(NULLIF(:ip, ''), ip_address),
-                mac_address = COALESCE(NULLIF(:mac, ''), mac_address),
-                sinal_rssi = COALESCE(NULLIF(:rssi, 0), sinal_rssi)
-                WHERE id = :id");
-            $stmtUp->execute([
-                ':ip' => $ip,
-                ':mac' => $mac,
-                ':rssi' => $rssi,
-                ':id' => $row['id']
-            ]);
+                ip_address = COALESCE(NULLIF(?, ''), ip_address),
+                mac_address = COALESCE(NULLIF(?, ''), mac_address),
+                sinal_rssi = COALESCE(NULLIF(?, 0), sinal_rssi)
+                WHERE id = ?");
+            $stmtUp->execute([$ip, $mac, $rssi, $row['id']]);
         } else {
             $caps = json_encode(['camera', 'espcam', 'streaming', 'mjpeg', 'flash', 'visao-ia']);
             $meta = json_encode([
@@ -770,16 +749,16 @@ if ($acao === 'heartbeat') {
             ]);
             $stmtIn = $pdo->prepare("INSERT INTO dispositivos_cluster 
                 (device_id, nome, tipo, ip_address, mac_address, device_token, status, sinal_rssi, ultimo_heartbeat, metadata, capabilities)
-                VALUES (:did, :nome, 'espcam', :ip, :mac, :token, 'online', :rssi, NOW(), :meta, :caps)");
+                VALUES (?, ?, 'espcam', ?, ?, ?, 'online', ?, NOW(), ?, ?)");
             $stmtIn->execute([
-                ':did' => $did,
-                ':nome' => "ESP32-CAM ({$did})",
-                ':ip' => $ip,
-                ':mac' => $mac,
-                ':token' => $camHeartbeatToken ?: bin2hex(random_bytes(16)),
-                ':rssi' => $rssi,
-                ':meta' => $meta,
-                ':caps' => $caps
+                $did,
+                "ESP32-CAM ({$did})",
+                $ip,
+                $mac,
+                $camHeartbeatToken ?: bin2hex(random_bytes(16)),
+                $rssi,
+                $meta,
+                $caps
             ]);
         }
         cam_json([
