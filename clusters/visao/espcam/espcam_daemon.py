@@ -9,7 +9,8 @@ Regras de Negocio:
  3. A camera exige TOKEN FISICO (obtido apenas pela Serial via 'gravafirmware').
  4. O daemon carrega os tokens do cofre ~/.casa/camera_tokens.json e da porta HTTP 8088 (/token).
  5. O daemon envia os frames capturados via HTTPS para a API do site CASA (upload_snapshot).
- 6. O site disponibiliza a imagem publicamente em HTTPS via get_snapshot para acesso externo 4G/celular.
+ 6. O site disponibiliza a imagem via get_snapshot (somente sessao/chave de API autenticada).
+ 7. Toda chamada ao site leva a chave de API em X-API-Key (variavel de ambiente CASA_API_KEY).
 """
 
 import argparse
@@ -32,6 +33,7 @@ except ImportError:
 
 # Configuracoes de Rede e Nuvem
 CASA_SERVER = os.getenv("CASA_SERVER_URL", "https://maurinsoft.com.br/casa")
+CASA_API_KEY = os.getenv("CASA_API_KEY", "").strip()
 SUBNET_PREFIX = "192.168.2."
 BASE_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = BASE_DIR.parents[2]
@@ -55,20 +57,45 @@ def log_lcars(message: str, level: str = "INFO"):
     print(f"[{timestamp}] [STARDATE {stardate}] [LCARS-{level}] {message}", flush=True)
 
 
+def casa_headers(extra: dict = None) -> dict:
+    """Cabecalhos para a API do site: identifica o daemon e autentica com a chave de API."""
+    headers = {"User-Agent": "CASA-VisionDaemon/1.0"}
+    if CASA_API_KEY:
+        headers["X-API-Key"] = CASA_API_KEY
+    if extra:
+        headers.update(extra)
+    return headers
+
+
+def normalize_tokens(data: dict) -> dict:
+    """Cofre aceita {chave: "token"} (formato do gravafirmware/site) ou {chave: {"token": ...}}."""
+    out = {}
+    for k, v in data.items():
+        if isinstance(v, str) and v:
+            out[k] = {"token": v, "updated_at": time.time()}
+        elif isinstance(v, dict) and v.get("token"):
+            out[k] = v
+    return out
+
+
+def find_token(device_id: str, ip: str = None):
+    """Token da camera pelo device_id exato ou, na falta, pelo IP registrado."""
+    entry = camera_tokens.get(device_id)
+    if not entry and ip:
+        entry = camera_tokens.get(ip)
+    return entry.get("token") if entry else None
+
+
 def sync_tokens_from_site():
     global camera_tokens
     try:
         url = f"{CASA_SERVER.rstrip('/')}/api/camera_discovery.php?acao=get_tokens"
-        req = urllib.request.Request(url, headers={"User-Agent": "CASA-VisionDaemon/1.0"})
+        req = urllib.request.Request(url, headers=casa_headers())
         with urllib.request.urlopen(req, timeout=6) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             tokens = data.get("tokens", {})
             if isinstance(tokens, dict) and tokens:
-                for k, v in tokens.items():
-                    if isinstance(v, str):
-                        camera_tokens[k] = {"token": v, "updated_at": time.time()}
-                    elif isinstance(v, dict) and "token" in v:
-                        camera_tokens[k] = v
+                camera_tokens.update(normalize_tokens(tokens))
                 save_token_vault()
                 log_lcars(f"Tokens sincronizados com sucesso do site ({CASA_SERVER}): {len(tokens)} chave(s) ativas.", "SYNC")
     except Exception as e:
@@ -82,7 +109,7 @@ def load_token_vault():
         try:
             data = json.loads(TOKEN_VAULT_FILE.read_text(encoding="utf-8"))
             if isinstance(data, dict):
-                camera_tokens.update(data)
+                camera_tokens.update(normalize_tokens(data))
                 log_lcars(f"Cofre de chaves carregado: {len(camera_tokens)} token(s) de câmera registrado(s).", "VAULT")
         except Exception as e:
             log_lcars(f"Falha ao ler cofre de chaves: {e}", "WARN")
@@ -208,7 +235,7 @@ def sync_house_wifis_from_site():
     global house_wifis
     try:
         url = f"{CASA_SERVER.rstrip('/')}/api/camera_discovery.php?acao=get_house_wifis"
-        req = urllib.request.Request(url, headers={"User-Agent": "CASA-VisionDaemon/1.0"})
+        req = urllib.request.Request(url, headers=casa_headers())
         with urllib.request.urlopen(req, timeout=6) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             wifis = data.get("wifis", [])
@@ -280,12 +307,14 @@ def collect_and_report_wifi_survey(device_id: str, ip: str, token: str):
     }
     try:
         if requests:
-            res = requests.post(report_url, json=payload, timeout=5.0, verify=False)
+            res = requests.post(report_url, json=payload, headers=casa_headers(), timeout=5.0)
             if res.status_code == 200:
                 log_lcars(f"Telemetria de forca Wi-Fi de [{device_id}] gravada no CASA (Ativo: {payload['wifi_conectado']} {payload['rssi_conectado']} dBm, Redes: {len(payload['redes_detectadas'])}).", "WIFI_SURVEY")
+            else:
+                log_lcars(f"Relatorio de Wi-Fi recusado pelo CASA: HTTP {res.status_code}", "WARN")
         else:
             post_data = json.dumps(payload).encode("utf-8")
-            req = urllib.request.Request(report_url, data=post_data, headers={"Content-Type": "application/json"})
+            req = urllib.request.Request(report_url, data=post_data, headers=casa_headers({"Content-Type": "application/json"}))
             with urllib.request.urlopen(req, timeout=5.0) as resp:
                 pass
     except Exception as e:
@@ -295,17 +324,17 @@ def upload_snapshot_to_casa(device_id: str, ip: str, img_bytes: bytes):
     """Envia o frame capturado para o site central CASA (maurinsoft.com.br)."""
     url = f"{CASA_SERVER}/api/camera_discovery.php?acao=upload_snapshot"
     try:
-        headers = {
+        headers = casa_headers({
             "Content-Type": "image/jpeg",
             "X-Device-Id": device_id,
-        }
+        })
         params = {
             "acao": "upload_snapshot",
             "device_id": device_id,
             "ip": ip,
             "nome": f"ESP32-CAM ({device_id})"
         }
-        res = requests.post(url, params=params, data=img_bytes, timeout=6.0, verify=False)
+        res = requests.post(url, params=params, data=img_bytes, headers=headers, timeout=6.0)
         if res.status_code == 200:
             log_lcars(f"Frame de [{device_id}] enviado com sucesso à Nuvem CASA ({len(img_bytes)} bytes)!", "UPLOAD_OK")
         else:
@@ -315,7 +344,9 @@ def upload_snapshot_to_casa(device_id: str, ip: str, img_bytes: bytes):
 
 
 def run_daemon_loop(interval_sec: float = 8.0):
-    global is_leader
+    global is_leader, last_wifi_survey_time
+    if not CASA_API_KEY:
+        log_lcars("CASA_API_KEY nao definida: o site vai recusar tokens, redes Wi-Fi e uploads (HTTP 401).", "AVISO")
     log_lcars("=== COMPUTADOR CENTRAL LCARS - DAEMON ÚNICO DE CÂMERAS ATIVADO ===", "START")
     load_token_vault()
     sync_house_wifis_from_site()
@@ -340,19 +371,11 @@ def run_daemon_loop(interval_sec: float = 8.0):
                 known_cameras[did] = {"ip": ip, "last_seen": time.time(), "data": data}
 
                 # Verifica se temos o token para este dispositivo
-                tok_entry = camera_tokens.get(did)
-                if not tok_entry:
-                    # Tenta achar por correspondencia parcial de ID
-                    for k, v in camera_tokens.items():
-                        if k in did or did in k:
-                            tok_entry = v
-                            break
-
-                if not tok_entry:
+                token = find_token(did, ip)
+                if not token:
                     log_lcars(f"Câmera detectada em {ip} [{did}], mas NENHUM TOKEN registrado no cofre. Use o 'gravafirmware' para obter a chave pela Serial.", "AVISO_TOKEN")
                     continue
 
-                token = tok_entry.get("token")
                 log_lcars(f"Câmera autorizada [{did}] em {ip}. Solicitando captura com chave de segurança...", "CAPTURE")
                 frame_data = fetch_camera_snapshot(ip, token)
                 if frame_data:
@@ -370,14 +393,8 @@ def run_daemon_loop(interval_sec: float = 8.0):
                 sync_house_wifis_from_site()
                 for did, info in known_cameras.items():
                     c_ip = info.get("ip")
-                    tok_entry = camera_tokens.get(did)
-                    if not tok_entry:
-                        for k, v in camera_tokens.items():
-                            if k in did or did in k:
-                                tok_entry = v
-                                break
-                    if tok_entry and c_ip:
-                        t = tok_entry.get("token")
+                    t = find_token(did, c_ip)
+                    if t and c_ip:
                         # Repassa redes cadastradas da casa para a camera
                         push_wifis_to_camera(c_ip, t)
                         # Coleta medicao de sinal e grava na nuvem CASA

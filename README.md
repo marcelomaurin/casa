@@ -151,7 +151,7 @@ O fluxo oficial atual é BLE para provisionamento/recuperação e Wi-Fi/HTTPS pa
 
 ### ESP32-CAM
 
-O firmware de câmera permite integrar módulos ESP32-CAM ao JARVIS, incluindo provisionamento Wi-Fi e envio de imagens para processamento no servidor.
+O firmware de câmera (`arduino/esp32_cam/jarvis_espcam`) sobe com a memória vazia e cria a rede Wi-Fi `espcam`. O aplicativo `desktop/gravafirmware` grava o firmware, conecta nessa rede, envia o token e as redes da casa, localiza a câmera na rede de maior sinal e a registra no site. Na operação, a câmera serve `/stream` e `/capture` apenas para IPs internos. Detalhes em `docs/requisitos_ESPCAM.md`.
 
 A análise facial implementada deve ser entendida como **detecção de faces**, não como identificação biométrica de pessoas.
 

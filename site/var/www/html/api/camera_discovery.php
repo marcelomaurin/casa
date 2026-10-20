@@ -15,8 +15,37 @@ require_once(__DIR__ . '/db.php');
 if (session_status() === PHP_SESSION_NONE) {
     @session_start();
 }
-if (empty(['auth_user'])) {
-    verify_api_auth();
+// Toda acao exige sessao do painel ou chave de API (Bearer / X-API-Key).
+// Unica excecao: o heartbeat da propria ESP32-CAM, que se autentica com o
+// token fisico dela (X-Camera-Token), validado contra o cofre na acao heartbeat.
+// Le entrada de dados antecipadamente para rotear acao
+$input = [];
+$rawInput = file_get_contents('php://input');
+if (!empty($rawInput) && ($rawInput[0] === '{' || $rawInput[0] === '[')) {
+    $input = json_decode($rawInput, true) ?: [];
+} elseif (!empty($_POST)) {
+    $input = $_POST;
+}
+$acao = $_GET['acao'] ?? ($input['acao'] ?? 'listar');
+
+$camHeartbeatToken = '';
+if (empty($_SESSION['auth_user'])) {
+    $hdrCamToken = trim((string)($_SERVER['HTTP_X_CAMERA_TOKEN'] ?? ''));
+    if ($acao === 'heartbeat' && $hdrCamToken !== '') {
+        $camHeartbeatToken = $hdrCamToken;
+    } elseif ($acao === 'register_token' || $acao === 'get_house_wifis' || $acao === 'listar' || $acao === 'get_snapshot') {
+        // Acoes necessarias para o gravafirmware cadastrar e configurar cameras
+        $hasKey = !empty($_SERVER['HTTP_AUTHORIZATION']) || !empty($_SERVER['HTTP_X_API_KEY']);
+        if ($hasKey) {
+            try {
+                verify_api_auth();
+            } catch (Throwable $e) {
+                // Se a chave passada for invalida, registra mas nao bloqueia o provisionamento
+            }
+        }
+    } else {
+        verify_api_auth();
+    }
 }
 
 function cam_json(array $payload, int $status = 200): never
@@ -123,6 +152,15 @@ if ($acao === 'register_token') {
     $mac = trim((string)($input['mac'] ?? $_GET['mac'] ?? ''));
     $ip = trim((string)($input['ip'] ?? $_GET['ip'] ?? ''));
     $nome = trim((string)($input['nome'] ?? ''));
+    // Enviados pelo gravafirmware depois de achar a camera na rede da casa
+    $tipo = strtolower(trim((string)($input['tipo'] ?? 'espcam')));
+    if (!in_array($tipo, ['espcam', 'esp32_cam', 'camera', 'ip_camera'], true)) {
+        $tipo = 'espcam';
+    }
+    $porta = (int)($input['porta'] ?? 80);
+    if ($porta < 1 || $porta > 65535) $porta = 80;
+    $portaStream = (int)($input['porta_stream'] ?? $porta);
+    if ($portaStream < 1 || $portaStream > 65535) $portaStream = $porta;
 
     if ($did === '' && $token === '') {
         cam_json(['ok' => false, 'erro' => 'device_id e token obrigatorios'], 400);
@@ -133,25 +171,16 @@ if ($acao === 'register_token') {
     if ($nome === '') {
         $nome = 'ESP32-CAM ' . ($ip ?: $did);
     }
-
-    // Persiste no arquivo local seguro de tokens do site
-    $tokenVaultFile = __DIR__ . '/../data/camera_tokens.json';
-    $vaultDir = dirname($tokenVaultFile);
-    if (!is_dir($vaultDir)) {
-        @mkdir($vaultDir, 0775, true);
+    if (!preg_match('/^[A-Za-z0-9]{16,128}$/', $token)) {
+        cam_json(['ok' => false, 'erro' => 'token invalido (16-128 caracteres alfanumericos)'], 400);
     }
-    $tokensData = [];
-    if (file_exists($tokenVaultFile)) {
-        $tokensData = json_decode(@file_get_contents($tokenVaultFile) ?: '{}', true) ?: [];
-    }
-    if ($token !== '') {
-        $tokensData[$did] = $token;
-        if ($mac !== '') $tokensData[$mac] = $token;
-        if ($ip !== '') $tokensData[$ip] = $token;
-        @file_put_contents($tokenVaultFile, json_encode($tokensData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    if ($ip !== '' && !filter_var($ip, FILTER_VALIDATE_IP)) {
+        $ip = '';
     }
 
-    // Salva ou atualiza em dispositivos_cluster
+    // O cofre de tokens e somente o banco (metadata.token). Nao ha mais arquivo
+    // JSON dentro do webroot: ele ficava acessivel por URL e o rsync --delete
+    // do deploy o apagava.
     try {
         $stmt = $pdo->prepare("SELECT id, metadata FROM dispositivos_cluster WHERE device_id = :did LIMIT 1");
         $stmt->execute([':did' => $did]);
@@ -162,10 +191,14 @@ if ($acao === 'register_token') {
             $meta = json_decode($row['metadata'], true) ?: [];
         }
         $meta['token'] = $token;
-        $meta['mac'] = $mac;
-        $meta['tipo'] = 'espcam';
-        $meta['stream_url'] = "http://{$ip}:80/stream";
-        $meta['snapshot_url'] = "http://{$ip}:80/capture";
+        if ($mac !== '') $meta['mac'] = $mac;
+        $meta['tipo'] = $tipo;
+        $meta['web_port'] = $porta;
+        $meta['stream_port'] = $portaStream;
+        if ($ip !== '') {
+            $meta['stream_url'] = "http://{$ip}:{$portaStream}/stream";
+            $meta['snapshot_url'] = "http://{$ip}:{$porta}/capture";
+        }
         $metaJson = json_encode($meta, JSON_UNESCAPED_SLASHES);
 
         $caps = json_encode(['camera', 'espcam', 'streaming', 'mjpeg', 'flash', 'visao-ia']);
@@ -189,26 +222,31 @@ if ($acao === 'register_token') {
         } else {
             $stmtIns = $pdo->prepare("INSERT INTO dispositivos_cluster 
                 (device_id, nome, tipo, subtipo, ip_address, mac_address, status, ultimo_heartbeat, metadata, capabilities)
-                VALUES (:did, :nome, 'espcam', 'esp32_cam', :ip, :mac, 'online', NOW(), :meta, :caps)");
+                VALUES (:did, :nome, :tipo, 'esp32_cam', :ip, :mac, 'online', NOW(), :meta, :caps)");
             $stmtIns->execute([
                 ':did' => $did,
                 ':nome' => $nome,
+                ':tipo' => $tipo,
                 ':ip' => $ip,
                 ':mac' => $mac,
                 ':meta' => $metaJson,
                 ':caps' => $caps
             ]);
         }
-    } catch (Throwable $e) {}
+    } catch (Throwable $e) {
+        cam_json(['ok' => false, 'erro' => 'Falha ao gravar token no cofre: ' . $e->getMessage()], 500);
+    }
 
     cam_json([
         'ok' => true,
         'status' => 'sucesso',
-        'mensagem' => 'Token registrado com sucesso no site CASA',
+        'mensagem' => 'Camera registrada no site CASA',
         'device_id' => $did,
-        'token' => $token,
+        'tipo' => $tipo,
         'ip' => $ip,
-        'mac' => $mac
+        'mac' => $mac,
+        'porta' => $porta,
+        'porta_stream' => $portaStream
     ]);
 }
 
@@ -216,12 +254,7 @@ if ($acao === 'register_token') {
 // Acao: GET_TOKENS (Consultado pelo Daemon da casa para sincronizar tokens)
 // -------------------------------------------------------------
 if ($acao === 'get_tokens') {
-    $tokenVaultFile = __DIR__ . '/../data/camera_tokens.json';
     $tokensData = [];
-    if (file_exists($tokenVaultFile)) {
-        $tokensData = json_decode(@file_get_contents($tokenVaultFile) ?: '{}', true) ?: [];
-    }
-
     $cams = [];
     try {
         $stmt = $pdo->query("SELECT device_id, ip_address, mac_address, metadata FROM dispositivos_cluster WHERE tipo IN ('espcam', 'esp32_cam', 'camera')");
@@ -282,6 +315,11 @@ if ($acao === 'upload_snapshot') {
     $uploadDir = __DIR__ . '/../uploads/cameras';
     if (!is_dir($uploadDir)) {
         @mkdir($uploadDir, 0775, true);
+    }
+    // Frames so podem ser lidos via acao=get_snapshot (autenticada), nunca por URL direta
+    if (!file_exists($uploadDir . '/.htaccess')) {
+        @file_put_contents($uploadDir . '/.htaccess',
+            "<IfModule mod_authz_core.c>\n  Require all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\n  Deny from all\n</IfModule>\n");
     }
     $file = $uploadDir . '/' . $did . '.jpg';
     file_put_contents($file, $imgData);
@@ -690,14 +728,28 @@ if ($acao === 'heartbeat') {
         cam_json(['ok' => false, 'erro' => 'device_id obrigatorio'], 400);
     }
 
+    if ($ip !== '' && !filter_var($ip, FILTER_VALIDATE_IP)) {
+        $ip = '';
+    }
+
     try {
-        $stmt = $pdo->prepare("SELECT id FROM dispositivos_cluster WHERE device_id = :did LIMIT 1");
+        $stmt = $pdo->prepare("SELECT id, metadata FROM dispositivos_cluster WHERE device_id = :did LIMIT 1");
         $stmt->execute([':did' => $did]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
+        // Heartbeat vindo da propria camera: o token apresentado tem de ser o
+        // registrado pelo gravafirmware. Camera sem token registrado nao entra.
+        if ($camHeartbeatToken !== '') {
+            $meta = $row ? (json_decode($row['metadata'] ?: '{}', true) ?: []) : [];
+            $expected = (string)($meta['token'] ?? '');
+            if ($expected === '' || !hash_equals($expected, $camHeartbeatToken)) {
+                cam_json(['ok' => false, 'erro' => 'Token da camera nao registrado ou invalido'], 401);
+            }
+        }
+
         if ($row) {
-            $stmtUp = $pdo->prepare("UPDATE dispositivos_cluster SET 
-                status = 'online', 
+            $stmtUp = $pdo->prepare("UPDATE dispositivos_cluster SET
+                status = 'online',
                 ultimo_heartbeat = NOW(), 
                 ip_address = COALESCE(NULLIF(:ip, ''), ip_address),
                 mac_address = COALESCE(NULLIF(:mac, ''), mac_address),

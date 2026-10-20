@@ -35,3 +35,6 @@ config.local.php
 !bin/**
 
 !site/var/www/html/bin/**
+
+# Logs
+*.log

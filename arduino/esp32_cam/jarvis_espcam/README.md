@@ -1,155 +1,55 @@
 # ESP32-CAM — JARVIS CASA
 
-Firmware para **AI-Thinker ESP32-CAM / OV2640** integrado à arquitetura distribuída CASA.
+Firmware `jarvis_espcam` (versão 2.0.0) para **AI-Thinker ESP32-CAM / OV2640**.
+A especificação completa está em [`docs/requisitos_ESPCAM.md`](../../../docs/requisitos_ESPCAM.md).
 
-## Papel do equipamento
-
-A ESP32-CAM é configurada pelo **JARVIS Mobile via Bluetooth Low Energy** e, depois do provisionamento, trabalha normalmente por **Wi-Fi**.
+## Como funciona
 
 ```text
-PRIMEIRO SETUP
-Celular JARVIS Mobile
-        │
-        │ BLE
-        ▼
-ESP32-CAM
-        │
-        ├─ SSID
-        ├─ senha Wi-Fi
-        ├─ URL CASA
-        ├─ token individual
-        ├─ nome
-        └─ localização
-        │
-        ▼
-      NVS
-        │
-     reinicia
-        │
-        ▼
-OPERAÇÃO NORMAL POR WI-FI
+gravar firmware ──► NVS vazia ──► cria Wi-Fi ABERTO "espcam" (sem senha, 192.168.4.1)
+                                        │
+                     gravafirmware: GET/POST /provision (token + redes da casa)
+                                        │
+                                    reinicia
+                                        │
+                 escaneia e entra na rede da casa de MAIOR SINAL
+                                        │
+       /stream e /capture na porta 80, apenas para IPs internos;
+       heartbeat ao site; responde à descoberta UDP 32108
+                                        │
+         sem rede por 3 min ──► reabre o "espcam" por 5 min ──► reinicia
 ```
 
-O firmware-fonte não contém SSID, senha Wi-Fi, token mestre, senha de banco nem chave RunPod.
+- **Provisionamento:** `GET /provision` devolve identidade, token e redes gravadas. `POST /provision` com `{"token": "...", "wifis": [{"ssid": "...", "senha": "..."}]}` grava tudo e reinicia.
+- **Operação:** `/stream`, `/capture`, `/status`, `/wifi_survey`, `/config/wifis` (POST), `/flash/on`, `/flash/off`. Clientes fora de `10.x`, `172.16-31.x` e `192.168.x` recebem `403`. Não há token no acesso local.
+- **Descoberta:** um datagrama UDP `ESPCAM_DISCOVER` na porta 32108 recebe como resposta um JSON com `device_id`, `ip`, `porta` e `porta_stream`.
+- **Site:** heartbeat a cada 30 s com `X-Camera-Token`, por HTTPS validado contra as raízes Let's Encrypt (`casa_ca.h`).
+- **Serial (115200):** mensagens `CAM_STAGE:*` e comandos `PING`, `STATUS`, `GET_TOKEN`, `SET_TOKEN:<t>`, `SET_WIFI:<ssid>:<senha>`, `FACTORY_RESET` e `RESTART`.
 
-## Área Novos Devices no celular
+O código-fonte não contém redes, senhas nem token: tudo fica na NVS (namespace `jarviscam`).
 
-O Android possui a área `NewDevicesActivity` e o provisionador `EspCamProvisioner`.
+## Compilar
 
-Fluxo esperado:
+Placa **AI Thinker ESP32-CAM** (core esp32 3.x), PSRAM habilitada:
 
-1. Abra **Novos Devices** no JARVIS Mobile.
-2. Toque em **PROCURAR ESP32-CAM POR BLUETOOTH**.
-3. Uma câmera nova aparece como `JARVIS-CAM-xxxxxx`.
-4. Selecione a câmera.
-5. Informe nome, localização, SSID e senha Wi-Fi.
-6. O celular, autenticado na CASA, cria uma identidade para a câmera em `/api/v1/provision.php`.
-7. A CASA devolve um **token individual exclusivo daquela câmera**.
-8. O celular grava as informações na ESP32-CAM por BLE.
-9. A câmera testa o Wi-Fi, grava a configuração em NVS e reinicia.
-10. A operação diária passa a usar Wi-Fi.
+```bash
+arduino-cli compile --fqbn esp32:esp32:esp32cam --build-path build .
+```
 
-O token do celular não é copiado para a ESP32-CAM.
+O gravafirmware usa `build/jarvis_espcam.ino.merged.bin` (gravado em `0x0`; a gravação apaga a NVS).
 
-## Comportamento do BLE
+## Gravar e provisionar
 
-O BLE fica disponível quando:
+1. Ligue IO0 ao GND, alimente a placa com 5 V e conecte o adaptador serial (TX→U0R, RX→U0T, GND comum).
+2. No gravafirmware, preencha as redes da casa (ou clique em *Carregar redes do site*) e a Chave API. Clique em **1. Gravar Firmware**.
+3. Quando o app pedir, tire o jumper IO0 e aperte RST. O app espera 10 s, conecta no `espcam`, envia a configuração, volta para a rede normal, localiza a câmera e a registra no site.
 
-- a câmera ainda não possui configuração válida; ou
-- a configuração Wi-Fi gravada falha no boot.
-
-Quando a câmera consegue iniciar normalmente por Wi-Fi, o BLE não é necessário para a operação diária.
-
-## Serviço BLE
-
-Service UUID:
-
-`7a5b0001-78fc-4b97-9f0f-9e9f5a31b401`
-
-| Função | UUID | Acesso |
-|---|---|---|
-| SSID Wi-Fi | `7a5b0002-78fc-4b97-9f0f-9e9f5a31b401` | Write |
-| Senha Wi-Fi | `7a5b0003-78fc-4b97-9f0f-9e9f5a31b401` | Write |
-| Aplicar | `7a5b0006-78fc-4b97-9f0f-9e9f5a31b401` | Write |
-| Status | `7a5b0007-78fc-4b97-9f0f-9e9f5a31b401` | Read / Notify |
-| URL CASA | `7a5b0008-78fc-4b97-9f0f-9e9f5a31b401` | Write |
-| Token do device | `7a5b0009-78fc-4b97-9f0f-9e9f5a31b401` | Write |
-| Nome | `7a5b000a-78fc-4b97-9f0f-9e9f5a31b401` | Write |
-| Localização | `7a5b000b-78fc-4b97-9f0f-9e9f5a31b401` | Write |
-
-Para concluir, o celular escreve `APPLY` na característica de aplicação.
-
-## Configuração persistida
-
-Namespace NVS:
-
-`jarviscam`
-
-Valores persistidos:
-
-- `ssid`
-- `wifi_pass`
-- `casa_url`
-- `token`
-- `name`
-- `location`
-- `configured`
-
-## Recursos da câmera
-
-Após conexão Wi-Fi:
-
-- MJPEG: `/stream`
-- foto: `/capture`
-- flash: `/flash/on`
-- flash: `/flash/off`
-- status: `/status`
-- heartbeat para CASA
-
-O endereço IP é adquirido pela rede Wi-Fi. A CASA deve usar o cadastro/heartbeat para conhecer o estado do equipamento.
-
-## API de provisionamento
-
-O celular usa:
-
-`POST /casa/api/v1/provision.php?acao=create`
-
-Essa operação exige um token com `mobile.write`.
-
-A API cria registro em `dispositivos_cluster` e devolve uma credencial exclusiva para o novo equipamento. O token é transmitido ao device durante o provisionamento BLE.
-
-## Segurança
-
-- nunca reutilizar token do celular na câmera;
-- nunca usar token mestre em firmware;
-- nunca gravar senha de banco ou chave RunPod;
-- Wi-Fi e token ficam em NVS do equipamento;
-- BLE é usado para setup/recovery, Wi-Fi para operação normal;
-- URL CASA deve usar HTTPS.
-
-A implementação HTTPS usa `WiFiClientSecure`. Na revisão atual ainda existe `setInsecure()` como etapa de transição de desenvolvimento. Antes de produção, instalar o CA correspondente e usar validação de certificado.
-
-## Arduino IDE
-
-Configuração típica:
-
-- placa: **AI Thinker ESP32-CAM**;
-- PSRAM habilitada;
-- CPU 240 MHz;
-- GPIO 0 em GND apenas durante gravação.
-
-Depois do upload, retire GPIO 0 do GND e reinicie. Se ainda não houver configuração válida, a placa entra automaticamente no modo BLE `JARVIS-CAM-xxxxxx`.
+Para reconfigurar uma câmera já instalada, envie `FACTORY_RESET` pela serial ou desligue as redes dela por 3 minutos para o `espcam` reabrir.
 
 ## Teste recomendado
 
-1. apagar NVS/flash da ESP32-CAM;
-2. ligar a câmera;
-3. verificar anúncio `JARVIS-CAM-xxxxxx`;
-4. abrir Novos Devices no celular;
-5. selecionar câmera;
-6. informar Wi-Fi;
-7. provisionar;
-8. observar reinício;
-9. confirmar IP no serial;
-10. testar `/status`, `/capture` e `/stream`;
-11. confirmar heartbeat no CASA.
+1. Grave o firmware e confirme na serial `CAM_STAGE:AP_ESPCAM:SSID=espcam`.
+2. Provisione pelo gravafirmware.
+3. Confirme na serial `CAM_STAGE:WIFI_BEST` e `CAM_STAGE:WIFI_OK` com o IP.
+4. A partir de um PC da rede, teste `http://<ip>/status`, `/capture` e `/stream`.
+5. Confirme `[HEARTBEAT] HTTP 200` na serial e a câmera online no site (Segurança → Câmeras & visão).

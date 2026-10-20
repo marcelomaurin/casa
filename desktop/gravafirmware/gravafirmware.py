@@ -411,10 +411,17 @@ class GravaFirmwareApp:
 
         if requests:
             try:
-                r = requests.post(DAEMON_URL, json=payload, timeout=2.0)
+                # O site exige chave de API (sessao do painel nao existe aqui)
+                api_key = os.getenv("CASA_API_KEY", "").strip()
+                headers = {"X-API-Key": api_key} if api_key else {}
+                r = requests.post(DAEMON_URL, json=payload, headers=headers, timeout=8.0)
                 if r.status_code == 200:
-                    self.log(f"Daemon confirmou recepção da chave! Resposta: {r.text}", "DAEMON_OK")
+                    self.log(f"Site confirmou recepção da chave! Resposta: {r.text}", "DAEMON_OK")
                     dispatched = True
+                elif r.status_code == 401:
+                    self.log("Site recusou: defina a variavel de ambiente CASA_API_KEY com uma chave valida.", "ERRO")
+                else:
+                    self.log(f"Site retornou HTTP {r.status_code}: {r.text[:200]}", "ERRO")
             except Exception as e:
                 self.log(f"Daemon local (porta 8088) ainda não está ativo no host: {e}", "INFO")
 

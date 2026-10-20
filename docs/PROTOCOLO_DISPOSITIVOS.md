@@ -109,4 +109,4 @@ Nós podem manter automações essenciais localmente quando a Internet estiver i
 - Raspberry/ARM Agent: identidade, token e capacidades configuráveis.
 - ESP32/ESP-01: devem usar AP local para configuração de rede e depois pareamento CASA.
 - LilyGo Watch: fluxo próprio; fora do AP ESP32/ESP-01.
-- ESP32-CAM: como membro da família ESP32, deve usar o fluxo de AP local e depois identidade/API universal de devices.
+- ESP32-CAM: usa AP local próprio (`espcam`), provisionado pelo `gravafirmware` (token + redes Wi-Fi da casa) e registrado em `camera_discovery.php`; ainda não usa a API universal de devices. Ver `docs/requisitos_ESPCAM.md`.

@@ -1,10 +1,10 @@
 object FormMain: TFormMain
   Left = 320
-  Height = 740
+  Height = 905
   Top = 120
   Width = 860
   Caption = 'CASA - Gravador de Firmware & Seguranca de Cameras (Lazarus + CHATGPT)'
-  ClientHeight = 740
+  ClientHeight = 905
   ClientWidth = 860
   Color = clBtnFace
   Font.Color = clWindowText
@@ -208,7 +208,7 @@ object FormMain: TFormMain
       Height = 32
       Top = 8
       Width = 155
-      Caption = '2. Ler Token Serial'
+      Caption = '2. Provisionar (espcam)'
       Font.Height = -13
       Font.Name = 'Segoe UI'
       Font.Style = [fsBold]
@@ -234,7 +234,7 @@ object FormMain: TFormMain
       Height = 32
       Top = 8
       Width = 150
-      Caption = '3. Enviar ao Site / Daemon'
+      Caption = '3. Registrar no Site'
       Font.Height = -13
       Font.Name = 'Segoe UI'
       Font.Style = [fsBold]
@@ -246,11 +246,11 @@ object FormMain: TFormMain
       Left = 12
       Height = 16
       Top = 50
-      Width = 646
+      Width = 400
       TabOrder = 3
     end
     object lblProgress: TLabel
-      Left = 668
+      Left = 420
       Height = 15
       Top = 50
       Width = 21
@@ -276,6 +276,24 @@ object FormMain: TFormMain
       Width = 220
       TabOrder = 4
       Text = 'https://maurinsoft.com.br/casa/api/camera_discovery.php?acao=register_token'
+    end
+    object lblApiKey: TLabel
+      Left = 500
+      Height = 15
+      Top = 50
+      Width = 56
+      Caption = 'Chave API:'
+      ParentColor = False
+    end
+    object edtApiKey: TEdit
+      Left = 566
+      Height = 23
+      Top = 46
+      Width = 244
+      EchoMode = emPassword
+      PasswordChar = '*'
+      TabOrder = 6
+      TextHint = 'X-API-Key do site CASA (ou variavel CASA_API_KEY)'
     end
   end
   object grpCaptured: TGroupBox
@@ -370,10 +388,84 @@ object FormMain: TFormMain
       TabOrder = 4
     end
   end
+  object grpWifis: TGroupBox
+    Left = 16
+    Height = 120
+    Top = 445
+    Width = 828
+    Caption = ' Redes Wi-Fi da casa gravadas na camera (uma por linha: SSID;senha) '
+    ClientHeight = 98
+    ClientWidth = 824
+    TabOrder = 7
+    object memWifis: TMemo
+      Left = 12
+      Height = 84
+      Top = 6
+      Width = 600
+      Font.Name = 'Consolas'
+      ParentFont = False
+      ScrollBars = ssAutoVertical
+      TabOrder = 0
+    end
+    object btnLoadWifis: TButton
+      Left = 625
+      Height = 28
+      Top = 6
+      Width = 185
+      Caption = 'Carregar redes do site'
+      OnClick = btnLoadWifisClick
+      TabOrder = 1
+    end
+    object chkAutoProv: TCheckBox
+      Left = 625
+      Height = 19
+      Top = 44
+      Width = 190
+      Caption = 'Provisionar apos gravar'
+      Checked = True
+      State = cbChecked
+      TabOrder = 2
+    end
+  end
+  object pnlStage: TPanel
+    Left = 16
+    Height = 40
+    Top = 572
+    Width = 828
+    BevelOuter = bvNone
+    Color = 15790320
+    ParentColor = False
+    TabOrder = 6
+    object lblStage: TLabel
+      Left = 10
+      Height = 32
+      Top = 4
+      Width = 690
+      AutoSize = False
+      Caption = 'Pronto. Escolha uma acao acima.'
+      Font.Height = -13
+      Font.Name = 'Segoe UI'
+      Font.Style = [fsBold]
+      Layout = tlCenter
+      ParentColor = False
+      ParentFont = False
+      WordWrap = True
+    end
+    object btnCancel: TButton
+      Left = 710
+      Height = 30
+      Top = 5
+      Width = 110
+      Caption = 'Cancelar'
+      Enabled = False
+      OnClick = btnCancelClick
+      TabOrder = 0
+    end
+  end
   object grpLogs: TGroupBox
     Left = 16
     Height = 275
-    Top = 447
+    Top = 619
     Width = 828
     Caption = ' 5. Terminal de Execucao & Logs '
     ClientHeight = 253
@@ -402,6 +494,22 @@ object FormMain: TFormMain
       OnClick = btnClearLogClick
       TabOrder = 1
     end
+    object chkSerialMon: TCheckBox
+      Left = 125
+      Height = 19
+      Top = 223
+      Width = 400
+      Caption = 'Monitor serial: mostrar aqui o que a camera imprime na porta'
+      OnChange = chkSerialMonChange
+      TabOrder = 2
+    end
+  end
+  object tmrSerial: TTimer
+    Enabled = False
+    Interval = 100
+    OnTimer = tmrSerialTimer
+    Left = 760
+    Top = 16
   end
   object dlgOpenFirmware: TOpenDialog
     Title = 'Selecione o arquivo de firmware'

@@ -1,39 +1,63 @@
 /**
  * JARVIS CASA - ESP32-CAM AI Thinker
- * Provisionamento e operacao com seguranca por token via serial.
  *
- * Seguranca:
- *  1. O token secreto da camera e gerado e gravado em NVS.
- *  2. O TOKEN SO E ENTREGUE PELA SERIAL (comando GET_TOKEN).
- *  3. Todas as rotas de video e captura (/capture, /stream, /flash)
- *     exigem o cabecalho HTTP "X-Camera-Token: <token>" ou "?token=<token>".
- *  4. Sem o token autenticado, qualquer requisicao recebe HTTP 401 Unauthorized.
+ * Ciclo de vida:
+ *  1. Firmware recem-gravado: memoria (NVS) vazia -> MODO PROVISIONAMENTO.
+ *     A camera cria o Wi-Fi ABERTO "espcam" (sem senha, IP 192.168.4.1).
+ *     O gravafirmware conecta nessa rede e usa:
+ *        GET  /provision  -> identidade da camera, token atual e redes gravadas
+ *        POST /provision  -> grava token + redes Wi-Fi da casa e reinicia
+ *  2. Com redes gravadas -> MODO ESTACAO: escaneia, entra na rede da casa de
+ *     MAIOR SINAL, publica /stream e /capture e aceita comandos apenas de IPs
+ *     da rede interna (10.x, 172.16-31.x, 192.168.x).
+ *  3. Sem conseguir entrar em nenhuma rede por 3 minutos, reabre o "espcam"
+ *     (provisionamento livre) por 5 minutos e depois reinicia para tentar de novo.
+ *
+ * O token nao protege o acesso local; ele identifica a camera no site CASA
+ * (heartbeat com X-Camera-Token).
  */
 
 #include "esp_camera.h"
+#include "img_converters.h"
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 #include <WebServer.h>
 #include <HTTPClient.h>
 #include <Preferences.h>
+#include <WiFiUdp.h>
+#include "casa_ca.h"
 
 Preferences preferences;
 WebServer server(80);
+WiFiUDP discoveryUdp;
+bool discoveryStarted = false;
+bool cameraSupportsJpeg = true;
+bool cameraInitialized = false;
 static const char* NVS_NAMESPACE = "jarviscam";
-static const char* FW_VERSION = "1.3.0";
+static const char* FW_VERSION = "2.0.0";
 
-String wifi_ssid, wifi_password, casa_url;
-String device_token, device_id, device_name, device_location;
-String pairing_request_id, pairing_code;
-bool operational = false;
-bool configPortal = false;
-bool httpStarted = false;
-unsigned long lastHeartbeat = 0;
-unsigned long lastPairingPoll = 0;
+static const char* PROV_AP_SSID = "espcam";
+static const unsigned long NO_WIFI_TO_AP_MS = 3UL * 60UL * 1000UL;    // sem rede -> reabre espcam
+static const unsigned long FALLBACK_AP_WINDOW_MS = 5UL * 60UL * 1000UL; // espcam de fallback fica aberto
+static const unsigned long WIFI_RETRY_MS = 25000UL;
+// Descoberta na rede da casa: o app manda "ESPCAM_DISCOVER" em broadcast UDP e a
+// camera responde com identidade, IP e portas (HTTP de comandos e de stream).
+static const uint16_t DISCOVERY_PORT = 32108;
+static const uint16_t HTTP_PORT = 80;
+static const uint16_t STREAM_PORT = 80;
+
+enum CamMode { MODE_PROVISION, MODE_STATION };
+CamMode camMode = MODE_STATION;
+
+String casa_url, device_token, device_id, device_name, device_location;
+bool serverStarted = false;
 unsigned long lastSerialAnnounce = 0;
-const unsigned long HEARTBEAT_INTERVAL = 15000UL;
-const unsigned long PAIRING_POLL_INTERVAL = 5000UL;
+unsigned long lastHeartbeatMillis = 0;
+unsigned long lastWifiRetry = 0;
+unsigned long noWifiSince = 0;
+unsigned long provisionDeadline = 0;   // 0 = espcam sem prazo (camera sem configuracao)
+unsigned long restartAt = 0;
 
 #define PWDN_GPIO_NUM 32
 #define RESET_GPIO_NUM -1
@@ -53,15 +77,9 @@ const unsigned long PAIRING_POLL_INTERVAL = 5000UL;
 #define PCLK_GPIO_NUM 22
 #define FLASH_LED_PIN 4
 
-// Redes default para auto-configuracao na residencia
-const char* DEFAULT_SSIDS[] = {"maurinsrv_1", "maurin_pwl", "maurin-cinema"};
-const char* DEFAULT_PASSWORDS[] = {"1425361425", "1425361425", ""};
-const int NUM_DEFAULT_NETWORKS = 3;
-
 struct HouseWifiNetwork {
   String ssid;
   String pass;
-  int priority;
 };
 
 #define MAX_HOUSE_WIFIS 12
@@ -70,64 +88,220 @@ int numHouseWifis = 0;
 unsigned long lastWifiSurveyTime = 0;
 String cachedSurveyJson = "[]";
 
-void loadHouseWifis() {
-  preferences.begin(NVS_NAMESPACE, true);
-  String jsonStr = preferences.getString("house_wifis", "");
-  preferences.end();
+// ---------------------------------------------------------------------------
+// JSON minimo (sem ArduinoJson)
+// ---------------------------------------------------------------------------
 
-  numHouseWifis = 0;
-  if (!jsonStr.isEmpty()) {
-    int pos = 0;
-    while (numHouseWifis < MAX_HOUSE_WIFIS) {
-      int sIdx = jsonStr.indexOf("\"ssid\":\"", pos);
-      if (sIdx < 0) sIdx = jsonStr.indexOf("\"ssid\": \"", pos);
-      sIdx = jsonStr.indexOf("\"", sIdx + 7) + 1;
-      if (sIdx < 0) break;
-      sIdx = jsonStr.indexOf("\"", sIdx + 7) + 1;
-      int sEnd = jsonStr.indexOf("\"", sIdx);
-      if (sEnd < 0) break;
-      String s = jsonStr.substring(sIdx, sEnd);
-
-      String p = "";
-      int pIdx = jsonStr.indexOf("\"senha\":\"", sEnd);
-      if (pIdx < 0) pIdx = jsonStr.indexOf("\"pass\":\"", sEnd);
-      if (pIdx < 0) pIdx = jsonStr.indexOf("\"senha\": \"", sEnd);
-      if (pIdx < 0) pIdx = jsonStr.indexOf("\"pass\": \"", sEnd);
-        pIdx = jsonStr.indexOf("\"", pIdx + 7) + 1;
-        pIdx = jsonStr.indexOf("\"", pIdx + 7) + 1;
-        pIdx = jsonStr.indexOf("\"", pIdx + 7) + 1;
-      if (pIdx >= 0) {
-        pIdx = jsonStr.indexOf("\"", pIdx + 7) + 1;
-        int pEnd = jsonStr.indexOf("\"", pIdx);
-        if (pEnd >= 0) p = jsonStr.substring(pIdx, pEnd);
-      }
-
-      if (!s.isEmpty()) {
-        houseWifis[numHouseWifis].ssid = s;
-        houseWifis[numHouseWifis].pass = p;
-        houseWifis[numHouseWifis].priority = numHouseWifis + 1;
-        numHouseWifis++;
-      }
-      pos = sEnd + 1;
-    }
+String jsonEscape(const String& v) {
+  String o; o.reserve(v.length()+8);
+  for (size_t i=0;i<v.length();i++) {
+    char c=v.charAt(i);
+    if(c=='\\') o+="\\\\"; else if(c=='\"') o+="\\\"";
+    else if(c=='\n') o+="\\n"; else if(c=='\r') o+="\\r"; else if(c=='\t') o+="\\t"; else o+=c;
   }
+  return o;
+}
 
-  // Carrega redes padrão se nenhuma foi gravada
-  if (numHouseWifis == 0) {
-    for (int i = 0; i < NUM_DEFAULT_NETWORKS && numHouseWifis < MAX_HOUSE_WIFIS; i++) {
-      houseWifis[numHouseWifis].ssid = DEFAULT_SSIDS[i];
-      houseWifis[numHouseWifis].pass = DEFAULT_PASSWORDS[i];
-      houseWifis[numHouseWifis].priority = i + 1;
-      numHouseWifis++;
+// Le o valor string de "key" dentro de json[from, limit). Trata espacos e escapes \" \\.
+// Retorna false se a chave nao existir no intervalo.
+bool jsonStringValue(const String& json, const char* key, int from, int limit, String& out) {
+  String needle = String("\"") + key + "\"";
+  int k = json.indexOf(needle, from);
+  if (k < 0 || k >= limit) return false;
+  int i = k + needle.length();
+  while (i < limit && (json[i] == ' ' || json[i] == '\t' || json[i] == '\n' || json[i] == '\r')) i++;
+  if (i >= limit || json[i] != ':') return false;
+  i++;
+  while (i < limit && (json[i] == ' ' || json[i] == '\t' || json[i] == '\n' || json[i] == '\r')) i++;
+  if (i >= limit || json[i] != '"') return false;
+  i++;
+  out = "";
+  while (i < limit && json[i] != '"') {
+    if (json[i] == '\\' && i + 1 < limit) i++;
+    out += json[i++];
+  }
+  return i < limit;
+}
+
+void addHouseWifi(const String& ssid, const String& pass) {
+  if (ssid.isEmpty() || numHouseWifis >= MAX_HOUSE_WIFIS) return;
+  for (int j = 0; j < numHouseWifis; ++j) {
+    if (houseWifis[j].ssid == ssid) { houseWifis[j].pass = pass; return; }
+  }
+  houseWifis[numHouseWifis].ssid = ssid;
+  houseWifis[numHouseWifis].pass = pass;
+  numHouseWifis++;
+}
+
+// Cada objeto {...} mais interno com "ssid" e "senha"/"pass" vira uma rede da casa.
+// Aceita {"wifis":[{...}]}, [{...}] ou o corpo completo do POST /provision.
+void parseHouseWifis(const String& jsonStr) {
+  numHouseWifis = 0;
+  int pos = 0;
+  while (numHouseWifis < MAX_HOUSE_WIFIS) {
+    int objStart = jsonStr.indexOf('{', pos);
+    if (objStart < 0) break;
+    // Fim do objeto ignorando chaves dentro de strings (senhas podem conter '}')
+    int objEnd = -1;
+    bool inStr = false;
+    for (int i = objStart + 1; i < (int)jsonStr.length(); i++) {
+      char c = jsonStr[i];
+      if (inStr) {
+        if (c == '\\') i++;
+        else if (c == '"') inStr = false;
+      } else if (c == '"') inStr = true;
+      else if (c == '{') objStart = i;
+      else if (c == '}') { objEnd = i; break; }
     }
+    if (objEnd < 0) break;
+    String s, p;
+    if (jsonStringValue(jsonStr, "ssid", objStart, objEnd, s)) {
+      if (!jsonStringValue(jsonStr, "senha", objStart, objEnd, p)) {
+        if (!jsonStringValue(jsonStr, "pass", objStart, objEnd, p)) p = "";
+      }
+      addHouseWifi(s, p);
+    }
+    pos = objEnd + 1;
   }
 }
 
-void saveHouseWifisJson(const String& jsonStr) {
+String houseWifisToJson(bool withPasswords) {
+  String json = "[";
+  for (int j = 0; j < numHouseWifis; ++j) {
+    if (j) json += ",";
+    json += "{\"ssid\":\"" + jsonEscape(houseWifis[j].ssid) + "\"";
+    if (withPasswords) json += ",\"senha\":\"" + jsonEscape(houseWifis[j].pass) + "\"";
+    json += "}";
+  }
+  return json + "]";
+}
+
+void persistHouseWifis() {
+  String json = houseWifisToJson(true);
   preferences.begin(NVS_NAMESPACE, false);
-  preferences.putString("house_wifis", jsonStr);
+  // Evita regravar a flash quando o daemon reenvia a mesma lista a cada minuto
+  if (preferences.getString("house_wifis", "") != json) preferences.putString("house_wifis", json);
   preferences.end();
-  loadHouseWifis();
+}
+
+// ---------------------------------------------------------------------------
+// Configuracao persistente
+// ---------------------------------------------------------------------------
+
+String physicalMac(){
+  String m=WiFi.macAddress();
+  m.toUpperCase();
+  return m;
+}
+
+void loadConfig() {
+  preferences.begin(NVS_NAMESPACE, false);
+  casa_url = preferences.getString("casa_url", "https://maurinsoft.com.br/casa");
+  device_token = preferences.getString("token", "");
+  device_id = preferences.getString("device_id", "");
+  device_name = preferences.getString("name", "ESP32-CAM");
+  device_location = preferences.getString("location", "Monitoramento");
+  String wifisJson = preferences.getString("house_wifis", "");
+
+  // device_id fixo derivado do MAC de fabrica
+  if (device_id.isEmpty()) {
+    uint64_t chip = ESP.getEfuseMac();
+    char suffix[7];
+    snprintf(suffix, sizeof(suffix), "%06X", (uint32_t)(chip & 0xFFFFFF));
+    device_id = String("esp32cam-") + suffix;
+    preferences.putString("device_id", device_id);
+  }
+  preferences.end();
+  parseHouseWifis(wifisJson);
+}
+
+void saveString(const char* key, const String& value) {
+  preferences.begin(NVS_NAMESPACE, false);
+  preferences.putString(key, value);
+  preferences.end();
+}
+
+bool isValidTokenFormat(const String& t) {
+  if (t.length() < 16 || t.length() > 128) return false;
+  for (size_t i = 0; i < t.length(); i++) {
+    if (!isalnum((unsigned char)t[i])) return false;
+  }
+  return true;
+}
+
+void factoryReset() {
+  preferences.begin(NVS_NAMESPACE, false);
+  preferences.clear();
+  preferences.end();
+}
+
+// ---------------------------------------------------------------------------
+// Wi-Fi
+// ---------------------------------------------------------------------------
+
+bool tryConnect(const String& ssid, const String& pass, unsigned long timeoutMs=8000UL) {
+  if (ssid.isEmpty()) return false;
+  Serial.printf("CAM_STAGE:WIFI_CONNECTING:%s\n", ssid.c_str());
+  WiFi.mode(WIFI_STA);
+  WiFi.persistent(false);
+  WiFi.disconnect(false,false);
+  delay(100);
+  WiFi.begin(ssid.c_str(), pass.c_str());
+  unsigned long start = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - start < timeoutMs) {
+    handleSerialCommands();
+    delay(100);
+    yield();
+  }
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.printf("CAM_STAGE:WIFI_OK:SSID=%s:IP=%s:RSSI=%d\n", ssid.c_str(), WiFi.localIP().toString().c_str(), WiFi.RSSI());
+    return true;
+  }
+  WiFi.disconnect(false, false);
+  return false;
+}
+
+// Escaneia e conecta na rede da casa com MAIOR SINAL; se nenhuma aparecer no
+// scan, tenta todas em sequencia.
+bool connectBestHouseWifi() {
+  if (numHouseWifis == 0) return false;
+  Serial.printf("CAM_STAGE:WIFI_SCAN:%d redes cadastradas\n", numHouseWifis);
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect();
+  delay(120);
+
+  int n = WiFi.scanNetworks(false, false, false, 350);
+  int bestRssi = -999, bestIdx = -1;
+  for (int i = 0; i < n; ++i) {
+    for (int j = 0; j < numHouseWifis; ++j) {
+      if (WiFi.SSID(i) == houseWifis[j].ssid) {
+        Serial.printf("CAM_STAGE:WIFI_FOUND:%s:%d dBm\n", houseWifis[j].ssid.c_str(), WiFi.RSSI(i));
+        if (WiFi.RSSI(i) > bestRssi) { bestRssi = WiFi.RSSI(i); bestIdx = j; }
+      }
+    }
+  }
+  WiFi.scanDelete();
+
+  if (bestIdx >= 0) {
+    Serial.printf("CAM_STAGE:WIFI_BEST:%s:%d dBm\n", houseWifis[bestIdx].ssid.c_str(), bestRssi);
+    if (tryConnect(houseWifis[bestIdx].ssid, houseWifis[bestIdx].pass, 10000UL)) return true;
+  }
+  for (int j = 0; j < numHouseWifis; ++j) {
+    if (j == bestIdx) continue;
+    if (tryConnect(houseWifis[j].ssid, houseWifis[j].pass, 7000UL)) return true;
+  }
+  return false;
+}
+
+void startProvisioningAp(const char* reason, unsigned long windowMs) {
+  camMode = MODE_PROVISION;
+  WiFi.disconnect(true, false);
+  delay(100);
+  WiFi.mode(WIFI_AP_STA);   // STA ligado so para o /scan
+  WiFi.softAP(PROV_AP_SSID);   // rede aberta: o gravafirmware conecta sem senha
+  provisionDeadline = windowMs ? millis() + windowMs : 0;
+  Serial.printf("CAM_STAGE:AP_ESPCAM:SSID=%s:IP=%s:MOTIVO=%s\n", PROV_AP_SSID,
+    WiFi.softAPIP().toString().c_str(), reason);
 }
 
 String performWifiSurvey(bool forceScan = false) {
@@ -141,8 +315,6 @@ String performWifiSurvey(bool forceScan = false) {
 
   int n = WiFi.scanNetworks(false, true, false, 300);
   String json = "[";
-  bool first = true;
-
   for (int j = 0; j < numHouseWifis; ++j) {
     String s = houseWifis[j].ssid;
     int rssi = -999;
@@ -151,15 +323,11 @@ String performWifiSurvey(bool forceScan = false) {
       rssi = connectedRssi;
     } else {
       for (int i = 0; i < n; ++i) {
-        if (WiFi.SSID(i) == s) {
-          if (WiFi.RSSI(i) > rssi) rssi = WiFi.RSSI(i);
-        }
+        if (WiFi.SSID(i) == s && WiFi.RSSI(i) > rssi) rssi = WiFi.RSSI(i);
       }
     }
-
-    if (!first) json += ",";
-    first = false;
-    json += "{\"ssid\":\"" + s + "\",\"rssi\":" + String(rssi) + ",\"connected\":" + (isConn ? "true" : "false") + "}";
+    if (j) json += ",";
+    json += "{\"ssid\":\"" + jsonEscape(s) + "\",\"rssi\":" + String(rssi) + ",\"connected\":" + (isConn ? "true" : "false") + "}";
   }
   json += "]";
   WiFi.scanDelete();
@@ -167,348 +335,407 @@ String performWifiSurvey(bool forceScan = false) {
   return json;
 }
 
+// ---------------------------------------------------------------------------
+// HTTP
+// ---------------------------------------------------------------------------
 
-String jsonEscape(const String& v) {
-  String o; o.reserve(v.length()+8);
-  for (size_t i=0;i<v.length();i++) {
-    char c=v.charAt(i);
-    if(c=='\\') o+="\\\\"; else if(c=='\"') o+="\\\"";
-    else if(c=='\n') o+="\\n"; else if(c=='\r') o+="\\r"; else if(c=='\t') o+="\\t"; else o+=c;
-  }
-  return o;
-}
-
-String physicalMac(){ 
-  String m=WiFi.macAddress(); 
-  m.toUpperCase(); 
-  return m; 
-}
-
-String generateRandomToken() {
-  // Garante entropia forte e unica combinando MAC fisico do chip, ciclo de clock,
-  // microssegundos e leituras do gerador de hardware esp_random.
-  uint64_t chipMac = ESP.getEfuseMac();
-  uint32_t cyc = ESP.getCycleCount();
-  uint32_t us = (uint32_t)micros();
-
-  // Seed do random do C++ com hardware unico
-  randomSeed((uint32_t)(chipMac & 0xFFFFFFFF) ^ cyc ^ us);
-
-  String t = "";
-  for (int i = 0; i < 4; i++) {
-    uint32_t r1 = esp_random();
-    uint32_t r2 = (uint32_t)random(1, 0x7FFFFFFF);
-    uint32_t r3 = (uint32_t)((chipMac >> (i * 8)) & 0xFF);
-    uint32_t r = r1 ^ r2 ^ (r3 << 24) ^ (ESP.getCycleCount() + (uint32_t)micros());
-    char buf[9];
-    snprintf(buf, sizeof(buf), "%08x", r);
-    t += buf;
-  }
-  return t;
-}
-
-void loadConfig() {
-  preferences.begin(NVS_NAMESPACE, false);
-  wifi_ssid = preferences.getString("ssid", ""); 
-  wifi_password = preferences.getString("wifi_pass", "");
-  casa_url = preferences.getString("casa_url", "https://maurinsoft.com.br/casa");
-  device_token = preferences.getString("token", ""); 
-  device_id = preferences.getString("device_id", "");
-  device_name = preferences.getString("name", "ESP32-CAM"); 
-  device_location = preferences.getString("location", "Monitoramento");
-  pairing_request_id = preferences.getString("pair_req", ""); 
-  pairing_code = preferences.getString("pair_code", "");
-
-  // Assegura device_id único baseado em MAC
-  if (device_id.isEmpty()) {
-    uint64_t chip = ESP.getEfuseMac(); 
-    char suffix[7]; 
-    snprintf(suffix, sizeof(suffix), "%06X", (uint32_t)(chip & 0xFFFFFF));
-    device_id = String("esp32cam-") + suffix;
-    preferences.putString("device_id", device_id);
-  }
-
-  // Gera e persiste token exclusivo se nao existir
-  if (device_token.isEmpty()) {
-    device_token = generateRandomToken();
-    preferences.putString("token", device_token);
-  }
-  preferences.end();
-  operational = !wifi_ssid.isEmpty() && !casa_url.isEmpty() && !device_token.isEmpty();
-  loadHouseWifis();
-}
-
-void saveNetwork(const String& ssid, const String& pass, const String& base, const String& name, const String& location) {
-  preferences.begin(NVS_NAMESPACE, false);
-  preferences.putString("ssid", ssid); 
-  preferences.putString("wifi_pass", pass); 
-  preferences.putString("casa_url", base);
-  preferences.putString("name", name.isEmpty() ? "ESP32-CAM" : name); 
-  preferences.putString("location", location.isEmpty() ? "Monitoramento" : location);
-  preferences.end(); 
-  loadConfig();
-}
-
-void saveToken(const String& newToken) {
-  preferences.begin(NVS_NAMESPACE, false);
-  preferences.putString("token", newToken);
-  preferences.end();
-  device_token = newToken;
-}
-
-bool isAuthorized() {
-  // Se o token estiver configurado, exige autenticação
-  if (device_token.isEmpty()) return true;
-  String headerToken = server.header("X-Camera-Token");
-  if (headerToken == device_token) return true;
-  String argToken = server.arg("token");
-  if (argToken == device_token) return true;
+// Rede interna: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 (inclui 192.168.4.x do espcam)
+bool isInternalClient() {
+  IPAddress ip = server.client().remoteIP();
+  if (ip[0] == 10) return true;
+  if (ip[0] == 172 && ip[1] >= 16 && ip[1] <= 31) return true;
+  if (ip[0] == 192 && ip[1] == 168) return true;
   return false;
 }
 
-void rejectUnauthorized() {
+bool guardStation() {
   server.sendHeader("Access-Control-Allow-Origin", "*");
-  server.send(401, "application/json", "{\"ok\":false,\"erro\":\"Nao autorizado: token da camera obrigatorio via header X-Camera-Token ou param token\",\"codigo\":401}");
+  if (camMode != MODE_STATION) {
+    server.send(409, "application/json", "{\"ok\":false,\"erro\":\"Camera em modo de provisionamento (rede espcam)\"}");
+    return false;
+  }
+  if (!isInternalClient()) {
+    server.send(403, "application/json", "{\"ok\":false,\"erro\":\"Acesso permitido apenas pela rede interna\"}");
+    return false;
+  }
+  return true;
 }
 
-bool tryConnect(const String& ssid, const String& pass, unsigned long timeoutMs=8000UL) {
-  if (ssid.isEmpty()) return false;
-  Serial.printf("[WIFI] Conectando a '%s'...\n", ssid.c_str());
-  WiFi.mode(WIFI_STA); 
-  WiFi.persistent(false); 
-  WiFi.disconnect(false,false); 
-  delay(100);
-  WiFi.begin(ssid.c_str(), pass.c_str());
-  unsigned long start = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - start < timeoutMs) {
-    delay(100);
-    yield();
+bool guardProvision() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  if (camMode != MODE_PROVISION) {
+    server.send(409, "application/json", "{\"ok\":false,\"erro\":\"Provisionamento so pela rede espcam\"}");
+    return false;
   }
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.printf("[WIFI] Conectado! IP=%s RSSI=%d\n", WiFi.localIP().toString().c_str(), WiFi.RSSI());
-    return true;
-  }
-  WiFi.disconnect(false, false);
-  return false;
+  return true;
 }
 
-bool scanAndConnectBestWifi() {
-  Serial.printf("[WIFI] Escaneando ambiente para verificar a melhor das %d redes da casa...\n", numHouseWifis);
-  WiFi.mode(WIFI_STA);
-  WiFi.disconnect();
-  delay(120);
+String identityJson() {
+  return "\"device_id\":\"" + jsonEscape(device_id) + "\",\"mac\":\"" + physicalMac() +
+         "\",\"versao\":\"" + FW_VERSION + "\",\"modo\":\"" +
+         (camMode == MODE_PROVISION ? "provisionamento" : "estacao") + "\"";
+}
 
-  int n = WiFi.scanNetworks(false, false, false, 350);
-  Serial.printf("[WIFI] Scan concluido: %d redes detectadas.\n", n);
+void handleProvisionGet() {
+  if (!guardProvision()) return;
+  String j = "{\"ok\":true," + identityJson() +
+             ",\"token\":\"" + jsonEscape(device_token) + "\"" +
+             ",\"casa_url\":\"" + jsonEscape(casa_url) + "\"" +
+             ",\"wifis\":" + houseWifisToJson(false) + "}";
+  server.send(200, "application/json", j);
+}
 
-  int bestRssi = -999;
-  String bestSsid = "";
-  String bestPass = "";
+void handleProvisionPost() {
+  if (!guardProvision()) return;
+  String body = server.arg("plain");
+  if (body.isEmpty()) {
+    server.send(400, "application/json", "{\"ok\":false,\"erro\":\"Corpo JSON obrigatorio\"}");
+    return;
+  }
+  int limit = body.length();
+  String token, url, nome, local;
+  bool hasToken = jsonStringValue(body, "token", 0, limit, token);
+  if (hasToken && !isValidTokenFormat(token)) {
+    server.send(400, "application/json", "{\"ok\":false,\"erro\":\"token invalido (16-128 caracteres alfanumericos)\"}");
+    return;
+  }
 
+  HouseWifiNetwork backup[MAX_HOUSE_WIFIS];
+  int backupCount = numHouseWifis;
+  for (int j = 0; j < numHouseWifis; ++j) backup[j] = houseWifis[j];
+  parseHouseWifis(body);
+  if (numHouseWifis == 0) {
+    for (int j = 0; j < backupCount; ++j) houseWifis[j] = backup[j];
+    numHouseWifis = backupCount;
+    server.send(400, "application/json", "{\"ok\":false,\"erro\":\"Informe ao menos uma rede em wifis:[{ssid,senha}]\"}");
+    return;
+  }
+
+  persistHouseWifis();
+  if (hasToken) { device_token = token; saveString("token", token); }
+  if (jsonStringValue(body, "casa_url", 0, limit, url) && url.startsWith("http")) { casa_url = url; saveString("casa_url", url); }
+  if (jsonStringValue(body, "nome", 0, limit, nome) && !nome.isEmpty()) { device_name = nome; saveString("name", nome); }
+  if (jsonStringValue(body, "local", 0, limit, local) && !local.isEmpty()) { device_location = local; saveString("location", local); }
+
+  Serial.printf("CAM_STAGE:PROVISIONED:REDES=%d:TOKEN=%s\n", numHouseWifis, device_token.isEmpty() ? "NAO" : "SIM");
+  server.send(200, "application/json", "{\"ok\":true," + identityJson() +
+    ",\"redes\":" + String(numHouseWifis) + ",\"mensagem\":\"Configuracao gravada. Reiniciando para entrar na rede de maior sinal.\"}");
+  restartAt = millis() + 1500;   // da tempo da resposta chegar ao app
+}
+
+void handleScan() {
+  if (!guardProvision()) return;
+  int n = WiFi.scanNetworks(false, false, false, 300);
+  String j = "{\"ok\":true,\"redes\":[";
   for (int i = 0; i < n; ++i) {
-    String foundSsid = WiFi.SSID(i);
-    int foundRssi = WiFi.RSSI(i);
-
-    for (int j = 0; j < numHouseWifis; ++j) {
-      if (foundSsid == houseWifis[j].ssid) {
-        Serial.printf("[WIFI-MATCH] Rede da casa '%s' encontrada (RSSI: %d dBm)\n", foundSsid.c_str(), foundRssi);
-        if (foundRssi > bestRssi) {
-          bestRssi = foundRssi;
-          bestSsid = foundSsid;
-          bestPass = houseWifis[j].pass;
-        }
-      }
-    }
+    if (i) j += ",";
+    j += "{\"ssid\":\"" + jsonEscape(WiFi.SSID(i)) + "\",\"rssi\":" + String(WiFi.RSSI(i)) + "}";
   }
-
-  if (!bestSsid.isEmpty()) {
-    Serial.printf("[WIFI] MELHOR SINAL: '%s' (%d dBm). Conectando...\n", bestSsid.c_str(), bestRssi);
-    if (tryConnect(bestSsid, bestPass, 9000UL)) {
-      wifi_ssid = bestSsid;
-      wifi_password = bestPass;
-      saveNetwork(bestSsid, bestPass, casa_url, device_name, device_location);
-      return true;
-    }
-  }
-
-  // Fallback sequencial se o scan nao casou nenhuma rede
-  Serial.println("[WIFI] Tentando conexao sequencial das redes cadastradas...");
-  for (int j = 0; j < numHouseWifis; ++j) {
-    if (tryConnect(houseWifis[j].ssid, houseWifis[j].pass, 7000UL)) {
-      wifi_ssid = houseWifis[j].ssid;
-      wifi_password = houseWifis[j].pass;
-      saveNetwork(houseWifis[j].ssid, houseWifis[j].pass, casa_url, device_name, device_location);
-      return true;
-    }
-  }
-  return false;
-}
-
-bool autoConnectWifi() {
-  return scanAndConnectBestWifi();
+  WiFi.scanDelete();
+  server.send(200, "application/json", j + "]}");
 }
 
 void handleStream(){
-  if (!isAuthorized()) {
-    rejectUnauthorized();
-    return;
-  }
+  if (!guardStation()) return;
   WiFiClient client=server.client();
+  client.setNoDelay(true);
   server.sendContent("HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=frame\r\n\r\n");
   while(client.connected()){
     camera_fb_t* fb=esp_camera_fb_get();
     if(!fb) break;
-    client.print("--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "+String(fb->len)+"\r\n\r\n");
-    client.write(fb->buf,fb->len);
-    client.print("\r\n");
+    if (fb->format == PIXFORMAT_JPEG) {
+      client.print("--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "+String(fb->len)+"\r\n\r\n");
+      client.write(fb->buf,fb->len);
+      client.print("\r\n");
+    } else {
+      uint8_t *jpg_buf = NULL;
+      size_t jpg_len = 0;
+      // Qualidade 50 para compressao por software: muito mais rapido e fluido no GC2145
+      if (frame2jpg(fb, 50, &jpg_buf, &jpg_len) && jpg_buf) {
+        client.print("--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "+String(jpg_len)+"\r\n\r\n");
+        client.write(jpg_buf, jpg_len);
+        client.print("\r\n");
+        free(jpg_buf);
+      }
+    }
     esp_camera_fb_return(fb);
+    // Processa comandos seriais leves sem bloquear o stream com requisicoes HTTPS
+    handleSerialCommands();
+    handleDiscovery();
     yield();
   }
 }
 
 void handleCapture(){
-  if (!isAuthorized()) {
-    rejectUnauthorized();
-    return;
-  }
+  if (!guardStation()) return;
   camera_fb_t* fb=esp_camera_fb_get();
   if(!fb){
     server.send(500,"text/plain","Falha na captura");
     return;
   }
-  server.sendHeader("Content-Type","image/jpeg");
-  server.sendHeader("Content-Length",String(fb->len));
-  server.sendHeader("Access-Control-Allow-Origin","*");
-  server.client().write(fb->buf,fb->len);
+  if (fb->format == PIXFORMAT_JPEG) {
+    server.setContentLength(fb->len);
+    server.send(200, "image/jpeg", "");
+    server.client().write(fb->buf,fb->len);
+  } else {
+    uint8_t *jpg_buf = NULL;
+    size_t jpg_len = 0;
+    if (frame2jpg(fb, 80, &jpg_buf, &jpg_len) && jpg_buf) {
+      server.setContentLength(jpg_len);
+      server.send(200, "image/jpeg", "");
+      server.client().write(jpg_buf, jpg_len);
+      free(jpg_buf);
+    } else {
+      server.send(500, "text/plain", "Falha na conversao JPEG por software");
+    }
+  }
   esp_camera_fb_return(fb);
 }
 
 void handleStatus(){
   server.sendHeader("Access-Control-Allow-Origin","*");
-  bool auth = isAuthorized();
-  String survey = performWifiSurvey(false);
-  String j = "{\"status\":\"online\",\"type\":\"esp32cam\",\"device_id\":\""+jsonEscape(device_id)+"\",\"name\":\""+jsonEscape(device_name)+"\",\"location\":\""+jsonEscape(device_location)+"\",\"ip\":\""+WiFi.localIP().toString()+"\",\"rssi\":"+String(WiFi.RSSI())+",\"wifi_ssid\":\""+WiFi.SSID()+"\",\"wifi_survey\":"+survey+",\"authenticated\":"+(auth?"true":"false")+"}";
+  bool internal = isInternalClient();
+  String survey = (internal && camMode == MODE_STATION) ? performWifiSurvey(false) : String("[]");
+  String j = "{\"status\":\"online\",\"type\":\"esp32cam\"," + identityJson() +
+             ",\"name\":\""+jsonEscape(device_name)+"\",\"location\":\""+jsonEscape(device_location)+
+             "\",\"ip\":\""+WiFi.localIP().toString()+"\",\"rssi\":"+String(WiFi.RSSI())+
+             ",\"camera_ok\":"+(cameraInitialized ? "true" : "false")+
+             ",\"camera_hw_jpeg\":"+(cameraSupportsJpeg ? "true" : "false")+
+             ",\"wifi_ssid\":\""+jsonEscape(WiFi.SSID())+"\",\"wifi_survey\":"+survey+"}";
   server.send(200, "application/json", j);
 }
 
-unsigned long lastHeartbeatMillis = 0;
+void setupHttpRoutes() {
+  server.on("/provision", HTTP_GET, handleProvisionGet);
+  server.on("/provision", HTTP_POST, handleProvisionPost);
+  server.on("/scan", HTTP_GET, handleScan);
+  server.on("/stream", handleStream);
+  server.on("/capture", handleCapture);
+  server.on("/status", handleStatus);
+  server.on("/wifi_survey", []{
+    if (!guardStation()) return;
+    String survey = performWifiSurvey(server.hasArg("refresh"));
+    String resp = "{\"device_id\":\"" + device_id + "\",\"connected_ssid\":\"" + jsonEscape(WiFi.SSID())
+                + "\",\"connected_rssi\":" + String(WiFi.RSSI())
+                + ",\"wifis\":" + survey + ",\"timestamp\":" + String(millis()) + "}";
+    server.send(200, "application/json", resp);
+  });
+  // Daemon repassa as redes cadastradas no site (valem a partir do proximo reinicio/reconexao)
+  server.on("/config/wifis", HTTP_POST, []{
+    if (!guardStation()) return;
+    String body = server.arg("plain");
+    HouseWifiNetwork backup[MAX_HOUSE_WIFIS];
+    int backupCount = numHouseWifis;
+    for (int j = 0; j < numHouseWifis; ++j) backup[j] = houseWifis[j];
+    parseHouseWifis(body);
+    if (numHouseWifis == 0) {
+      for (int j = 0; j < backupCount; ++j) houseWifis[j] = backup[j];
+      numHouseWifis = backupCount;
+      server.send(400, "application/json", "{\"ok\":false,\"erro\":\"Nenhuma rede valida no corpo\"}");
+      return;
+    }
+    persistHouseWifis();
+    server.send(200, "application/json", "{\"ok\":true,\"count\":" + String(numHouseWifis) + "}");
+  });
+  server.on("/flash/on", []{
+    if (!guardStation()) return;
+    digitalWrite(FLASH_LED_PIN, HIGH);
+    server.send(200, "application/json", "{\"flash\":1}");
+  });
+  server.on("/flash/off", []{
+    if (!guardStation()) return;
+    digitalWrite(FLASH_LED_PIN, LOW);
+    server.send(200, "application/json", "{\"flash\":0}");
+  });
+}
+
+void ensureServer() {
+  if (!serverStarted) {
+    server.begin();
+    serverStarted = true;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Site CASA
+// ---------------------------------------------------------------------------
 
 void sendHeartbeatToCasa() {
-  if (WiFi.status() != WL_CONNECTED || casa_url.isEmpty()) return;
+  if (camMode != MODE_STATION || WiFi.status() != WL_CONNECTED || casa_url.isEmpty() || device_token.isEmpty()) return;
+  // Clientes declarados antes do HTTPClient: sao destruidos depois dele
+  WiFiClientSecure tls;
+  WiFiClient plain;
   HTTPClient http;
-  String url = casa_url + "/api/camera_discovery.php?acao=heartbeat&device_id=" + device_id 
-             + "&ip=" + WiFi.localIP().toString() 
-             + "&mac=" + physicalMac() 
+  String url = casa_url + "/api/camera_discovery.php?acao=heartbeat&device_id=" + device_id
+             + "&ip=" + WiFi.localIP().toString()
+             + "&mac=" + physicalMac()
              + "&rssi=" + String(WiFi.RSSI());
-  http.begin(url);
+  // HTTPS validado contra as raizes Let's Encrypt: o token so sai para o site verdadeiro
+  if (url.startsWith("https://")) {
+    tls.setCACert(CASA_ROOT_CA);
+    http.begin(tls, url);
+  } else {
+    http.begin(plain, url);
+  }
   http.setTimeout(3500);
+  http.addHeader("X-Camera-Token", device_token);
   int httpCode = http.GET();
   if (httpCode > 0) {
-    Serial.printf("[HEARTBEAT] OK HTTP %d\n", httpCode);
+    Serial.printf("[HEARTBEAT] HTTP %d%s\n", httpCode, httpCode == 401 ? " (token nao registrado no site: use o gravafirmware)" : "");
   } else {
     Serial.printf("[HEARTBEAT] Erro: %s\n", http.errorToString(httpCode).c_str());
   }
   http.end();
 }
 
-void startCameraHttp(){
-  server.stop();
-  const char * headerkeys[] = {"X-Camera-Token", "User-Agent"} ;
-  size_t headerkeyssize = sizeof(headerkeys)/sizeof(char*);
-  server.collectHeaders(headerkeys, headerkeyssize);
+String discoveryJson() {
+  return "{\"type\":\"esp32cam\"," + identityJson() +
+         ",\"ip\":\"" + WiFi.localIP().toString() + "\"" +
+         ",\"porta\":" + String(HTTP_PORT) + ",\"porta_stream\":" + String(STREAM_PORT) +
+         ",\"stream\":\"/stream\",\"capture\":\"/capture\"" +
+         ",\"ssid\":\"" + jsonEscape(WiFi.SSID()) + "\",\"rssi\":" + String(WiFi.RSSI()) + "}";
+}
 
-  server.on("/stream", handleStream);
-  server.on("/capture", handleCapture);
-  server.on("/status", handleStatus);
-  server.on("/wifi_survey", []{
-    if (!isAuthorized()) { rejectUnauthorized(); return; }
-    String survey = performWifiSurvey(server.hasArg("refresh"));
-    String resp = "{\"device_id\":\"" + device_id + "\",\"connected_ssid\":\"" + WiFi.SSID() 
-                + "\",\"connected_rssi\":" + String(WiFi.RSSI()) 
-                + ",\"wifis\":" + survey + ",\"timestamp\":" + String(millis()) + "}";
-    server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.send(200, "application/json", resp);
-  });
-  server.on("/config/wifis", HTTP_POST, []{
-    if (!isAuthorized()) { rejectUnauthorized(); return; }
-    if (!server.hasArg("plain")) {
-      server.send(400, "application/json", "{\"ok\":false,\"erro\":\"Corpo JSON obrigatorio\"}");
-      return;
-    }
-    String body = server.arg("plain");
-    saveHouseWifisJson(body);
-    server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.send(200, "application/json", "{\"ok\":true,\"count\":" + String(numHouseWifis) + ",\"mensagem\":\"Redes Wi-Fi da casa salvas com sucesso\"}");
-  });
-  server.on("/flash/on", []{
-    if (!isAuthorized()) { rejectUnauthorized(); return; }
-    digitalWrite(FLASH_LED_PIN, HIGH);
-    server.sendHeader("Access-Control-Allow-Origin","*");
-    server.send(200, "application/json", "{\"flash\":1}");
-  });
-  server.on("/flash/off", []{
-    if (!isAuthorized()) { rejectUnauthorized(); return; }
-    digitalWrite(FLASH_LED_PIN, LOW);
-    server.sendHeader("Access-Control-Allow-Origin","*");
-    server.send(200, "application/json", "{\"flash\":0}");
-  });
-  server.begin();
-  httpStarted = true;
-  Serial.printf("[CASA-CAM-ONLINE] IP=%s DEVICE=%s\n", WiFi.localIP().toString().c_str(), device_id.c_str());
-  sendHeartbeatToCasa();
+void handleDiscovery() {
+  if (camMode != MODE_STATION || WiFi.status() != WL_CONNECTED) return;
+  if (!discoveryStarted) {
+    discoveryStarted = discoveryUdp.begin(DISCOVERY_PORT);
+    if (discoveryStarted) Serial.printf("CAM_STAGE:DISCOVERY_UDP:%d\n", DISCOVERY_PORT);
+  }
+  int len = discoveryUdp.parsePacket();
+  if (len <= 0) return;
+  char buf[64];
+  int n = discoveryUdp.read(buf, sizeof(buf) - 1);
+  buf[n > 0 ? n : 0] = 0;
+  IPAddress from = discoveryUdp.remoteIP();
+  bool internal = from[0] == 10 || (from[0] == 172 && from[1] >= 16 && from[1] <= 31) || (from[0] == 192 && from[1] == 168);
+  if (!internal || strncmp(buf, "ESPCAM_DISCOVER", 15) != 0) return;
+  String reply = discoveryJson();
+  discoveryUdp.beginPacket(from, discoveryUdp.remotePort());
+  discoveryUdp.print(reply);
+  discoveryUdp.endPacket();
+}
+
+void serviceBackgroundTasks() {
+  handleSerialCommands();
+  handleDiscovery();
+
+  if (restartAt && millis() > restartAt) {
+    Serial.println("CAM_STAGE:RESTART");
+    delay(100);
+    ESP.restart();
+  }
+
+  if(millis() - lastSerialAnnounce >= 15000UL) {
+    lastSerialAnnounce = millis();
+    if (camMode == MODE_PROVISION)
+      Serial.printf("[CASA-CAM-ESPCAM] DEVICE=%s AP=%s IP=%s CLIENTES=%d\n", device_id.c_str(), PROV_AP_SSID,
+        WiFi.softAPIP().toString().c_str(), WiFi.softAPgetStationNum());
+    else
+      Serial.printf("[CASA-CAM-ONLINE] DEVICE=%s IP=%s\n", device_id.c_str(), WiFi.localIP().toString().c_str());
+  }
+
+  if(millis() - lastHeartbeatMillis >= 30000UL) {
+    lastHeartbeatMillis = millis();
+    sendHeartbeatToCasa();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Serial (diagnostico e recuperacao)
+// ---------------------------------------------------------------------------
+
+const char* resetReasonName() {
+  switch (esp_reset_reason()) {
+    case ESP_RST_POWERON:  return "POWERON";
+    case ESP_RST_EXT:      return "BOTAO_RST";
+    case ESP_RST_SW:       return "SOFTWARE";
+    case ESP_RST_PANIC:    return "PANIC";
+    case ESP_RST_INT_WDT:
+    case ESP_RST_TASK_WDT:
+    case ESP_RST_WDT:      return "WATCHDOG";
+    case ESP_RST_BROWNOUT: return "BROWNOUT_ALIMENTACAO_FRACA";
+    case ESP_RST_DEEPSLEEP:return "DEEPSLEEP";
+    default:               return "OUTRO";
+  }
+}
+
+void announceReady() {
+  Serial.printf("CAM_READY:VER=%s:DEVICE_ID=%s:MODO=%s\n", FW_VERSION, device_id.c_str(),
+    camMode == MODE_PROVISION ? "PROVISIONAMENTO" : "ESTACAO");
 }
 
 void handleSerialCommands() {
-  if (Serial.available()) {
-    String cmd = Serial.readStringUntil('\n');
-    cmd.trim();
-    if (cmd == "NEW_TOKEN" || cmd == "REGEN_TOKEN" || cmd == "RESET_TOKEN") {
-      device_token = generateRandomToken();
-      saveToken(device_token);
-      Serial.printf("CAM_SECRET:DEVICE_ID=%s:MAC=%s:TOKEN=%s:IP=%s:VER=%s\n",
-        device_id.c_str(), physicalMac().c_str(), device_token.c_str(), WiFi.localIP().toString().c_str(), FW_VERSION);
-    } else if (cmd == "GET_TOKEN" || cmd == "TOKEN" || cmd == "IDENTIFY" || cmd == "CAM_SECRET" || cmd == "INFO") {
-      // O token so e fornecido via conexao fisica Serial
-      Serial.printf("CAM_SECRET:DEVICE_ID=%s:MAC=%s:TOKEN=%s:IP=%s:VER=%s\n",
-        device_id.c_str(), physicalMac().c_str(), device_token.c_str(), WiFi.localIP().toString().c_str(), FW_VERSION);
-      Serial.printf("TOKEN=%s\n", device_token.c_str());
-    } else if (cmd.startsWith("SET_TOKEN:")) {
-      String newToken = cmd.substring(10);
-      newToken.trim();
-      if (!newToken.isEmpty()) {
-        saveToken(newToken);
-        Serial.printf("OK:TOKEN_UPDATED:TOKEN=%s\n", device_token.c_str());
-        Serial.printf("CAM_SECRET:DEVICE_ID=%s:MAC=%s:TOKEN=%s:IP=%s:VER=%s\n",
-          device_id.c_str(), physicalMac().c_str(), device_token.c_str(), WiFi.localIP().toString().c_str(), FW_VERSION);
-      }
-    } else if (cmd == "STATUS" || cmd == "DISCOVER") {
-      Serial.printf("CASA-CAM:TYPE=esp32cam:DEVICE=%s:MAC=%s:IP=%s:RSSI=%d\n",
-        device_id.c_str(), physicalMac().c_str(), WiFi.localIP().toString().c_str(), WiFi.RSSI());
-    } else if (cmd.startsWith("SET_WIFI:")) {
-      int p1 = cmd.indexOf(':', 9);
-      if (p1 > 0) {
-        String s = cmd.substring(9, p1);
-        int p2 = cmd.indexOf(':', p1+1);
-        String pass = (p2 > 0) ? cmd.substring(p1+1, p2) : cmd.substring(p1+1);
-        String url = (p2 > 0) ? cmd.substring(p2+1) : casa_url;
-        saveNetwork(s, pass, url, device_name, device_location);
-        Serial.println("OK:WIFI_SAVED:RESTARTING");
-        delay(500);
-        ESP.restart();
-      }
-    } else if (cmd == "FLASH:ON") {
-      digitalWrite(FLASH_LED_PIN, HIGH);
-      Serial.println("OK:FLASH=1");
-    } else if (cmd == "FLASH:OFF") {
-      digitalWrite(FLASH_LED_PIN, LOW);
-      Serial.println("OK:FLASH=0");
-    } else if (cmd == "RESTART") {
-      Serial.println("OK:RESTARTING");
-      delay(200);
-      ESP.restart();
+  if (!Serial.available()) return;
+  String cmd = Serial.readStringUntil('\n');
+  cmd.trim();
+  if (cmd.isEmpty()) return;
+  if (cmd == "PING") {
+    announceReady();
+  } else if (cmd == "GET_TOKEN" || cmd == "INFO") {
+    Serial.printf("CAM_SECRET:DEVICE_ID=%s:MAC=%s:TOKEN=%s:IP=%s:VER=%s\n",
+      device_id.c_str(), physicalMac().c_str(), device_token.c_str(), WiFi.localIP().toString().c_str(), FW_VERSION);
+  } else if (cmd.startsWith("SET_TOKEN:")) {
+    String newToken = cmd.substring(10);
+    newToken.trim();
+    if (!isValidTokenFormat(newToken)) {
+      Serial.println("ERR:TOKEN_INVALIDO:16-128 caracteres alfanumericos");
+    } else {
+      device_token = newToken;
+      saveString("token", newToken);
+      Serial.printf("OK:TOKEN_UPDATED:TOKEN=%s\n", device_token.c_str());
     }
+  } else if (cmd == "CLEAR_WIFIS") {
+    numHouseWifis = 0;
+    persistHouseWifis();
+    Serial.println("OK:WIFIS_CLEARED");
+  } else if (cmd.startsWith("ADD_WIFI:")) {
+    int p1 = cmd.indexOf(':', 9);
+    String s = p1 > 0 ? cmd.substring(9, p1) : cmd.substring(9);
+    String pass = p1 > 0 ? cmd.substring(p1 + 1) : "";
+    addHouseWifi(s, pass);
+    persistHouseWifis();
+    Serial.printf("OK:WIFI_ADDED:SSID=%s:TOTAL=%d\n", s.c_str(), numHouseWifis);
+  } else if (cmd.startsWith("SET_CASA_URL:")) {
+    String u = cmd.substring(13);
+    u.trim();
+    if (u.startsWith("http")) {
+      casa_url = u;
+      saveString("casa_url", u);
+      Serial.printf("OK:CASA_URL_SAVED:%s\n", casa_url.c_str());
+    }
+  } else if (cmd.startsWith("SET_WIFI:")) {
+    // SET_WIFI:<ssid>:<senha>  adiciona/atualiza uma rede e reinicia
+    int p1 = cmd.indexOf(':', 9);
+    String s = p1 > 0 ? cmd.substring(9, p1) : cmd.substring(9);
+    String pass = p1 > 0 ? cmd.substring(p1 + 1) : "";
+    addHouseWifi(s, pass);
+    persistHouseWifis();
+    Serial.println("OK:WIFI_SAVED:RESTARTING");
+    restartAt = millis() + 300;
+  } else if (cmd == "FACTORY_RESET") {
+    factoryReset();
+    Serial.println("OK:FACTORY_RESET:RESTARTING");
+    restartAt = millis() + 300;
+  } else if (cmd == "STATUS") {
+    Serial.printf("CASA-CAM:DEVICE=%s:MAC=%s:MODO=%s:IP=%s:RSSI=%d:REDES=%d\n",
+      device_id.c_str(), physicalMac().c_str(), camMode == MODE_PROVISION ? "PROVISIONAMENTO" : "ESTACAO",
+      WiFi.localIP().toString().c_str(), WiFi.RSSI(), numHouseWifis);
+  } else if (cmd == "FLASH:ON") {
+    digitalWrite(FLASH_LED_PIN, HIGH);
+    Serial.println("OK:FLASH=1");
+  } else if (cmd == "FLASH:OFF") {
+    digitalWrite(FLASH_LED_PIN, LOW);
+    Serial.println("OK:FLASH=0");
+  } else if (cmd == "RESTART") {
+    Serial.println("OK:RESTARTING");
+    restartAt = millis() + 200;
+  } else {
+    Serial.printf("ERR:COMANDO_DESCONHECIDO:%s\n", cmd.c_str());
   }
 }
+
+// ---------------------------------------------------------------------------
 
 void startCamera(){
   camera_config_t c={};
@@ -542,60 +769,104 @@ void startCamera(){
     c.fb_count=1;
   }
   esp_err_t e=esp_camera_init(&c);
-  if(e!=ESP_OK) Serial.printf("[CAM] init error 0x%x\n",e);
-  else Serial.println("[CAM] Camera OK");
+
+  // Fallback se o sensor nao suportar hardware JPEG (ex: GC2145, OV7670)
+  if (e == ESP_ERR_NOT_SUPPORTED) {
+    Serial.println("CAM_STAGE:CAMERA_INFO:Sensor sem JPEG por HW (GC2145). Configurando YUV422 para maior velocidade...");
+    esp_camera_deinit();
+    delay(100);
+    // YUV422 converte diretamente para JPEG sem matriz RGB intermediaria
+    c.pixel_format = PIXFORMAT_YUV422;
+    c.frame_size = FRAMESIZE_QVGA;
+    c.jpeg_quality = 10;
+    c.fb_count = 1;
+    e = esp_camera_init(&c);
+    if (e == ESP_OK) {
+      cameraSupportsJpeg = false;
+      cameraInitialized = true;
+      Serial.println("CAM_STAGE:CAMERA_OK:YUV422_SW_JPEG");
+      sensor_t *s = esp_camera_sensor_get();
+      if (s) Serial.printf("CAM_STAGE:SENSOR_INFO:PID=0x%x\n", s->id.PID);
+      return;
+    }
+    // Fallback para RGB565
+    Serial.println("CAM_STAGE:CAMERA_INFO:Tentando RGB565...");
+    esp_camera_deinit();
+    delay(100);
+    c.pixel_format = PIXFORMAT_RGB565;
+    e = esp_camera_init(&c);
+    if (e == ESP_OK) {
+      cameraSupportsJpeg = false;
+      cameraInitialized = true;
+      Serial.println("CAM_STAGE:CAMERA_OK:RGB565_SW_JPEG");
+      sensor_t *s = esp_camera_sensor_get();
+      if (s) Serial.printf("CAM_STAGE:SENSOR_INFO:PID=0x%x\n", s->id.PID);
+      return;
+    }
+  }
+
+  if (e != ESP_OK) {
+    cameraInitialized = false;
+    Serial.printf("CAM_STAGE:CAMERA_ERR:0x%x (modulo da camera/flat ou alimentacao)\n", e);
+  } else {
+    cameraSupportsJpeg = true;
+    cameraInitialized = true;
+    Serial.println("CAM_STAGE:CAMERA_OK");
+    sensor_t *s = esp_camera_sensor_get();
+    if (s) Serial.printf("CAM_STAGE:SENSOR_INFO:PID=0x%x\n", s->id.PID);
+  }
 }
 
 void setup(){
   Serial.begin(115200);
+  Serial.setTimeout(200);
   delay(500);
-  Serial.println("\n[JARVIS-CASA] ESP32-CAM Token-Protected Security Node");
+  Serial.println();
+  Serial.printf("CAM_STAGE:BOOT:VER=%s:RESET=%s\n", FW_VERSION, resetReasonName());
   pinMode(FLASH_LED_PIN,OUTPUT);
   digitalWrite(FLASH_LED_PIN,LOW);
   loadConfig();
+  Serial.printf("CAM_STAGE:CONFIG_OK:DEVICE_ID=%s:REDES=%d:TOKEN=%s\n", device_id.c_str(), numHouseWifis,
+    device_token.isEmpty() ? "NAO" : "SIM");
   startCamera();
+  setupHttpRoutes();
 
-  // Anuncia token imediatamente pela Serial ao ligar (repetido para sincronizacao garantida)
-  for (int i = 0; i < 3; i++) {
-    Serial.printf("CAM_SECRET:DEVICE_ID=%s:MAC=%s:TOKEN=%s:IP=%s:VER=%s\n",
-      device_id.c_str(), physicalMac().c_str(), device_token.c_str(), WiFi.localIP().toString().c_str(), FW_VERSION);
-    Serial.printf("TOKEN=%s\n", device_token.c_str());
-    delay(40);
-  }
-
-  if (autoConnectWifi()) {
-    startCameraHttp();
+  if (numHouseWifis == 0) {
+    // Firmware recem-gravado: espera o gravafirmware pela rede espcam, sem prazo
+    startProvisioningAp("SEM_CONFIGURACAO", 0);
+  } else if (connectBestHouseWifi()) {
+    camMode = MODE_STATION;
   } else {
-    Serial.println("[SETUP] Wi-Fi desconectado; aguardando comando de configuracao via Serial.");
+    camMode = MODE_STATION;
+    noWifiSince = millis();
+    lastWifiRetry = millis();
+    Serial.println("CAM_STAGE:WIFI_FAIL:nenhuma rede da casa conectou; tentando de novo");
   }
+  ensureServer();
+  announceReady();
+  lastHeartbeatMillis = millis() - 25000UL;   // primeiro heartbeat logo apos conectar
 }
 
 void loop(){
-  handleSerialCommands();
-
-  static unsigned long lastWifiRetry = 0;
-  if(WiFi.status()!=WL_CONNECTED){
-    if (millis() - lastWifiRetry >= 25000UL) {
-      lastWifiRetry = millis();
-      if (autoConnectWifi()) {
-        startCameraHttp();
-      }
+  if (camMode == MODE_PROVISION) {
+    // espcam de fallback: fecha depois da janela (se ninguem estiver conectado) e tenta as redes de novo
+    if (provisionDeadline && millis() > provisionDeadline && WiFi.softAPgetStationNum() == 0) {
+      Serial.println("CAM_STAGE:AP_TIMEOUT:reiniciando para tentar as redes da casa");
+      restartAt = millis();
     }
+  } else if (WiFi.status() != WL_CONNECTED) {
+    if (noWifiSince == 0) noWifiSince = millis();
+    if (millis() - noWifiSince >= NO_WIFI_TO_AP_MS) {
+      startProvisioningAp("SEM_REDE_HA_3_MIN", FALLBACK_AP_WINDOW_MS);
+    } else if (millis() - lastWifiRetry >= WIFI_RETRY_MS) {
+      lastWifiRetry = millis();
+      if (connectBestHouseWifi()) noWifiSince = 0;
+    }
+  } else {
+    noWifiSince = 0;
   }
 
-  if(httpStarted) {
-    server.handleClient();
-  }
-
-  if(millis() - lastSerialAnnounce >= 15000UL) {
-    lastSerialAnnounce = millis();
-    Serial.printf("[CASA-CAM-ONLINE] DEVICE=%s IP=%s\n", device_id.c_str(), WiFi.localIP().toString().c_str());
-  }
-
-  if(millis() - lastHeartbeatMillis >= 30000UL) {
-    lastHeartbeatMillis = millis();
-    sendHeartbeatToCasa();
-  }
-
+  server.handleClient();
+  serviceBackgroundTasks();
   delay(2);
 }

@@ -179,6 +179,7 @@ O dispositivo faz polling na API a cada 3 a 5 segundos aguardando a autorizaçã
 Por que **todos** os demais dispositivos e nós precisam obrigatoriamente migrar para esse protocolo de autorização pelo celular?
 
 ### 4.1 Câmeras ESP32-CAM
+* **Estado atual**: a ESP32-CAM ainda não usa este protocolo; é provisionada pelo `gravafirmware` através da rede `espcam` (ver `docs/requisitos_ESPCAM.md`).
 * **Risco**: Câmeras transmitem imagens visuais da privacidade do lar.
 * **Necessidade**: Sem a autorização do celular, qualquer câmera invasora na rede Wi-Fi poderia injetar frames forjados no sistema de visão computacional ou interceptar requisições. Com o protocolo, a câmera só recebe o escopo `camera.write` após o morador confirmar o código visual no celular.
 
