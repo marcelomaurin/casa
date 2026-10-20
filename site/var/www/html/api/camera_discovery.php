@@ -207,26 +207,29 @@ if ($acao === 'register_token') {
                 ultimo_heartbeat = NOW(),
                 ip_address = COALESCE(NULLIF(:ip, ''), ip_address),
                 mac_address = COALESCE(NULLIF(:mac, ''), mac_address),
+                device_token = :token,
                 metadata = :meta,
                 capabilities = :caps
                 WHERE id = :id");
             $stmtUp->execute([
                 ':ip' => $ip,
                 ':mac' => $mac,
+                ':token' => $token,
                 ':meta' => $metaJson,
                 ':caps' => $caps,
                 ':id' => $row['id']
             ]);
         } else {
             $stmtIns = $pdo->prepare("INSERT INTO dispositivos_cluster 
-                (device_id, nome, tipo, subtipo, ip_address, mac_address, status, ultimo_heartbeat, metadata, capabilities)
-                VALUES (:did, :nome, :tipo, 'esp32_cam', :ip, :mac, 'online', NOW(), :meta, :caps)");
+                (device_id, nome, tipo, ip_address, mac_address, device_token, status, ultimo_heartbeat, metadata, capabilities)
+                VALUES (:did, :nome, :tipo, :ip, :mac, :token, 'online', NOW(), :meta, :caps)");
             $stmtIns->execute([
                 ':did' => $did,
                 ':nome' => $nome,
                 ':tipo' => $tipo,
                 ':ip' => $ip,
                 ':mac' => $mac,
+                ':token' => $token,
                 ':meta' => $metaJson,
                 ':caps' => $caps
             ]);
@@ -467,7 +470,7 @@ function classify_camera(string $ip, array $open_ports, string $user = 'admin', 
 if ($acao === 'listar') {
     try {
         $stmt = $pdo->query("
-            SELECT id, device_id, nome, tipo, ip_address, mac_address, status,
+            SELECT id, device_id, nome, tipo, ip_address, mac_address, device_token, status,
                    capabilities, metadata, localizacao, ultimo_heartbeat, criado_em
               FROM dispositivos_cluster
              WHERE tipo IN ('camera', 'espcam', 'esp32_cam', 'ip_camera', 'camera_ip', 'cftv', 'dvr', 'nvr')
@@ -766,13 +769,14 @@ if ($acao === 'heartbeat') {
                 'snapshot_url' => $ip ? "http://{$ip}:80/capture" : ''
             ]);
             $stmtIn = $pdo->prepare("INSERT INTO dispositivos_cluster 
-                (device_id, nome, tipo, subtipo, ip_address, mac_address, status, sinal_rssi, ultimo_heartbeat, metadata, capabilities)
-                VALUES (:did, :nome, 'espcam', 'esp32_cam', :ip, :mac, 'online', :rssi, NOW(), :meta, :caps)");
+                (device_id, nome, tipo, ip_address, mac_address, device_token, status, sinal_rssi, ultimo_heartbeat, metadata, capabilities)
+                VALUES (:did, :nome, 'espcam', :ip, :mac, :token, 'online', :rssi, NOW(), :meta, :caps)");
             $stmtIn->execute([
                 ':did' => $did,
                 ':nome' => "ESP32-CAM ({$did})",
                 ':ip' => $ip,
                 ':mac' => $mac,
+                ':token' => $camHeartbeatToken ?: bin2hex(random_bytes(16)),
                 ':rssi' => $rssi,
                 ':meta' => $meta,
                 ':caps' => $caps
