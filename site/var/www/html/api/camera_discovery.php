@@ -754,7 +754,7 @@ if ($acao === 'heartbeat') {
                 ultimo_heartbeat = NOW(), 
                 ip_address = COALESCE(NULLIF(:ip, ''), ip_address),
                 mac_address = COALESCE(NULLIF(:mac, ''), mac_address),
-                sinal_rssi = CASE WHEN :rssi != 0 THEN :rssi ELSE sinal_rssi END
+                sinal_rssi = COALESCE(NULLIF(:rssi, 0), sinal_rssi)
                 WHERE id = :id");
             $stmtUp->execute([
                 ':ip' => $ip,
