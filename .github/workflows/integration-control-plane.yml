@@ -99,6 +99,9 @@ jobs:
       - name: Test security (IP blocking and events)
         run: php .github/tests/test_seguranca.php
 
+      - name: Test ESP32-CAM site auth (camera_discovery)
+        run: php .github/tests/test_camera_discovery_auth.php
+
       - name: Test Casa Mobile QR pairing
         run: php .github/tests/test_mobile_pairing.php
 
