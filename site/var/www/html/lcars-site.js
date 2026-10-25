@@ -346,9 +346,49 @@ function openGroup(group,updateRoute=true){
   CASALcars.render('#app',{
     layout:'menu-grid',kind:'menu',group,title:group,subtitle:GROUPS[group].subtitle,
     breadcrumb:[],groups:groupRail(group),status:STATUS,sections:GROUPS[group].sections,
-    footer:{hint:'Escolha uma opção. O painel usa toda a tela e não rola.'}
+    footer:{hint:'Escolha uma opção. Cada cartão mostra os números atuais do item.'}
   });
   if(updateRoute) setRoute(group,null);
+  decorateAreaStats(group);
+}
+
+// Estatisticas dos cartoes de cada area: numero atual, legenda e um mini
+// grafico com a atividade dos ultimos 7 dias do proprio item.
+let areaStatsCache=null, areaStatsAt=0;
+async function loadAreaStats(){
+  if(areaStatsCache && Date.now()-areaStatsAt<30000) return areaStatsCache;
+  const j=await getJson('/casa/api/painel_estatisticas.php');
+  areaStatsCache=(j&&j.itens)||{}; areaStatsAt=Date.now();
+  return areaStatsCache;
+}
+function areaStatBars(serie,legenda){
+  if(!Array.isArray(serie)||!serie.length) return '';
+  const max=Math.max(1,...serie), total=serie.reduce((a,b)=>a+b,0);
+  const dias=['dom','seg','ter','qua','qui','sex','sáb'], hoje=new Date().getDay();
+  const barras=serie.map((n,i)=>{
+    const dia=dias[(hoje-(serie.length-1-i)+70)%7];
+    return '<i style="height:'+Math.max(6,Math.round(n/max*100))+'%" title="'+attr(dia+': '+n)+'"'+(n?'':' class="zero"')+'></i>';
+  }).join('');
+  return '<span class="ja-stat-chart" role="img" aria-label="'+attr((legenda||'atividade')+', últimos 7 dias: '+serie.join(', '))+'">'+barras+'</span>'+
+    '<span class="ja-stat-chart-cap">'+esc((legenda||'atividade')+' · 7 dias: '+total)+'</span>';
+}
+async function decorateAreaStats(group){
+  let itens;
+  try{ itens=await loadAreaStats(); }catch(e){ return; }
+  if(currentGroup!==group || currentItem) return;   // usuario ja saiu da area
+  document.querySelectorAll('#app .ja-menu-item[data-ja-id]').forEach(btn=>{
+    const it=findItem(group,btn.getAttribute('data-ja-id'));
+    const st=itens[btn.getAttribute('data-ja-id')];
+    if(!it || !st || btn.querySelector('.ja-stat')) return;
+    const estado=st.estado==='alerta'?' alerta':'';
+    btn.classList.add('ja-has-stat');
+    btn.innerHTML='<span class="ja-stat-label">'+esc(it.label)+'</span>'+
+      '<span class="ja-stat'+estado+'">'+
+        (st.valor!=null&&st.valor!==''?'<b class="ja-stat-value">'+esc(st.valor)+'</b>':'')+
+        '<span class="ja-stat-caption">'+esc(st.legenda||'')+(st.detalhe?' · próximo: '+esc(st.detalhe):'')+'</span>'+
+        areaStatBars(st.serie,st.serie_legenda)+
+      '</span>';
+  });
 }
 
 function findItem(group,id){
@@ -993,7 +1033,7 @@ async function renderNodes(){
     const p=paginate('nodes',all,12);
     const states={online:'ONLINE',offline:'SEM CONTATO RECENTE',registered:'AGUARDANDO CONTATO',revoked:'REVOGADO'};
     const summary='<p>'+esc(all.length)+' agente(s) registrado(s) • '+esc(all.filter(n=>n.online).length)+' online. Online: contato nos últimos 40 segundos (heartbeat a cada 20s). Se em 40s não responder, o cluster caiu.</p>';
-    const body=all.length?cards(p.slice,(n,i)=>'<article class="ja-native-card" style="position:relative;">'+
+    const body=all.length?cards(p.slice,(n,i)=>'<article class="ja-native-card ja-node-card" style="position:relative;">'+
       '<div style="position:absolute;top:10px;right:10px;display:flex;gap:5px;z-index:2;">'+
         (n.online && (n.up_to_date === false) ? '<button type="button" class="ja-node-update-btn" data-node-idx="'+attr(String(i))+'" style="background:#eab308;color:#000;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(234,179,8,0.5);" title="Atualizar versão do nó diretamente do Git">⚡ ATUALIZAR (GIT)</button>' : '')+
         '<button type="button" class="ja-node-edit-btn" data-node-idx="'+attr(String(i))+'" style="background:#38bdf8;color:#000;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.5);" title="Editar informações do nó">EDITAR</button>'+
