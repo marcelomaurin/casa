@@ -102,6 +102,9 @@ jobs:
       - name: Test ESP32-CAM site auth (camera_discovery)
         run: php .github/tests/test_camera_discovery_auth.php
 
+      - name: Test generic CRUD permissions (crud.php)
+        run: php .github/tests/test_crud_permissoes.php
+
       - name: Test Casa Mobile QR pairing
         run: php .github/tests/test_mobile_pairing.php
 
