@@ -1,8 +1,8 @@
 # Especificação de Requisitos e Arquitetura: ESP32-CAM (CASA / JARVIS)
 
 **Projeto:** Sistema Integrado de Câmeras e Visão Computacional Residencial (CASA)
-**Atualizado em:** 19/10/2026
-**Firmware:** `jarvis_espcam` 2.0.0
+**Atualizado em:** 25/10/2026
+**Firmware:** `jarvis_espcam` 2.0.1
 **Status:** implementado e compilado; validação de ponta a ponta em hardware pendente
 
 ---
@@ -68,7 +68,7 @@ Corpo do `POST /provision`:
 }
 ```
 
-`wifis` precisa ter ao menos uma rede (até 12); os demais campos são opcionais. O provisionamento é **livre**: quem estiver conectado ao `espcam` pode reconfigurar a câmera, inclusive no fallback (decisão de projeto; ver §5).
+`wifis` precisa ter ao menos uma rede (até 12); os demais campos são opcionais. `casa_url`, se enviado, precisa ser `https://maurinsoft.com.br` (com ou sem caminho); qualquer outro valor recebe `400` e nada é gravado. O mesmo vale para `SET_CASA_URL` na serial e para um valor inválido já salvo na NVS, que é trocado pelo padrão no boot. O host aceito é definido em `CASA_ALLOWED_HOST` na compilação. O provisionamento é **livre**: quem estiver conectado ao `espcam` pode reconfigurar a câmera, inclusive no fallback (decisão de projeto; ver §5).
 
 ### 2.2 Estação (rede da casa)
 
@@ -140,7 +140,7 @@ A chave de API é criada no site em **Sistema → Administração → Acesso Web
 
 ## 4. Site CASA (`api/camera_discovery.php`)
 
-Todas as ações exigem sessão do painel ou chave de API (`X-API-Key` / `Authorization: Bearer`). A única exceção é o `heartbeat` da câmera, autenticado pelo token dela (`X-Camera-Token`), que tem de bater com o token registrado.
+Todas as ações exigem sessão do painel ou chave de API (`X-API-Key` / `Authorization: Bearer`), inclusive `register_token`, `listar`, `get_house_wifis` e `get_snapshot`. A única exceção é o `heartbeat` da câmera, autenticado pelo token dela (`X-Camera-Token`), que tem de bater com o token registrado. O `listar` não devolve o token das câmeras, e erros internos respondem só uma mensagem genérica (o detalhe vai para o `error_log`). A tabela `redes_wifi_casa` começa vazia: não há mais redes padrão.
 
 | Método | Ação | Origem | Descrição |
 |---|---|---|---|
@@ -174,7 +174,8 @@ O cofre de tokens fica **somente no banco** (`dispositivos_cluster.metadata.toke
 |---|---|
 | Acesso local à câmera só por IP interno, sem token | Qualquer aparelho conectado ao Wi-Fi da casa (inclusive visitantes) vê o stream e aciona o flash. Separe uma rede de convidados se isso for um problema. |
 | `espcam` aberto (sem senha) e provisionamento livre | Quem estiver ao alcance com a câmera em modo `espcam` (recém-gravada ou há 3 min sem rede) pode ler o token e reconfigurá-la. O tráfego do provisionamento, incluindo as senhas das redes da casa, passa sem criptografia e pode ser capturado por quem estiver perto. Derrubar o roteador por 3 min é suficiente para abrir essa janela. |
-| Token só identifica a câmera no site | O heartbeat de uma câmera só é aceito se o token bater com o registrado; câmeras não registradas recebem `401`. |
+| Token só identifica a câmera no site | O heartbeat de uma câmera só é aceito se o token bater com o registrado; câmeras não registradas recebem `401`. Só quem tem chave de API ou sessão consegue registrar ou trocar o token. |
+| `casa_url` fixa em HTTPS no host do site | Mesmo quem reconfigurar a câmera pelo `espcam` não consegue desviar o heartbeat (e o token) para outro servidor; o certificado é validado contra `casa_ca.h`. Se o site trocar de autoridade certificadora, atualize `casa_ca.h` e regrave o firmware. |
 | Redes e senhas apenas na NVS | O firmware-fonte não contém credenciais. As senhas antigas que estavam no código continuam no histórico do git: troque-as. |
 
 ---
@@ -213,6 +214,7 @@ A câmera fica em `dispositivos_cluster` (`tipo = 'espcam'`). IP, MAC, RSSI e `u
 
 ## 8. Histórico
 
+- **2.0.1 (25/10/2026):** HTTPS do heartbeat passa a validar o certificado (`setCACert`, antes `setInsecure`); `casa_url` restrita a `https://CASA_ALLOWED_HOST`; heartbeat mantido durante o `/stream`; `/status` sem scan de Wi-Fi bloqueante (o survey atualizado fica em `/wifi_survey`). No site, `camera_discovery.php` passou a exigir autenticação em todas as ações exceto o heartbeat, deixou de expor tokens e detalhes de erro, e perdeu as redes Wi-Fi padrão; o `espcam_provision.php` legado foi removido.
 - **2.0.0 (19/10/2026):** provisionamento pela rede `espcam` (AP) com `GET`/`POST /provision`; NVS vazia após a gravação; conexão na rede de maior sinal; acesso local por IP interno; fallback para o `espcam` após 3 min sem rede; descoberta UDP; registro no site com tipo, IP e portas. O gravafirmware passou a fazer o fluxo completo: gravar, provisionar, voltar à rede, localizar e registrar.
 - **1.5.0:** protocolo serial com `CAM_STAGE`/`CAM_READY`/`PING` (substituído pelo provisionamento Wi-Fi; os comandos seriais ficaram para diagnóstico).
 - **1.4.0:** heartbeat autenticado por token com HTTPS validado; atendimento serial durante a conexão Wi-Fi; correções de `/capture` e do stream bloqueante.

@@ -32,16 +32,14 @@ $camHeartbeatToken = '';
 if (empty($_SESSION['auth_user'])) {
     $hdrCamToken = trim((string)($_SERVER['HTTP_X_CAMERA_TOKEN'] ?? ''));
     if ($acao === 'heartbeat' && $hdrCamToken !== '') {
+        // Heartbeat da camera: validado contra o token registrado na propria acao.
         $camHeartbeatToken = $hdrCamToken;
-    } elseif ($acao === 'register_token') {
-        // Registro de token fisico enviado pelo gravafirmware (USB/Serial local).
-        // Nao bloqueia nem exige chave de API para garantir o pareamento do hardware.
-    } elseif ($acao === 'get_house_wifis' || $acao === 'listar' || $acao === 'get_snapshot') {
-        $hasKey = !empty($_SERVER['HTTP_AUTHORIZATION']) || !empty($_SERVER['HTTP_X_API_KEY']);
-        if ($hasKey) {
-            verify_api_auth();
-        }
     } else {
+        // Todo o resto exige sessao do painel ou chave de API, inclusive:
+        //  - register_token: sem isso qualquer pessoa trocava o token de uma camera
+        //    real e sequestrava o heartbeat/stream (o gravafirmware ja envia X-API-Key);
+        //  - listar, get_house_wifis e get_snapshot: expunham tokens, senhas do
+        //    Wi-Fi da casa e o ultimo frame das cameras para chamadas anonimas.
         verify_api_auth();
     }
 }
@@ -82,15 +80,9 @@ try {
         PRIMARY KEY (id),
         KEY idx_cws_device (device_id, coletado_em)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-
-    // Popula com redes padrao caso esteja vazia
-    $cnt = (int)$pdo->query("SELECT COUNT(*) FROM redes_wifi_casa")->fetchColumn();
-    if ($cnt === 0) {
-        $pdo->exec("INSERT IGNORE INTO redes_wifi_casa (ssid, senha, prioridade, ativo) VALUES
-            ('JARVIS_NET', 'senha123', 1, 1),
-            ('MaurinSoft', 'senha123', 2, 1),
-            ('CASA_VISITANTES', 'senha123', 3, 1)");
-    }
+    // Sem redes padrao: o antigo seed (senha123, publica no repositorio) era
+    // repassado as cameras pelo daemon e permitia um "evil twin" com esses SSIDs,
+    // ja que o firmware entra na rede cadastrada de maior sinal.
 } catch (Throwable $ignored) {}
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
@@ -219,7 +211,8 @@ if ($acao === 'register_token') {
             $stmtIns->execute([$did, $nome, $tipo, $ip, $mac, $token, $metaJson, $caps]);
         }
     } catch (Throwable $e) {
-        cam_json(['ok' => false, 'erro' => 'Falha ao gravar token no cofre: ' . $e->getMessage()], 500);
+        error_log('camera_discovery[register_token]: ' . $e->getMessage());
+        cam_json(['ok' => false, 'erro' => 'Falha ao gravar token no cofre'], 500);
     }
 
     cam_json([
@@ -454,7 +447,7 @@ function classify_camera(string $ip, array $open_ports, string $user = 'admin', 
 if ($acao === 'listar') {
     try {
         $stmt = $pdo->query("
-            SELECT id, device_id, nome, tipo, ip_address, mac_address, device_token, status,
+            SELECT id, device_id, nome, tipo, ip_address, mac_address, status,
                    capabilities, metadata, localizacao, ultimo_heartbeat, criado_em
               FROM dispositivos_cluster
              WHERE tipo IN ('camera', 'espcam', 'esp32_cam', 'ip_camera', 'camera_ip', 'cftv', 'dvr', 'nvr')
@@ -476,6 +469,8 @@ if ($acao === 'listar') {
             } else {
                 $c['metadata'] = is_array($c['metadata'] ?? null) ? $c['metadata'] : [];
             }
+            // O token da camera so serve para o heartbeat: nunca sai na listagem.
+            unset($c['metadata']['token']);
 
             // Normaliza tipo
             $t = strtolower((string)$c['tipo']);
@@ -524,7 +519,8 @@ if ($acao === 'listar') {
             'cameras' => $cams
         ]);
     } catch (Throwable $e) {
-        cam_json(['ok' => false, 'erro' => $e->getMessage(), 'err_line' => $e->getLine(), 'file' => basename($e->getFile())], 500);
+        error_log('camera_discovery[' . $acao . ']: ' . $e->getMessage() . ' @' . basename($e->getFile()) . ':' . $e->getLine());
+        cam_json(['ok' => false, 'erro' => 'Falha interna ao processar a acao ' . $acao], 500);
     }
 }
 
@@ -572,7 +568,8 @@ if ($acao === 'save_house_wifi') {
         }
         cam_json(['ok' => true, 'mensagem' => 'Rede Wi-Fi salva com sucesso']);
     } catch (Throwable $e) {
-        cam_json(['ok' => false, 'erro' => $e->getMessage(), 'err_line' => $e->getLine(), 'file' => basename($e->getFile())], 500);
+        error_log('camera_discovery[' . $acao . ']: ' . $e->getMessage() . ' @' . basename($e->getFile()) . ':' . $e->getLine());
+        cam_json(['ok' => false, 'erro' => 'Falha interna ao processar a acao ' . $acao], 500);
     }
 }
 
@@ -595,7 +592,8 @@ if ($acao === 'delete_house_wifi') {
         }
         cam_json(['ok' => true, 'mensagem' => 'Rede Wi-Fi excluida com sucesso']);
     } catch (Throwable $e) {
-        cam_json(['ok' => false, 'erro' => $e->getMessage(), 'err_line' => $e->getLine(), 'file' => basename($e->getFile())], 500);
+        error_log('camera_discovery[' . $acao . ']: ' . $e->getMessage() . ' @' . basename($e->getFile()) . ':' . $e->getLine());
+        cam_json(['ok' => false, 'erro' => 'Falha interna ao processar a acao ' . $acao], 500);
     }
 }
 
@@ -662,7 +660,8 @@ if ($acao === 'report_wifi_scan') {
             'redes_detectadas' => is_array($redes) ? count($redes) : 0
         ]);
     } catch (Throwable $e) {
-        cam_json(['ok' => false, 'erro' => $e->getMessage(), 'err_line' => $e->getLine(), 'file' => basename($e->getFile())], 500);
+        error_log('camera_discovery[' . $acao . ']: ' . $e->getMessage() . ' @' . basename($e->getFile()) . ':' . $e->getLine());
+        cam_json(['ok' => false, 'erro' => 'Falha interna ao processar a acao ' . $acao], 500);
     }
 }
 
@@ -693,7 +692,8 @@ if ($acao === 'get_wifi_survey') {
         unset($r);
         cam_json(['ok' => true, 'total' => count($rows), 'surveys' => $rows]);
     } catch (Throwable $e) {
-        cam_json(['ok' => false, 'erro' => $e->getMessage(), 'err_line' => $e->getLine(), 'file' => basename($e->getFile())], 500);
+        error_log('camera_discovery[' . $acao . ']: ' . $e->getMessage() . ' @' . basename($e->getFile()) . ':' . $e->getLine());
+        cam_json(['ok' => false, 'erro' => 'Falha interna ao processar a acao ' . $acao], 500);
     }
 }
 
@@ -768,7 +768,8 @@ if ($acao === 'heartbeat') {
             'timestamp' => date('Y-m-d H:i:s')
         ]);
     } catch (Throwable $e) {
-        cam_json(['ok' => false, 'erro' => $e->getMessage(), 'err_line' => $e->getLine(), 'file' => basename($e->getFile())], 500);
+        error_log('camera_discovery[' . $acao . ']: ' . $e->getMessage() . ' @' . basename($e->getFile()) . ':' . $e->getLine());
+        cam_json(['ok' => false, 'erro' => 'Falha interna ao processar a acao ' . $acao], 500);
     }
 }
 

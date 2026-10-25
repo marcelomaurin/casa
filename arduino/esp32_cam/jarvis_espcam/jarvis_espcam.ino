@@ -35,7 +35,16 @@ bool discoveryStarted = false;
 bool cameraSupportsJpeg = true;
 bool cameraInitialized = false;
 static const char* NVS_NAMESPACE = "jarviscam";
-static const char* FW_VERSION = "2.0.0";
+static const char* FW_VERSION = "2.0.1";
+
+// Unico site para onde o token da camera pode ser enviado. A URL gravada na NVS
+// (por POST /provision ou SET_CASA_URL) precisa ser HTTPS neste host; o
+// certificado e validado contra as raizes de casa_ca.h. Para outro servidor,
+// compile com -DCASA_ALLOWED_HOST="\"meu.host\"".
+#ifndef CASA_ALLOWED_HOST
+#define CASA_ALLOWED_HOST "maurinsoft.com.br"
+#endif
+static const char* CASA_DEFAULT_URL = "https://" CASA_ALLOWED_HOST "/casa";
 
 static const char* PROV_AP_SSID = "espcam";
 static const unsigned long NO_WIFI_TO_AP_MS = 3UL * 60UL * 1000UL;    // sem rede -> reabre espcam
@@ -188,6 +197,16 @@ void persistHouseWifis() {
 // Configuracao persistente
 // ---------------------------------------------------------------------------
 
+// Aceita somente https://CASA_ALLOWED_HOST, opcionalmente seguido de /caminho.
+// Bloqueia http:// e outros dominios: sem isso, quem alcancasse o AP "espcam"
+// apontava a camera para um servidor proprio e recebia o token no heartbeat.
+bool isAllowedCasaUrl(const String& u) {
+  String base = String("https://") + CASA_ALLOWED_HOST;
+  if (!u.startsWith(base)) return false;
+  if (u.length() == base.length()) return true;
+  return u.charAt(base.length()) == '/';
+}
+
 String physicalMac(){
   String m=WiFi.macAddress();
   m.toUpperCase();
@@ -196,7 +215,11 @@ String physicalMac(){
 
 void loadConfig() {
   preferences.begin(NVS_NAMESPACE, false);
-  casa_url = preferences.getString("casa_url", "https://maurinsoft.com.br/casa");
+  casa_url = preferences.getString("casa_url", CASA_DEFAULT_URL);
+  if (!isAllowedCasaUrl(casa_url)) {
+    Serial.printf("CAM_STAGE:CASA_URL_REJEITADA:%s:usando %s\n", casa_url.c_str(), CASA_DEFAULT_URL);
+    casa_url = CASA_DEFAULT_URL;
+  }
   device_token = preferences.getString("token", "");
   device_id = preferences.getString("device_id", "");
   device_name = preferences.getString("name", "ESP32-CAM");
@@ -399,6 +422,11 @@ void handleProvisionPost() {
     server.send(400, "application/json", "{\"ok\":false,\"erro\":\"token invalido (16-128 caracteres alfanumericos)\"}");
     return;
   }
+  bool hasUrl = jsonStringValue(body, "casa_url", 0, limit, url);
+  if (hasUrl && !url.isEmpty() && !isAllowedCasaUrl(url)) {
+    server.send(400, "application/json", String("{\"ok\":false,\"erro\":\"casa_url deve ser https://") + CASA_ALLOWED_HOST + "\"}");
+    return;
+  }
 
   HouseWifiNetwork backup[MAX_HOUSE_WIFIS];
   int backupCount = numHouseWifis;
@@ -413,7 +441,7 @@ void handleProvisionPost() {
 
   persistHouseWifis();
   if (hasToken) { device_token = token; saveString("token", token); }
-  if (jsonStringValue(body, "casa_url", 0, limit, url) && url.startsWith("http")) { casa_url = url; saveString("casa_url", url); }
+  if (hasUrl && !url.isEmpty()) { casa_url = url; saveString("casa_url", url); }
   if (jsonStringValue(body, "nome", 0, limit, nome) && !nome.isEmpty()) { device_name = nome; saveString("name", nome); }
   if (jsonStringValue(body, "local", 0, limit, local) && !local.isEmpty()) { device_location = local; saveString("location", local); }
 
@@ -459,9 +487,16 @@ void handleStream(){
       }
     }
     esp_camera_fb_return(fb);
-    // Processa comandos seriais leves sem bloquear o stream com requisicoes HTTPS
+    // O WebServer e single-thread: enquanto o stream roda, o loop() nao executa.
+    // Mantem aqui o heartbeat (senao o site marca a camera offline apos 90 s) e
+    // atende reinicios pedidos pela serial.
     handleSerialCommands();
     handleDiscovery();
+    if (restartAt && millis() > restartAt) break;
+    if (millis() - lastHeartbeatMillis >= 30000UL) {
+      lastHeartbeatMillis = millis();
+      sendHeartbeatToCasa();
+    }
     yield();
   }
 }
@@ -495,7 +530,9 @@ void handleCapture(){
 void handleStatus(){
   server.sendHeader("Access-Control-Allow-Origin","*");
   bool internal = isInternalClient();
-  String survey = (internal && camMode == MODE_STATION) ? performWifiSurvey(false) : String("[]");
+  // Sem scan aqui: o scan trava a camera por segundos e o /status e consultado
+  // com frequencia (daemon a cada 8 s). O survey atualizado fica em /wifi_survey.
+  String survey = (internal && camMode == MODE_STATION) ? cachedSurveyJson : String("[]");
   String j = "{\"status\":\"online\",\"type\":\"esp32cam\"," + identityJson() +
              ",\"name\":\""+jsonEscape(device_name)+"\",\"location\":\""+jsonEscape(device_location)+
              "\",\"ip\":\""+WiFi.localIP().toString()+"\",\"rssi\":"+String(WiFi.RSSI())+
@@ -562,20 +599,20 @@ void ensureServer() {
 
 void sendHeartbeatToCasa() {
   if (camMode != MODE_STATION || WiFi.status() != WL_CONNECTED || casa_url.isEmpty() || device_token.isEmpty()) return;
+  if (!isAllowedCasaUrl(casa_url)) return;   // nunca envia o token para outro destino
   // Clientes declarados antes do HTTPClient: sao destruidos depois dele
   WiFiClientSecure tls;
-  WiFiClient plain;
   HTTPClient http;
   String url = casa_url + "/api/camera_discovery.php?acao=heartbeat&device_id=" + device_id
              + "&ip=" + WiFi.localIP().toString()
              + "&mac=" + physicalMac()
              + "&rssi=" + String(WiFi.RSSI());
-  // HTTPS validado contra as raizes Let's Encrypt: o token so sai para o site verdadeiro
-  if (url.startsWith("https://")) {
-    tls.setInsecure();
-    http.begin(tls, url);
-  } else {
-    http.begin(plain, url);
+  // HTTPS validado contra as raizes Let's Encrypt (casa_ca.h): o token so sai
+  // para o site verdadeiro. Antes estava setInsecure(), aceitando qualquer certificado.
+  tls.setCACert(CASA_ROOT_CA);
+  if (!http.begin(tls, url)) {
+    Serial.println("[HEARTBEAT] Erro: URL invalida");
+    return;
   }
   http.setTimeout(5000);
   http.addHeader("X-Camera-Token", device_token);
@@ -583,6 +620,7 @@ void sendHeartbeatToCasa() {
   if (httpCode > 0) {
     Serial.printf("[HEARTBEAT] HTTP %d%s\n", httpCode, httpCode == 401 ? " (token nao registrado no site: use o gravafirmware)" : "");
   } else {
+    // Falha de TLS (certificado nao confere) tambem cai aqui
     Serial.printf("[HEARTBEAT] Erro: %s\n", http.errorToString(httpCode).c_str());
   }
   http.end();
@@ -699,10 +737,12 @@ void handleSerialCommands() {
   } else if (cmd.startsWith("SET_CASA_URL:")) {
     String u = cmd.substring(13);
     u.trim();
-    if (u.startsWith("http")) {
+    if (isAllowedCasaUrl(u)) {
       casa_url = u;
       saveString("casa_url", u);
       Serial.printf("OK:CASA_URL_SAVED:%s\n", casa_url.c_str());
+    } else {
+      Serial.printf("ERR:CASA_URL_INVALIDA:use https://%s\n", CASA_ALLOWED_HOST);
     }
   } else if (cmd.startsWith("SET_WIFI:")) {
     // SET_WIFI:<ssid>:<senha>  adiciona/atualiza uma rede e reinicia
