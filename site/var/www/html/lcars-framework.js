@@ -70,9 +70,12 @@
     ];
     return '<nav class="ja-rail" aria-label="Navegação por níveis">'+groups.map((g,i)=>{
       const level=Number.isFinite(Number(g.level))?Math.max(0,Math.min(4,Number(g.level))):1;
-      const cls='ja-level-'+level+(g.active?' active':'')+(g.levelNav?' level-nav':'');
+      // tone: cor da area (classe ja-tone-*); code: numero do painel, mostrado a direita.
+      const tone=/^[a-z0-9-]+$/.test(String(g.tone||''))?' ja-tone-'+g.tone:'';
+      const cls='ja-level-'+level+(g.active?' active':'')+(g.levelNav?' level-nav':'')+tone;
       const id=esc(g.id || ('g'+i));
-      return '<button type="button" class="'+cls+'" data-ja-level="'+level+'" data-ja-action="'+esc(g.action||'navigate')+'" data-ja-id="'+id+'">'+esc(g.label||g.title||'Item')+'</button>';
+      const code=g.code?' data-ja-code="'+esc(g.code)+'"':'';
+      return '<button type="button" class="'+cls+'" data-ja-level="'+level+'" data-ja-action="'+esc(g.action||'navigate')+'" data-ja-id="'+id+'"'+code+'>'+esc(g.label||g.title||'Item')+'</button>';
     }).join('')+'</nav>';
   }
 

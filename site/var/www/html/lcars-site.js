@@ -2,13 +2,13 @@
 'use strict';
 
 const GROUP_ICONS={
-  'SEGURANÇA':'◆',
   'OPERAÇÕES':'◈',
-  'DISPOSITIVOS':'▣',
-  'AUTOMAÇÃO':'⚙',
+  'SEGURANÇA':'◆',
+  'AMBIENTE':'◎',
   'IA & VOZ':'✦',
   'FAMÍLIA':'●',
-  'SISTEMA':'⌘'
+  'SISTEMA':'⚙',
+  'ACESSOS':'⌘'
 };
 
 const STATUS=[
@@ -16,118 +16,137 @@ const STATUS=[
   {label:'SISTEMA',value:'ONLINE'}
 ];
 
+// Divisao por area real da casa, no estilo de paineis LCARS: cada area tem
+// cor e numero proprios, e cada funcionalidade aparece em UMA area so. Antes
+// eram 49 entradas para 22 funcionalidades (ESP32/IoT e Acesso web & API
+// repetidos em 4 grupos cada).
+// tone: cor da area na barra lateral; code: numero do painel.
 const GROUPS={
-  'SEGURANÇA':{
-    subtitle:'Proteção, perímetro, câmeras, acessos e eventos.',
-    sections:[
-      {title:'PERÍMETRO',items:[
-        {id:'seguranca',label:'Defesa & anti-intrusão',module:'security'},
-        {id:'cameras',label:'Câmeras & visão',module:'cameras'},
-        {id:'acessos',label:'Acessos pessoais',url:'/casa/dispositivos_pessoais.php'},
-        {id:'familia',label:'Família & presença',url:'/casa/familia.php'}
-      ]},
-      {title:'EVENTOS',items:[
-        {id:'sensores-sec',label:'Sensores & telemetria',module:'sensors'},
-        {id:'api-sec',label:'Acesso web & API segura',module:'external'}
-      ]},
-      {title:'MANUTENÇÃO',items:[
-        {id:'atualizacoes',label:'Atualizações',module:'updates'}
-      ]}
-    ]
-  },
   'OPERAÇÕES':{
-    subtitle:'Rotinas, agenda, ambientes e execução diária.',
+    tone:'operacoes', code:'01',
+    subtitle:'Controle do dia a dia: relés, cenas, regras e agenda.',
     sections:[
-      {title:'ROTINAS',items:[
-        {id:'agendamentos',label:'Agendamentos',module:'schedules'},
-        {id:'devices-op',label:'Dispositivos & relés',module:'devices'},
-        {id:'iot-op',label:'ESP32 / Arduino / IoT',module:'iot'},
+      {title:'CONTROLE',items:[
+        {id:'devices',label:'Dispositivos & relés',module:'devices'},
         {id:'cenas',label:'Cenas e regras',module:'automation'}
       ]},
-      {title:'MONITORAMENTO',items:[
-        {id:'sensores-op',label:'Sensores',module:'sensors'},
-        {id:'cameras-op',label:'Câmeras',module:'cameras'},
-        {id:'historico-op',label:'Frases & avisos',module:'phrases'}
+      {title:'AGENDA',items:[
+        {id:'agendamentos',label:'Agendamentos',module:'schedules'}
       ]}
     ]
   },
-  'DISPOSITIVOS':{
-    subtitle:'Inventário, nós, IoT, celular, relógio e equipamentos.',
+  'SEGURANÇA':{
+    tone:'seguranca', code:'02',
+    subtitle:'Proteção da casa: câmeras, perímetro e defesa contra intrusão.',
     sections:[
-      {title:'EQUIPAMENTOS',items:[
-        {id:'devices',label:'Dispositivos & relés',module:'devices'},
-        {id:'iot',label:'ESP32 / Arduino / IoT',module:'iot'},
-        {id:'nodes',label:'Cluster ARM',module:'nodes'}
-      ]},
-      {title:'PESSOAIS',items:[
-        {id:'mobile-dev',label:'Celular',url:'/casa/celular.php'},
-        {id:'watch-dev',label:'Watch',url:'/casa/watch.php'},
-        {id:'family-dev',label:'Dispositivos da família',url:'/casa/familia.php'},
-        {id:'bin-dev',label:'Downloads & APKs (/bin)',url:'/casa/bin/'}
+      {title:'PERÍMETRO',items:[
+        {id:'cameras',label:'Câmeras & visão',module:'cameras'},
+        {id:'seguranca',label:'Defesa & anti-intrusão',module:'security'}
       ]}
     ]
   },
-  'AUTOMAÇÃO':{
-    subtitle:'Ações, agendas e integrações responsáveis por executar a casa.',
+  'AMBIENTE':{
+    tone:'ambiente', code:'03',
+    subtitle:'Leituras dos sensores: temperatura, umidade e histórico.',
     sections:[
-      {title:'EXECUÇÃO',items:[
-        {id:'automation-dev',label:'Dispositivos & relés',module:'devices'},
-        {id:'automation-ag',label:'Agendamentos',module:'schedules'},
-        {id:'automation-iot',label:'ESP32 / Arduino / IoT',module:'iot'},
-        {id:'automation-scenes',label:'Cenas e regras',module:'automation'}
-      ]},
-      {title:'INTEGRAÇÃO',items:[
-        {id:'automation-agents',label:'Agentes externos',module:'agents'},
-        {id:'automation-api',label:'Acesso Web & API',module:'external'}
+      {title:'SENSORES',items:[
+        {id:'sensores',label:'Sensores & telemetria',module:'sensors'},
+        {id:'ambiente',label:'Histórico ambiental',url:'/casa/dispositivos_iot.php'}
       ]}
     ]
   },
   'IA & VOZ':{
-    subtitle:'COMPUTER, reconhecimento, voz, RunPod e agentes.',
+    tone:'ia', code:'04',
+    subtitle:'Assistente da casa: comandos de voz, avisos e modelos de IA.',
     sections:[
-      {title:'COMPUTER',items:[
-        {id:'jarvis',label:'Núcleo de reconhecimento & voz',module:'jarvis'},
-        {id:'frases',label:'Frases & avisos',module:'phrases'},
-        {id:'agentes',label:'Agentes externos',module:'agents'}
+      {title:'ASSISTENTE',items:[
+        {id:'jarvis',label:'Reconhecimento & voz',module:'jarvis'},
+        {id:'frases',label:'Frases & avisos',module:'phrases'}
       ]},
       {title:'INTELIGÊNCIA',items:[
-        {id:'modelos-ia',label:'Conexões & Modelos de IA',url:'/casa/ia_modelos.php'},
-        {id:'runpod',label:'Configurações de IA',module:'config'},
-        {id:'webapi',label:'Acesso Web & API segura',module:'external'}
+        {id:'modelos-ia',label:'Conexões & modelos de IA',url:'/casa/ia_modelos.php'},
+        {id:'config',label:'Configurações de IA',module:'config'}
       ]}
     ]
   },
   'FAMÍLIA':{
-    subtitle:'Pessoas, presença e dispositivos pessoais.',
+    tone:'familia', code:'05',
+    subtitle:'Pessoas da casa, presença e aparelhos pessoais.',
     sections:[
       {title:'PESSOAS',items:[
-        {id:'family',label:'Família',url:'/casa/familia.php'},
-        {id:'mobile-person',label:'Celular',url:'/casa/celular.php'},
-        {id:'watch-person',label:'Watch',url:'/casa/watch.php'}
+        {id:'familia',label:'Família & presença',url:'/casa/familia.php'}
       ]},
-      {title:'CONTROLE',items:[
-        {id:'users',label:'Usuários & senhas',module:'users'}
+      {title:'APARELHOS PESSOAIS',items:[
+        {id:'celular',label:'Celular',url:'/casa/celular.php'},
+        {id:'relogio',label:'Relógio',url:'/casa/watch.php'}
       ]}
     ]
   },
   'SISTEMA':{
-    subtitle:'Infraestrutura, telemetria, configuração e diagnóstico.',
+    tone:'sistema', code:'06',
+    subtitle:'Equipamentos, servidores, diagnóstico e manutenção.',
     sections:[
-      {title:'INFRAESTRUTURA',items:[
-        {id:'nodes-sys',label:'Cluster ARM',module:'nodes'},
-        {id:'sensors-sys',label:'Telemetria operacional',module:'telemetryOps'},
-        {id:'iot-sys',label:'ESP32 / Arduino / IoT',module:'iot'},
-        {id:'bin-sys',label:'Central de Binários & APKs (/bin)',url:'/casa/bin/'}
+      {title:'EQUIPAMENTOS',items:[
+        {id:'iot',label:'ESP32 / Arduino / IoT',module:'iot'},
+        {id:'nodes',label:'Cluster ARM',module:'nodes'}
       ]},
-      {title:'ADMINISTRAÇÃO',items:[
-        {id:'users-sys',label:'Usuários & senhas',module:'users'},
-        {id:'config-sys',label:'Configurações RunPod / IA',module:'config'},
-        {id:'api-sys',label:'Acesso Web & API',module:'external'},
-        {id:'health',label:'Saúde do sistema',module:'health'}
+      {title:'DIAGNÓSTICO',items:[
+        {id:'health',label:'Saúde do sistema',module:'health'},
+        {id:'telemetria',label:'Telemetria operacional',module:'telemetryOps'}
+      ]},
+      {title:'MANUTENÇÃO',items:[
+        {id:'atualizacoes',label:'Atualizações',module:'updates'},
+        {id:'binarios',label:'Programas & APKs (/bin)',url:'/casa/bin/'}
+      ]}
+    ]
+  },
+  'ACESSOS':{
+    tone:'acessos', code:'07',
+    subtitle:'Usuários, chaves de acesso e integrações externas.',
+    sections:[
+      {title:'ACESSO',items:[
+        {id:'usuarios',label:'Usuários & senhas',module:'users'},
+        {id:'api',label:'Acesso web & API',module:'external'}
+      ]},
+      {title:'INTEGRAÇÕES',items:[
+        {id:'agentes',label:'Agentes externos',module:'agents'}
       ]}
     ]
   }
 };
+
+// Enderecos antigos (?grupo=...&item=...) continuam funcionando: links salvos,
+// automacao.php, o site local do cluster e paginas externas.
+const GROUP_ALIASES={
+  'SEGURANCA':'SEGURANÇA','OPERACOES':'OPERAÇÕES','DISPOSITIVOS':'SISTEMA','AUTOMAÇÃO':'OPERAÇÕES',
+  'AUTOMACAO':'OPERAÇÕES','FAMILIA':'FAMÍLIA','IA E VOZ':'IA & VOZ','ADMINISTRAÇÃO':'ACESSOS','ADMINISTRACAO':'ACESSOS'
+};
+const ITEM_ALIASES={
+  'acessos':'celular','sensores-sec':'sensores','sensores-op':'sensores','sensors-sys':'telemetria',
+  'api-sec':'api','automation-api':'api','webapi':'api','api-sys':'api',
+  'automation-ag':'agendamentos','devices-op':'devices','automation-dev':'devices',
+  'iot-op':'iot','automation-iot':'iot','iot-sys':'iot','automation-scenes':'cenas',
+  'cameras-op':'cameras','historico-op':'frases','nodes-sys':'nodes',
+  'mobile-dev':'celular','mobile-person':'celular','watch-dev':'relogio','watch-person':'relogio',
+  'family-dev':'familia','family':'familia','bin-dev':'binarios','bin-sys':'binarios',
+  'automation-agents':'agentes','runpod':'config','config-sys':'config',
+  'users':'usuarios','users-sys':'usuarios'
+};
+function resolveGroup(name){
+  if(!name) return null;
+  if(GROUPS[name]) return name;
+  const up=String(name).toUpperCase();
+  return GROUPS[up]?up:(GROUP_ALIASES[up]||GROUP_ALIASES[name]||null);
+}
+// Acha a area de um item pelo id (ou id antigo).
+function locateItem(id){
+  const key=ITEM_ALIASES[id]||id;
+  for(const g of Object.keys(GROUPS)){
+    const it=findItem(g,key);
+    if(it) return {group:g,item:it};
+  }
+  return null;
+}
 
 let currentGroup=null;
 let currentItem=null;
@@ -143,7 +162,11 @@ function setRoute(group,item){
 }
 
 function topGroupCards(){
-  return Object.keys(GROUPS).map(name=>({title:name,description:GROUPS[name].subtitle,id:name,icon:GROUP_ICONS[name]||'•'}));
+  return Object.keys(GROUPS).map(name=>({title:name,description:GROUPS[name].subtitle,id:name,code:GROUPS[name].code||'',icon:GROUP_ICONS[name]||'•'}));
+}
+// Botoes das areas na barra lateral, cada uma com a sua cor e numero.
+function departmentRail(){
+  return Object.keys(GROUPS).map(name=>({label:name,action:'open-group:'+name,level:1,tone:GROUPS[name].tone,code:GROUPS[name].code}));
 }
 
 let dashboardMetrics = null;
@@ -200,15 +223,7 @@ function home(updateRoute=true){
   const mobMetric = (dashboardMetrics && dashboardMetrics.mobiles_online > 0) ? (dashboardMetrics.mobiles_online + ' ATIVO(S)') : 'CONECTADO';
   const watchMetric = (dashboardMetrics && dashboardMetrics.watch_online > 0) ? 'ONLINE' : 'OK';
 
-  const homeRail = [
-    {label:'DASHBOARD',action:'home',level:0,levelNav:true,active:true},
-    {label:'DISPOSITIVOS',action:'open-group:DISPOSITIVOS',level:1},
-    {label:'OPERAÇÕES',action:'open-group:OPERAÇÕES',level:1},
-    {label:'SEGURANÇA',action:'open-group:SEGURANÇA',level:1},
-    {label:'IA & VOZ',action:'open-group:IA & VOZ',level:1},
-    {label:'FAMÍLIA',action:'open-group:FAMÍLIA',level:1},
-    {label:'SISTEMA',action:'open-group:SISTEMA',level:1}
-  ];
+  const homeRail = [{label:'DASHBOARD',action:'home',level:0,levelNav:true,active:true}].concat(departmentRail());
 
   const dashboardCards = [
     {
@@ -217,7 +232,7 @@ function home(updateRoute=true){
       icon: '▣',
       value: devMetric,
       status: 'ONLINE',
-      actions: [{label:'CONTROLAR', action:'open-direct:DISPOSITIVOS:devices', variant:'primary'}]
+      actions: [{label:'CONTROLAR', action:'open-direct:OPERAÇÕES:devices', variant:'primary'}]
     },
     {
       title: 'TEMPERATURA & CLIMA',
@@ -225,7 +240,7 @@ function home(updateRoute=true){
       icon: '◈',
       value: tempMetric,
       status: 'OK',
-      actions: [{label:'SENSORES', action:'open-direct:OPERAÇÕES:sensores-op', variant:'primary'}]
+      actions: [{label:'SENSORES', action:'open-direct:AMBIENTE:sensores', variant:'primary'}]
     },
     {
       title: 'CELULAR & PRESENÇA',
@@ -233,7 +248,7 @@ function home(updateRoute=true){
       icon: '📱',
       value: mobMetric,
       status: 'OK',
-      actions: [{label:'CELULARES', action:'open-direct:DISPOSITIVOS:mobile-dev', variant:'primary'}]
+      actions: [{label:'CELULARES', action:'open-direct:FAMÍLIA:celular', variant:'primary'}]
     },
     {
       title: 'JARVIS WATCH',
@@ -241,7 +256,7 @@ function home(updateRoute=true){
       icon: '⌚',
       value: watchMetric,
       status: 'OK',
-      actions: [{label:'WATCH', action:'open-direct:DISPOSITIVOS:watch-dev', variant:'primary'}]
+      actions: [{label:'WATCH', action:'open-direct:FAMÍLIA:relogio', variant:'primary'}]
     },
     {
       title: 'DEFESA & PERÍMETRO',
@@ -265,7 +280,7 @@ function home(updateRoute=true){
       icon: '⚙',
       value: 'AGENDADO',
       status: 'ATIVO',
-      actions: [{label:'ROTINAS', action:'open-direct:OPERAÇÕES:agendamentos', variant:'primary'}]
+      actions: [{label:'ROTINAS', action:'open-direct:OPERAÇÕES:cenas', variant:'primary'}]
     },
     {
       title: 'SISTEMA & SERVIDORES',
@@ -276,12 +291,12 @@ function home(updateRoute=true){
       actions: [{label:'SAÚDE', action:'open-direct:SISTEMA:health', variant:'primary'}]
     },
     {
-      title: 'EXPLORAR GRUPOS',
-      description: 'Acesse o menu completo de todos os 7 módulos do CASA',
+      title: 'ÁREAS DA CASA',
+      description: 'Operações, Segurança, Ambiente, IA & voz, Família, Sistema e Acessos',
       icon: '●',
-      value: '7 MÓDULOS',
+      value: Object.keys(GROUPS).length + ' ÁREAS',
       status: 'MENU',
-      actions: [{label:'GRUPOS', action:'open-groups-overview', variant:'primary'}]
+      actions: [{label:'ABRIR', action:'open-groups-overview', variant:'primary'}]
     }
   ];
 
@@ -289,7 +304,7 @@ function home(updateRoute=true){
     layout:'dashboard',group:'DASHBOARD',title:'CASA / COMPUTER · DASHBOARD',subtitle:'Painel de controle operacional e monitoramento residencial em tempo real.',
     breadcrumb:['CASA','DASHBOARD'],groups:homeRail,status:STATUS,columns:3,
     items:dashboardCards,
-    footer:{hint:'Interface operacional central: use os cartões para ação rápida ou os grupos à esquerda.'}
+    footer:{hint:'Interface operacional central: use os cartões para ação rápida ou as áreas à esquerda.'}
   });
 
   if(updateRoute) setRoute(null,null);
@@ -299,10 +314,10 @@ function home(updateRoute=true){
 function renderGroupsMenu(){
   currentGroup='GRUPOS'; currentItem=null;
   CASALcars.render('#app',{
-    layout:'dashboard',group:'GRUPOS',title:'CASA / COMPUTER · MÓDULOS',subtitle:'Escolha um grupo. A interface adapta o miolo conforme a tarefa.',
-    breadcrumb:['CASA','GRUPOS'],groups:[{label:'DASHBOARD',action:'home',level:0,levelNav:true},{label:'GRUPOS',action:'open-groups-overview',level:1,levelNav:true,active:true}],status:STATUS,columns:3,
-    items:topGroupCards().map(g=>({title:g.title,description:g.description,icon:g.icon,actions:[{label:'ACESSAR',action:'open-group:'+g.id,variant:'primary'}]})),
-    footer:{hint:'Interface em tela cheia: use grupos e paginação, sem rolagem.'}
+    layout:'dashboard',group:'GRUPOS',title:'CASA / COMPUTER · ÁREAS',subtitle:'Escolha uma área. Cada função da casa fica em um só lugar.',
+    breadcrumb:['CASA','ÁREAS'],groups:[{label:'DASHBOARD',action:'home',level:0,levelNav:true},{label:'ÁREAS',action:'open-groups-overview',level:1,levelNav:true,active:true}].concat(departmentRail().slice(0,7)),status:STATUS,columns:3,
+    items:topGroupCards().map(g=>({title:g.code+' · '+g.title,description:g.description,icon:g.icon,actions:[{label:'ACESSAR',action:'open-group:'+g.id,variant:'primary'}]})),
+    footer:{hint:'Interface em tela cheia: use as áreas e a paginação, sem rolagem.'}
   });
   setRoute('GRUPOS',null);
 }
@@ -312,7 +327,7 @@ function groupRail(group){
   GROUPS[group].sections.forEach(s=>s.items.forEach(it=>flat.push(it)));
   const nav=[
     {label:'CASA',action:'home',level:0,levelNav:true},
-    {label:group,action:'open-current-group',level:1,levelNav:true,active:!currentItem}
+    {label:group,action:'open-current-group',level:1,levelNav:true,active:!currentItem,tone:GROUPS[group].tone,code:GROUPS[group].code}
   ];
   if(currentItem){
     const selected=findItem(group,currentItem);
@@ -325,7 +340,8 @@ function groupRail(group){
 }
 
 function openGroup(group,updateRoute=true){
-  if(!GROUPS[group]) return home(updateRoute);
+  group=resolveGroup(group);
+  if(!group) return home(updateRoute);
   currentGroup=group; currentItem=null;
   CASALcars.render('#app',{
     layout:'menu-grid',kind:'menu',group,title:group,subtitle:GROUPS[group].subtitle,
@@ -1540,7 +1556,7 @@ async function renderIoT(){
         actions+='<a href="/casa/dispositivos_iot.php" class="ja-mini" style="margin-right:6px;background:#f59c73;color:#000;font-weight:bold;text-decoration:none;padding:3px 8px;border-radius:4px;">⚡ Relés</a>';
       }
       if(isCam){
-        actions+='<a href="/casa/index.php?grupo=SEGURANCA&item=cameras" class="ja-mini" style="margin-right:6px;background:#8eb9ee;color:#000;font-weight:bold;text-decoration:none;padding:3px 8px;border-radius:4px;">📷 Câmera</a>';
+        actions+='<a href="/casa/index.php?grupo=SEGURAN%C3%87A&item=cameras" class="ja-mini" style="margin-right:6px;background:#8eb9ee;color:#000;font-weight:bold;text-decoration:none;padding:3px 8px;border-radius:4px;">📷 Câmera</a>';
       }
       if(d.ip_address){
         actions+='<a href="http://'+esc(d.ip_address)+'/" target="_blank" class="ja-mini" style="background:#444;color:#fff;font-weight:bold;text-decoration:none;padding:3px 8px;border-radius:4px;">🌐 Web IP</a>';
@@ -4606,11 +4622,11 @@ function handleAction(detail){
   if(action==='open-current-group' && currentGroup) return openGroup(currentGroup);
   if(action.startsWith('open-direct:')){
     const parts = action.split(':');
-    const grp = parts[1], itId = parts[2];
-    if(GROUPS[grp]){
+    const found = locateItem(parts[2]);
+    const grp = found ? found.group : resolveGroup(parts[1]);
+    if(grp){
       openGroup(grp, false);
-      const it = findItem(grp, itId);
-      if(it) openItem(it);
+      if(found) openItem(found.item);
     }
     return;
   }
@@ -4643,7 +4659,7 @@ function mountAdminTools(){
   box=document.createElement('section');
   box.className='ja-admin-tools';
   box.setAttribute('aria-label','Funções administrativas');
-  box.innerHTML='<div class="ja-admin-title">ADMINISTRAÇÃO</div>';
+  box.innerHTML='<div class="ja-admin-title">SESSÃO</div>';
 
   const homeBtn=template.querySelector('.home')?.cloneNode(true);
   const passBtn=template.querySelector('.password')?.cloneNode(true);
@@ -4698,12 +4714,13 @@ function restoreRoute(){
   suppressHistory=true;
   if(itemId==='dashboard' || g==='dashboard' || g==='DASHBOARD' || (!g && !itemId)){
     home(false);
-  } else if(g && GROUPS[g]){
-    openGroup(g,false);
-    if(itemId){
-      const it=findItem(g,itemId);
-      if(it) openItem(it,false);
-    }
+  } else if(itemId && locateItem(itemId)){
+    // O item decide a area: ids antigos e grupos renomeados caem no lugar novo.
+    const found=locateItem(itemId);
+    openGroup(found.group,false);
+    openItem(found.item,false);
+  } else if(g && resolveGroup(g)){
+    openGroup(resolveGroup(g),false);
   } else {
     home(false);
   }

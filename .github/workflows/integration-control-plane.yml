@@ -4,6 +4,8 @@ on:
   push:
     paths:
       - 'site/var/www/html/api/**'
+      - 'site/var/www/html/lcars-*.js'
+      - 'site/var/www/html/lcars-*.css'
       - 'database/**'
       - 'mysql/**'
       - 'site/var/www/html/automacao.php'
@@ -84,6 +86,9 @@ jobs:
 
       - name: Test automatic empty-database install
         run: php .github/tests/test_schema_install.php
+
+      - name: Validate panel menu (areas, no duplicates, old links)
+        run: node .github/tests/test_lcars_menu.js
 
       - name: Test ARM agent registry and UI
         run: |

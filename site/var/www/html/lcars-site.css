@@ -1799,3 +1799,33 @@ body{overscroll-behavior:none}
 .ja-chat-content {
   display: block;
 }
+
+/* Areas da casa: cada uma com a sua cor fixa (padrao LCARS de codificar por cor)
+   e o numero do painel no canto direito do botao. */
+.ja-rail button.ja-tone-operacoes{background:#f2a000!important}
+.ja-rail button.ja-tone-seguranca{background:#ef6969!important}
+.ja-rail button.ja-tone-ambiente{background:#8fc7ef!important}
+.ja-rail button.ja-tone-ia{background:#9999ff!important}
+.ja-rail button.ja-tone-familia{background:#e59bc5!important}
+.ja-rail button.ja-tone-sistema{background:#ff9966!important}
+.ja-rail button.ja-tone-acessos{background:#c6a7df!important}
+.ja-rail button[data-ja-code]{position:relative;padding-right:46px}
+.ja-rail button[data-ja-code]::after{
+  content:attr(data-ja-code);
+  position:absolute;right:12px;bottom:8px;
+  font-size:.72rem;font-weight:900;letter-spacing:.06em;opacity:.7;
+}
+
+/* Barra lateral estreita (tablet e celular): o CSS base transforma a barra em
+   grade de 2 colunas abaixo de 860px, mas aqui ela tem so 92 a 145px de largura,
+   entao a segunda coluna ficava escondida atras do conteudo. Mantem uma coluna. */
+@media(max-width:1000px){
+  .ja-rail{display:flex!important;flex-direction:column!important;gap:6px!important}
+  .ja-rail button,.ja-rail a{min-height:50px!important;padding:8px 9px!important;line-height:1.15;overflow-wrap:break-word}
+}
+@media(max-width:520px){
+  .ja-rail button,.ja-rail a{min-height:46px!important;font-size:10px!important;padding:7px 7px!important}
+  .ja-rail button[data-ja-code]{padding-bottom:17px!important}
+  .ja-rail button[data-ja-code]::after{right:7px;bottom:4px;font-size:.6rem}
+  .ja-rail button.level-nav::before{width:5px;height:5px;margin-right:4px}
+}
