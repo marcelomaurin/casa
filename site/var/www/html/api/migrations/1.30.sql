@@ -1,37 +1,44 @@
-﻿-- CASA / JARVIS - Migration 1.30
+-- CASA / JARVIS - Migration 1.30
 -- Registro forcado no banco de dados para os equipamentos existentes do cluster
 -- Elimina a necessidade de IPs chumbados no codigo e centraliza informacoes no banco.
 
+-- A coluna porta nao existia no schema base: sem isto o INSERT abaixo falhava
+-- (erro 1054) e a instalacao parava na versao 1.29.
+-- device_token e obrigatorio: cada equipamento recebe um valor aleatorio que
+-- ninguem conhece (a autenticacao compara esse campo em texto puro); a
+-- credencial real vem do pareamento. Linhas existentes mantem o token atual.
+ALTER TABLE dispositivos_cluster ADD COLUMN IF NOT EXISTS porta INT NULL;
+
 INSERT INTO dispositivos_cluster (
-    device_id, nome, tipo, manufacturer, model, localizacao, ip_address, local_ip, porta, status, firmware_version, capabilities, metadata
+    device_id, device_token, nome, tipo, manufacturer, model, localizacao, ip_address, local_ip, porta, status, firmware_version, capabilities, metadata
 ) VALUES
 (
-    'raspberry-pi-local', 'Raspberry Pi 4B (Hub Principal)', 'linux-arm', 'Raspberry Pi Foundation', 'Raspberry Pi 4 Model B Rev 1.2', 'Hub Central / Servidor Local', '192.168.2.13', '192.168.2.13', 8080, 'online', 'v2.7.0 (#6f4db51)',
+    'raspberry-pi-local', CONCAT('PENDENTE:', SHA2(CONCAT(UUID(), RAND()), 256)), 'Raspberry Pi 4B (Hub Principal)', 'linux-arm', 'Raspberry Pi Foundation', 'Raspberry Pi 4 Model B Rev 1.2', 'Hub Central / Servidor Local', '192.168.2.13', '192.168.2.13', 8080, 'online', 'v2.7.0 (#6f4db51)',
     '["arm-agent","linux-arm","hub","hardware-gateway","serial","rs485","scheduler","tts","cluster-site","ssh-agent"]',
     '{"hostname":"raspberrypi","arch":"aarch64","platform":"Debian 12 (bookworm)","role":"hub","version":"v2.7.0 (#6f4db51)","commit":"6f4db51"}'
 ),
 (
-    'raspberry-pi-node-12', 'Raspberry Pi 4B (Cluster Hub)', 'linux-arm', 'Raspberry Pi Foundation', 'Raspberry Pi 4 Model B', 'Hub Cluster Primario', '192.168.2.12', '192.168.2.12', 8080, 'online', 'v2.7.0 (#6f4db51)',
+    'raspberry-pi-node-12', CONCAT('PENDENTE:', SHA2(CONCAT(UUID(), RAND()), 256)), 'Raspberry Pi 4B (Cluster Hub)', 'linux-arm', 'Raspberry Pi Foundation', 'Raspberry Pi 4 Model B', 'Hub Cluster Primario', '192.168.2.12', '192.168.2.12', 8080, 'online', 'v2.7.0 (#6f4db51)',
     '["arm-agent","linux-arm","hub","cluster-site"]',
     '{"hostname":"rpi4-hub","arch":"aarch64","platform":"Debian 12 (bookworm)","role":"hub","version":"v2.7.0 (#6f4db51)","commit":"6f4db51"}'
 ),
 (
-    'raspberry-pi-node-13', 'Raspberry Pi Node 13', 'linux-arm', 'Raspberry Pi Foundation', 'Raspberry Pi 4 Model B Rev 1.2', 'Rack Servidores', '192.168.2.13', '192.168.2.13', 8080, 'online', 'v2.7.0 (#6f4db51)',
+    'raspberry-pi-node-13', CONCAT('PENDENTE:', SHA2(CONCAT(UUID(), RAND()), 256)), 'Raspberry Pi Node 13', 'linux-arm', 'Raspberry Pi Foundation', 'Raspberry Pi 4 Model B Rev 1.2', 'Rack Servidores', '192.168.2.13', '192.168.2.13', 8080, 'online', 'v2.7.0 (#6f4db51)',
     '["arm-agent","linux-arm","cluster-site","secundario"]',
     '{"hostname":"raspberrypi","arch":"aarch64","platform":"Debian 12 (bookworm)","role":"secundario","version":"v2.7.0 (#6f4db51)","commit":"6f4db51"}'
 ),
 (
-    'cubieboard-arm-07', 'Cubieboard 2 ARMv7', 'linux-arm', 'Cubietech', 'Cubieboard 2 (Allwinner A20)', 'Gateway Automacao / Serial', '192.168.2.7', '192.168.2.7', 8080, 'online', 'v2.7.0 (#6f4db51)',
+    'cubieboard-arm-07', CONCAT('PENDENTE:', SHA2(CONCAT(UUID(), RAND()), 256)), 'Cubieboard 2 ARMv7', 'linux-arm', 'Cubietech', 'Cubieboard 2 (Allwinner A20)', 'Gateway Automacao / Serial', '192.168.2.7', '192.168.2.7', 8080, 'online', 'v2.7.0 (#6f4db51)',
     '["arm-agent","linux-arm","hardware-gateway","serial","rs485","cluster-site"]',
     '{"hostname":"cubieboard","arch":"armv7l","platform":"Linaro 14.04 (armv7l)","role":"gateway","version":"v2.7.0 (#6f4db51)","commit":"6f4db51"}'
 ),
 (
-    'raspberry-pi-node-08', 'Raspberry Pi Node 08', 'linux-arm', 'Raspberry Pi Foundation', 'Raspberry Pi 3 Model B+', 'Quadro de Automacao / Sensores', '192.168.2.8', '192.168.2.8', 8080, 'online', 'v2.7.0 (#6f4db51)',
+    'raspberry-pi-node-08', CONCAT('PENDENTE:', SHA2(CONCAT(UUID(), RAND()), 256)), 'Raspberry Pi Node 08', 'linux-arm', 'Raspberry Pi Foundation', 'Raspberry Pi 3 Model B+', 'Quadro de Automacao / Sensores', '192.168.2.8', '192.168.2.8', 8080, 'online', 'v2.7.0 (#6f4db51)',
     '["arm-agent","linux-arm","reles","sensores","cluster-site"]',
     '{"hostname":"raspberrypi-08","arch":"aarch64","platform":"Linux ARM","role":"periferico","version":"v2.7.0 (#6f4db51)","commit":"6f4db51"}'
 ),
 (
-    'esp32-cam-01', 'ESP32-CAM Portão', 'esp32', 'Ai-Thinker', 'ESP32-CAM OV2640', 'Portão Social', '192.168.2.50', '192.168.2.50', 80, 'online', '1.0.0',
+    'esp32-cam-01', CONCAT('PENDENTE:', SHA2(CONCAT(UUID(), RAND()), 256)), 'ESP32-CAM Portão', 'esp32', 'Ai-Thinker', 'ESP32-CAM OV2640', 'Portão Social', '192.168.2.50', '192.168.2.50', 80, 'online', '1.0.0',
     '["camera","streaming","flash","capture"]',
     '{"resolution":"VGA","stream_path":"/stream","capture_path":"/capture","flash_path":"/flash/on"}'
 )
