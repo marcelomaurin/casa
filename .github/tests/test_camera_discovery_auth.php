@@ -10,7 +10,10 @@ putenv('JARVIS_DB_PASS=root');
 putenv('JARVIS_AUTO_INIT_DB=1');
 putenv('JARVIS_SYSTEM_API_TOKEN=ci_system_token_camera_0123456789');
 
-$endpoint = realpath(__DIR__ . '/../../site/var/www/html/api/camera_discovery.php');
+$endpoints = [
+    'legacy' => realpath(__DIR__ . '/../../site/var/www/html/api/camera_discovery.php'),
+    'v1' => realpath(__DIR__ . '/../../site/var/www/html/api/v1/camera.php'),
+];
 
 // Modo filho: executa uma requisicao e sai.
 if (($argv[1] ?? '') === '--request') {
@@ -24,7 +27,7 @@ if (($argv[1] ?? '') === '--request') {
     $GLOBALS['__ci_body'] = json_encode($spec['body'] ?? []);
     stream_wrapper_unregister('php');
     stream_wrapper_register('php', CiPhpStream::class);
-    require $endpoint;
+    require $endpoints[$spec['endpoint'] ?? 'legacy'];
     exit(0);
 }
 
@@ -119,6 +122,21 @@ if ($ip !== '192.168.2.58') fail_test('heartbeat nao atualizou o IP');
 $r = request(['get' => ['acao' => 'heartbeat', 'device_id' => 'esp32cam-intruso'],
     'headers' => ['HTTP_X_CAMERA_TOKEN' => 'TokenDoAtacante0123456789']]);
 if (!empty($r['json']['ok'])) fail_test('heartbeat de camera nao registrada foi aceito');
+
+// 8. API v1 (firmware 2.0.1): so heartbeat, com token valido.
+$r = request(['endpoint' => 'v1', 'get' => array_merge($hb, ['ip' => '192.168.2.59']), 'headers' => ['HTTP_X_CAMERA_TOKEN' => $goodToken]]);
+if (empty($r['json']['ok'])) fail_test('heartbeat v1 com token certo falhou: ' . $r['raw'] . $r['err']);
+$ip = $pdo->query("SELECT ip_address FROM dispositivos_cluster WHERE device_id='{$did}'")->fetchColumn();
+if ($ip !== '192.168.2.59') fail_test('heartbeat v1 nao atualizou o IP');
+$r = request(['endpoint' => 'v1', 'get' => $hb, 'headers' => ['HTTP_X_CAMERA_TOKEN' => 'TokenErrado0123456789xx']]);
+if (!empty($r['json']['ok'])) fail_test('heartbeat v1 com token errado foi aceito');
+$r = request(['endpoint' => 'v1', 'get' => $hb]);
+if (!empty($r['json']['ok'])) fail_test('heartbeat v1 sem X-Camera-Token foi aceito');
+foreach (['listar', 'get_house_wifis', 'register_token', 'get_tokens'] as $acao) {
+    $r = request(['endpoint' => 'v1', 'get' => ['acao' => $acao], 'headers' => ['HTTP_X_CAMERA_TOKEN' => $goodToken] + $apiKey]);
+    if (!empty($r['json']['ok']) || strpos($r['raw'], $goodToken) !== false)
+        fail_test("API v1 de camera aceitou a acao $acao: " . substr($r['raw'], 0, 200));
+}
 
 $pdo->prepare("DELETE FROM dispositivos_cluster WHERE device_id=:d")->execute([':d' => $did]);
 echo "OK: camera_discovery exige autenticacao, protege tokens e valida o heartbeat\n";

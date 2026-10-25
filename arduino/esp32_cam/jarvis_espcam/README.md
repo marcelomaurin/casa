@@ -23,7 +23,7 @@ gravar firmware ──► NVS vazia ──► cria Wi-Fi ABERTO "espcam" (sem se
 - **Provisionamento:** `GET /provision` devolve identidade, token e redes gravadas. `POST /provision` com `{"token": "...", "wifis": [{"ssid": "...", "senha": "..."}]}` grava tudo e reinicia.
 - **Operação:** `/stream`, `/capture`, `/status`, `/wifi_survey`, `/config/wifis` (POST), `/flash/on`, `/flash/off`. Clientes fora de `10.x`, `172.16-31.x` e `192.168.x` recebem `403`. Não há token no acesso local.
 - **Descoberta:** um datagrama UDP `ESPCAM_DISCOVER` na porta 32108 recebe como resposta um JSON com `device_id`, `ip`, `porta` e `porta_stream`.
-- **Site:** heartbeat a cada 30 s com `X-Camera-Token`, por HTTPS validado contra as raízes Let's Encrypt (`casa_ca.h`). A `casa_url` só aceita `https://maurinsoft.com.br` (constante `CASA_ALLOWED_HOST`), então o token não pode ser desviado para outro servidor.
+- **Site:** heartbeat a cada 30 s em `/api/v1/camera.php` com `X-Camera-Token`, por HTTPS validado contra as raízes Let's Encrypt (`casa_ca.h`). A `casa_url` só aceita `https://maurinsoft.com.br` (constante `CASA_ALLOWED_HOST`), então o token não pode ser desviado para outro servidor.
 - **Serial (115200):** mensagens `CAM_STAGE:*` e comandos `PING`, `STATUS`, `GET_TOKEN`, `SET_TOKEN:<t>`, `SET_WIFI:<ssid>:<senha>`, `FACTORY_RESET` e `RESTART`.
 
 O código-fonte não contém redes, senhas nem token: tudo fica na NVS (namespace `jarviscam`).
