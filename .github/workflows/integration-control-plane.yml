@@ -116,6 +116,9 @@ jobs:
       - name: Test background services status (servicos_status.php)
         run: php .github/tests/test_servicos_status.php
 
+      - name: Test TV dashboard (v1/tv.php)
+        run: php .github/tests/test_tv_dashboard.php
+
       - name: Test Casa Mobile QR pairing
         run: php .github/tests/test_mobile_pairing.php
 

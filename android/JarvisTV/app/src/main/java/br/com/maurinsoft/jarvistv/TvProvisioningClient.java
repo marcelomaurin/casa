@@ -46,12 +46,12 @@ public final class TvProvisioningClient {
     }
 
     private SharedPreferences prefs() {
-        return context.getSharedPreferences(MainActivity.PREFS, Context.MODE_PRIVATE);
+        return context.getSharedPreferences(TvConfig.PREFS, Context.MODE_PRIVATE);
     }
 
     private String baseUrl() {
-        String value = prefs().getString(MainActivity.KEY_URL, JarvisApiClient.DEFAULT_BASE_URL);
-        if (value == null || value.trim().isEmpty()) value = JarvisApiClient.DEFAULT_BASE_URL;
+        String value = prefs().getString(TvConfig.KEY_URL, TvConfig.DEFAULT_BASE_URL);
+        if (value == null || value.trim().isEmpty()) value = TvConfig.DEFAULT_BASE_URL;
         return value.trim().replaceAll("/+$", "");
     }
 
@@ -74,7 +74,7 @@ public final class TvProvisioningClient {
                 .put("mac", pairingIdentity())
                 .put("type", "tv")
                 .put("model", "JARVIS TV Android")
-                .put("firmware_version", "1.0")
+                .put("firmware_version", "1.1.0")
                 .put("capabilities", new JSONArray()
                         .put("display")
                         .put("alerts")
@@ -109,7 +109,7 @@ public final class TvProvisioningClient {
             String token = json.getString("device_token");
             String deviceId = json.getString("device_id");
             prefs().edit()
-                    .putString(MainActivity.KEY_TOKEN, token)
+                    .putString(TvConfig.KEY_TOKEN, token)
                     .putString("device_id", deviceId)
                     .remove("pairing_request_id")
                     .remove("pairing_code")

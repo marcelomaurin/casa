@@ -37,31 +37,36 @@ jobs:
 
       - name: Rename APK
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk ../../JarvisTV-v1.0.0-debug.apk
+          VERSAO=$(sed -n 's/.*versionName *= *"\([^"]*\)".*/\1/p' app/build.gradle.kts | head -1)
+          echo "VERSAO=$VERSAO" >> "$GITHUB_ENV"
+          cp app/build/outputs/apk/debug/app-debug.apk "../../JarvisTV-v${VERSAO}-debug.apk"
 
+      # So grava o APK no repositorio quando o build roda na master: em outros
+      # ramos (codigo ainda em revisao) o APK fica apenas como artefato.
       - name: Version APK in repository
+        if: github.ref == 'refs/heads/master'
         working-directory: ${{ github.workspace }}
         shell: bash
         run: |
-          cp JarvisTV-v1.0.0-debug.apk /tmp/JarvisTV-v1.0.0-debug.apk
+          cp "JarvisTV-v${VERSAO}-debug.apk" "/tmp/JarvisTV-v${VERSAO}-debug.apk"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin master
           git reset --hard origin/master
           mkdir -p bin/android-tv
-          cp /tmp/JarvisTV-v1.0.0-debug.apk bin/android-tv/JarvisTV-v1.0.0-debug.apk
-          cp /tmp/JarvisTV-v1.0.0-debug.apk bin/android-tv/JarvisTV-debug.apk
+          cp "/tmp/JarvisTV-v${VERSAO}-debug.apk" "bin/android-tv/JarvisTV-v${VERSAO}-debug.apk"
+          cp "/tmp/JarvisTV-v${VERSAO}-debug.apk" bin/android-tv/JarvisTV-debug.apk
           git add bin/android-tv/
           if git diff --cached --quiet; then
             echo "APK sem alteracoes."
           else
-            git commit -m "Atualiza APK Jarvis TV v1.0.0 [skip ci]"
+            git commit -m "Atualiza APK Jarvis TV v${VERSAO} [skip ci]"
             git push origin HEAD:master
           fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: JarvisTV-v1.0.0-debug-apk
-          path: JarvisTV-v1.0.0-debug.apk
+          name: JarvisTV-v${{ env.VERSAO }}-debug-apk
+          path: JarvisTV-v${{ env.VERSAO }}-debug.apk
           if-no-files-found: error

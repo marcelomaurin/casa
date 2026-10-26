@@ -37,7 +37,7 @@ O objetivo é permitir que o JARVIS receba comandos em linguagem natural, consul
 | Web Agent | Pesquisa e coleta de conteúdo web com task_context | Experimental |
 | TTS | Serviço Python/FastAPI | Experimental |
 | JARVIS Mobile | Android Kotlin / Jetpack Compose, versão 2.6.7 | Experimental |
-| JARVIS TV | Android TV, versão 1.0.0 | Experimental |
+| JARVIS TV | Android TV, versão 1.1.0 (tela de exibição) | Experimental |
 | LILYGO Watch | Firmware + BLE de provisionamento + Wi-Fi/HTTPS em operação | Experimental |
 | ESP32-CAM | Captura e envio de imagens | Experimental |
 | ESP8266/ESP-01 | Sensores ambientais | Experimental |
@@ -151,7 +151,7 @@ Consulte `android/JarvisMobile/VERSIONAMENTO.md` para as regras de versão.
 
 ### JARVIS TV
 
-O cliente Android TV está em `android/JarvisTV/` e a versão atual é **1.0.0**. Ele usa a API v1 da CASA, oferece overlay lateral, voz e abertura de aplicativos. Activity Embedding, PiP dependente do app e wake-word local dedicado permanecem planejados/experimentais.
+O cliente Android TV está em `android/JarvisTV/` e a versão atual é **1.1.0**. É uma **tela de exibição** para áreas comuns: câmeras, alertas, mensagens da família e emergências (SOS em destaque, trazido para a frente mesmo com a TV em outro app). Não conversa nem controla a casa; usa chave somente de leitura da API v1.
 
 ### Watch
 
