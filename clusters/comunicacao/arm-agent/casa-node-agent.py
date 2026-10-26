@@ -26,6 +26,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import ssl
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 def load_env_file(path="/etc/casa-node-agent.env"):
@@ -104,17 +105,37 @@ def get_ram_info():
         return {}
 
 
+def get_cpu_cores():
+    if hasattr(os, "cpu_count"):
+        return os.cpu_count() or 1
+    try:
+        import multiprocessing
+        return multiprocessing.cpu_count()
+    except Exception:
+        return 1
+
+
+def make_http_request(url, data=None, headers=None, method="GET"):
+    headers = headers or {}
+    try:
+        return urllib.request.Request(url, data=data, headers=headers, method=method)
+    except TypeError:
+        req = urllib.request.Request(url, data=data, headers=headers)
+        req.get_method = lambda: method
+        return req
+
+
 def get_cpu_info():
     try:
         with open("/proc/loadavg", "r", encoding="utf-8") as f:
             load = float(f.read().split()[0])
         return {
-            "cores": os.cpu_count() or 1,
+            "cores": get_cpu_cores(),
             "load_1m": load,
             "temp_c": get_cpu_temp(),
         }
     except Exception:
-        return {"cores": os.cpu_count() or 1}
+        return {"cores": get_cpu_cores()}
 
 
 def api_headers():
@@ -129,6 +150,20 @@ def api_headers():
     return headers
 
 
+def get_ssl_context():
+    if hasattr(ssl, "create_default_context"):
+        try:
+            return ssl.create_default_context()
+        except Exception:
+            pass
+    if hasattr(ssl, "SSLContext") and hasattr(ssl, "PROTOCOL_TLSv1_2"):
+        try:
+            return ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+        except Exception:
+            pass
+    return None
+
+
 def api_request(action, method="GET", payload=None, params=None, timeout=10):
     query = {"acao": action}
     if params:
@@ -141,13 +176,17 @@ def api_request(action, method="GET", payload=None, params=None, timeout=10):
             payload["device_id"] = DEVICE_ID
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
 
-    req = urllib.request.Request(
+    req = make_http_request(
         url,
         data=data,
         headers=api_headers(),
         method=method,
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    kwargs = {"timeout": timeout}
+    ctx = get_ssl_context()
+    if ctx is not None:
+        kwargs["context"] = ctx
+    with urllib.request.urlopen(req, **kwargs) as resp:
         raw = resp.read().decode("utf-8")
         return json.loads(raw) if raw else {}
 
@@ -261,7 +300,7 @@ def send_heartbeat():
         "health": "ok",
         "firmware_version": version_str,
         "protocol_version": PROTOCOL_VERSION,
-        "uptime_sec": int(time.monotonic()),
+        "uptime_sec": int(getattr(time, "monotonic", time.time)()),
         "capabilities": CAPABILITIES,
         "data": {
             "platform": "linux-arm",
@@ -330,7 +369,7 @@ def play_audio(text="", audio_url=""):
     url = (audio_url or "").strip()
 
     if not url and text and LOCAL_TTS_URL:
-        req = urllib.request.Request(
+        req = make_http_request(
             LOCAL_TTS_URL + "/falar",
             data=json.dumps({
                 "texto": text,
@@ -825,8 +864,12 @@ def main():
     if not DEVICE_TOKEN:
         print("AVISO: JARVIS_DEVICE_TOKEN nao configurado.")
 
-    threading.Thread(target=heartbeat_worker, daemon=True).start()
-    threading.Thread(target=command_worker, daemon=True).start()
+    t_hb = threading.Thread(target=heartbeat_worker)
+    t_hb.daemon = True
+    t_hb.start()
+    t_cmd = threading.Thread(target=command_worker)
+    t_cmd.daemon = True
+    t_cmd.start()
 
     HTTPServer.allow_reuse_address = True
     server = HTTPServer(("0.0.0.0", AGENT_PORT), AgentHandler)
