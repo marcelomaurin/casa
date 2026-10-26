@@ -1929,3 +1929,25 @@ body{overscroll-behavior:none}
   .ja-menu-item.ja-has-stat{min-height:120px!important}
   .ja-stat-chart{min-height:34px;max-height:60px}
 }
+
+/* ===== Analise 3D das areas ================================================== */
+.ja-area-analise{display:flex;flex-direction:column;min-height:0}
+.ja-area-3d{position:relative;flex:1 1 auto;min-height:180px;border-radius:12px;overflow:hidden;
+  background:radial-gradient(ellipse at 50% 35%,#0d2234 0%,#050505 70%);cursor:grab}
+.ja-area-3d:active{cursor:grabbing}
+.ja-area-3d canvas{display:block}
+.ja-3d-dica{position:absolute;display:none;z-index:2;pointer-events:none;background:#f2a000;color:#111;font-weight:900;
+  font-size:12px;padding:4px 8px;border-radius:8px;white-space:nowrap;box-shadow:0 2px 8px #0008}
+.ja-3d-aviso{display:grid;place-items:center;height:100%;color:#a9b7c6;font-size:13px;text-align:center;padding:12px}
+.ja-analise-texto{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:4px}
+.ja-analise-texto li{background:#0b1724;border-left:6px solid #8fc7ef;border-radius:0 10px 10px 0;padding:5px 9px;
+  color:#e6eef6;font-size:clamp(10px,.85vw,13px);font-weight:700}
+.ja-analise-texto li.alerta{border-left-color:#ef6969;color:#ffd6d6}
+.ja-analise-dica{margin-top:5px;font-size:10px;color:#6f8ca8;text-align:right}
+@media(max-width:760px){
+  .ja-area-analise{grid-column:auto!important}
+  .ja-area-3d{min-height:260px}
+}
+.ja-3d-legenda{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:6px;font-size:clamp(10px,.8vw,12px);font-weight:800;color:#e6eef6}
+.ja-3d-legenda span{display:inline-flex;align-items:center;gap:5px}
+.ja-3d-legenda i{width:12px;height:12px;border-radius:3px;display:inline-block}

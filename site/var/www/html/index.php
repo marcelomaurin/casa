@@ -12,7 +12,7 @@ $authName = !empty($_SESSION['auth_name']) ? $_SESSION['auth_name'] : ($_SESSION
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
   <title>CASA / COMPUTER</title>
   <link rel="stylesheet" href="/casa/lcars-framework.css?v=1.2.0">
-  <link rel="stylesheet" href="/casa/lcars-site.css?v=1.7.1">
+  <link rel="stylesheet" href="/casa/lcars-site.css?v=1.8.1">
   <link rel="stylesheet" href="/casa/lcars-iot.css?v=1.0.0">
 </head>
 <body>
@@ -26,7 +26,8 @@ $authName = !empty($_SESSION['auth_name']) ? $_SESSION['auth_name'] : ($_SESSION
   <noscript>O CASA/COMPUTER precisa de JavaScript habilitado para a interface adaptativa.</noscript>
   <script src="/casa/lcars-framework.js?v=1.4.0"></script>
   <script src="/casa/qrcode.min.js"></script>
-  <script src="/casa/lcars-site.js?v=1.7.2"></script>
+  <script src="/casa/lcars-3d.js?v=1.1.3"></script>
+  <script src="/casa/lcars-site.js?v=1.8.1"></script>
   <script src="/casa/lcars-iot.js?v=1.1.0"></script>
 </body>
 </html>

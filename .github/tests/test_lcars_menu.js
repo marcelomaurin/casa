@@ -74,5 +74,14 @@ for (const [id, target] of Object.entries(oldItems)) {
 for (const g of ['SEGURANÇA', 'SEGURANCA', 'OPERAÇÕES', 'DISPOSITIVOS', 'AUTOMAÇÃO', 'IA & VOZ', 'FAMÍLIA', 'SISTEMA'])
   assert.ok(resolveGroup(g), 'grupo antigo sem destino: ' + g);
 
+// Graficos 3D: componente com sintaxe valida, biblioteca hospedada no site e
+// carregada pelo caminho que o componente usa.
+const g3d = fs.readFileSync(path.join(__dirname, '../../site/var/www/html/lcars-3d.js'), 'utf8');
+new Function(g3d);
+assert.ok(/three\.min\.js/.test(g3d), 'lcars-3d.js deve carregar vendor/three.min.js');
+assert.ok(fs.statSync(path.join(__dirname, '../../site/var/www/html/vendor/three.min.js')).size > 400000, 'vendor/three.min.js ausente');
+const idx = fs.readFileSync(path.join(__dirname, '../../site/var/www/html/index.php'), 'utf8');
+assert.ok(idx.indexOf('lcars-3d.js') > 0 && idx.indexOf('lcars-3d.js') < idx.indexOf('lcars-site.js'), 'index.php deve carregar lcars-3d.js antes de lcars-site.js');
+
 console.log('Menu LCARS: OK (' + names.length + ' areas, ' + ids.size + ' funcionalidades sem repeticao, '
   + Object.keys(oldItems).length + ' enderecos antigos)');

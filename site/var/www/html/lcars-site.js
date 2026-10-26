@@ -389,6 +389,65 @@ async function decorateAreaStats(group){
         areaStatBars(st.serie,st.serie_legenda)+
       '</span>';
   });
+  renderAreaAnalysis(group,itens);
+}
+
+// Painel de analise da area: grafico 3D cruzando os itens com os ultimos 7 dias
+// (ou, sem historico, os numeros atuais) e um resumo em texto do que ele mostra.
+function areaAnalysisData(group,itens){
+  const lista=[];
+  GROUPS[group].sections.forEach(sec=>sec.items.forEach(it=>{ if(itens[it.id]) lista.push({it,st:itens[it.id]}); }));
+  const comSerie=lista.filter(x=>Array.isArray(x.st.serie)&&x.st.serie.length===7);
+  const dias=['dom','seg','ter','qua','qui','sex','sáb'], hoje=new Date().getDay();
+  const colDias=Array.from({length:7},(_,i)=>i===6?'hoje':dias[(hoje-6+i+7)%7]);
+  const texto=[];
+  lista.forEach(x=>{ if(x.st.total!=null && x.st.num!=null && x.st.num<x.st.total)
+    texto.push('⚠ '+x.it.label+': '+(x.st.total-x.st.num)+' de '+x.st.total+' fora do ar'); });
+  if(comSerie.length){
+    const valores=comSerie.map(x=>x.st.serie);
+    const porDia=colDias.map((_,j)=>valores.reduce((a,l)=>a+(l[j]||0),0));
+    const total=porDia.reduce((a,b)=>a+b,0);
+    if(total){
+      const pico=porDia.indexOf(Math.max(...porDia));
+      const somas=comSerie.map(x=>x.st.serie.reduce((a,b)=>a+b,0));
+      const topo=somas.indexOf(Math.max(...somas));
+      const media=total/7;
+      texto.unshift('Pico: '+colDias[pico]+' ('+porDia[pico]+' registros)',
+        'Mais ativo: '+comSerie[topo].it.label+' ('+somas[topo]+' em 7 dias)',
+        'Hoje: '+porDia[6]+' · média diária: '+media.toFixed(1).replace('.',','));
+    } else texto.unshift('Sem atividade registrada nos últimos 7 dias.');
+    return {titulo:'ANÁLISE · ÚLTIMOS 7 DIAS', linhas:comSerie.map(x=>x.it.label), colunas:colDias, valores,
+      unidade:'registros', texto, descricao:'Atividade dos itens da área '+group+' nos últimos 7 dias'};
+  }
+  const numericos=lista.filter(x=>typeof x.st.num==='number');
+  if(!numericos.length) return null;
+  const temTotal=numericos.some(x=>x.st.total!=null);
+  return {titulo:'ANÁLISE · SITUAÇÃO ATUAL', linhas:numericos.map(x=>x.it.label),
+    colunas:temTotal?['online','fora do ar']:['agora'],
+    valores:numericos.map(x=>temTotal?[x.st.num,(x.st.total!=null?x.st.total-x.st.num:0)]:[x.st.num]),
+    unidade:'', texto:texto.length?texto:numericos.map(x=>x.it.label+': '+x.st.num+' '+(x.st.legenda||'')),
+    descricao:'Números atuais dos itens da área '+group};
+}
+let areaChart=null;
+function renderAreaAnalysis(group,itens){
+  const grid=document.querySelector('#app .ja-menu-grid');
+  if(!grid || grid.querySelector('.ja-area-analise') || !window.CASA3D) return;
+  const d=areaAnalysisData(group,itens);
+  if(!d) return;
+  const secoes=GROUPS[group].sections.length;
+  const span=secoes>=3?1:2;
+  grid.style.setProperty('--ja-columns',String(Math.min(4,secoes+span)));
+  const sec=document.createElement('section');
+  sec.className='ja-menu-section ja-area-analise';
+  sec.style.gridColumn='span '+span;
+  sec.innerHTML='<div class="ja-menu-title">'+esc(d.titulo)+'</div>'+
+    '<div class="ja-area-3d"></div>'+
+    '<div class="ja-3d-legenda">'+d.linhas.map((l,i)=>'<span><i style="background:'+CASA3D.cor(i)+'"></i>'+esc(l)+'</span>').join('')+'</div>'+
+    '<ul class="ja-analise-texto">'+d.texto.slice(0,4).map(t=>'<li'+(t.startsWith('⚠')?' class="alerta"':'')+'>'+esc(t)+'</li>').join('')+'</ul>'+
+    '<div class="ja-analise-dica">Arraste para girar · role para aproximar</div>';
+  grid.appendChild(sec);
+  if(areaChart) try{areaChart.destruir();}catch(_){}
+  CASA3D.barras(sec.querySelector('.ja-area-3d'),d).then(c=>{areaChart=c;});
 }
 
 function findItem(group,id){

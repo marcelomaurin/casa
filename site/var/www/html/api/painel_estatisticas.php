@@ -143,6 +143,15 @@ $kAt = est_int(est_valor($pdo, "SELECT COUNT(*) FROM api_client_tokens WHERE ati
 $e['api'] = ['valor' => $kAt, 'legenda' => 'chave(s) de acesso ativa(s)'];
 $e['agentes'] = ['valor' => est_int(est_valor($pdo, "SELECT COUNT(*) FROM agentes_externos WHERE ativo = 1")), 'legenda' => 'agente(s) ativo(s)'];
 
+// Numeros puros para os graficos: 'num' (valor atual) e 'total' quando o
+// valor e do tipo "online / total".
+$pares = ['devices' => [$on, $total], 'cameras' => [$cOn, $cTot], 'iot' => [$dOn, $dTot], 'nodes' => [$nOn, $nTot]];
+foreach ($e as $id => &$m) {
+    if (isset($pares[$id]) && $pares[$id][1] !== null) { $m['num'] = (int)$pares[$id][0]; $m['total'] = (int)$pares[$id][1]; }
+    elseif (is_int($m['valor'] ?? null)) $m['num'] = $m['valor'];
+}
+unset($m);
+
 // Remove o que nao foi possivel calcular.
 foreach ($e as $id => $m) {
     if (($m['valor'] ?? null) === null && empty($m['serie'])) unset($e[$id]);
