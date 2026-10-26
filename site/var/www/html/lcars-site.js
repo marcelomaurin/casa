@@ -92,7 +92,8 @@ const GROUPS={
       ]},
       {title:'DIAGNÓSTICO',items:[
         {id:'health',label:'Saúde do sistema',module:'health'},
-        {id:'telemetria',label:'Telemetria operacional',module:'telemetryOps'}
+        {id:'telemetria',label:'Telemetria operacional',module:'telemetryOps'},
+        {id:'servicos',label:'Serviços em segundo plano',module:'servicos'}
       ]},
       {title:'MANUTENÇÃO',items:[
         {id:'atualizacoes',label:'Atualizações',module:'updates'},
@@ -333,7 +334,7 @@ function groupRail(group){
     const selected=findItem(group,currentItem);
     if(selected) nav.push({label:selected.label,id:selected.id,action:'open-item',level:2,levelNav:true,active:true});
   }
-  const choices=flat.filter(it=>!currentItem || it.id!==currentItem).slice(0,Math.max(0,8-nav.length)).map(it=>({
+  const choices=flat.filter(it=>!currentItem || it.id!==currentItem).slice(0,Math.max(0,9-nav.length)).map(it=>({
     label:it.label,id:it.id,action:'open-item',level:2,active:false
   }));
   return nav.concat(choices);
@@ -390,6 +391,72 @@ async function decorateAreaStats(group){
       '</span>';
   });
   renderAreaAnalysis(group,itens);
+}
+
+// Servicos em segundo plano (clusters/): estado a partir do rastro que cada
+// um ja deixa no banco. Aba LISTA com um cartao por servico; aba ANALISE 3D
+// cruzando os servicos com os ultimos 7 dias.
+const SERV_ESTADO={ativo:['ATIVO','ok'],parado:['PARADO','off'],atrasado:['ATRASADO','off'],
+  sob_demanda:['SOB DEMANDA',''],sem_uso:['SEM USO AINDA',''],sem_sinal:['SEM SINAL NO SITE','']};
+function idadeTexto(seg){
+  if(seg==null) return 'nunca';
+  if(seg<60) return 'há '+seg+' s';
+  if(seg<3600) return 'há '+Math.floor(seg/60)+' min';
+  if(seg<86400) return 'há '+Math.floor(seg/3600)+' h';
+  return 'há '+Math.floor(seg/86400)+' dia(s)';
+}
+let servicosAba='lista';
+async function renderServicos(){
+  loading('Serviços em segundo plano');
+  let j;
+  try{ j=await getJson('/casa/api/servicos_status.php'); }
+  catch(e){ moduleShell('Serviços em segundo plano','<div class="ja-empty">'+esc(e.message||'Falha ao consultar os serviços.')+'</div>'); return; }
+  const lista=j.servicos||[], r=j.resumo||{ativos:0,verificaveis:0,problemas:[]};
+  const abas='<button type="button" class="ja-mini'+(servicosAba==='lista'?' primary':'')+'" data-serv-aba="lista">LISTA</button>'+
+    '<button type="button" class="ja-mini'+(servicosAba==='analise'?' primary':'')+'" data-serv-aba="analise">ANÁLISE 3D</button>'+
+    '<button type="button" class="ja-mini" data-serv-aba="atualizar">ATUALIZAR</button>';
+  const resumo='<p class="ja-auto-intro"><b>'+esc(r.ativos)+' de '+esc(r.verificaveis)+'</b> serviço(s) verificável(is) ativo(s)'+
+    (r.problemas&&r.problemas.length?' · <b class="ja-txt-danger">atenção: '+esc(r.problemas.join(', '))+'</b>':'')+
+    '. O estado vem do rastro que cada serviço deixa no banco; os marcados "sem sinal no site" não deixam rastro e precisam ser vistos no próprio nó (<code>systemctl status</code>).</p>';
+  if(servicosAba==='analise'){
+    const comSerie=lista.filter(x=>Array.isArray(x.serie));
+    const dias=['dom','seg','ter','qua','qui','sex','sáb'], hoje=new Date().getDay();
+    const colunas=Array.from({length:7},(_,i)=>i===6?'hoje':dias[(hoje-6+i+7)%7]);
+    const porDia=colunas.map((_,k)=>comSerie.reduce((a,x)=>a+(x.serie[k]||0),0));
+    const total=porDia.reduce((a,b)=>a+b,0);
+    const somas=comSerie.map(x=>x.serie.reduce((a,b)=>a+b,0));
+    const texto=[];
+    if(total){
+      const pico=porDia.indexOf(Math.max(...porDia)), topo=somas.indexOf(Math.max(...somas));
+      texto.push('Pico: '+colunas[pico]+' ('+porDia[pico]+' registros)','Mais ativo: '+comSerie[topo].nome+' ('+somas[topo]+' em 7 dias)');
+      const silenciosos=comSerie.filter((x,i)=>!somas[i]).map(x=>x.nome);
+      if(silenciosos.length) texto.push('Sem atividade na semana: '+silenciosos.join(', '));
+    } else texto.push('Nenhuma atividade de serviço registrada nos últimos 7 dias.');
+    (r.problemas||[]).forEach(n=>texto.push('⚠ '+n+' precisa de atenção'));
+    moduleShell('Serviços em segundo plano',resumo+
+      '<div class="ja-serv-analise"><div class="ja-area-3d"></div>'+
+      '<div class="ja-3d-legenda">'+comSerie.map((x,i)=>'<span><i style="background:'+(window.CASA3D?CASA3D.cor(i):'#8fc7ef')+'"></i>'+esc(x.nome)+'</span>').join('')+'</div>'+
+      '<ul class="ja-analise-texto">'+texto.map(t=>'<li'+(t.startsWith('⚠')?' class="alerta"':'')+'>'+esc(t)+'</li>').join('')+'</ul></div>',abas);
+    if(window.CASA3D && comSerie.length) CASA3D.barras(document.querySelector('#app .ja-serv-analise .ja-area-3d'),
+      {linhas:comSerie.map(x=>x.nome),colunas,valores:comSerie.map(x=>x.serie),unidade:'registros',descricao:'Atividade dos serviços nos últimos 7 dias'});
+  }else{
+    const p=paginate('servicos',lista,6);
+    moduleShell('Serviços em segundo plano',resumo+cards(p.slice,x=>{
+      const [rot,cls]=SERV_ESTADO[x.estado]||['—',''];
+      return '<article class="ja-native-card ja-serv-card">'+
+        '<header class="ja-auto-head"><h3>'+esc(x.nome)+'</h3><span class="ja-state '+cls+'">'+esc(rot)+'</span></header>'+
+        '<p>'+esc(x.funcao||'')+'</p>'+
+        '<dl><dt>Unidade</dt><dd><code>'+esc(x.unidade||'')+'</code></dd>'+
+        (x.idade!=null||['periodico','agendador','demanda'].includes(x.tipo)?'<dt>'+(x.tipo==='demanda'?'Último uso':'Último sinal')+'</dt><dd>'+esc(idadeTexto(x.idade))+'</dd>':'')+
+        (x.detalhe?'<dt>Situação</dt><dd>'+esc(x.detalhe)+'</dd>':'')+'</dl>'+
+        (x.serie?'<span class="ja-serv-chart">'+areaStatBars(x.serie,x.serie_legenda)+'</span>':'')+
+      '</article>';
+    })+pager('servicos',p),abas);
+    bindPager('servicos',p,renderServicos);
+  }
+  document.querySelectorAll('#app [data-serv-aba]').forEach(b=>b.onclick=()=>{
+    const a=b.getAttribute('data-serv-aba'); if(a!=='atualizar') servicosAba=a; renderServicos();
+  });
 }
 
 // Painel de analise da area: grafico 3D cruzando os itens com os ultimos 7 dias
@@ -541,6 +608,7 @@ async function mountNativeModule(item){
     if(m==='jarvis') return renderJarvis();
     if(m==='cameras') return renderCameras();
     if(m==='health') return renderHealth();
+    if(m==='servicos') return renderServicos();
     showModuleError('Módulo não reconhecido: '+m);
   }catch(e){showModuleError(e.message||String(e));}
 }

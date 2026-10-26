@@ -1951,3 +1951,17 @@ body{overscroll-behavior:none}
 .ja-3d-legenda{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:6px;font-size:clamp(10px,.8vw,12px);font-weight:800;color:#e6eef6}
 .ja-3d-legenda span{display:inline-flex;align-items:center;gap:5px}
 .ja-3d-legenda i{width:12px;height:12px;border-radius:3px;display:inline-block}
+
+/* Servicos em segundo plano */
+.ja-serv-card dl{grid-template-columns:auto minmax(0,1fr)}
+.ja-serv-card code{font-size:.92em;color:#8fc7ef}
+.ja-serv-chart{display:flex;flex-direction:column;min-height:44px;margin-top:4px}
+.ja-serv-chart .ja-stat-chart{height:34px;flex:0 0 auto}
+.ja-serv-chart .ja-stat-chart i{background:#8fc7ef}
+.ja-serv-chart .ja-stat-chart-cap{color:#a9b7c6}
+.ja-serv-analise{display:flex;flex-direction:column;min-height:0;height:100%}
+.ja-serv-analise .ja-area-3d{min-height:260px}
+.ja-native-body:has(.ja-serv-analise){grid-template-rows:auto minmax(0,1fr)!important}
+@media(max-width:560px){
+  .ja-native-body:has(.ja-serv-card) .ja-native-grid{grid-template-columns:1fr!important}
+}

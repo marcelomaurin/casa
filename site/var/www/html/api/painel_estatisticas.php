@@ -13,6 +13,7 @@
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 require_once(__DIR__ . '/db.php');
+require_once(__DIR__ . '/servicos_common.php');
 
 if (empty($_SESSION['auth_user'])) {
     http_response_code(401);
@@ -36,13 +37,17 @@ function est_valor(PDO $pdo, string $sql) {
 // Quantidade de registros por dia nos ultimos 7 dias (do mais antigo para hoje).
 function est_serie(PDO $pdo, string $tabela, string $coluna, string $filtro = ''): ?array {
     try {
-        $sql = "SELECT DATE(`{$coluna}`) AS d, COUNT(*) AS n FROM `{$tabela}`
-                WHERE `{$coluna}` >= CURDATE() - INTERVAL 6 DAY" . ($filtro ? " AND ({$filtro})" : '') . "
-                GROUP BY DATE(`{$coluna}`)";
-        $porDia = [];
-        foreach ($pdo->query($sql) as $r) $porDia[$r['d']] = (int)$r['n'];
-        $serie = [];
-        for ($i = 6; $i >= 0; $i--) $serie[] = $porDia[date('Y-m-d', strtotime("-{$i} day"))] ?? 0;
+        // "Ha quantos dias" e calculado pelo relogio do banco: se PHP e banco
+        // estiverem em fusos diferentes, as chaves montadas no PHP deslizariam
+        // um dia (o "hoje" saia zerado).
+        $sql = "SELECT DATEDIFF(CURDATE(), DATE(`{$coluna}`)) AS atras, COUNT(*) AS n FROM `{$tabela}`
+                WHERE `{$coluna}` >= CURDATE() - INTERVAL 6 DAY AND `{$coluna}` < CURDATE() + INTERVAL 1 DAY" . ($filtro ? " AND ({$filtro})" : '') . "
+                GROUP BY atras";
+        $serie = array_fill(0, 7, 0);
+        foreach ($pdo->query($sql) as $r) {
+            $atras = (int)$r['atras'];
+            if ($atras >= 0 && $atras <= 6) $serie[6 - $atras] = (int)$r['n'];
+        }
         return $serie;
     } catch (Throwable $e) {
         return null;
@@ -136,6 +141,16 @@ $e['telemetria'] = ['valor' => est_int(est_valor($pdo, "SELECT COUNT(*) FROM dev
 $e['atualizacoes'] = ['valor' => $nTot, 'legenda' => 'nó(s) acompanhado(s)'];
 $apks = glob(dirname(__DIR__) . '/bin/*/*.apk') ?: [];
 $e['binarios'] = ['valor' => count($apks), 'legenda' => 'aplicativo(s) disponível(is)'];
+
+// Servicos em segundo plano: ativos de quantos deixam rastro verificavel;
+// a serie soma a atividade de todos eles por dia.
+$servs = servicos_status($pdo);
+$res = servicos_resumo($servs);
+$soma = array_fill(0, 7, 0);
+foreach ($servs as $sv) if (!empty($sv['serie'])) foreach ($sv['serie'] as $k => $n) $soma[$k] += $n;
+$e['servicos'] = ['valor' => "{$res['ativos']} / {$res['verificaveis']}", 'legenda' => 'serviços ativos' . ($res['problemas'] ? ' · ' . implode(', ', array_slice($res['problemas'], 0, 2)) : ''),
+    'serie' => $soma, 'serie_legenda' => 'atividade dos serviços por dia',
+    'estado' => $res['problemas'] ? 'alerta' : 'ok', 'num' => $res['ativos'], 'total' => $res['verificaveis']];
 
 // ACESSOS
 $e['usuarios'] = ['valor' => est_int(est_valor($pdo, "SELECT COUNT(*) FROM usuarios WHERE ativo = 1")), 'legenda' => 'usuário(s) ativo(s)'];

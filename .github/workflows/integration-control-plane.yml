@@ -113,6 +113,9 @@ jobs:
       - name: Test panel stats endpoint (painel_estatisticas.php)
         run: php .github/tests/test_painel_estatisticas.php
 
+      - name: Test background services status (servicos_status.php)
+        run: php .github/tests/test_servicos_status.php
+
       - name: Test Casa Mobile QR pairing
         run: php .github/tests/test_mobile_pairing.php
 
