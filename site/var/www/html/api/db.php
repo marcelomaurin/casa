@@ -83,6 +83,9 @@ function casa_execute_schema_file(PDO $pdo, string $file): void {
     if (!is_file($file)) throw new RuntimeException('Arquivo de schema MySQL não encontrado: ' . basename($file));
     $lines = file($file, FILE_IGNORE_NEW_LINES);
     if ($lines === false) throw new RuntimeException('Não foi possível ler o schema MySQL.');
+    // Arquivo salvo com BOM UTF-8 quebrava a primeira instrucao (erro 1064) e
+    // travava a migracao na versao anterior.
+    if (isset($lines[0])) $lines[0] = preg_replace('/^\xEF\xBB\xBF/', '', $lines[0]);
     $statement = '';
     foreach ($lines as $line) {
         $trim = trim($line);

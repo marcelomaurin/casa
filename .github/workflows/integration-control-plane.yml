@@ -4,6 +4,8 @@ on:
   push:
     paths:
       - 'site/var/www/html/api/**'
+      - 'site/var/www/html/lcars-*.js'
+      - 'site/var/www/html/lcars-*.css'
       - 'database/**'
       - 'mysql/**'
       - 'site/var/www/html/automacao.php'
@@ -85,6 +87,9 @@ jobs:
       - name: Test automatic empty-database install
         run: php .github/tests/test_schema_install.php
 
+      - name: Validate panel menu (areas, no duplicates, old links)
+        run: node .github/tests/test_lcars_menu.js
+
       - name: Test ARM agent registry and UI
         run: |
           php .github/tests/test_arm_nodes.php
@@ -101,6 +106,18 @@ jobs:
 
       - name: Test ESP32-CAM site auth (camera_discovery)
         run: php .github/tests/test_camera_discovery_auth.php
+
+      - name: Test generic CRUD permissions (crud.php)
+        run: php .github/tests/test_crud_permissoes.php
+
+      - name: Test panel stats endpoint (painel_estatisticas.php)
+        run: php .github/tests/test_painel_estatisticas.php
+
+      - name: Test background services status (servicos_status.php)
+        run: php .github/tests/test_servicos_status.php
+
+      - name: Test TV dashboard (v1/tv.php)
+        run: php .github/tests/test_tv_dashboard.php
 
       - name: Test Casa Mobile QR pairing
         run: php .github/tests/test_mobile_pairing.php

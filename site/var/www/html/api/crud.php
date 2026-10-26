@@ -46,8 +46,67 @@ function crud_clean_columns($input) {
     return $out;
 }
 
+// Senha de usuario nunca e gravada em texto puro, mesmo vinda pelo cadastro generico.
+function crud_proteger_senha($tabela, array $input): array {
+    if ($tabela === 'usuarios' && isset($input['senha']) && is_string($input['senha']) && $input['senha'] !== '') {
+        if ((password_get_info($input['senha'])['algo'] ?? 0) === 0) {
+            $input['senha'] = password_hash($input['senha'], PASSWORD_DEFAULT);
+        }
+    }
+    return $input;
+}
+
 if ($tabela !== '' && !in_array($tabela, $tabelas_permitidas, true)) {
     crud_json(['status'=>'erro','mensagem'=>'Tabela inválida'], 400);
+}
+
+// -----------------------------------------------------------------------------
+// Permissoes
+// -----------------------------------------------------------------------------
+// verify_api_auth() so confirma que ha uma sessao ou uma chave valida. Antes,
+// qualquer chave (inclusive a de uma placa ou de um celular pareado) tinha
+// acesso total: lia usuarios, chaves de API e as chaves dos provedores de IA, e
+// podia criar chaves novas. Agora o papel decide o que cada um pode fazer:
+//   admin       -> sessao do painel com perfil admin, chave mestra do sistema
+//                  ou chave de API com escopo '*' ou 'admin';
+//   usuario     -> sessao do painel com outro perfil;
+//   dispositivo -> qualquer outra chave (placas, celulares, integracoes).
+function crud_papel(PDO $pdo): string {
+    if (!empty($_SESSION['auth_user'])) {
+        $perfil = strtolower(trim((string)($_SESSION['auth_perfil'] ?? 'admin')));
+        return $perfil === 'admin' ? 'admin' : 'usuario';
+    }
+    $token = api_v1_token_from_request();
+    if ($token === '') return 'dispositivo';
+    $sistema = get_system_api_token();
+    if ($sistema !== '' && hash_equals($sistema, $token)) return 'admin';
+    try {
+        $stmt = $pdo->prepare("SELECT scopes FROM api_client_tokens WHERE token_hash=:h AND ativo=1 AND revogado_em IS NULL AND (expira_em IS NULL OR expira_em > NOW()) LIMIT 1");
+        $stmt->execute([':h' => hash('sha256', $token)]);
+        $row = $stmt->fetch();
+        if ($row) {
+            $escopos = api_v1_decode_scopes($row['scopes'] ?? '');
+            if (in_array('*', $escopos, true) || in_array('admin', $escopos, true)) return 'admin';
+        }
+    } catch (Throwable $e) {}
+    return 'dispositivo';
+}
+
+// Acoes que uma placa pode chamar por aqui (as duas se autenticam pelo proprio
+// dispositivo). Todo o resto e do painel.
+const CRUD_ACOES_DISPOSITIVO = ['heartbeat', 'heartbeat_iot'];
+// Dados sensiveis: so administrador.
+const CRUD_TABELAS_ADMIN = ['usuarios', 'api_client_tokens', 'configuracoes_sistema', 'seguranca_logs', 'seguranca_ips_bloqueados', 'agentes_externos'];
+const CRUD_ACOES_ADMIN = ['gerar_token_iot', 'obter_external_api_key', 'rotacionar_external_api_key', 'listar_api_keys', 'criar_api_key', 'revogar_api_key', 'excluir_api_key', 'executar_tarefa', 'desbloquear_ip'];
+// Colunas que nunca saem na listagem generica (o painel nao as usa).
+const CRUD_COLUNAS_OCULTAS = ['usuarios' => ['senha'], 'api_client_tokens' => ['token', 'token_hash']];
+
+$papel = crud_papel($pdo);
+if ($papel === 'dispositivo' && !in_array($acao, CRUD_ACOES_DISPOSITIVO, true)) {
+    crud_json(['status'=>'erro','mensagem'=>'Acesso negado: esta chave nao tem permissao para esta acao.'], 403);
+}
+if ($papel !== 'admin' && (in_array($acao, CRUD_ACOES_ADMIN, true) || ($tabela !== '' && in_array($tabela, CRUD_TABELAS_ADMIN, true) && !in_array($acao, CRUD_ACOES_DISPOSITIVO, true)))) {
+    crud_json(['status'=>'erro','mensagem'=>'Acesso negado: somente administrador.'], 403);
 }
 
 try {
@@ -56,18 +115,27 @@ try {
         $limite = max(1, min(500, intval($_GET['limite'] ?? 100)));
         $pk = crud_pk($tabela);
         $stmt = $pdo->query("SELECT * FROM `{$tabela}` ORDER BY `{$pk}` DESC LIMIT {$limite}");
+        $dados = $stmt->fetchAll();
+        $ocultas = CRUD_COLUNAS_OCULTAS[$tabela] ?? [];
+        if ($ocultas) {
+            foreach ($dados as &$linha) {
+                foreach ($ocultas as $col) unset($linha[$col]);
+            }
+            unset($linha);
+        }
         crud_json([
             'status'=>'sucesso',
             'tabela'=>$tabela,
             'origem_dados'=>'casa.maurinsoft.com.br / MySQL',
-            'total'=>$stmt->rowCount(),
-            'dados'=>$stmt->fetchAll()
+            'total'=>count($dados),
+            'dados'=>$dados
         ]);
     }
 
     if ($acao === 'criar') {
         if ($tabela === '') crud_json(['status'=>'erro','mensagem'=>'Tabela obrigatória'], 400);
         $input = crud_clean_columns($input);
+        $input = crud_proteger_senha($tabela, $input);
         $pk = crud_pk($tabela);
         if ($pk !== 'chave' && $pk !== 'ip_address') unset($input[$pk]);
         if (!$input) crud_json(['status'=>'erro','mensagem'=>'Dados vazios'], 400);
@@ -85,6 +153,7 @@ try {
     if ($acao === 'atualizar') {
         if ($tabela === '') crud_json(['status'=>'erro','mensagem'=>'Tabela obrigatória'], 400);
         $input = crud_clean_columns($input);
+        $input = crud_proteger_senha($tabela, $input);
 
         // Configuracoes sao chave/valor e devem aceitar criacao e atualizacao.
         // Isso permite adicionar novos provedores de IA sem depender de nova migration.

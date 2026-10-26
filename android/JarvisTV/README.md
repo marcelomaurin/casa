@@ -1,157 +1,88 @@
-# JARVIS TV — Assistente lateral para Android TV
+# JARVIS TV — tela de exibição da casa
 
 [![Platform](https://img.shields.io/badge/platform-Android%20TV-blue.svg)]()
 [![Language](https://img.shields.io/badge/language-Java-orange.svg)]()
-[![Voice](https://img.shields.io/badge/voice-SpeechRecognizer-green.svg)]()
 [![Status](https://img.shields.io/badge/status-Experimental-yellow.svg)]()
 
-## Visão geral
+## Objetivo
 
-**JARVIS TV** é o cliente de televisão do projeto CASA. Ele foi desenhado para permanecer discretamente no lado esquerdo da tela, ouvir o usuário e expandir um menu somente quando for chamado.
+O **JARVIS TV** transforma uma TV com Android TV em uma **tela de exibição da casa**, pensada para áreas comuns (sala, cozinha). Ela mostra:
 
-Fluxo principal:
+- **câmeras** da casa (ESP32-CAM e câmeras IP), uma de cada vez, com troca pelo controle remoto ou pelo painel;
+- **alertas** pendentes (assistência e notificações);
+- **mensagens do canal da família**;
+- **emergências** (SOS e localização enviados pela família), em destaque vermelho.
 
-```text
-Usuário
-  |
-  | voz: "Jarvis..."
-  v
-JARVIS TV
-  |
-  +--> comando de casa ------> API externa /api/v1 ------> JARVIS
-  |
-  +--> abrir aplicativo -----> Android PackageManager
-  |
-  +--> menu lateral ----------> overlay pequeno sobre a TV
-```
+A TV **não conversa** e **não controla a casa**: a chave dela é só de leitura (`camera.read`, `home.read`, `alerts.read`, `family.read`, mais o necessário para receber comandos de exibição). Assim, ninguém reconfigura a segurança da residência pela TV, como definido em `docs/PROTOCOLO_PASSAGEM_CHAVES_CELULAR.md` (§4.5).
 
-O painel fica recolhido enquanto aguarda a palavra **Jarvis**. Ao reconhecer a chamada, ele se expande por alguns segundos, mostra o estado/comando/resposta e volta ao modo compacto automaticamente.
+> A versão 1.0.0 trazia também um assistente de voz lateral (ouvir "Jarvis", painel sobre outros apps e abrir Netflix/YouTube). Esse código nunca chegou a funcionar (o serviço nem estava declarado no manifesto) e saiu na 1.1.0.
 
-> [!WARNING]
-> O Android não permite que um aplicativo comum force arbitrariamente Netflix, Prime Video ou qualquer outro aplicativo de terceiros a renderizar dentro de um retângulo pertencente ao JARVIS. A incorporação entre aplicativos exige que a aplicação alvo autorize Activity Embedding. Se ela não autorizar, a atividade ocupa a tarefa inteira. O JARVIS mantém seu próprio overlay lateral quando o sistema permitir.
-
-## Modos de apresentação
-
-| Modo | Uso | Estado |
-|---|---|---|
-| Overlay lateral | Menu e respostas do JARVIS sobre outros apps | Implementado |
-| Conteúdo interno do JARVIS | Pode ocupar o retângulo lateral | Planejado |
-| Activity Embedding | Apps de terceiros que explicitamente autorizarem incorporação | Planejado/condicional |
-| Picture-in-Picture | Apps que oferecerem PiP no Android TV compatível | Dependente do app/sistema |
-| App externo normal | Netflix, YouTube etc. quando não há embedding | Implementado como fallback |
-
-## Comportamento do assistente
-
-1. o usuário inicia o JARVIS TV e concede microfone + permissão de sobreposição;
-2. o serviço permanece em primeiro plano;
-3. o painel fica recolhido no lado esquerdo;
-4. o reconhecimento de voz aguarda a palavra `Jarvis`;
-5. ao ouvir a chamada, o painel expande;
-6. se a frase já contiver um comando, ele é processado imediatamente;
-7. após alguns segundos o painel volta ao estado compacto.
-
-Exemplos:
+## Como funciona
 
 ```text
-Jarvis, informe o status da casa
-Jarvis, desligue a luz da sala
-Jarvis, abra Netflix
-Jarvis, abra YouTube
+TV (JARVIS TV)                                  CASA (/api/v1)
+--------------                                  --------------
+TvWatchService (sempre ligado) ---- heartbeat ---> device.php
+        |                       <--- comandos ---- device_commands
+        |   refresh / camera.next / emergency.*
+        v
+MainActivity (tela) ------------- painel -------> tv.php?acao=dashboard
+        |
+        +--> imagem da câmera direto na rede da casa (http://<ip>/capture)
 ```
 
-## API da casa
+- **TvWatchService** roda em primeiro plano o tempo todo, inclusive com a TV em outro aplicativo, e liga sozinho quando a TV inicia. A cada 10 s ele manda o sinal de vida e executa os comandos da fila.
+- **MainActivity** é a tela: atualiza o painel a cada 5 s e a imagem da câmera a cada 2 s, e mantém a tela ligada (sem descanso de tela).
+- **Emergência:** o serviço guarda o evento e traz a tela do JARVIS para a frente. O Android só permite isso com a permissão **"Sobrepor a outros apps"**; sem ela, fica uma notificação e o alerta aparece assim que a tela for aberta. O aviso só some com `emergency.cancelled`.
 
-A TV usa a mesma API externa versionada:
+### Comandos aceitos
 
-```text
-https://<HOST_PUBLICO>/api/v1
+| Comando | Efeito |
+|---|---|
+| `refresh`, `dashboard.refresh`, `tv.refresh` | Atualiza o painel |
+| `camera.next`, `tv.camera.next` | Próxima câmera |
+| `emergency.sos`, `emergency.location`, `tv.emergency` | Mostra a emergência (traz a tela para a frente) |
+| `emergency.cancelled` | Encerra o aviso de emergência |
+
+## Instalação e pareamento
+
+1. Instale o APK (`bin/android-tv/JarvisTV-debug.apk`) e abra **JARVIS TV**.
+2. Confira a **URL CASA** (padrão `https://maurinsoft.com.br/casa`) e toque em **AUTORIZAR TV**.
+3. A TV mostra um código; autorize no **JARVIS Mobile**. A TV recebe a própria credencial do site (o celular só autoriza, não transporta a chave).
+4. Toque em **PERMITIR ALERTA SOBRE OUTROS APPS**. Se a TV não abrir essa tela, use pelo computador:
+
+```bash
+adb shell appops set br.com.maurinsoft.jarvistv.debug SYSTEM_ALERT_WINDOW allow
 ```
 
-A configuração é feita localmente na TV. O código-fonte contém somente placeholders e nunca deve conter URL privada com segredo ou token real.
+## Requisitos e limitações
 
-## Segurança
-
-Use token exclusivo da TV com somente os escopos necessários. Nunca reutilize chave administrativa ou token do celular.
-
-Segredos não devem ser colocados no Git:
-
-```text
-token real
-senha
-chave privada
-credenciais Wi-Fi
-Authorization Bearer real
-```
-
-## Limitações do reconhecimento contínuo
-
-O projeto utiliza `SpeechRecognizer` do Android com preferência por reconhecimento offline. A disponibilidade real depende do mecanismo de reconhecimento instalado na TV/OEM.
-
-Em Android 14/15, uso contínuo de microfone em segundo plano exige serviço em primeiro plano iniciado enquanto a atividade está visível e permissões adequadas. Por isso a primeira inicialização precisa ser feita pelo usuário.
-
-Para uma palavra de ativação completamente local e independente do serviço de reconhecimento do sistema, a evolução recomendada é adicionar um engine dedicado de wake-word com modelo local.
-
-## Câmera
-
-A câmera foi declarada como recurso opcional da plataforma, mas a versão 1.0.0 não faz captura automática em segundo plano. Essa decisão evita ativação silenciosa e também respeita as restrições mais fortes de câmera/microfone do Android recente.
-
-A integração futura deverá usar a câmera somente com indicação visual clara e finalidade configurada.
-
-## Aplicativos externos
-
-O mapeamento inicial inclui:
-
-```text
-Netflix
-YouTube
-Prime Video
-Disney+
-Globoplay
-```
-
-Pacotes instalados variam conforme fabricante e região. O `AppLauncher` informa quando o aplicativo solicitado não existe.
+- Android TV 8.0 (API 26) ou mais novo.
+- A imagem das câmeras é buscada direto na câmera, por HTTP, na rede da casa: fora de casa a TV mostra o painel, mas não a imagem.
+- Alguns fabricantes encerram serviços em segundo plano para economizar energia; se a TV parar de receber alertas, libere o JARVIS TV nas configurações de energia do aparelho.
 
 ## Estrutura
 
 ```text
-android/JarvisTV/
-├── README.md
-├── build.gradle.kts
-├── settings.gradle.kts
-├── gradle.properties
-└── app/
-    └── src/main/
-        ├── AndroidManifest.xml
-        ├── java/br/com/maurinsoft/jarvistv/
-        │   ├── MainActivity.java
-        │   ├── AssistantOverlayService.java
-        │   ├── JarvisApiClient.java
-        │   └── AppLauncher.java
-        └── res/
+android/JarvisTV/app/src/main/java/br/com/maurinsoft/jarvistv/
+├── MainActivity.java          tela de exibição
+├── TvWatchService.java        sinal de vida, comandos e emergências
+├── BootReceiver.java          liga o serviço quando a TV inicia
+├── TvBus.java                 canal entre o serviço e a tela
+├── TvControlPlaneClient.java  cliente de /api/v1/device.php
+├── TvProvisioningClient.java  pareamento (/api/v1/provision.php)
+└── TvConfig.java              endereço padrão e chaves de configuração
 ```
 
 ## Versão
 
 ```text
-versionName = 1.0.0
-versionCode = 100
+versionName = 1.1.0
+versionCode = 110
 ```
 
-A build debug usa o sufixo de pacote `.debug` para evitar conflito com uma futura versão oficial assinada.
-
-## Próximas evoluções
-
-- wake-word local dedicado;
-- painel de conteúdo interno com vídeo/informações;
-- Activity Embedding para aplicações que permitirem;
-- PiP quando suportado pelo app alvo;
-- câmera com contexto visual controlado;
-- sincronização de notificações do JARVIS;
-- controle por controle remoto/D-pad além da voz;
-- assinatura oficial estável.
+A build de depuração usa o sufixo de pacote `.debug`. O build automático do GitHub gera o APK em todo envio; só grava em `bin/android-tv/` quando roda na `master`.
 
 ## Autor
 
-**Marcelo Maurin Martins**
-
-Parte do projeto CASA / JARVIS Residencial.
+**Marcelo Maurin Martins** — parte do projeto CASA / JARVIS Residencial.

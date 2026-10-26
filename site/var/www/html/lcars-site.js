@@ -2,13 +2,13 @@
 'use strict';
 
 const GROUP_ICONS={
-  'SEGURANÇA':'◆',
   'OPERAÇÕES':'◈',
-  'DISPOSITIVOS':'▣',
-  'AUTOMAÇÃO':'⚙',
+  'SEGURANÇA':'◆',
+  'AMBIENTE':'◎',
   'IA & VOZ':'✦',
   'FAMÍLIA':'●',
-  'SISTEMA':'⌘'
+  'SISTEMA':'⚙',
+  'ACESSOS':'⌘'
 };
 
 const STATUS=[
@@ -16,118 +16,138 @@ const STATUS=[
   {label:'SISTEMA',value:'ONLINE'}
 ];
 
+// Divisao por area real da casa, no estilo de paineis LCARS: cada area tem
+// cor e numero proprios, e cada funcionalidade aparece em UMA area so. Antes
+// eram 49 entradas para 22 funcionalidades (ESP32/IoT e Acesso web & API
+// repetidos em 4 grupos cada).
+// tone: cor da area na barra lateral; code: numero do painel.
 const GROUPS={
-  'SEGURANÇA':{
-    subtitle:'Proteção, perímetro, câmeras, acessos e eventos.',
-    sections:[
-      {title:'PERÍMETRO',items:[
-        {id:'seguranca',label:'Defesa & anti-intrusão',module:'security'},
-        {id:'cameras',label:'Câmeras & visão',module:'cameras'},
-        {id:'acessos',label:'Acessos pessoais',url:'/casa/dispositivos_pessoais.php'},
-        {id:'familia',label:'Família & presença',url:'/casa/familia.php'}
-      ]},
-      {title:'EVENTOS',items:[
-        {id:'sensores-sec',label:'Sensores & telemetria',module:'sensors'},
-        {id:'api-sec',label:'Acesso web & API segura',module:'external'}
-      ]},
-      {title:'MANUTENÇÃO',items:[
-        {id:'atualizacoes',label:'Atualizações',module:'updates'}
-      ]}
-    ]
-  },
   'OPERAÇÕES':{
-    subtitle:'Rotinas, agenda, ambientes e execução diária.',
+    tone:'operacoes', code:'01',
+    subtitle:'Controle do dia a dia: relés, cenas, regras e agenda.',
     sections:[
-      {title:'ROTINAS',items:[
-        {id:'agendamentos',label:'Agendamentos',module:'schedules'},
-        {id:'devices-op',label:'Dispositivos & relés',module:'devices'},
-        {id:'iot-op',label:'ESP32 / Arduino / IoT',module:'iot'},
+      {title:'CONTROLE',items:[
+        {id:'devices',label:'Dispositivos & relés',module:'devices'},
         {id:'cenas',label:'Cenas e regras',module:'automation'}
       ]},
-      {title:'MONITORAMENTO',items:[
-        {id:'sensores-op',label:'Sensores',module:'sensors'},
-        {id:'cameras-op',label:'Câmeras',module:'cameras'},
-        {id:'historico-op',label:'Frases & avisos',module:'phrases'}
+      {title:'AGENDA',items:[
+        {id:'agendamentos',label:'Agendamentos',module:'schedules'}
       ]}
     ]
   },
-  'DISPOSITIVOS':{
-    subtitle:'Inventário, nós, IoT, celular, relógio e equipamentos.',
+  'SEGURANÇA':{
+    tone:'seguranca', code:'02',
+    subtitle:'Proteção da casa: câmeras, perímetro e defesa contra intrusão.',
     sections:[
-      {title:'EQUIPAMENTOS',items:[
-        {id:'devices',label:'Dispositivos & relés',module:'devices'},
-        {id:'iot',label:'ESP32 / Arduino / IoT',module:'iot'},
-        {id:'nodes',label:'Cluster ARM',module:'nodes'}
-      ]},
-      {title:'PESSOAIS',items:[
-        {id:'mobile-dev',label:'Celular',url:'/casa/celular.php'},
-        {id:'watch-dev',label:'Watch',url:'/casa/watch.php'},
-        {id:'family-dev',label:'Dispositivos da família',url:'/casa/familia.php'},
-        {id:'bin-dev',label:'Downloads & APKs (/bin)',url:'/casa/bin/'}
+      {title:'PERÍMETRO',items:[
+        {id:'cameras',label:'Câmeras & visão',module:'cameras'},
+        {id:'seguranca',label:'Defesa & anti-intrusão',module:'security'}
       ]}
     ]
   },
-  'AUTOMAÇÃO':{
-    subtitle:'Ações, agendas e integrações responsáveis por executar a casa.',
+  'AMBIENTE':{
+    tone:'ambiente', code:'03',
+    subtitle:'Leituras dos sensores: temperatura, umidade e histórico.',
     sections:[
-      {title:'EXECUÇÃO',items:[
-        {id:'automation-dev',label:'Dispositivos & relés',module:'devices'},
-        {id:'automation-ag',label:'Agendamentos',module:'schedules'},
-        {id:'automation-iot',label:'ESP32 / Arduino / IoT',module:'iot'},
-        {id:'automation-scenes',label:'Cenas e regras',module:'automation'}
-      ]},
-      {title:'INTEGRAÇÃO',items:[
-        {id:'automation-agents',label:'Agentes externos',module:'agents'},
-        {id:'automation-api',label:'Acesso Web & API',module:'external'}
+      {title:'SENSORES',items:[
+        {id:'sensores',label:'Sensores & telemetria',module:'sensors'},
+        {id:'ambiente',label:'Histórico ambiental',url:'/casa/dispositivos_iot.php'}
       ]}
     ]
   },
   'IA & VOZ':{
-    subtitle:'COMPUTER, reconhecimento, voz, RunPod e agentes.',
+    tone:'ia', code:'04',
+    subtitle:'Assistente da casa: comandos de voz, avisos e modelos de IA.',
     sections:[
-      {title:'COMPUTER',items:[
-        {id:'jarvis',label:'Núcleo de reconhecimento & voz',module:'jarvis'},
-        {id:'frases',label:'Frases & avisos',module:'phrases'},
-        {id:'agentes',label:'Agentes externos',module:'agents'}
+      {title:'ASSISTENTE',items:[
+        {id:'jarvis',label:'Reconhecimento & voz',module:'jarvis'},
+        {id:'frases',label:'Frases & avisos',module:'phrases'}
       ]},
       {title:'INTELIGÊNCIA',items:[
-        {id:'modelos-ia',label:'Conexões & Modelos de IA',url:'/casa/ia_modelos.php'},
-        {id:'runpod',label:'Configurações de IA',module:'config'},
-        {id:'webapi',label:'Acesso Web & API segura',module:'external'}
+        {id:'modelos-ia',label:'Conexões & modelos de IA',url:'/casa/ia_modelos.php'},
+        {id:'config',label:'Configurações de IA',module:'config'}
       ]}
     ]
   },
   'FAMÍLIA':{
-    subtitle:'Pessoas, presença e dispositivos pessoais.',
+    tone:'familia', code:'05',
+    subtitle:'Pessoas da casa, presença e aparelhos pessoais.',
     sections:[
       {title:'PESSOAS',items:[
-        {id:'family',label:'Família',url:'/casa/familia.php'},
-        {id:'mobile-person',label:'Celular',url:'/casa/celular.php'},
-        {id:'watch-person',label:'Watch',url:'/casa/watch.php'}
+        {id:'familia',label:'Família & presença',url:'/casa/familia.php'}
       ]},
-      {title:'CONTROLE',items:[
-        {id:'users',label:'Usuários & senhas',module:'users'}
+      {title:'APARELHOS PESSOAIS',items:[
+        {id:'celular',label:'Celular',url:'/casa/celular.php'},
+        {id:'relogio',label:'Relógio',url:'/casa/watch.php'}
       ]}
     ]
   },
   'SISTEMA':{
-    subtitle:'Infraestrutura, telemetria, configuração e diagnóstico.',
+    tone:'sistema', code:'06',
+    subtitle:'Equipamentos, servidores, diagnóstico e manutenção.',
     sections:[
-      {title:'INFRAESTRUTURA',items:[
-        {id:'nodes-sys',label:'Cluster ARM',module:'nodes'},
-        {id:'sensors-sys',label:'Telemetria operacional',module:'telemetryOps'},
-        {id:'iot-sys',label:'ESP32 / Arduino / IoT',module:'iot'},
-        {id:'bin-sys',label:'Central de Binários & APKs (/bin)',url:'/casa/bin/'}
+      {title:'EQUIPAMENTOS',items:[
+        {id:'iot',label:'ESP32 / Arduino / IoT',module:'iot'},
+        {id:'nodes',label:'Cluster ARM',module:'nodes'}
       ]},
-      {title:'ADMINISTRAÇÃO',items:[
-        {id:'users-sys',label:'Usuários & senhas',module:'users'},
-        {id:'config-sys',label:'Configurações RunPod / IA',module:'config'},
-        {id:'api-sys',label:'Acesso Web & API',module:'external'},
-        {id:'health',label:'Saúde do sistema',module:'health'}
+      {title:'DIAGNÓSTICO',items:[
+        {id:'health',label:'Saúde do sistema',module:'health'},
+        {id:'telemetria',label:'Telemetria operacional',module:'telemetryOps'},
+        {id:'servicos',label:'Serviços em segundo plano',module:'servicos'}
+      ]},
+      {title:'MANUTENÇÃO',items:[
+        {id:'atualizacoes',label:'Atualizações',module:'updates'},
+        {id:'binarios',label:'Programas & APKs (/bin)',url:'/casa/bin/'}
+      ]}
+    ]
+  },
+  'ACESSOS':{
+    tone:'acessos', code:'07',
+    subtitle:'Usuários, chaves de acesso e integrações externas.',
+    sections:[
+      {title:'ACESSO',items:[
+        {id:'usuarios',label:'Usuários & senhas',module:'users'},
+        {id:'api',label:'Acesso web & API',module:'external'}
+      ]},
+      {title:'INTEGRAÇÕES',items:[
+        {id:'agentes',label:'Agentes externos',module:'agents'}
       ]}
     ]
   }
 };
+
+// Enderecos antigos (?grupo=...&item=...) continuam funcionando: links salvos,
+// automacao.php, o site local do cluster e paginas externas.
+const GROUP_ALIASES={
+  'SEGURANCA':'SEGURANÇA','OPERACOES':'OPERAÇÕES','DISPOSITIVOS':'SISTEMA','AUTOMAÇÃO':'OPERAÇÕES',
+  'AUTOMACAO':'OPERAÇÕES','FAMILIA':'FAMÍLIA','IA E VOZ':'IA & VOZ','ADMINISTRAÇÃO':'ACESSOS','ADMINISTRACAO':'ACESSOS'
+};
+const ITEM_ALIASES={
+  'acessos':'celular','sensores-sec':'sensores','sensores-op':'sensores','sensors-sys':'telemetria',
+  'api-sec':'api','automation-api':'api','webapi':'api','api-sys':'api',
+  'automation-ag':'agendamentos','devices-op':'devices','automation-dev':'devices',
+  'iot-op':'iot','automation-iot':'iot','iot-sys':'iot','automation-scenes':'cenas',
+  'cameras-op':'cameras','historico-op':'frases','nodes-sys':'nodes',
+  'mobile-dev':'celular','mobile-person':'celular','watch-dev':'relogio','watch-person':'relogio',
+  'family-dev':'familia','family':'familia','bin-dev':'binarios','bin-sys':'binarios',
+  'automation-agents':'agentes','runpod':'config','config-sys':'config',
+  'users':'usuarios','users-sys':'usuarios'
+};
+function resolveGroup(name){
+  if(!name) return null;
+  if(GROUPS[name]) return name;
+  const up=String(name).toUpperCase();
+  return GROUPS[up]?up:(GROUP_ALIASES[up]||GROUP_ALIASES[name]||null);
+}
+// Acha a area de um item pelo id (ou id antigo).
+function locateItem(id){
+  const key=ITEM_ALIASES[id]||id;
+  for(const g of Object.keys(GROUPS)){
+    const it=findItem(g,key);
+    if(it) return {group:g,item:it};
+  }
+  return null;
+}
 
 let currentGroup=null;
 let currentItem=null;
@@ -143,7 +163,11 @@ function setRoute(group,item){
 }
 
 function topGroupCards(){
-  return Object.keys(GROUPS).map(name=>({title:name,description:GROUPS[name].subtitle,id:name,icon:GROUP_ICONS[name]||'•'}));
+  return Object.keys(GROUPS).map(name=>({title:name,description:GROUPS[name].subtitle,id:name,code:GROUPS[name].code||'',icon:GROUP_ICONS[name]||'•'}));
+}
+// Botoes das areas na barra lateral, cada uma com a sua cor e numero.
+function departmentRail(){
+  return Object.keys(GROUPS).map(name=>({label:name,action:'open-group:'+name,level:1,tone:GROUPS[name].tone,code:GROUPS[name].code}));
 }
 
 let dashboardMetrics = null;
@@ -200,15 +224,7 @@ function home(updateRoute=true){
   const mobMetric = (dashboardMetrics && dashboardMetrics.mobiles_online > 0) ? (dashboardMetrics.mobiles_online + ' ATIVO(S)') : 'CONECTADO';
   const watchMetric = (dashboardMetrics && dashboardMetrics.watch_online > 0) ? 'ONLINE' : 'OK';
 
-  const homeRail = [
-    {label:'DASHBOARD',action:'home',level:0,levelNav:true,active:true},
-    {label:'DISPOSITIVOS',action:'open-group:DISPOSITIVOS',level:1},
-    {label:'OPERAÇÕES',action:'open-group:OPERAÇÕES',level:1},
-    {label:'SEGURANÇA',action:'open-group:SEGURANÇA',level:1},
-    {label:'IA & VOZ',action:'open-group:IA & VOZ',level:1},
-    {label:'FAMÍLIA',action:'open-group:FAMÍLIA',level:1},
-    {label:'SISTEMA',action:'open-group:SISTEMA',level:1}
-  ];
+  const homeRail = [{label:'DASHBOARD',action:'home',level:0,levelNav:true,active:true}].concat(departmentRail());
 
   const dashboardCards = [
     {
@@ -217,7 +233,7 @@ function home(updateRoute=true){
       icon: '▣',
       value: devMetric,
       status: 'ONLINE',
-      actions: [{label:'CONTROLAR', action:'open-direct:DISPOSITIVOS:devices', variant:'primary'}]
+      actions: [{label:'CONTROLAR', action:'open-direct:OPERAÇÕES:devices', variant:'primary'}]
     },
     {
       title: 'TEMPERATURA & CLIMA',
@@ -225,7 +241,7 @@ function home(updateRoute=true){
       icon: '◈',
       value: tempMetric,
       status: 'OK',
-      actions: [{label:'SENSORES', action:'open-direct:OPERAÇÕES:sensores-op', variant:'primary'}]
+      actions: [{label:'SENSORES', action:'open-direct:AMBIENTE:sensores', variant:'primary'}]
     },
     {
       title: 'CELULAR & PRESENÇA',
@@ -233,7 +249,7 @@ function home(updateRoute=true){
       icon: '📱',
       value: mobMetric,
       status: 'OK',
-      actions: [{label:'CELULARES', action:'open-direct:DISPOSITIVOS:mobile-dev', variant:'primary'}]
+      actions: [{label:'CELULARES', action:'open-direct:FAMÍLIA:celular', variant:'primary'}]
     },
     {
       title: 'JARVIS WATCH',
@@ -241,7 +257,7 @@ function home(updateRoute=true){
       icon: '⌚',
       value: watchMetric,
       status: 'OK',
-      actions: [{label:'WATCH', action:'open-direct:DISPOSITIVOS:watch-dev', variant:'primary'}]
+      actions: [{label:'WATCH', action:'open-direct:FAMÍLIA:relogio', variant:'primary'}]
     },
     {
       title: 'DEFESA & PERÍMETRO',
@@ -265,7 +281,7 @@ function home(updateRoute=true){
       icon: '⚙',
       value: 'AGENDADO',
       status: 'ATIVO',
-      actions: [{label:'ROTINAS', action:'open-direct:OPERAÇÕES:agendamentos', variant:'primary'}]
+      actions: [{label:'ROTINAS', action:'open-direct:OPERAÇÕES:cenas', variant:'primary'}]
     },
     {
       title: 'SISTEMA & SERVIDORES',
@@ -276,12 +292,12 @@ function home(updateRoute=true){
       actions: [{label:'SAÚDE', action:'open-direct:SISTEMA:health', variant:'primary'}]
     },
     {
-      title: 'EXPLORAR GRUPOS',
-      description: 'Acesse o menu completo de todos os 7 módulos do CASA',
+      title: 'ÁREAS DA CASA',
+      description: 'Operações, Segurança, Ambiente, IA & voz, Família, Sistema e Acessos',
       icon: '●',
-      value: '7 MÓDULOS',
+      value: Object.keys(GROUPS).length + ' ÁREAS',
       status: 'MENU',
-      actions: [{label:'GRUPOS', action:'open-groups-overview', variant:'primary'}]
+      actions: [{label:'ABRIR', action:'open-groups-overview', variant:'primary'}]
     }
   ];
 
@@ -289,7 +305,7 @@ function home(updateRoute=true){
     layout:'dashboard',group:'DASHBOARD',title:'CASA / COMPUTER · DASHBOARD',subtitle:'Painel de controle operacional e monitoramento residencial em tempo real.',
     breadcrumb:['CASA','DASHBOARD'],groups:homeRail,status:STATUS,columns:3,
     items:dashboardCards,
-    footer:{hint:'Interface operacional central: use os cartões para ação rápida ou os grupos à esquerda.'}
+    footer:{hint:'Interface operacional central: use os cartões para ação rápida ou as áreas à esquerda.'}
   });
 
   if(updateRoute) setRoute(null,null);
@@ -299,10 +315,10 @@ function home(updateRoute=true){
 function renderGroupsMenu(){
   currentGroup='GRUPOS'; currentItem=null;
   CASALcars.render('#app',{
-    layout:'dashboard',group:'GRUPOS',title:'CASA / COMPUTER · MÓDULOS',subtitle:'Escolha um grupo. A interface adapta o miolo conforme a tarefa.',
-    breadcrumb:['CASA','GRUPOS'],groups:[{label:'DASHBOARD',action:'home',level:0,levelNav:true},{label:'GRUPOS',action:'open-groups-overview',level:1,levelNav:true,active:true}],status:STATUS,columns:3,
-    items:topGroupCards().map(g=>({title:g.title,description:g.description,icon:g.icon,actions:[{label:'ACESSAR',action:'open-group:'+g.id,variant:'primary'}]})),
-    footer:{hint:'Interface em tela cheia: use grupos e paginação, sem rolagem.'}
+    layout:'dashboard',group:'GRUPOS',title:'CASA / COMPUTER · ÁREAS',subtitle:'Escolha uma área. Cada função da casa fica em um só lugar.',
+    breadcrumb:['CASA','ÁREAS'],groups:[{label:'DASHBOARD',action:'home',level:0,levelNav:true},{label:'ÁREAS',action:'open-groups-overview',level:1,levelNav:true,active:true}].concat(departmentRail().slice(0,7)),status:STATUS,columns:3,
+    items:topGroupCards().map(g=>({title:g.code+' · '+g.title,description:g.description,icon:g.icon,actions:[{label:'ACESSAR',action:'open-group:'+g.id,variant:'primary'}]})),
+    footer:{hint:'Interface em tela cheia: use as áreas e a paginação, sem rolagem.'}
   });
   setRoute('GRUPOS',null);
 }
@@ -312,27 +328,193 @@ function groupRail(group){
   GROUPS[group].sections.forEach(s=>s.items.forEach(it=>flat.push(it)));
   const nav=[
     {label:'CASA',action:'home',level:0,levelNav:true},
-    {label:group,action:'open-current-group',level:1,levelNav:true,active:!currentItem}
+    {label:group,action:'open-current-group',level:1,levelNav:true,active:!currentItem,tone:GROUPS[group].tone,code:GROUPS[group].code}
   ];
   if(currentItem){
     const selected=findItem(group,currentItem);
     if(selected) nav.push({label:selected.label,id:selected.id,action:'open-item',level:2,levelNav:true,active:true});
   }
-  const choices=flat.filter(it=>!currentItem || it.id!==currentItem).slice(0,Math.max(0,8-nav.length)).map(it=>({
+  const choices=flat.filter(it=>!currentItem || it.id!==currentItem).slice(0,Math.max(0,9-nav.length)).map(it=>({
     label:it.label,id:it.id,action:'open-item',level:2,active:false
   }));
   return nav.concat(choices);
 }
 
 function openGroup(group,updateRoute=true){
-  if(!GROUPS[group]) return home(updateRoute);
+  group=resolveGroup(group);
+  if(!group) return home(updateRoute);
   currentGroup=group; currentItem=null;
   CASALcars.render('#app',{
     layout:'menu-grid',kind:'menu',group,title:group,subtitle:GROUPS[group].subtitle,
     breadcrumb:[],groups:groupRail(group),status:STATUS,sections:GROUPS[group].sections,
-    footer:{hint:'Escolha uma opção. O painel usa toda a tela e não rola.'}
+    footer:{hint:'Escolha uma opção. Cada cartão mostra os números atuais do item.'}
   });
   if(updateRoute) setRoute(group,null);
+  decorateAreaStats(group);
+}
+
+// Estatisticas dos cartoes de cada area: numero atual, legenda e um mini
+// grafico com a atividade dos ultimos 7 dias do proprio item.
+let areaStatsCache=null, areaStatsAt=0;
+async function loadAreaStats(){
+  if(areaStatsCache && Date.now()-areaStatsAt<30000) return areaStatsCache;
+  const j=await getJson('/casa/api/painel_estatisticas.php');
+  areaStatsCache=(j&&j.itens)||{}; areaStatsAt=Date.now();
+  return areaStatsCache;
+}
+function areaStatBars(serie,legenda){
+  if(!Array.isArray(serie)||!serie.length) return '';
+  const max=Math.max(1,...serie), total=serie.reduce((a,b)=>a+b,0);
+  const dias=['dom','seg','ter','qua','qui','sex','sáb'], hoje=new Date().getDay();
+  const barras=serie.map((n,i)=>{
+    const dia=dias[(hoje-(serie.length-1-i)+70)%7];
+    return '<i style="height:'+Math.max(6,Math.round(n/max*100))+'%" title="'+attr(dia+': '+n)+'"'+(n?'':' class="zero"')+'></i>';
+  }).join('');
+  return '<span class="ja-stat-chart" role="img" aria-label="'+attr((legenda||'atividade')+', últimos 7 dias: '+serie.join(', '))+'">'+barras+'</span>'+
+    '<span class="ja-stat-chart-cap">'+esc((legenda||'atividade')+' · 7 dias: '+total)+'</span>';
+}
+async function decorateAreaStats(group){
+  let itens;
+  try{ itens=await loadAreaStats(); }catch(e){ return; }
+  if(currentGroup!==group || currentItem) return;   // usuario ja saiu da area
+  document.querySelectorAll('#app .ja-menu-item[data-ja-id]').forEach(btn=>{
+    const it=findItem(group,btn.getAttribute('data-ja-id'));
+    const st=itens[btn.getAttribute('data-ja-id')];
+    if(!it || !st || btn.querySelector('.ja-stat')) return;
+    const estado=st.estado==='alerta'?' alerta':'';
+    btn.classList.add('ja-has-stat');
+    btn.innerHTML='<span class="ja-stat-label">'+esc(it.label)+'</span>'+
+      '<span class="ja-stat'+estado+'">'+
+        (st.valor!=null&&st.valor!==''?'<b class="ja-stat-value">'+esc(st.valor)+'</b>':'')+
+        '<span class="ja-stat-caption">'+esc(st.legenda||'')+(st.detalhe?' · próximo: '+esc(st.detalhe):'')+'</span>'+
+        areaStatBars(st.serie,st.serie_legenda)+
+      '</span>';
+  });
+  renderAreaAnalysis(group,itens);
+}
+
+// Servicos em segundo plano (clusters/): estado a partir do rastro que cada
+// um ja deixa no banco. Aba LISTA com um cartao por servico; aba ANALISE 3D
+// cruzando os servicos com os ultimos 7 dias.
+const SERV_ESTADO={ativo:['ATIVO','ok'],parado:['PARADO','off'],atrasado:['ATRASADO','off'],
+  sob_demanda:['SOB DEMANDA',''],sem_uso:['SEM USO AINDA',''],sem_sinal:['SEM SINAL NO SITE','']};
+function idadeTexto(seg){
+  if(seg==null) return 'nunca';
+  if(seg<60) return 'há '+seg+' s';
+  if(seg<3600) return 'há '+Math.floor(seg/60)+' min';
+  if(seg<86400) return 'há '+Math.floor(seg/3600)+' h';
+  return 'há '+Math.floor(seg/86400)+' dia(s)';
+}
+let servicosAba='lista';
+async function renderServicos(){
+  loading('Serviços em segundo plano');
+  let j;
+  try{ j=await getJson('/casa/api/servicos_status.php'); }
+  catch(e){ moduleShell('Serviços em segundo plano','<div class="ja-empty">'+esc(e.message||'Falha ao consultar os serviços.')+'</div>'); return; }
+  const lista=j.servicos||[], r=j.resumo||{ativos:0,verificaveis:0,problemas:[]};
+  const abas='<button type="button" class="ja-mini'+(servicosAba==='lista'?' primary':'')+'" data-serv-aba="lista">LISTA</button>'+
+    '<button type="button" class="ja-mini'+(servicosAba==='analise'?' primary':'')+'" data-serv-aba="analise">ANÁLISE 3D</button>'+
+    '<button type="button" class="ja-mini" data-serv-aba="atualizar">ATUALIZAR</button>';
+  const resumo='<p class="ja-auto-intro"><b>'+esc(r.ativos)+' de '+esc(r.verificaveis)+'</b> serviço(s) verificável(is) ativo(s)'+
+    (r.problemas&&r.problemas.length?' · <b class="ja-txt-danger">atenção: '+esc(r.problemas.join(', '))+'</b>':'')+
+    '. O estado vem do rastro que cada serviço deixa no banco; os marcados "sem sinal no site" não deixam rastro e precisam ser vistos no próprio nó (<code>systemctl status</code>).</p>';
+  if(servicosAba==='analise'){
+    const comSerie=lista.filter(x=>Array.isArray(x.serie));
+    const dias=['dom','seg','ter','qua','qui','sex','sáb'], hoje=new Date().getDay();
+    const colunas=Array.from({length:7},(_,i)=>i===6?'hoje':dias[(hoje-6+i+7)%7]);
+    const porDia=colunas.map((_,k)=>comSerie.reduce((a,x)=>a+(x.serie[k]||0),0));
+    const total=porDia.reduce((a,b)=>a+b,0);
+    const somas=comSerie.map(x=>x.serie.reduce((a,b)=>a+b,0));
+    const texto=[];
+    if(total){
+      const pico=porDia.indexOf(Math.max(...porDia)), topo=somas.indexOf(Math.max(...somas));
+      texto.push('Pico: '+colunas[pico]+' ('+porDia[pico]+' registros)','Mais ativo: '+comSerie[topo].nome+' ('+somas[topo]+' em 7 dias)');
+      const silenciosos=comSerie.filter((x,i)=>!somas[i]).map(x=>x.nome);
+      if(silenciosos.length) texto.push('Sem atividade na semana: '+silenciosos.join(', '));
+    } else texto.push('Nenhuma atividade de serviço registrada nos últimos 7 dias.');
+    (r.problemas||[]).forEach(n=>texto.push('⚠ '+n+' precisa de atenção'));
+    moduleShell('Serviços em segundo plano',resumo+
+      '<div class="ja-serv-analise"><div class="ja-area-3d"></div>'+
+      '<div class="ja-3d-legenda">'+comSerie.map((x,i)=>'<span><i style="background:'+(window.CASA3D?CASA3D.cor(i):'#8fc7ef')+'"></i>'+esc(x.nome)+'</span>').join('')+'</div>'+
+      '<ul class="ja-analise-texto">'+texto.map(t=>'<li'+(t.startsWith('⚠')?' class="alerta"':'')+'>'+esc(t)+'</li>').join('')+'</ul></div>',abas);
+    if(window.CASA3D && comSerie.length) CASA3D.barras(document.querySelector('#app .ja-serv-analise .ja-area-3d'),
+      {linhas:comSerie.map(x=>x.nome),colunas,valores:comSerie.map(x=>x.serie),unidade:'registros',descricao:'Atividade dos serviços nos últimos 7 dias'});
+  }else{
+    const p=paginate('servicos',lista,6);
+    moduleShell('Serviços em segundo plano',resumo+cards(p.slice,x=>{
+      const [rot,cls]=SERV_ESTADO[x.estado]||['—',''];
+      return '<article class="ja-native-card ja-serv-card">'+
+        '<header class="ja-auto-head"><h3>'+esc(x.nome)+'</h3><span class="ja-state '+cls+'">'+esc(rot)+'</span></header>'+
+        '<p>'+esc(x.funcao||'')+'</p>'+
+        '<dl><dt>Unidade</dt><dd><code>'+esc(x.unidade||'')+'</code></dd>'+
+        (x.idade!=null||['periodico','agendador','demanda'].includes(x.tipo)?'<dt>'+(x.tipo==='demanda'?'Último uso':'Último sinal')+'</dt><dd>'+esc(idadeTexto(x.idade))+'</dd>':'')+
+        (x.detalhe?'<dt>Situação</dt><dd>'+esc(x.detalhe)+'</dd>':'')+'</dl>'+
+        (x.serie?'<span class="ja-serv-chart">'+areaStatBars(x.serie,x.serie_legenda)+'</span>':'')+
+      '</article>';
+    })+pager('servicos',p),abas);
+    bindPager('servicos',p,renderServicos);
+  }
+  document.querySelectorAll('#app [data-serv-aba]').forEach(b=>b.onclick=()=>{
+    const a=b.getAttribute('data-serv-aba'); if(a!=='atualizar') servicosAba=a; renderServicos();
+  });
+}
+
+// Painel de analise da area: grafico 3D cruzando os itens com os ultimos 7 dias
+// (ou, sem historico, os numeros atuais) e um resumo em texto do que ele mostra.
+function areaAnalysisData(group,itens){
+  const lista=[];
+  GROUPS[group].sections.forEach(sec=>sec.items.forEach(it=>{ if(itens[it.id]) lista.push({it,st:itens[it.id]}); }));
+  const comSerie=lista.filter(x=>Array.isArray(x.st.serie)&&x.st.serie.length===7);
+  const dias=['dom','seg','ter','qua','qui','sex','sáb'], hoje=new Date().getDay();
+  const colDias=Array.from({length:7},(_,i)=>i===6?'hoje':dias[(hoje-6+i+7)%7]);
+  const texto=[];
+  lista.forEach(x=>{ if(x.st.total!=null && x.st.num!=null && x.st.num<x.st.total)
+    texto.push('⚠ '+x.it.label+': '+(x.st.total-x.st.num)+' de '+x.st.total+' fora do ar'); });
+  if(comSerie.length){
+    const valores=comSerie.map(x=>x.st.serie);
+    const porDia=colDias.map((_,j)=>valores.reduce((a,l)=>a+(l[j]||0),0));
+    const total=porDia.reduce((a,b)=>a+b,0);
+    if(total){
+      const pico=porDia.indexOf(Math.max(...porDia));
+      const somas=comSerie.map(x=>x.st.serie.reduce((a,b)=>a+b,0));
+      const topo=somas.indexOf(Math.max(...somas));
+      const media=total/7;
+      texto.unshift('Pico: '+colDias[pico]+' ('+porDia[pico]+' registros)',
+        'Mais ativo: '+comSerie[topo].it.label+' ('+somas[topo]+' em 7 dias)',
+        'Hoje: '+porDia[6]+' · média diária: '+media.toFixed(1).replace('.',','));
+    } else texto.unshift('Sem atividade registrada nos últimos 7 dias.');
+    return {titulo:'ANÁLISE · ÚLTIMOS 7 DIAS', linhas:comSerie.map(x=>x.it.label), colunas:colDias, valores,
+      unidade:'registros', texto, descricao:'Atividade dos itens da área '+group+' nos últimos 7 dias'};
+  }
+  const numericos=lista.filter(x=>typeof x.st.num==='number');
+  if(!numericos.length) return null;
+  const temTotal=numericos.some(x=>x.st.total!=null);
+  return {titulo:'ANÁLISE · SITUAÇÃO ATUAL', linhas:numericos.map(x=>x.it.label),
+    colunas:temTotal?['online','fora do ar']:['agora'],
+    valores:numericos.map(x=>temTotal?[x.st.num,(x.st.total!=null?x.st.total-x.st.num:0)]:[x.st.num]),
+    unidade:'', texto:texto.length?texto:numericos.map(x=>x.it.label+': '+x.st.num+' '+(x.st.legenda||'')),
+    descricao:'Números atuais dos itens da área '+group};
+}
+let areaChart=null;
+function renderAreaAnalysis(group,itens){
+  const grid=document.querySelector('#app .ja-menu-grid');
+  if(!grid || grid.querySelector('.ja-area-analise') || !window.CASA3D) return;
+  const d=areaAnalysisData(group,itens);
+  if(!d) return;
+  const secoes=GROUPS[group].sections.length;
+  const span=secoes>=3?1:2;
+  grid.style.setProperty('--ja-columns',String(Math.min(4,secoes+span)));
+  const sec=document.createElement('section');
+  sec.className='ja-menu-section ja-area-analise';
+  sec.style.gridColumn='span '+span;
+  sec.innerHTML='<div class="ja-menu-title">'+esc(d.titulo)+'</div>'+
+    '<div class="ja-area-3d"></div>'+
+    '<div class="ja-3d-legenda">'+d.linhas.map((l,i)=>'<span><i style="background:'+CASA3D.cor(i)+'"></i>'+esc(l)+'</span>').join('')+'</div>'+
+    '<ul class="ja-analise-texto">'+d.texto.slice(0,4).map(t=>'<li'+(t.startsWith('⚠')?' class="alerta"':'')+'>'+esc(t)+'</li>').join('')+'</ul>'+
+    '<div class="ja-analise-dica">Arraste para girar · role para aproximar</div>';
+  grid.appendChild(sec);
+  if(areaChart) try{areaChart.destruir();}catch(_){}
+  CASA3D.barras(sec.querySelector('.ja-area-3d'),d).then(c=>{areaChart=c;});
 }
 
 function findItem(group,id){
@@ -426,6 +608,7 @@ async function mountNativeModule(item){
     if(m==='jarvis') return renderJarvis();
     if(m==='cameras') return renderCameras();
     if(m==='health') return renderHealth();
+    if(m==='servicos') return renderServicos();
     showModuleError('Módulo não reconhecido: '+m);
   }catch(e){showModuleError(e.message||String(e));}
 }
@@ -977,7 +1160,7 @@ async function renderNodes(){
     const p=paginate('nodes',all,12);
     const states={online:'ONLINE',offline:'SEM CONTATO RECENTE',registered:'AGUARDANDO CONTATO',revoked:'REVOGADO'};
     const summary='<p>'+esc(all.length)+' agente(s) registrado(s) • '+esc(all.filter(n=>n.online).length)+' online. Online: contato nos últimos 40 segundos (heartbeat a cada 20s). Se em 40s não responder, o cluster caiu.</p>';
-    const body=all.length?cards(p.slice,(n,i)=>'<article class="ja-native-card" style="position:relative;">'+
+    const body=all.length?cards(p.slice,(n,i)=>'<article class="ja-native-card ja-node-card" style="position:relative;">'+
       '<div style="position:absolute;top:10px;right:10px;display:flex;gap:5px;z-index:2;">'+
         (n.online && (n.up_to_date === false) ? '<button type="button" class="ja-node-update-btn" data-node-idx="'+attr(String(i))+'" style="background:#eab308;color:#000;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(234,179,8,0.5);" title="Atualizar versão do nó diretamente do Git">⚡ ATUALIZAR (GIT)</button>' : '')+
         '<button type="button" class="ja-node-edit-btn" data-node-idx="'+attr(String(i))+'" style="background:#38bdf8;color:#000;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.5);" title="Editar informações do nó">EDITAR</button>'+
@@ -1540,7 +1723,7 @@ async function renderIoT(){
         actions+='<a href="/casa/dispositivos_iot.php" class="ja-mini" style="margin-right:6px;background:#f59c73;color:#000;font-weight:bold;text-decoration:none;padding:3px 8px;border-radius:4px;">⚡ Relés</a>';
       }
       if(isCam){
-        actions+='<a href="/casa/index.php?grupo=SEGURANCA&item=cameras" class="ja-mini" style="margin-right:6px;background:#8eb9ee;color:#000;font-weight:bold;text-decoration:none;padding:3px 8px;border-radius:4px;">📷 Câmera</a>';
+        actions+='<a href="/casa/index.php?grupo=SEGURAN%C3%87A&item=cameras" class="ja-mini" style="margin-right:6px;background:#8eb9ee;color:#000;font-weight:bold;text-decoration:none;padding:3px 8px;border-radius:4px;">📷 Câmera</a>';
       }
       if(d.ip_address){
         actions+='<a href="http://'+esc(d.ip_address)+'/" target="_blank" class="ja-mini" style="background:#444;color:#fff;font-weight:bold;text-decoration:none;padding:3px 8px;border-radius:4px;">🌐 Web IP</a>';
@@ -4606,11 +4789,11 @@ function handleAction(detail){
   if(action==='open-current-group' && currentGroup) return openGroup(currentGroup);
   if(action.startsWith('open-direct:')){
     const parts = action.split(':');
-    const grp = parts[1], itId = parts[2];
-    if(GROUPS[grp]){
+    const found = locateItem(parts[2]);
+    const grp = found ? found.group : resolveGroup(parts[1]);
+    if(grp){
       openGroup(grp, false);
-      const it = findItem(grp, itId);
-      if(it) openItem(it);
+      if(found) openItem(found.item);
     }
     return;
   }
@@ -4643,7 +4826,7 @@ function mountAdminTools(){
   box=document.createElement('section');
   box.className='ja-admin-tools';
   box.setAttribute('aria-label','Funções administrativas');
-  box.innerHTML='<div class="ja-admin-title">ADMINISTRAÇÃO</div>';
+  box.innerHTML='<div class="ja-admin-title">SESSÃO</div>';
 
   const homeBtn=template.querySelector('.home')?.cloneNode(true);
   const passBtn=template.querySelector('.password')?.cloneNode(true);
@@ -4698,12 +4881,13 @@ function restoreRoute(){
   suppressHistory=true;
   if(itemId==='dashboard' || g==='dashboard' || g==='DASHBOARD' || (!g && !itemId)){
     home(false);
-  } else if(g && GROUPS[g]){
-    openGroup(g,false);
-    if(itemId){
-      const it=findItem(g,itemId);
-      if(it) openItem(it,false);
-    }
+  } else if(itemId && locateItem(itemId)){
+    // O item decide a area: ids antigos e grupos renomeados caem no lugar novo.
+    const found=locateItem(itemId);
+    openGroup(found.group,false);
+    openItem(found.item,false);
+  } else if(g && resolveGroup(g)){
+    openGroup(resolveGroup(g),false);
   } else {
     home(false);
   }

@@ -32,12 +32,12 @@ public final class TvControlPlaneClient {
     }
 
     private SharedPreferences prefs() {
-        return context.getSharedPreferences(MainActivity.PREFS, Context.MODE_PRIVATE);
+        return context.getSharedPreferences(TvConfig.PREFS, Context.MODE_PRIVATE);
     }
 
     private String baseUrl() {
-        String v = prefs().getString(MainActivity.KEY_URL, JarvisApiClient.DEFAULT_BASE_URL);
-        if (v == null || v.trim().isEmpty()) v = JarvisApiClient.DEFAULT_BASE_URL;
+        String v = prefs().getString(TvConfig.KEY_URL, TvConfig.DEFAULT_BASE_URL);
+        if (v == null || v.trim().isEmpty()) v = TvConfig.DEFAULT_BASE_URL;
         return v.trim().replaceAll("/+$", "");
     }
 
@@ -51,7 +51,7 @@ public final class TvControlPlaneClient {
     }
 
     private String token() {
-        String v = prefs().getString(MainActivity.KEY_TOKEN, "");
+        String v = prefs().getString(TvConfig.KEY_TOKEN, "");
         return v == null ? "" : v.trim();
     }
 
@@ -63,10 +63,20 @@ public final class TvControlPlaneClient {
                 .put("protocol_version", "CASA/1.0")
                 .put("manufacturer", "Maurinsoft")
                 .put("model", "JARVIS TV Android")
+                .put("firmware_version", versaoApp())
                 .put("capabilities", new JSONArray()
                         .put("display").put("alerts").put("cameras")
                         .put("family_messages").put("commands"));
         return post("heartbeat", body).optInt("commands_pending", 0);
+    }
+
+    /** Versao instalada do app (ex.: 1.1.0-debug), enviada no sinal de vida. */
+    private String versaoApp() {
+        try {
+            return context.getPackageManager().getPackageInfo(context.getPackageName(), 0).versionName;
+        } catch (Exception e) {
+            return "desconhecida";
+        }
     }
 
     public JSONArray commands() throws Exception {

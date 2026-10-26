@@ -1264,7 +1264,7 @@ body{overscroll-behavior:none}
 
 .ja-api-cards-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
   gap: 10px;
 }
 
@@ -1798,4 +1798,170 @@ body{overscroll-behavior:none}
 }
 .ja-chat-content {
   display: block;
+}
+
+/* Areas da casa: cada uma com a sua cor fixa (padrao LCARS de codificar por cor)
+   e o numero do painel no canto direito do botao. */
+.ja-rail button.ja-tone-operacoes{background:#f2a000!important}
+.ja-rail button.ja-tone-seguranca{background:#ef6969!important}
+.ja-rail button.ja-tone-ambiente{background:#8fc7ef!important}
+.ja-rail button.ja-tone-ia{background:#9999ff!important}
+.ja-rail button.ja-tone-familia{background:#e59bc5!important}
+.ja-rail button.ja-tone-sistema{background:#ff9966!important}
+.ja-rail button.ja-tone-acessos{background:#c6a7df!important}
+.ja-rail button[data-ja-code]{position:relative;padding-right:46px}
+.ja-rail button[data-ja-code]::after{
+  content:attr(data-ja-code);
+  position:absolute;right:12px;bottom:8px;
+  font-size:.72rem;font-weight:900;letter-spacing:.06em;opacity:.7;
+}
+
+/* Barra lateral estreita (tablet e celular): o CSS base transforma a barra em
+   grade de 2 colunas abaixo de 860px, mas aqui ela tem so 92 a 145px de largura,
+   entao a segunda coluna ficava escondida atras do conteudo. Mantem uma coluna. */
+@media(max-width:1000px){
+  .ja-rail{display:flex!important;flex-direction:column!important;gap:6px!important}
+  .ja-rail button,.ja-rail a{min-height:50px!important;padding:8px 9px!important;line-height:1.15;overflow-wrap:break-word}
+}
+@media(max-width:520px){
+  .ja-rail button,.ja-rail a{min-height:46px!important;font-size:10px!important;padding:7px 7px!important}
+  .ja-rail button[data-ja-code]{padding-bottom:17px!important}
+  .ja-rail button[data-ja-code]::after{right:7px;bottom:4px;font-size:.6rem}
+  .ja-rail button.level-nav::before{width:5px;height:5px;margin-right:4px}
+}
+
+/* ===== Caixas sem estouro =====================================================
+   O painel e de tela cheia, com cartoes de altura fixa e overflow escondido:
+   o que nao cabia simplesmente sumia (botoes EXCLUIR cortados, linhas do
+   cluster ARM e de atualizacoes cortadas, titulo embaixo dos botoes). */
+
+/* Fileiras de botoes quebram linha em vez de vazar para fora do cartao. */
+.ja-row-actions,.ja-native-actions{flex-wrap:wrap!important;row-gap:5px!important}
+.ja-native-head{flex-wrap:wrap;row-gap:6px}
+
+/* Conteudo que nao cabe rola dentro do cartao, em vez de ficar escondido. */
+.ja-native-card{overflow-y:auto!important;overflow-x:hidden!important;scrollbar-width:thin}
+.ja-native-card::-webkit-scrollbar{width:6px}
+.ja-native-card::-webkit-scrollbar-thumb{background:#3f82ad;border-radius:6px}
+
+/* Cluster ARM: os botoes EDITAR/EXCLUIR ficam no topo do cartao, acima do titulo. */
+.ja-node-card{padding-top:40px!important}
+
+/* Cenas e regras: o texto de ajuda ficava com a linha elastica da grade e
+   empurrava os cartoes para o rodape. */
+.ja-native-body:has(> .ja-auto-intro){grid-template-rows:auto minmax(0,1fr) auto!important}
+
+/* Painel inicial: cartoes compactos ja em telas de ate 960px de altura. */
+@media(max-height:960px){
+  .ja-group-card-ui{padding:8px 10px!important;gap:3px!important}
+  .ja-group-card-ui .ja-card-icon{width:26px;height:26px;font-size:14px}
+  .ja-group-card-ui .sub{-webkit-line-clamp:1}
+  .ja-group-card-ui .ja-action{min-height:26px!important;padding:3px 10px!important}
+}
+
+/* Celular e tablet em pe: nao ha como caber sem rolar. A area de conteudo
+   rola e os cartoes ganham a altura do proprio conteudo. */
+@media(max-width:760px){
+  .ja-content{overflow-y:auto!important;-webkit-overflow-scrolling:touch}
+  .ja-cards,.ja-menu-grid,.ja-native-module,.ja-native-body,.ja-native-grid,.ja-camera-grid{
+    height:auto!important;overflow:visible!important}
+  .ja-cards,.ja-native-grid,.ja-camera-grid{grid-auto-rows:auto!important}
+  .ja-native-card,.ja-group-card-ui{overflow:visible!important;min-height:0!important}
+  .ja-menu-grid .ja-menu-section:nth-child(n+3){display:block!important}
+  .ja-native-card:nth-child(n+5){display:flex!important}
+}
+/* Cluster ARM: versao/commit longo quebra linha dentro do cartao. */
+.ja-node-card dd strong{overflow-wrap:anywhere}
+.ja-node-card dd:has(strong){white-space:normal!important}
+@media(max-width:760px){
+  /* Botoes com texto longo quebram linha em vez de passar da borda. */
+  .ja-mini,.ja-action{white-space:normal!important;max-width:100%;text-align:center}
+  /* Botoes EDITAR/EXCLUIR do cluster nao passam da largura do cartao. */
+  .ja-node-card>div:first-child{left:10px;flex-wrap:wrap;justify-content:flex-end}
+  .ja-node-card{padding-top:44px!important}
+  /* Telemetria operacional: metricas em duas colunas. */
+  .ja-telemetry-metrics{grid-template-columns:1fr 1fr!important}
+  .ja-telemetry-metrics>div:last-child{grid-column:1 / -1}
+  .ja-telemetry-layout{overflow:visible!important;height:auto!important}
+}
+@media(max-width:760px){
+  /* Cluster ARM: a linha da versao nao fica presa numa linha so. */
+  .ja-node-card dd{white-space:normal!important}
+  /* Telemetria operacional: filtros um embaixo do outro. */
+  .ja-telemetry-filters{grid-template-columns:1fr!important}
+  /* O campo de busca ocupava as colunas 1-3 e recriava uma segunda coluna. */
+  .ja-telemetry-filters .search{grid-column:1 / -1!important}
+  /* Cartoes de chave de API: o texto longo das permissoes nao alarga o cartao. */
+  .ja-api-cards-grid{grid-template-columns:minmax(0,1fr)!important}
+  .ja-telemetry-layout{grid-template-columns:minmax(0,1fr)!important}
+  .ja-telemetry-layout .period,.ja-telemetry-filters span{white-space:normal!important;min-width:0}
+  /* Estacao de QR code: o visor tinha 540px fixos. */
+  .ja-qr-viewfinder,.ja-qr-canvas-box{max-width:100%!important;min-width:0!important;box-sizing:border-box}
+  .ja-qr-station{padding:14px 10px 18px!important}
+  .ja-qr-viewfinder{padding:6px!important}
+  .ja-qr-canvas-box{padding:6px!important;min-height:0!important}
+  .ja-qr-canvas-box img,.ja-qr-canvas-box canvas{max-width:100%!important;height:auto!important}
+  .ja-qr-station select,.ja-qr-station label,.ja-qr-types-tabs{max-width:100%;min-width:0;flex-wrap:wrap}
+  .ja-apikey-card,.ja-apikey-meta,.ja-apikey-meta>*{min-width:0;overflow-wrap:anywhere}
+  .ja-telemetry-layout,.ja-telemetry-metrics,.ja-telemetry-filters{min-width:0;max-width:100%}
+}
+/* A biblioteca de QR gera um canvas e uma imagem e esconde um dos dois, mas a
+   regra acima forca display:block nos dois: a imagem ficava ao lado do canvas,
+   saindo da caixa no celular. Com imagem pronta, o canvas fica escondido. */
+.ja-qr-canvas-box:has(img) canvas{display:none!important}
+
+/* ===== Estatisticas nos cartoes de cada area ==================================
+   Cada cartao mostra o numero atual do item e um mini grafico de barras com a
+   atividade dos ultimos 7 dias (o dia de hoje e a ultima barra). */
+.ja-menu-item.ja-has-stat{display:flex!important;flex-direction:column;justify-content:space-between;gap:4px;overflow:hidden;text-align:left}
+.ja-stat-label{font-weight:900;font-size:clamp(10px,1vw,14px);text-transform:uppercase;letter-spacing:.02em}
+.ja-stat{display:flex;flex-direction:column;gap:3px;min-height:0;flex:1 1 auto;justify-content:flex-start;margin-top:4px}
+.ja-stat-value{font-size:clamp(20px,2.6vw,40px);line-height:1;font-weight:900;font-variant-numeric:tabular-nums}
+.ja-stat.alerta .ja-stat-value{color:#8a1010}
+.ja-stat.alerta .ja-stat-value::after{content:'';display:inline-block;width:.32em;height:.32em;border-radius:50%;background:#c62828;margin-left:.25em;vertical-align:middle}
+.ja-stat-caption{font-size:clamp(9px,.85vw,12px);font-weight:700;opacity:.8}
+.ja-stat-chart{display:flex;align-items:flex-end;gap:4px;flex:1 1 auto;min-height:22px;max-height:160px;margin-top:6px;padding-bottom:2px;border-bottom:2px solid #1114}
+.ja-stat-chart i{flex:1 1 0;background:#111;opacity:.75;border-radius:3px 3px 0 0;min-height:2px}
+.ja-stat-chart i:last-child{opacity:1;background:#111}
+.ja-stat-chart i.zero{opacity:.2}
+.ja-stat-chart-cap{font-size:clamp(8px,.75vw,11px);font-weight:700;opacity:.65}
+@media(max-width:760px){
+  .ja-menu-item.ja-has-stat{min-height:120px!important}
+  .ja-stat-chart{min-height:34px;max-height:60px}
+}
+
+/* ===== Analise 3D das areas ================================================== */
+.ja-area-analise{display:flex;flex-direction:column;min-height:0}
+.ja-area-3d{position:relative;flex:1 1 auto;min-height:180px;border-radius:12px;overflow:hidden;
+  background:radial-gradient(ellipse at 50% 35%,#0d2234 0%,#050505 70%);cursor:grab}
+.ja-area-3d:active{cursor:grabbing}
+.ja-area-3d canvas{display:block}
+.ja-3d-dica{position:absolute;display:none;z-index:2;pointer-events:none;background:#f2a000;color:#111;font-weight:900;
+  font-size:12px;padding:4px 8px;border-radius:8px;white-space:nowrap;box-shadow:0 2px 8px #0008}
+.ja-3d-aviso{display:grid;place-items:center;height:100%;color:#a9b7c6;font-size:13px;text-align:center;padding:12px}
+.ja-analise-texto{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:4px}
+.ja-analise-texto li{background:#0b1724;border-left:6px solid #8fc7ef;border-radius:0 10px 10px 0;padding:5px 9px;
+  color:#e6eef6;font-size:clamp(10px,.85vw,13px);font-weight:700}
+.ja-analise-texto li.alerta{border-left-color:#ef6969;color:#ffd6d6}
+.ja-analise-dica{margin-top:5px;font-size:10px;color:#6f8ca8;text-align:right}
+@media(max-width:760px){
+  .ja-area-analise{grid-column:auto!important}
+  .ja-area-3d{min-height:260px}
+}
+.ja-3d-legenda{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:6px;font-size:clamp(10px,.8vw,12px);font-weight:800;color:#e6eef6}
+.ja-3d-legenda span{display:inline-flex;align-items:center;gap:5px}
+.ja-3d-legenda i{width:12px;height:12px;border-radius:3px;display:inline-block}
+
+/* Servicos em segundo plano */
+.ja-serv-card dl{grid-template-columns:auto minmax(0,1fr)}
+.ja-serv-card code{font-size:.92em;color:#8fc7ef}
+.ja-serv-chart{display:flex;flex-direction:column;min-height:44px;margin-top:4px}
+.ja-serv-chart .ja-stat-chart{height:34px;flex:0 0 auto}
+.ja-serv-chart .ja-stat-chart i{background:#8fc7ef}
+.ja-serv-chart .ja-stat-chart-cap{color:#a9b7c6}
+.ja-serv-analise{display:flex;flex-direction:column;min-height:0;height:100%}
+.ja-serv-analise .ja-area-3d{min-height:260px}
+.ja-native-body:has(.ja-serv-analise){grid-template-rows:auto minmax(0,1fr)!important}
+@media(max-width:560px){
+  .ja-native-body:has(.ja-serv-card) .ja-native-grid{grid-template-columns:1fr!important}
 }

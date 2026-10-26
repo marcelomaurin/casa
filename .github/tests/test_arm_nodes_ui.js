@@ -9,10 +9,12 @@ let rows=Array.from({length:151},(_,i)=>({device_id:'agent-'+i,nome:i===0?'<scri
 const context={
   loading(){}, getJson:async url=>{requested=url;return {nodes:rows};},
   esc:v=>String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'),
+  attr:v=>String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,' '),
   paginate:(name,items,size)=>({slice:items.slice(0,size),pages:Math.ceil(items.length/size)}),
   cards:(items,fn)=>items.map(fn).join(''), pager:(name,p)=>'pages='+p.pages,
   bindPager(){}, moduleShell:(title,b,a)=>{body=b;actions=a;},
-  document:{getElementById:()=>({onclick:null})}
+  openNewNodeModal(){}, openNodeEditor(){},
+  document:{getElementById:()=>({onclick:null}),querySelectorAll:()=>[]}
 };
 vm.createContext(context);
 vm.runInContext(render,context);

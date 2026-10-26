@@ -603,7 +603,8 @@ void sendHeartbeatToCasa() {
   // Clientes declarados antes do HTTPClient: sao destruidos depois dele
   WiFiClientSecure tls;
   HTTPClient http;
-  String url = casa_url + "/api/camera_discovery.php?acao=heartbeat&device_id=" + device_id
+  // API v1: wrapper que so aceita o heartbeat (rate limit e protecoes da v1)
+  String url = casa_url + "/api/v1/camera.php?acao=heartbeat&device_id=" + device_id
              + "&ip=" + WiFi.localIP().toString()
              + "&mac=" + physicalMac()
              + "&rssi=" + String(WiFi.RSSI());

@@ -93,7 +93,7 @@ Corpo do `POST /provision`:
  "stream":"/stream","capture":"/capture","ssid":"rede_sala","rssi":-58}
 ```
 
-- **Heartbeat:** a cada 30 s, `GET {casa_url}/api/camera_discovery.php?acao=heartbeat&device_id=...&ip=...&mac=...&rssi=...` com o cabeçalho `X-Camera-Token`. O HTTPS é validado contra as raízes Let's Encrypt (`casa_ca.h`). Sem token gravado, a câmera não envia heartbeat.
+- **Heartbeat:** a cada 30 s, `GET {casa_url}/api/v1/camera.php?acao=heartbeat&device_id=...&ip=...&mac=...&rssi=...` com o cabeçalho `X-Camera-Token`. Esse endpoint v1 só aceita o heartbeat, com rate limit de 10 por minuto, e repassa ao `camera_discovery.php`. Câmeras com firmware 2.0.0 continuam usando `camera_discovery.php?acao=heartbeat`, que segue aceito. O HTTPS é validado contra as raízes Let's Encrypt (`casa_ca.h`). Sem token gravado, a câmera não envia heartbeat.
 
 ### 2.3 Serial (diagnóstico e recuperação, 115200 baud)
 
@@ -145,7 +145,7 @@ Todas as ações exigem sessão do painel ou chave de API (`X-API-Key` / `Author
 | Método | Ação | Origem | Descrição |
 |---|---|---|---|
 | `POST` | `register_token` | gravafirmware | Cria ou atualiza a câmera em `dispositivos_cluster`. Campos: `device_id`, `token`, `mac`, `ip`, `tipo` (padrão `espcam`), `porta` (padrão 80), `porta_stream` (padrão = `porta`). Grava `metadata.token`, `web_port`, `stream_port`, `stream_url` e `snapshot_url` |
-| `GET` | `heartbeat` | Câmera | Atualiza `ultimo_heartbeat`, IP, MAC e RSSI |
+| `GET` | `heartbeat` | Câmera | Atualiza `ultimo_heartbeat`, IP, MAC e RSSI. Firmware 2.0.1 chega por `/api/v1/camera.php` |
 | `GET` | `listar` | Web / gravafirmware | Câmeras com status dinâmico (online se o heartbeat tiver ≤ 90 s) |
 | `GET` | `get_tokens` | Daemon | Tokens registrados (somente do banco) |
 | `GET` | `get_house_wifis` | Daemon / gravafirmware / Web | Redes Wi-Fi da casa (com senha) |
@@ -214,7 +214,7 @@ A câmera fica em `dispositivos_cluster` (`tipo = 'espcam'`). IP, MAC, RSSI e `u
 
 ## 8. Histórico
 
-- **2.0.1 (25/10/2026):** HTTPS do heartbeat passa a validar o certificado (`setCACert`, antes `setInsecure`); `casa_url` restrita a `https://CASA_ALLOWED_HOST`; heartbeat mantido durante o `/stream`; `/status` sem scan de Wi-Fi bloqueante (o survey atualizado fica em `/wifi_survey`). No site, `camera_discovery.php` passou a exigir autenticação em todas as ações exceto o heartbeat, deixou de expor tokens e detalhes de erro, e perdeu as redes Wi-Fi padrão; o `espcam_provision.php` legado foi removido.
+- **2.0.1 (25/10/2026):** HTTPS do heartbeat passa a validar o certificado (`setCACert`, antes `setInsecure`); `casa_url` restrita a `https://CASA_ALLOWED_HOST`; heartbeat mantido durante o `/stream` e enviado para `/api/v1/camera.php`; `/status` sem scan de Wi-Fi bloqueante (o survey atualizado fica em `/wifi_survey`). No site, `camera_discovery.php` passou a exigir autenticação em todas as ações exceto o heartbeat, deixou de expor tokens e detalhes de erro, e perdeu as redes Wi-Fi padrão; o `espcam_provision.php` legado foi removido.
 - **2.0.0 (19/10/2026):** provisionamento pela rede `espcam` (AP) com `GET`/`POST /provision`; NVS vazia após a gravação; conexão na rede de maior sinal; acesso local por IP interno; fallback para o `espcam` após 3 min sem rede; descoberta UDP; registro no site com tipo, IP e portas. O gravafirmware passou a fazer o fluxo completo: gravar, provisionar, voltar à rede, localizar e registrar.
 - **1.5.0:** protocolo serial com `CAM_STAGE`/`CAM_READY`/`PING` (substituído pelo provisionamento Wi-Fi; os comandos seriais ficaram para diagnóstico).
 - **1.4.0:** heartbeat autenticado por token com HTTPS validado; atendimento serial durante a conexão Wi-Fi; correções de `/capture` e do stream bloqueante.
