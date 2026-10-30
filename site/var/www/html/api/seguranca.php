@@ -21,6 +21,71 @@ function get_client_ip() {
     return filter_var($remote, FILTER_VALIDATE_IP) ? $remote : '0.0.0.0';
 }
 
+/**
+ * Verifica se o IP pertence a rede da casa (LAN privada ou IP publico residencial
+ * usado pelos nos do cluster / configurado em configuracoes_sistema).
+ * O IP da casa NUNCA deve ser bloqueado.
+ */
+function seguranca_is_house_ip(?PDO $pdo, string $ip): bool {
+    $ip = trim($ip);
+    if ($ip === '' || $ip === '0.0.0.0' || $ip === '127.0.0.1' || $ip === '::1') {
+        return true;
+    }
+    // Qualquer IP privado/reserva local (192.168.x.x, 10.x.x.x, 172.16-31.x.x, etc.)
+    if (filter_var($ip, FILTER_VALIDATE_IP) && !filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+        return true;
+    }
+    // IP publico conhecido da casa
+    $trusted = ['138.122.132.60'];
+    if (in_array($ip, $trusted, true)) {
+        return true;
+    }
+    if (!$pdo) {
+        return false;
+    }
+    static $cachedDynamicIps = null;
+    if ($cachedDynamicIps === null) {
+        $cachedDynamicIps = [];
+        try {
+            // 1. IPs configurados em configuracoes_sistema (casa_public_ip, trusted_ips)
+            $stCfg = $pdo->query("SELECT valor FROM configuracoes_sistema WHERE chave IN ('casa_public_ip', 'trusted_ips', 'home_ip') AND valor <> ''");
+            if ($stCfg) {
+                foreach ($stCfg->fetchAll(PDO::FETCH_COLUMN) as $val) {
+                    foreach (preg_split('/[\s,;]+/', (string)$val, -1, PREG_SPLIT_NO_EMPTY) as $cand) {
+                        if (filter_var($cand, FILTER_VALIDATE_IP)) {
+                            $cachedDynamicIps[$cand] = true;
+                        }
+                    }
+                }
+            }
+        } catch (Throwable $e) {}
+        try {
+            // 2. IP publico reportado pelos nos ativos do cluster ou tokens de clientes da casa
+            $stDev = $pdo->query("SELECT DISTINCT ip_address FROM dispositivos_cluster WHERE ativo = 1 AND ip_address IS NOT NULL AND ip_address <> ''");
+            if ($stDev) {
+                foreach ($stDev->fetchAll(PDO::FETCH_COLUMN) as $devIp) {
+                    $devIp = trim((string)$devIp);
+                    if ($devIp !== '' && filter_var($devIp, FILTER_VALIDATE_IP)) {
+                        $cachedDynamicIps[$devIp] = true;
+                    }
+                }
+            }
+        } catch (Throwable $e) {}
+        try {
+            $stTok = $pdo->query("SELECT DISTINCT ultimo_ip FROM api_client_tokens WHERE ativo = 1 AND revogado_em IS NULL AND ultimo_ip IS NOT NULL AND ultimo_ip <> ''");
+            if ($stTok) {
+                foreach ($stTok->fetchAll(PDO::FETCH_COLUMN) as $tokIp) {
+                    $tokIp = trim((string)$tokIp);
+                    if ($tokIp !== '' && filter_var($tokIp, FILTER_VALIDATE_IP)) {
+                        $cachedDynamicIps[$tokIp] = true;
+                    }
+                }
+            }
+        } catch (Throwable $e) {}
+    }
+    return isset($cachedDynamicIps[$ip]);
+}
+
 /** Garante compatibilidade e presenca das colunas de seguranca */
 function seguranca_ensure_schema(PDO $pdo): void {
     static $done = false;
@@ -83,6 +148,12 @@ function seguranca_ensure_schema(PDO $pdo): void {
 
 /** Bloqueio ativo do IP (ou null). Comparacao feita pelo relogio do MySQL. */
 function seguranca_bloqueio_ativo(PDO $pdo, string $ip): ?array {
+    if (seguranca_is_house_ip($pdo, $ip)) {
+        try {
+            $pdo->prepare("DELETE FROM seguranca_ips_bloqueados WHERE ip_address = :ip")->execute([':ip' => $ip]);
+        } catch (Throwable $e) {}
+        return null;
+    }
     try {
         $stmt = $pdo->prepare("SELECT ip_address, motivo, bloqueado_em, bloqueado_ate, tentativas_falhas FROM seguranca_ips_bloqueados WHERE ip_address = :ip AND bloqueado_ate IS NOT NULL AND bloqueado_ate > NOW()");
         $stmt->execute([':ip' => $ip]);
@@ -114,7 +185,7 @@ function seguranca_liberar_vencido(PDO $pdo, string $ip): void {
 
 function verificar_bloqueio_ip() {
     $ip = get_client_ip();
-    if ($ip === '127.0.0.1' || $ip === '::1') return true;
+    if (seguranca_is_house_ip(null, $ip)) return true;
     if (!empty($_SESSION['auth_user'])) return true;
 
     $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
@@ -122,7 +193,7 @@ function verificar_bloqueio_ip() {
         $tok = trim($m[1]);
         if ($tok !== '') {
             $expectedToken = get_system_api_token();
-            if (($expectedToken !== '' && hash_equals($expectedToken, $tok)) || $tok === 'casa_sec_a4c5a1a2fea405d668edf5934f67d9eb9df23d4c89c5c616') {
+            if ($expectedToken !== '' && hash_equals($expectedToken, $tok)) {
                 return true;
             }
         }
@@ -130,6 +201,10 @@ function verificar_bloqueio_ip() {
     try {
         $pdo = get_db_pdo();
         seguranca_ensure_schema($pdo);
+        if (seguranca_is_house_ip($pdo, $ip)) {
+            $pdo->prepare("DELETE FROM seguranca_ips_bloqueados WHERE ip_address = :ip")->execute([':ip' => $ip]);
+            return true;
+        }
         $row = seguranca_bloqueio_ativo($pdo, $ip);
         if ($row) {
             registrar_evento_seguranca($ip, 'ACESSO_IP_BLOQUEADO', 'Tentativa de acesso negada. Motivo: ' . $row['motivo'], 'CRITICO', true, 'api');
@@ -161,6 +236,12 @@ function registrar_falha_seguranca($motivo, $severidade = 'AVISO', $origem = 'ap
         seguranca_ensure_schema($pdo);
         registrar_evento_seguranca($ip, 'FALHA_AUTENTICACAO', $motivo, $severidade, false, $origem, $usuario);
         seguranca_liberar_vencido($pdo, $ip);
+
+        // No IP da casa NUNCA bloqueia nem acumula bloqueio em seguranca_ips_bloqueados
+        if (seguranca_is_house_ip($pdo, $ip)) {
+            $pdo->prepare("DELETE FROM seguranca_ips_bloqueados WHERE ip_address = :ip")->execute([':ip' => $ip]);
+            return null;
+        }
 
         // Falhas antigas (fora da janela) nao somam.
         $stmt = $pdo->prepare("SELECT tentativas_falhas, (COALESCE(ultima_falha, atualizado_em) IS NOT NULL AND COALESCE(ultima_falha, atualizado_em) >= DATE_SUB(NOW(), INTERVAL " . SEG_JANELA_MIN . " MINUTE)) AS recente FROM seguranca_ips_bloqueados WHERE ip_address = :ip");

@@ -25,6 +25,8 @@ for base in TARGETS:
     for path in base.rglob("*"):
         if not path.is_file() or path.suffix.lower() not in EXTENSIONS:
             continue
+        if "build" in path.parts or ".gradle" in path.parts:
+            continue
         try:
             text = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:

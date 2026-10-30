@@ -89,7 +89,7 @@ class SSHAgentRequestHandler(BaseHTTPRequestHandler):
             nodes_data = controller.list_nodes()
             # Adiciona ping ao vivo
             for n in nodes_data:
-                online, lat = controller.ping_node(n, timeout=1.0)
+                online, lat = controller.ping_node(n, timeout=2.5)
                 n["online"] = online
                 n["latency_ms"] = lat
             self.send_json({

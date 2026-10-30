@@ -44,7 +44,8 @@ BIN_FILE = BUILD_DIR / "jarvis_espcam.ino.bin"
 ESPTOOL_PATH = os.path.expandvars(r"%USERPROFILE%\AppData\Local\Arduino15\packages\esp32\tools\esptool_py\5.3.1\esptool.exe")
 TOKEN_VAULT_DIR = Path(os.path.expanduser("~/.casa"))
 TOKEN_VAULT_FILE = TOKEN_VAULT_DIR / "camera_tokens.json"
-DAEMON_URL = "https://maurinsoft.com.br/casa/api/camera_discovery.php?acao=register_token"
+DAEMON_URL = "https://maurinsoft.com.br/casa/api/v1/camera.php?acao=register_token"
+LOCAL_DAEMON_IPC_URL = "http://127.0.0.1:8088/token"
 
 # Cores Star Trek LCARS
 C_BG = "#060913"
@@ -313,7 +314,7 @@ class GravaFirmwareApp:
 
                     # Reconhece resposta: CAM_SECRET:DEVICE_ID=...:MAC=...:TOKEN=...:IP=...
                     if "CAM_SECRET" in line or "TOKEN=" in line:
-                        tok_m = re.search(r"TOKEN=([0-9a-fA-F]+)", line)
+                        tok_m = re.search(r"TOKEN=([A-Za-z0-9]+)", line)
                         did_m = re.search(r"DEVICE_ID=([a-zA-Z0-9_-]+)", line)
                         mac_m = re.search(r"MAC=([0-9a-fA-F:]+)", line)
                         ip_m = re.search(r"IP=([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)", line)
@@ -422,6 +423,15 @@ class GravaFirmwareApp:
                     self.log("Site recusou: defina a variavel de ambiente CASA_API_KEY com uma chave valida.", "ERRO")
                 else:
                     self.log(f"Site retornou HTTP {r.status_code}: {r.text[:200]}", "ERRO")
+            except Exception as e:
+                self.log(f"Falha ao contatar site CASA: {e}", "AVISO")
+            try:
+                r_local = requests.post(LOCAL_DAEMON_IPC_URL, json=payload, timeout=2.5)
+                if r_local.status_code == 200:
+                    self.log(f"Daemon local (porta 8088) confirmou recepção da chave!", "DAEMON_OK")
+                    dispatched = True
+            except Exception as e:
+                self.log(f"Daemon local (porta 8088) ainda não está ativo no host: {e}", "INFO")
             except Exception as e:
                 self.log(f"Daemon local (porta 8088) ainda não está ativo no host: {e}", "INFO")
 

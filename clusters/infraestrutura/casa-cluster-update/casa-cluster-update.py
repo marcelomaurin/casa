@@ -9,7 +9,10 @@ que estavam ativos e informa à API central o commit instalado.
 """
 import argparse
 import configparser
-import fcntl
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 import hashlib
 import json
 import os
@@ -159,9 +162,17 @@ def api(cfg, action, payload=None):
 # --------------------------------------------------------------------------- Git
 
 def git(args, cwd=None, timeout=600):
-    env = dict(os.environ, GIT_TERMINAL_PROMPT='0', LC_ALL='C', GIT_SSL_NO_VERIFY='true')
+    env = dict(os.environ, GIT_TERMINAL_PROMPT='0', LC_ALL='C')
+    if os.environ.get('CASA_GIT_SSL_NO_VERIFY') == '1':
+        env['GIT_SSL_NO_VERIFY'] = 'true'
     result = subprocess.run(['git'] + list(args), cwd=cwd, env=env, timeout=timeout,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if result.returncode != 0 and 'GIT_SSL_NO_VERIFY' not in env:
+        err_txt = result.stderr.decode('utf-8', 'replace').lower()
+        if 'certificate' in err_txt or 'ssl' in err_txt or 'tls' in err_txt:
+            env['GIT_SSL_NO_VERIFY'] = 'true'
+            result = subprocess.run(['git'] + list(args), cwd=cwd, env=env, timeout=timeout,
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if result.returncode != 0:
         raise RuntimeError('git ' + args[0] + ' falhou: ' + result.stderr.decode('utf-8', 'replace').strip()[:300])
     return result.stdout
@@ -296,7 +307,8 @@ def install_component(root, files, stage, service):
                 os.chmod(temp, target.stat().st_mode & 0o777 if existed else (0o755 if target.suffix == '.sh' else 0o644))
                 if existed:
                     stat = target.stat()
-                    os.chown(temp, stat.st_uid, stat.st_gid)
+                    if hasattr(os, 'chown'):
+                        os.chown(temp, stat.st_uid, stat.st_gid)
                 os.replace(temp, str(target))
             finally:
                 if os.path.exists(temp):
@@ -346,7 +358,8 @@ def poll(cfg, check=False, force=False):
     os.chmod(str(state_dir), 0o755)
     repo_url = settings.get('repo_url', DEFAULT_REPO)
     with (state_dir / 'update.lock').open('a') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if fcntl is not None:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         state_file = state_dir / 'state.json'
         state = json.loads(read_text_file(state_file)) if state_file.exists() else {}
         state.setdefault('components', {})

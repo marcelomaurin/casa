@@ -93,7 +93,7 @@ Corpo do `POST /provision`:
  "stream":"/stream","capture":"/capture","ssid":"rede_sala","rssi":-58}
 ```
 
-- **Heartbeat:** a cada 30 s, `GET {casa_url}/api/camera_discovery.php?acao=heartbeat&device_id=...&ip=...&mac=...&rssi=...` com o cabeçalho `X-Camera-Token`. O HTTPS é validado contra as raízes Let's Encrypt (`casa_ca.h`). Sem token gravado, a câmera não envia heartbeat.
+- **Heartbeat:** a cada 30 s, `GET {casa_url}/api/v1/camera.php?acao=heartbeat&device_id=...&ip=...&mac=...&rssi=...` (compatível com `/api/camera_discovery.php`) com o cabeçalho `X-Camera-Token`. O HTTPS é validado contra as raízes Let's Encrypt (`casa_ca.h`). Sem token gravado, a câmera não envia heartbeat.
 
 ### 2.3 Serial (diagnóstico e recuperação, 115200 baud)
 
@@ -164,7 +164,7 @@ O cofre de tokens fica **somente no banco** (`dispositivos_cluster.metadata.toke
 - Lê `CASA_SERVER_URL` e `CASA_API_KEY` do ambiente e envia a chave em `X-API-Key` em todas as chamadas ao site.
 - A cada ciclo (8 s), varre a sub-rede (`/status`), captura `/capture` das câmeras conhecidas e publica o frame (`upload_snapshot`).
 - A cada 60 s, sincroniza as redes da casa do site, repassa a lista para as câmeras (`/config/wifis`) e envia o survey de sinal (`report_wifi_scan`).
-- **Limitação atual:** a regra "apenas um daemon ativo por residência (Active/Standby)" **não está implementada**: todo daemon iniciado atua como ativo.
+- **Coordenação Active/Standby:** ao subir a porta local 8088, se já houver uma instância escutando na máquina, o daemon entra em modo Standby (`is_leader = False`) para evitar varreduras duplicadas.
 
 ---
 

@@ -49,6 +49,7 @@ if ($subpath === '' || $subpath === 'status') {
             'mobile'=>'/api/v1/mobile.php',
             'watch'=>'/api/v1/watch.php',
             'family'=>'/api/v1/family.php',
+            'camera'=>'/api/v1/camera.php',
             'command'=>'/api/v1/comando'
         ],
         'resumo'=>[
@@ -67,6 +68,7 @@ if ($subpath === 'comando') {
     $cmd=trim((string)($input['comando'] ?? ''));
     if ($cmd==='') api_v1_json_response(400,['status'=>'erro','mensagem'=>'Parâmetro comando obrigatório']);
 
+    $correlationId=api_v1_correlation_id($input['correlation_id'] ?? null);
     $internalToken=get_system_api_token();
     $ch=curl_init('https://maurinsoft.com.br/casa/api/jarvis.php');
     curl_setopt_array($ch,[
@@ -77,7 +79,9 @@ if ($subpath === 'comando') {
             'ia_mode'=>$input['ia_mode'] ?? 'auto',
             'origem'=>$input['origem'] ?? 'API_V1',
             'idioma'=>$input['idioma'] ?? null,
-            'locale'=>$input['locale'] ?? null
+            'locale'=>$input['locale'] ?? null,
+            'correlation_id'=>$correlationId,
+            'task_context'=>$input['task_context'] ?? null
         ],JSON_UNESCAPED_UNICODE),
         CURLOPT_HTTPHEADER=>['Content-Type: application/json','X-API-Key: '.$internalToken],
         CURLOPT_TIMEOUT=>45
@@ -87,11 +91,18 @@ if ($subpath === 'comando') {
     $data=json_decode((string)$res,true);
     if (!is_array($data)) $data=['resposta'=>(string)$res];
     api_v1_json_response(200,[
-        'status'=>'sucesso','comando'=>$cmd,
+        'status'=>'sucesso',
+        'comando'=>$cmd,
         'resposta'=>$data['resposta'] ?? $data['mensagem'] ?? '',
         'provedor_ia'=>$data['provedor'] ?? 'JARVIS',
         'acao_executada'=>$data['acao'] ?? $data['acao_executada'] ?? null,
-        'audio_url'=>$data['audio_url'] ?? null
+        'audio_url'=>$data['audio_url'] ?? null,
+        'id_plano'=>$data['id_plano'] ?? null,
+        'id_tarefa_raiz'=>$data['id_tarefa_raiz'] ?? null,
+        'task_context'=>$data['task_context'] ?? null,
+        'task_status'=>$data['task_status'] ?? null,
+        'correlation_id'=>$data['task_context']['correlation_id'] ?? $correlationId,
+        'tarefas_execucao'=>$data['tarefas_execucao'] ?? []
     ]);
 }
 

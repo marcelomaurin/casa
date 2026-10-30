@@ -161,7 +161,7 @@ begin
   else
     edtFirmwarePath.Text := 'N:\maurinsoft\casa\arduino\esp32_cam\jarvis_espcam\build\jarvis_espcam.ino.bin';
 
-  edtDaemonUrl.Text := 'https://maurinsoft.com.br/casa/api/camera_discovery.php?acao=register_token';
+  edtDaemonUrl.Text := 'https://maurinsoft.com.br/casa/api/v1/camera.php?acao=register_token';
   edtApiKey.Text := SysUtils.GetEnvironmentVariable('CASA_API_KEY');
   btnFlash.Caption := '1. Gravar Firmware';
   btnGetToken.Caption := '2. Provisionar (Serial)';
@@ -416,6 +416,15 @@ var
 
     if (FSerialIp <> '') and (FSerialIp <> '0.0.0.0') then
       edtIp.Text := FSerialIp;
+
+    // Pre-registra o token no site (sem IP) para o site aceitar o heartbeat da camera (Plano B)
+    FProv.DeviceId := Trim(edtDeviceId.Text);
+    FProv.Mac := Trim(edtMac.Text);
+    FProv.Ip := Trim(edtIp.Text);
+    if FProv.Porta = 0 then FProv.Porta := 80;
+    if FProv.PortaStream = 0 then FProv.PortaStream := 80;
+    if ApiKey <> '' then
+      FProv.RegisterOnSite(Trim(edtDaemonUrl.Text), ApiKey, Token);
 
     // Se ainda nao pegou IP, busca via broadcast UDP na rede da casa
     if (edtIp.Text = '') or (edtIp.Text = '0.0.0.0') then

@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 PORT=int(os.getenv("CASA_GOOGLE_HOME_PORT","8100"))
-COMPUTER_URL=os.getenv("CASA_COMPUTER_URL","http://127.0.0.1/api/jarvis.php")
+COMPUTER_URL=os.getenv("CASA_COMPUTER_URL",os.getenv("CASA_BASE_URL","https://maurinsoft.com.br/casa").rstrip("/")+"/api/jarvis.php")
 TTS_URL=os.getenv("CASA_TTS_URL","http://127.0.0.1:8097/falar")
 SYSTEM_API_TOKEN=os.getenv("CASA_SYSTEM_API_TOKEN","")
 HARDWARE_URL=os.getenv("CASA_GOOGLE_HOME_HARDWARE_URL","")

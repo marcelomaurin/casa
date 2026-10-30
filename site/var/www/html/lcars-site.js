@@ -969,26 +969,215 @@ function openNodeEditor(node){
   };
 }
 
+function openNodeServicesModal(node, catalog){
+  document.getElementById('ja-node-services-modal')?.remove();
+  const assignedSet = new Set(node.assigned_services || ['casa-cluster-site', 'casa-node-agent', 'ssh']);
+  const svcList = (catalog && catalog.length) ? catalog : [
+    {id:'casa-cluster-site', label:'Portal Web do Cluster (:8080)', protected:true, exclusive:false, entrypoint:'/opt/casa-cluster-site/server.py', port:8080, purpose:'Interface web local e API REST de telemetria em tempo real e controle remoto de daemons deste servidor.', impact_when_stopped:'SERVIÇO PROTEGIDO: Não pode ser desativado.'},
+    {id:'casa-node-agent', label:'Agente ARM do Control Plane (:8098)', protected:false, exclusive:false, entrypoint:'/opt/casa-node-agent/casa-node-agent.py', port:8098, purpose:'Daemon cliente do Control Plane CASA/1.0: envia heartbeat a cada 20s e executa comandos remotos de GPIO, Relés e Serial/RS485.', impact_when_stopped:'O servidor passará a aparecer como OFFLINE no site principal.'},
+    {id:'ssh', label:'Servidor OpenSSH (:22)', protected:false, exclusive:false, entrypoint:'/usr/sbin/sshd', port:22, purpose:'Acesso seguro de terminal remoto (SSH) para administração Linux e deploy.', impact_when_stopped:'Bloqueia conexões de terminal SSH externas neste servidor.'},
+    {id:'casa-tts', label:'Síntese Neural de Voz TTS (:8097)', protected:false, exclusive:true, entrypoint:'/home/mmm/servicos/tts/server_tts.py', port:8097, purpose:'Motor de síntese de voz neural que converte textos e respostas do Jarvis em áudio falado.', impact_when_stopped:'A casa e o assistente Jarvis ficam mudos.'},
+    {id:'jarvis-web-agent', label:'Agente de Pesquisa Web IA (:8092)', protected:false, exclusive:true, entrypoint:'/opt/jarvis-web-agent/web_agent.py', port:8092, purpose:'Daemon de busca na internet, consulta de notícias, clima e contexto externo para a IA Jarvis.', impact_when_stopped:'O Jarvis perde a capacidade de consultar informações em tempo real na internet.'},
+    {id:'espcam_daemon', label:'Visão Computacional & ESP32-CAM (:8088)', protected:false, exclusive:true, entrypoint:'/home/mmm/servicos/espcam/espcam_daemon.py', port:8088, purpose:'Captura quadros das câmeras ESP32-CAM da residência, detecta presença e encaminha imagens para IA.', impact_when_stopped:'Interrompe o monitoramento das câmeras ESP32-CAM e detecção visual.'},
+    {id:'casa-ssh-agent', label:'Controlador SSH da Malha (:8095)', protected:false, exclusive:true, entrypoint:'/opt/casa/ssh-agent/casa-ssh-agent.py', port:8095, purpose:'Gateway central da malha SSH para diagnósticos e comandos remotos autenticados entre os nós ARM.', impact_when_stopped:'Desativa a ponte central de gerenciamento SSH entre os servidores.'},
+    {id:'casa-scheduler', label:'Agendador Residencial (Scheduler)', protected:false, exclusive:true, entrypoint:'/opt/casa-scheduler/casa-scheduler.py', port:null, purpose:'Motor cronológico da casa: avalia regras agendadas (horários de luzes, relés, cenas e avisos) e dispara as ações.', impact_when_stopped:'Nenhuma rotina agendada por horário ou cena automática será disparada.'},
+    {id:'casa-tunnel', label:'Conectividade & Túnel Nuvem', protected:false, exclusive:true, entrypoint:'/opt/casa-tunnel/casa-tunnel.py', port:null, purpose:'Mantém o túnel reverso e a ponte segura entre a rede interna da casa e o servidor em nuvem.', impact_when_stopped:'A nuvem perde acesso direto por túnel aos serviços internos da LAN.'},
+    {id:'casa-runpod-agent', label:'Agente RunPod & GPU Remota (:8096)', protected:false, exclusive:true, entrypoint:'/opt/casa/servicos/runpod-agent/casa-runpod-agent.py', port:8096, purpose:'Gerencia sob demanda instâncias de GPU na nuvem (RunPod) para tarefas pesadas de IA.', impact_when_stopped:'Desativa o provisionamento automático de GPUs remotas no RunPod.'},
+    {id:'mariadb', label:'Banco MariaDB / MySQL (maurinsoftdb)', protected:false, exclusive:true, entrypoint:'/usr/sbin/mariadbd', port:3306, purpose:'Servidor de banco de dados relacional que hospeda o banco central da casa (maurinsoftdb).', impact_when_stopped:'Se parado no servidor de banco (.15), interrompe as consultas SQL locais.'}
+  ];
+
+  const rowsHtml = svcList.map(s => {
+    const checked = assignedSet.has(s.id) || s.protected;
+    const dis = s.protected ? 'disabled' : '';
+    const badge = s.protected
+      ? '<span style="background:rgba(56,189,248,0.18);color:#38bdf8;border:1px solid #38bdf8;padding:1px 6px;border-radius:4px;font-size:0.68rem;font-weight:bold;white-space:nowrap;">🔒 PROTEGIDO</span>'
+      : (s.exclusive
+          ? '<span style="background:rgba(245,158,11,0.15);color:#fbbf24;border:1px solid rgba(245,158,11,0.5);padding:1px 6px;border-radius:4px;font-size:0.68rem;white-space:nowrap;">EXCLUSIVO NO CLUSTER</span>'
+          : '<span style="background:rgba(148,163,184,0.15);color:#cbd5e1;padding:1px 6px;border-radius:4px;font-size:0.68rem;white-space:nowrap;">BASE DO NÓ</span>');
+    return '<label style="display:flex;flex-direction:column;gap:5px;padding:10px 12px;background:rgba(15,23,42,0.82);border:1px solid #1e293b;border-radius:6px;cursor:'+(s.protected?'not-allowed':'pointer')+';">'+
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">'+
+        '<span style="display:flex;align-items:center;gap:8px;font-size:0.86rem;color:#f8fafc;">'+
+          '<input type="checkbox" data-svc-check="'+attr(s.id)+'" '+(checked?'checked':'')+' '+dis+' style="width:16px;height:16px;">'+
+          '<span><strong>'+esc(s.label)+'</strong> <code style="color:#38bdf8;font-size:0.75rem;">('+esc(s.id)+')</code></span>'+
+        '</span>'+
+        badge+
+      '</div>'+
+      (s.purpose ? '<div style="padding-left:24px;font-size:0.76rem;color:#cbd5e1;line-height:1.38;"><b>Finalidade:</b> '+esc(s.purpose)+'</div>' : '')+
+      (s.impact_when_stopped ? '<div style="padding-left:24px;font-size:0.72rem;color:#fbbf24;line-height:1.35;"><b>Impacto se desativado:</b> '+esc(s.impact_when_stopped)+'</div>' : '')+
+      (s.entrypoint ? '<div style="padding-left:24px;font-size:0.7rem;color:#64748b;font-family:monospace;">Daemon: '+esc(s.entrypoint)+(s.port?' · Porta :'+esc(String(s.port)):'')+'</div>' : '')+
+    '</label>';
+  }).join('');
+
+  const modal=document.createElement('div');
+  modal.id='ja-node-services-modal';
+  modal.className='ja-schedule-backdrop';
+  modal.innerHTML=
+    '<section class="ja-schedule-modal" style="width:min(660px,96vw);" role="dialog" aria-modal="true">'+
+      '<header><strong>DEFINIR QUEM EXECUTA O QUÊ · '+esc(node.nome||node.device_id)+' ('+esc(node.ip_address||'—')+')</strong><button type="button" data-close>FECHAR</button></header>'+
+      '<div class="ja-schedule-form">'+
+        '<label class="wide"><span>Papel / Função Especializada deste Servidor</span><input id="node-svc-papel" value="'+attr(node.papel||'')+'" placeholder="Ex.: Nó de IA, Voz Neural TTS & Visão"></label>'+
+        '<div class="wide" style="display:flex;flex-direction:column;gap:6px;max-height:52vh;overflow-y:auto;padding-right:4px;">'+
+          '<small style="color:#94a3b8;margin-bottom:4px;">Marque os serviços que este servidor deve executar. Serviços marcados como <b>EXCLUSIVO NO CLUSTER</b> serão automaticamente desativados nos demais nós para evitar redundância. O serviço web (<code>casa-cluster-site</code>) é protegido.</small>'+
+          rowsHtml+
+        '</div>'+
+        '<div id="node-svc-msg" class="ja-schedule-message"></div>'+
+      '</div>'+
+      '<footer>'+
+        '<button type="button" data-save style="background:var(--ja-cyan, #38bdf8);color:#000;font-weight:900;">APLICAR DISTRIBUIÇÃO NESTE NÓ</button>'+
+      '</footer>'+
+    '</section>';
+  document.body.appendChild(modal);
+
+  const close=()=>modal.remove();
+  modal.querySelector('[data-close]').onclick=close;
+  modal.addEventListener('click',e=>{if(e.target===modal)close();});
+
+  const btnSave=modal.querySelector('[data-save]');
+  const msgBox=modal.querySelector('#node-svc-msg');
+
+  btnSave.onclick=async()=>{
+    const papel=modal.querySelector('#node-svc-papel').value.trim();
+    const selected=[];
+    modal.querySelectorAll('[data-svc-check]').forEach(chk=>{
+      if(chk.checked) selected.push(chk.getAttribute('data-svc-check'));
+    });
+
+    btnSave.disabled=true;
+    btnSave.textContent='APLICANDO NO CLUSTER...';
+    msgBox.className='ja-schedule-message';
+    msgBox.textContent='';
+
+    try{
+      const res=await postJson('/casa/api/arm_nodes.php', {
+        acao: 'atribuir_servicos',
+        device_id: node.device_id||'',
+        id: node.id||'',
+        ip_address: node.ip_address||'',
+        papel: papel,
+        assigned_services: selected
+      });
+      if(res && res.status==='ok'){
+        msgBox.className='ja-schedule-message ok';
+        msgBox.style.color='#4ade80';
+        msgBox.textContent=res.mensagem||'Serviços atribuídos e sincronizados com sucesso!';
+        setTimeout(()=>{
+          close();
+          renderNodes();
+        }, 700);
+      }else{
+        throw new Error(res?.mensagem||'Erro ao atribuir serviços.');
+      }
+    }catch(err){
+      msgBox.className='ja-schedule-message error';
+      msgBox.textContent=err.message||'Falha ao salvar distribuição de serviços.';
+      btnSave.disabled=false;
+      btnSave.textContent='APLICAR DISTRIBUIÇÃO NESTE NÓ';
+    }
+  };
+}
+
 async function renderNodes(){
   loading('Clusters e agentes Linux ARM');
   try{
     const j=await getJson('/casa/api/arm_nodes.php');
     const all=j.nodes||[];
+    const catalog=j.service_catalog||[];
+    const orch=j.orchestration||[];
     const p=paginate('nodes',all,12);
     const states={online:'ONLINE',offline:'SEM CONTATO RECENTE',registered:'AGUARDANDO CONTATO',revoked:'REVOGADO'};
-    const summary='<p>'+esc(all.length)+' agente(s) registrado(s) • '+esc(all.filter(n=>n.online).length)+' online. Online: contato nos últimos 40 segundos (heartbeat a cada 20s). Se em 40s não responder, o cluster caiu.</p>';
-    const body=all.length?cards(p.slice,(n,i)=>'<article class="ja-native-card" style="position:relative;">'+
-      '<div style="position:absolute;top:10px;right:10px;display:flex;gap:5px;z-index:2;">'+
+    const summary='<p>'+esc(all.length)+' agente(s) registrado(s) • '+esc(all.filter(n=>n.online).length)+' online. Online: contato nos últimos 40 segundos (heartbeat a cada 20s). Gerencie abaixo quem executa cada serviço da casa (sem redundância) e ative/desative serviços remotamente.</p>';
+
+    const orchHtml = orch.length ? (
+      '<section class="ja-native-card" style="margin-bottom:18px;border:1px solid #24516b;background:rgba(2,12,24,0.85);">'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px;">'+
+          '<h3 style="margin:0;color:#38bdf8;">⚡ ORQUESTRAÇÃO DE SERVIÇOS DO CLUSTER (QUEM EXECUTA O QUÊ · SEM REDUNDÂNCIA)</h3>'+
+          '<span style="font-size:0.75rem;color:#94a3b8;">Ao transferir ou ativar um serviço em um servidor, ele é desativado automaticamente nos demais</span>'+
+        '</div>'+
+        '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:10px;">'+
+          orch.map(item => {
+            const isAct = !!item.active;
+            const stColor = isAct ? '#22c55e' : '#f87171';
+            const stText = isAct ? 'ATIVO' : 'INATIVO';
+            const optionsHtml = all.map(n => {
+              const sel = (n.device_id && n.device_id === item.owner_device_id) || (n.ip_address && n.ip_address === item.owner_ip) ? 'selected' : '';
+              return '<option value="'+attr(n.device_id||'')+'" data-ip="'+attr(n.ip_address||'')+'" '+sel+'>'+esc(n.nome||'Nó')+' ('+esc(n.ip_address||'sem IP')+')'+(n.online?' [ONLINE]':' [OFFLINE]')+'</option>';
+            }).join('');
+            return '<div style="padding:10px 12px;border-radius:8px;background:rgba(15,23,42,0.85);border:1px solid '+(item.redundant?'#eab308':'#1e293b')+';display:flex;flex-direction:column;gap:8px;">'+
+              '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">'+
+                '<div>'+
+                  '<strong style="color:#f8fafc;font-size:0.86rem;display:block;">'+esc(item.label)+'</strong>'+
+                  '<code style="color:#38bdf8;font-size:0.73rem;">'+esc(item.id)+'</code>'+
+                  (item.entrypoint ? ' <small style="color:#64748b;font-family:monospace;font-size:0.69rem;">· '+esc(item.entrypoint)+'</small>' : '')+
+                '</div>'+
+                '<span style="background:rgba(0,0,0,0.4);border:1px solid '+stColor+';color:'+stColor+';padding:2px 8px;border-radius:999px;font-size:0.7rem;font-weight:bold;white-space:nowrap;">'+stText+'</span>'+
+              '</div>'+
+              (item.purpose ? '<div style="font-size:0.75rem;color:#cbd5e1;line-height:1.38;background:rgba(2,7,12,0.55);padding:6px 8px;border-radius:5px;border-left:2px solid #38bdf8;"><b>Propósito do Daemon:</b> '+esc(item.purpose)+(item.impact_when_stopped ? '<div style="color:#fbbf24;margin-top:3px;font-size:0.71rem;"><b>Se desativado:</b> '+esc(item.impact_when_stopped)+'</div>' : '')+'</div>' : '')+
+              '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">'+
+                '<small style="color:#94a3b8;font-size:0.74rem;">Servidor executor:</small>'+
+                '<select class="ja-orch-select" data-svc="'+attr(item.id)+'" style="flex:1;min-width:160px;background:#02070c;color:#e2e8f0;border:1px solid #334155;border-radius:4px;padding:4px 6px;font-size:0.78rem;">'+
+                  optionsHtml+
+                '</select>'+
+                '<button type="button" class="ja-orch-move-btn" data-svc="'+attr(item.id)+'" style="background:#38bdf8;color:#000;border:none;border-radius:4px;padding:4px 9px;font-size:0.73rem;font-weight:900;cursor:pointer;" title="Transferir e ativar este serviço no servidor selecionado">APLICAR NÓ</button>'+
+              '</div>'+
+              '<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;padding-top:4px;border-top:1px solid rgba(51,65,85,0.4);">'+
+                '<small style="color:#cbd5e1;font-size:0.72rem;">Atual: <b>'+esc(item.owner_name||'—')+'</b> ('+esc(item.owner_ip||'—')+')</small>'+
+                '<div style="display:flex;gap:4px;">'+
+                  (isAct
+                    ? '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(item.id)+'" data-act="stop" data-dev="'+attr(item.owner_device_id||'')+'" data-ip="'+attr(item.owner_ip||'')+'" style="background:#ef4444;color:#fff;border:none;border-radius:4px;padding:3px 8px;font-size:0.7rem;font-weight:bold;cursor:pointer;">⏹ PARAR</button>'+
+                      '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(item.id)+'" data-act="restart" data-dev="'+attr(item.owner_device_id||'')+'" data-ip="'+attr(item.owner_ip||'')+'" style="background:#334155;color:#e2e8f0;border:none;border-radius:4px;padding:3px 8px;font-size:0.7rem;font-weight:bold;cursor:pointer;">↻ REINICIAR</button>'
+                    : '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(item.id)+'" data-act="start" data-dev="'+attr(item.owner_device_id||'')+'" data-ip="'+attr(item.owner_ip||'')+'" style="background:#22c55e;color:#000;border:none;border-radius:4px;padding:3px 8px;font-size:0.7rem;font-weight:bold;cursor:pointer;">▶ ATIVAR</button>')+
+                '</div>'+
+              '</div>'+
+            '</div>';
+          }).join('')+
+        '</div>'+
+      '</section>'
+    ) : '';
+
+    const body=all.length?cards(p.slice,(n,i)=>{
+      const svcs = n.services_detail || [];
+      const svcsHtml = svcs.length ? (
+        '<div style="display:flex;flex-direction:column;gap:6px;margin-top:4px;">'+
+          svcs.map(s => {
+            const isAct = !!s.active;
+            const badgeColor = isAct ? '#22c55e' : '#f87171';
+            const ctrlBtns = s.protected
+              ? '<span style="background:rgba(56,189,248,0.16);border:1px solid #38bdf8;color:#38bdf8;padding:2px 6px;border-radius:4px;font-size:0.68rem;font-weight:bold;">🔒 WEB PROTEGIDO</span>'
+              : (isAct
+                  ? '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(s.id)+'" data-act="stop" data-dev="'+attr(n.device_id||'')+'" data-ip="'+attr(n.ip_address||'')+'" style="background:#ef4444;color:#fff;border:none;border-radius:4px;padding:2px 7px;font-size:0.68rem;font-weight:bold;cursor:pointer;">⏹ DESATIVAR</button>'+
+                    '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(s.id)+'" data-act="restart" data-dev="'+attr(n.device_id||'')+'" data-ip="'+attr(n.ip_address||'')+'" style="background:#334155;color:#fff;border:none;border-radius:4px;padding:2px 6px;font-size:0.68rem;cursor:pointer;" title="Reiniciar serviço">↻</button>'
+                  : '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(s.id)+'" data-act="start" data-dev="'+attr(n.device_id||'')+'" data-ip="'+attr(n.ip_address||'')+'" style="background:#22c55e;color:#000;border:none;border-radius:4px;padding:2px 7px;font-size:0.68rem;font-weight:bold;cursor:pointer;">▶ ATIVAR</button>');
+            return '<div style="display:flex;flex-direction:column;gap:4px;padding:6px 8px;background:rgba(2,7,12,0.75);border:1px solid #1e293b;border-radius:5px;">'+
+              '<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">'+
+                '<div style="display:flex;align-items:center;gap:6px;min-width:0;">'+
+                  '<span style="width:8px;height:8px;border-radius:50%;background:'+badgeColor+';display:inline-block;flex-shrink:0;"></span>'+
+                  '<strong style="font-size:0.77rem;color:#f8fafc;">'+esc(s.label)+'</strong>'+
+                  '<code style="font-size:0.7rem;color:#38bdf8;">('+esc(s.id)+')</code>'+
+                '</div>'+
+                '<div style="display:flex;align-items:center;gap:4px;flex-shrink:0;">'+ctrlBtns+'</div>'+
+              '</div>'+
+              (s.purpose ? '<div style="font-size:0.72rem;color:#94a3b8;line-height:1.35;padding-left:14px;">'+esc(s.purpose)+'</div>' : '')+
+            '</div>';
+          }).join('')+
+        '</div>'
+      ) : '<span style="opacity:0.6;">Nenhum serviço listado</span>';
+
+      return '<article class="ja-native-card" style="position:relative;">'+
+      '<div style="position:absolute;top:10px;right:10px;display:flex;gap:5px;z-index:2;flex-wrap:wrap;">'+
         (n.online && (n.up_to_date === false) ? '<button type="button" class="ja-node-update-btn" data-node-idx="'+attr(String(i))+'" style="background:#eab308;color:#000;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(234,179,8,0.5);" title="Atualizar versão do nó diretamente do Git">⚡ ATUALIZAR (GIT)</button>' : '')+
+        '<button type="button" class="ja-node-svcs-btn" data-node-idx="'+attr(String(i))+'" style="background:#a855f7;color:#fff;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.5);" title="Definir quais serviços este nó executa">⚙ SERVIÇOS</button>'+
         '<button type="button" class="ja-node-edit-btn" data-node-idx="'+attr(String(i))+'" style="background:#38bdf8;color:#000;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.5);" title="Editar informações do nó">EDITAR</button>'+
         '<button type="button" class="ja-node-del-btn" data-node-idx="'+attr(String(i))+'" style="background:#ef4444;color:#fff;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.5);" title="Excluir nó do cluster">EXCLUIR</button>'+
       '</div>'+
       '<h3>'+esc(n.nome)+'</h3><dl>'+
       '<dt>Identificador</dt><dd>'+esc(n.device_id||'Legado sem identificador')+'</dd>'+
       '<dt>Hostname</dt><dd>'+esc(n.hostname||'—')+'</dd>'+
-      '<dt>Programa / função</dt><dd>'+esc(n.papel||'—')+'</dd>'+
+      '<dt>Programa / função</dt><dd><strong style="color:#f8fafc;">'+esc(n.papel||'—')+'</strong></dd>'+
       '<dt>Plataforma</dt><dd>'+esc(n.platform||'—')+'</dd>'+
       '<dt>IP</dt><dd>'+esc(n.ip_address||'—')+'</dd>'+
+      '<dt>Serviços Atribuídos ao Nó (Controle Direto)</dt><dd>'+svcsHtml+
+        '<div style="margin-top:6px;"><button type="button" class="ja-node-svcs-btn" data-node-idx="'+attr(String(i))+'" style="background:rgba(168,85,247,0.2);border:1px solid #a855f7;color:#e9d5ff;border-radius:4px;padding:4px 10px;font-size:0.74rem;font-weight:bold;cursor:pointer;">⚙ ESCOLHER SERVIÇOS QUE ESTE NÓ EXECUTA</button></div>'+
+      '</dd>'+
       '<dt>Versão Git do Cluster</dt><dd>'+
         (n.version?'<strong style="color:#00e5ff;font-family:monospace;font-size:0.95rem;">'+esc(n.version)+'</strong>':'<span style="opacity:0.6;">Não informada</span>')+
         (n.online ? (
@@ -1010,9 +1199,10 @@ async function renderNodes(){
       '<dt>Último contato (servidor)</dt><dd>'+esc(n.last_seen||'Ainda não recebido')+'</dd>'+
       '<dt>Acesso SSH</dt><dd><code style="background:#02070c;border:1px solid #24516b;padding:2px 7px;border-radius:4px;color:#00e5ff;font-family:monospace;font-size:0.85rem;user-select:all;">ssh mmm@'+esc(n.ip_address||'—')+'</code></dd>'+
       '<dt>Site do Cluster</dt><dd>'+(n.ip_address?'<a href="http://'+esc(n.ip_address)+':8080/" target="_blank" style="display:inline-block;padding:3px 10px;background:#38bdf8;color:#000;border-radius:4px;text-decoration:none;font-weight:bold;font-size:0.8rem;">ABRIR PORTAL (:8080)</a>':'—')+'</dd>'+
-      '</dl><span class="ja-state '+(n.online?'ok':'')+'">'+esc(states[n.status]||n.status)+'</span></article>')+pager('nodes',p):
+      '</dl><span class="ja-state '+(n.online?'ok':'')+'">'+esc(states[n.status]||n.status)+'</span></article>';
+    })+pager('nodes',p):
       '<div class="ja-empty">Nenhum agente Linux ARM registrado. Clique em <b>+ NOVO NÓ</b> acima ou conecte agentes pela API de dispositivos.</div>';
-    moduleShell('Clusters e agentes Linux ARM',summary+body,'<button id="nodes-add" class="ja-mini primary" style="margin-right:8px;">+ NOVO NÓ</button><button id="nodes-refresh" class="ja-mini">Atualizar lista</button>');
+    moduleShell('Clusters e agentes Linux ARM',summary+orchHtml+body,'<button id="nodes-add" class="ja-mini primary" style="margin-right:8px;">+ NOVO NÓ</button><button id="nodes-refresh" class="ja-mini">Atualizar lista</button>');
     bindPager('nodes',p,renderNodes);
     document.getElementById('nodes-add').onclick=openNewNodeModal;
     document.getElementById('nodes-refresh').onclick=renderNodes;
@@ -1021,6 +1211,79 @@ async function renderNodes(){
         e.stopPropagation();
         const idx=parseInt(btn.getAttribute('data-node-idx'),10);
         if(p.slice[idx]) openNodeEditor(p.slice[idx]);
+      };
+    });
+    document.querySelectorAll('.ja-node-svcs-btn').forEach(btn=>{
+      btn.onclick=(e)=>{
+        e.stopPropagation();
+        const idx=parseInt(btn.getAttribute('data-node-idx'),10);
+        if(p.slice[idx]) openNodeServicesModal(p.slice[idx], catalog);
+      };
+    });
+    document.querySelectorAll('.ja-orch-move-btn').forEach(btn=>{
+      btn.onclick=async(e)=>{
+        e.stopPropagation();
+        const svc=btn.getAttribute('data-svc');
+        const sel=document.querySelector('.ja-orch-select[data-svc="'+svc+'"]');
+        if(!sel) return;
+        const targetDev=sel.value;
+        const opt=sel.options[sel.selectedIndex];
+        const targetIp=opt ? opt.getAttribute('data-ip') : '';
+        btn.disabled=true;
+        const oldTxt=btn.textContent;
+        btn.textContent='MOVENDO...';
+        try{
+          const res=await postJson('/casa/api/arm_nodes.php', {
+            acao: 'mover_servico',
+            service: svc,
+            device_id: targetDev,
+            ip_address: targetIp,
+            update_assignment: true
+          });
+          if(res && res.status==='ok'){
+            renderNodes();
+          }else{
+            throw new Error(res?.mensagem||'Falha ao transferir serviço.');
+          }
+        }catch(err){
+          alert('❌ ' + (err.message||String(err)));
+          btn.disabled=false;
+          btn.textContent=oldTxt;
+        }
+      };
+    });
+    document.querySelectorAll('.ja-svc-ctrl-btn').forEach(btn=>{
+      btn.onclick=async(e)=>{
+        e.stopPropagation();
+        const svc=btn.getAttribute('data-svc');
+        const act=btn.getAttribute('data-act');
+        const dev=btn.getAttribute('data-dev');
+        const ip=btn.getAttribute('data-ip');
+        if(svc==='casa-cluster-site' && act==='stop'){
+          alert('O serviço web (casa-cluster-site :8080) é protegido e não pode ser desativado.');
+          return;
+        }
+        btn.disabled=true;
+        const oldTxt=btn.textContent;
+        btn.textContent='...';
+        try{
+          const res=await postJson('/casa/api/arm_nodes.php', {
+            acao: 'controlar_servico',
+            service: svc,
+            service_action: act,
+            device_id: dev,
+            ip_address: ip
+          });
+          if(res && res.status==='ok'){
+            renderNodes();
+          }else{
+            throw new Error(res?.mensagem||'Falha ao controlar serviço.');
+          }
+        }catch(err){
+          alert('❌ ' + (err.message||String(err)));
+          btn.disabled=false;
+          btn.textContent=oldTxt;
+        }
       };
     });
     document.querySelectorAll('.ja-node-update-btn').forEach(btn=>{

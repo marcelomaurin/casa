@@ -64,7 +64,7 @@ class ClusterSSHController:
         """Busca dinamicamente os nós registrados no banco/API da central, sem IPs chumbados."""
         cache_file = "/opt/casa/ssh-agent/cached_cluster_nodes.json"
         base_url = self.env_map.get("CASA_BASE_URL", "https://maurinsoft.com.br/casa").rstrip("/")
-        token = self.env_map.get("JARVIS_DEVICE_TOKEN", self.env_map.get("CASA_DEVICE_TOKEN", "casa_sec_a4c5a1a2fea405d668edf5934f67d9eb9df23d4c89c5c616"))
+        token = self.env_map.get("JARVIS_DEVICE_TOKEN", self.env_map.get("CASA_DEVICE_TOKEN", self.env_map.get("CASA_API_KEY", os.environ.get("CASA_API_KEY", "")))).strip()
         default_user = self.env_map.get("CASA_SSH_DEFAULT_USER", "mmm")
         default_pass = self.env_map.get("CASA_SSH_DEFAULT_PASSWORD", "PASSWORD_PLACEHOLDER")
 
@@ -72,7 +72,9 @@ class ClusterSSHController:
         # 1. Busca da API arm_nodes.php da central
         try:
             import urllib.request
-            url = base_url + "/api/arm_nodes.php"
+            url = base_url + "/api/arm_nodes.php" if token else ""
+            if not url:
+                raise RuntimeError("Token nao configurado")
             req = urllib.request.Request(url, headers={
                 "User-Agent": "CASA-SSH-Agent/1.0",
                 "Authorization": "Bearer " + token,
@@ -99,7 +101,7 @@ class ClusterSSHController:
                             "host": ip,
                             "lan_ip": ip,
                             "port": int(n.get("porta") or 22),
-                            "user": default_user,
+                            "user": n.get("ssh_user") or ("linaro" if "cubie" in str(node_id).lower() or "cubie" in str(n.get("nome", "")).lower() else default_user),
                             "password": default_pass,
                             "arch": n.get("arch", "aarch64"),
                             "role": n.get("papel", "no"),
@@ -139,7 +141,14 @@ class ClusterSSHController:
     def _apply_custom_and_passwords(self):
         default_pass = self.env_map.get("CASA_SSH_DEFAULT_PASSWORD", "PASSWORD_PLACEHOLDER")
         default_user = self.env_map.get("CASA_SSH_DEFAULT_USER", "mmm")
+        cubie_user = self.env_map.get("CASA_SSH_CUBIE_USER", "linaro")
+        cubie_pass = self.env_map.get("CASA_SSH_CUBIE_PASSWORD", "linaro")
         for node_id, info in self.nodes.items():
+            is_cubie = "cubie" in str(node_id).lower() or "cubie" in str(info.get("name", "")).lower()
+            if is_cubie:
+                info["user"] = cubie_user
+                info["password"] = cubie_pass
+                continue
             if not info.get("password") or info.get("password") == "PASSWORD_PLACEHOLDER":
                 info["password"] = default_pass
             if not info.get("user"):

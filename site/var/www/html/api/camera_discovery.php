@@ -53,7 +53,8 @@ function cam_json(array $payload, int $status = 200): never
 
 $pdo = get_db_pdo();
 
-// Assegura tabelas necessarias para Redes Wi-Fi da Casa e Medicao/Survey
+// Assegura tabelas necessarias para Redes Wi-Fi da Casa e Medicao/Survey (quando auto_init_db estiver desativado)
+if (!cfg_bool('auto_init_db', 'JARVIS_AUTO_INIT_DB', true))
 try {
     $pdo->exec("ALTER TABLE dispositivos_cluster ADD COLUMN IF NOT EXISTS metadata JSON NULL");
     $pdo->exec("ALTER TABLE dispositivos_cluster ADD COLUMN IF NOT EXISTS capabilities JSON NULL");

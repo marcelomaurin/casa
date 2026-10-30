@@ -21,6 +21,9 @@ clusters/
 ├── pesquisa/
 │   └── web-agent/                 Pesquisa e extração de páginas web
 └── infraestrutura/
+    ├── casa-cluster-monitor/      Monitoramento de integradores e serviços
+    ├── casa-cluster-update/       Atualizador automático dos integradores
+    ├── casa-ssh-agent/            Agente SSH e controle de cluster
     ├── casa-tunnel/               Conectividade via túnel
     └── runpod-agent/              Gerenciamento RunPod e SSH remoto
 ```
@@ -35,7 +38,7 @@ clusters/
 | [Voz](voz/README.md) | google-home-agent, tts | Google Home usa registro específico; TTS é serviço auxiliar |
 | [Visão](visao/README.md) | espcam, raspberrypi-avatar-agent | Avatar usa heartbeat v1; ESPCam contém processadores auxiliares |
 | [Pesquisa](pesquisa/README.md) | web-agent | API de pesquisa; sem heartbeat próprio ARM |
-| [Infraestrutura](infraestrutura/README.md) | casa-tunnel, runpod-agent | Serviços auxiliares; sem heartbeat próprio ARM |
+| [Infraestrutura](infraestrutura/README.md) | casa-cluster-monitor, casa-cluster-update, casa-ssh-agent, casa-tunnel, runpod-agent | Atualização (`/api/v1/updates.php`), monitoramento e serviços auxiliares |
 
 **Organização do código não é presença online.** Mover um programa para esta pasta
 não o instala nem o registra no site. O painel lista os registros e heartbeats
@@ -63,5 +66,5 @@ Aplicativos Android, firmware Arduino e código do site continuam em suas pastas
 ## Guias técnicos
 
 - [Operação e configuração](OPERACAO.md): instalação ARM, presença no site, atualização e diagnóstico.
-- [Inventário dos nove programas](INVENTARIO.md): funções, entradas, dependências, configuração e unidades.
+- [Inventário dos programas](INVENTARIO.md): funções, entradas, dependências, configuração e unidades.
 - [Migração dos caminhos](MIGRACAO.md): origem/destino e orientação para instalações existentes.

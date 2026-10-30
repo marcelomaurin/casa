@@ -13,6 +13,10 @@ Os destinos abaixo são os declarados nas unidades do repositório, não uma con
 | [Visão / ESPCam](visao/espcam/) | Processamento e análise de imagens | processa_imagem.py; analisa_cena_ia.py | Sem unidade própria |
 | [Visão / Avatar](visao/raspberrypi-avatar-agent/README.md) | Terminal Raspberry Pi/Kinect | casa_avatar.py na receita Yocto | casa-avatar.service; instalado pela imagem Yocto |
 | [Pesquisa / Web](pesquisa/web-agent/) | Pesquisa e extração de páginas | web_agent.py | jarvis-web-agent.service; /opt/jarvis-web-agent |
+| [Site / Cluster Portal](site/) | Portal web local do nó (porta 8080) e telemetria | server.py | casa-cluster-site.service; /opt/casa/site |
+| [Infraestrutura / monitor](infraestrutura/casa-cluster-monitor/) | Monitoramento de integradores do nó | monitor_daemon.py | casa-cluster-monitor.service; /opt/casa/cluster-monitor |
+| [Infraestrutura / update](infraestrutura/casa-cluster-update/) | Atualização automática dos integradores via Git | casa-cluster-update.py | casa-cluster-update.service; /opt/casa/cluster-update |
+| [Infraestrutura / SSH agent](infraestrutura/casa-ssh-agent/) | Controle e diagnóstico SSH do cluster | ssh_cluster_controller.py | casa-ssh-agent.service; /opt/casa/ssh-agent |
 | [Infraestrutura / túnel](infraestrutura/casa-tunnel/) | Conectividade externa | casa-tunnel.py | casa-tunnel.service; /opt/casa-tunnel |
 | [Infraestrutura / RunPod](infraestrutura/runpod-agent/) | Gerencia GPU remota e SSH | casa-runpod-agent.py | casa-runpod-agent.service; /opt/casa/servicos/runpod-agent |
 

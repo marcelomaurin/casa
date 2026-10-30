@@ -1,11 +1,13 @@
 <?php
 // CASA/JARVIS - Diagnostico simples da instalacao em /casa/.
+if (session_status() === PHP_SESSION_NONE) { @session_start(); }
+$isAuth = !empty($_SESSION['auth_user']);
 header('Content-Type: text/html; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 header('Cache-Control: no-store');
 $checks=[];$overall=true;
 function add_check(&$checks,&$overall,$nome,$ok,$detalhe=''){ $checks[]=['nome'=>$nome,'ok'=>(bool)$ok,'detalhe'=>$detalhe]; if(!$ok)$overall=false; }
-add_check($checks,$overall,'PHP',true,PHP_VERSION);
+add_check($checks,$overall,'PHP',true,$isAuth?PHP_VERSION:'operacional');
 add_check($checks,$overall,'PDO',extension_loaded('pdo'),extension_loaded('pdo')?'carregado':'nao carregado');
 add_check($checks,$overall,'PDO MySQL',extension_loaded('pdo_mysql'),extension_loaded('pdo_mysql')?'carregado':'nao carregado');
 add_check($checks,$overall,'cURL',extension_loaded('curl'),extension_loaded('curl')?'carregado':'nao carregado');
@@ -16,10 +18,10 @@ try{
  $dbName=$pdo->query('SELECT DATABASE()')->fetchColumn();
  $tableCount=(int)$pdo->query("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE()")->fetchColumn();
  $stmt=$pdo->prepare("SELECT COUNT(*) FROM usuarios WHERE login='admin' AND ativo=1");$stmt->execute();$adminOk=((int)$stmt->fetchColumn()>0);
- $dbDetail='conectado em '.$dbName;
+ $dbDetail=$isAuth?('conectado em '.$dbName):'conectado';
 }catch(Throwable $e){$dbDetail='falha de conexao ou inicializacao';}
 add_check($checks,$overall,'MySQL CASA',$dbOk,$dbDetail);
-add_check($checks,$overall,'Tabelas',$dbOk&&$tableCount>0,$dbOk?($tableCount.' tabela(s) encontrada(s)'):'indisponivel');
+add_check($checks,$overall,'Tabelas',$dbOk&&$tableCount>0,$dbOk?($isAuth?($tableCount.' tabela(s) encontrada(s)'):'estrutura pronta'):'indisponivel');
 add_check($checks,$overall,'Usuario admin',$dbOk&&$adminOk,$adminOk?'instalado e ativo':'nao encontrado');
 http_response_code($overall?200:503);$status=$overall?'ONLINE':'ATENCAO';
 ?>

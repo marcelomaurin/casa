@@ -8,40 +8,61 @@ import subprocess
 import re
 import time
 import json
-import psycopg2
+try:
+    import psycopg2
+except ImportError:
+    psycopg2 = None
 import os
 
+def _load_env_file(path):
+    if os.path.exists(path):
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        k, v = line.split('=', 1)
+                        os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+        except Exception:
+            pass
+
+_load_env_file('/etc/casa-tunnel.env')
+_load_env_file('/etc/casa-node-agent.env')
+
 DB_CONFIG = {
-    'host': '127.0.0.1',
-    'port': 5432,
-    'dbname': 'casadb',
-    'user': 'casadb_user',
-    'password': 'casadb_password_2026'
+    'host': os.getenv('JARVIS_DB_HOST', '127.0.0.1'),
+    'port': int(os.getenv('JARVIS_DB_PORT', '5432')),
+    'dbname': os.getenv('JARVIS_DB_NAME', 'casadb'),
+    'user': os.getenv('JARVIS_DB_USER', 'casadb_user'),
+    'password': os.getenv('JARVIS_DB_PASS', '')
 }
 
-STATUS_FILE = '/var/www/html/api/tunnel_status.json'
+STATUS_FILE = os.getenv('CASA_TUNNEL_STATUS_FILE', '/var/www/html/api/tunnel_status.json')
 
 def get_db_connection():
+    if not DB_CONFIG['password']:
+        raise RuntimeError('JARVIS_DB_PASS nao configurado')
     return psycopg2.connect(**DB_CONFIG)
 
 def update_tunnel_status(url, status='online'):
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute("""
-            INSERT INTO configuracoes_sistema (chave, valor) 
-            VALUES ('external_web_url', %s) 
-            ON CONFLICT (chave) DO UPDATE SET valor = %s
-        """, (url, url))
-        cur.execute("""
-            INSERT INTO comandos_log (comando, origem, resultado) 
-            VALUES (%s, 'TUNEL_EXTERNO', %s)
-        """, (f"Túnel Público Ativo: {url}", status))
-        conn.commit()
-        cur.close()
-        conn.close()
-    except Exception as e:
-        print(f"[DB ERROR] {e}")
+    if DB_CONFIG['password']:
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO configuracoes_sistema (chave, valor) 
+                VALUES ('external_web_url', %s) 
+                ON CONFLICT (chave) DO UPDATE SET valor = %s
+            """, (url, url))
+            cur.execute("""
+                INSERT INTO comandos_log (comando, origem, resultado) 
+                VALUES (%s, 'TUNEL_EXTERNO', %s)
+            """, (f"Túnel Público Ativo: {url}", status))
+            conn.commit()
+            cur.close()
+            conn.close()
+        except Exception as e:
+            print(f"[DB ERROR] {e}")
 
     try:
         with open(STATUS_FILE, 'w') as f:
@@ -55,6 +76,11 @@ def update_tunnel_status(url, status='online'):
         print(f"[FILE ERROR] {e}")
 
 def get_tunnel_token():
+    env_token = os.getenv('CASA_TUNNEL_TOKEN', '').strip()
+    if len(env_token) > 10:
+        return env_token
+    if not DB_CONFIG['password']:
+        return None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -78,7 +104,7 @@ def main():
             cmd = ['/usr/local/bin/cloudflared', 'tunnel', 'run', '--token', token]
         else:
             print("[CASA-TUNNEL] Utilizando Quick Tunnel Seguro (trycloudflare.com)")
-            cmd = ['/usr/local/bin/cloudflared', 'tunnel', '--edge-ip-version', '4', '--protocol', 'http2', '--url', 'http://127.0.0.1:80', '--no-autoupdate']
+            cmd = ['/usr/local/bin/cloudflared', 'tunnel', '--edge-ip-version', '4', '--protocol', 'http2', '--url', os.getenv('CASA_TUNNEL_LOCAL_URL', 'http://127.0.0.1:8080'), '--no-autoupdate']
 
         process = subprocess.Popen(
             cmd,
@@ -97,7 +123,7 @@ def main():
             if match and not tunnel_url:
                 tunnel_url = match.group(0)
                 print(f"\n=======================================================")
-                print(f"[JARVIS] TÚNEL PÚBLICO HTTPS ESTABELECIDO COM SUCESSO!")
+                print(f"[JARVIS] TÚNEL PÚBLICO HTTPS ESTABELECESSO COM SUCESSO!")
                 print(f"[JARVIS] URL EXTERNA: {tunnel_url}")
                 print(f"=======================================================\n")
                 update_tunnel_status(tunnel_url, 'online')

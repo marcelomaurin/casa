@@ -128,7 +128,7 @@ if ($subpath === '' || $subpath === 'status') {
     echo json_encode([
         'status'=>'sucesso',
         'sistema'=>'CASA_JARVIS',
-        'versao_api'=>'v1.1.0',
+        'versao_api'=>'v1.2.0',
         'dominio'=>'https://maurinsoft.com.br/casa',
         'cliente'=>$cliente,
         'timestamp'=>date('c'),

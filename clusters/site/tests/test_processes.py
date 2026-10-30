@@ -128,5 +128,39 @@ class ProcessHttpTests(unittest.TestCase):
             terminate.assert_not_called()
 
 
+    def test_service_control_blocks_deactivating_web_service(self):
+        req_stop_web = urllib.request.Request(
+            self.url + '/api/services/control',
+            data=json.dumps({'service': 'casa-cluster-site', 'action': 'stop'}).encode(),
+            headers={'Content-Type': 'application/json'}
+        )
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(req_stop_web, timeout=3)
+        self.assertEqual(ctx.exception.code, 403)
+        body = json.loads(ctx.exception.read().decode())
+        ctx.exception.close()
+        self.assertFalse(body['ok'])
+        self.assertTrue(body['protected'])
+
+    def test_service_assign_and_v1_alias(self):
+        with patch.object(site, 'save_node_services_config', return_value=True), \
+             patch.object(site, 'load_node_services_config', return_value={}):
+            req_assign = urllib.request.Request(
+                self.url + '/api/v1/services/assign',
+                data=json.dumps({
+                    'role': 'Nó de Teste',
+                    'assigned_services': ['casa-tts', 'casa-node-agent'],
+                    'auto_apply': False
+                }).encode(),
+                headers={'Content-Type': 'application/json'}
+            )
+            with urllib.request.urlopen(req_assign, timeout=3) as resp:
+                self.assertEqual(resp.code, 200)
+                body = json.loads(resp.read().decode())
+                self.assertTrue(body['ok'])
+                self.assertIn('casa-cluster-site', body['assigned_services'])
+                self.assertIn('casa-tts', body['assigned_services'])
+
+
 if __name__ == '__main__':
     unittest.main()

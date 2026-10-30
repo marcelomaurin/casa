@@ -24,8 +24,15 @@ ENV_PATH = Path(__file__).parent / ".env"
 
 def load_env():
     env_vars = {}
-    if ENV_PATH.exists():
-        with open(ENV_PATH, "r", encoding="utf-8") as f:
+    for p in (ENV_PATH, Path("/etc/casa-ssh-agent.env")):
+        if p.exists():
+            with open(p, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        env_vars.setdefault(k.strip(), v.strip().strip("'\""))
+        if False and ENV_PATH.exists():
             for line in f:
                 line = line.strip()
                 if line and not line.startswith("#") and "=" in line:
@@ -38,7 +45,7 @@ RUNPOD_API_KEY = os.getenv("RUNPOD_API_KEY", ENV.get("RUNPOD_API_KEY", ""))
 SSH_HOST = os.getenv("SSH_HOST", ENV.get("SSH_HOST", "127.0.0.1"))
 SSH_PORT = int(os.getenv("SSH_PORT", ENV.get("SSH_PORT", "22")))
 SSH_USER = os.getenv("SSH_USER", ENV.get("SSH_USER", "mmm"))
-SSH_PASS = os.getenv("SSH_PASS", ENV.get("SSH_PASS", "226468"))
+SSH_PASS = os.getenv("SSH_PASS", ENV.get("SSH_PASS", ENV.get("CASA_SSH_DEFAULT_PASSWORD", "")))
 AGENT_PORT = int(os.getenv("AGENT_PORT", ENV.get("AGENT_PORT", "5005")))
 AGENT_HOST = os.getenv("AGENT_HOST", ENV.get("AGENT_HOST", "0.0.0.0"))
 
@@ -191,6 +198,7 @@ class RunPodAgentHTTPHandler(BaseHTTPRequestHandler):
 
 def run():
     server_address = (AGENT_HOST, AGENT_PORT)
+    HTTPServer.allow_reuse_address = True
     httpd = HTTPServer(server_address, RunPodAgentHTTPHandler)
     print(f"[*] Agente RunPod & SSH rodando em http://{AGENT_HOST}:{AGENT_PORT}")
     try:

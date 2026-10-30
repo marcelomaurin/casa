@@ -524,7 +524,7 @@ begin
       if (ASiteBaseUrl <> '') and (AApiKey <> '') and (GetTickCount64 - UltimoSite >= 15000) then
       begin
         UltimoSite := GetTickCount64;
-        if HttpRequest('GET', ASiteBaseUrl + '/api/camera_discovery.php?acao=listar', '', AApiKey, 8000, Code, Resp)
+        if HttpRequest('GET', ASiteBaseUrl + '/api/v1/camera.php?acao=listar', '', AApiKey, 8000, Code, Resp)
           and (Code = 200) then
         try
           J := GetJSON(Resp);
@@ -585,7 +585,8 @@ begin
     Log('Site respondeu HTTP ' + IntToStr(Code) + ': ' + Copy(Resp, 1, 300));
     if Code = 401 then
     begin
-      if AApiKey <> '' then
+      if AApiKey = '' then Fail('Informe a Chave API do site CASA (HTTP 401).');
+      if False and (AApiKey <> '') then
       begin
         Log('Tentando registrar em modo pareamento direto (sem chave de API)...');
         if HttpRequest('POST', ARegisterUrl, O.AsJSON, '', 15000, Code, Resp) and (Code >= 200) and (Code < 300) then
@@ -620,7 +621,7 @@ begin
     Fail('Informe a Chave API para carregar as redes do site.');
     Exit;
   end;
-  if not HttpRequest('GET', ASiteBaseUrl + '/api/camera_discovery.php?acao=get_house_wifis', '', AApiKey, 15000, Code, Resp)
+  if not HttpRequest('GET', ASiteBaseUrl + '/api/v1/camera.php?acao=get_house_wifis', '', AApiKey, 15000, Code, Resp)
     or (Code <> 200) then
   begin
     Fail('Falha ao carregar redes do site (HTTP ' + IntToStr(Code) + '): ' + Copy(Resp, 1, 200));

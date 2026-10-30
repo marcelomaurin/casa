@@ -6,13 +6,34 @@ import json
 import datetime
 import urllib.request
 import urllib.parse
-import psycopg2
+try:
+    import psycopg2
+except ImportError:
+    psycopg2 = None
+
+
+def _load_env_file(path):
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+        except Exception:
+            pass
+
+
+_load_env_file("/etc/casa-scheduler.env")
+_load_env_file("/etc/casa-node-agent.env")
 
 DB_HOST = os.getenv("JARVIS_DB_HOST", "127.0.0.1")
 DB_NAME = os.getenv("JARVIS_DB_NAME", "casadb")
 DB_USER = os.getenv("JARVIS_DB_USER", "casadb_user")
-DB_PASS = os.getenv("JARVIS_DB_PASS", "casadb_password_2026")
-SYSTEM_API_TOKEN = os.getenv("JARVIS_SYSTEM_API_TOKEN", "jarvis_secret_token_2026")
+DB_PASS = os.getenv("JARVIS_DB_PASS", "")
+SYSTEM_API_TOKEN = os.getenv("JARVIS_SYSTEM_API_TOKEN", os.getenv("CASA_API_KEY", os.getenv("JARVIS_DEVICE_TOKEN", os.getenv("DEVICE_TOKEN", os.getenv("CASA_AGENT_TOKEN", ""))))).strip()
+CASA_BASE_URL = os.getenv("CASA_BASE_URL", "https://maurinsoft.com.br/casa").rstrip("/")
 
 
 def db():
@@ -51,7 +72,7 @@ def garantir_schema():
                 for col_nome, col_tipo in colunas:
                     try:
                         cur.execute(f"ALTER TABLE tarefas_agendadas ADD COLUMN IF NOT EXISTS {col_nome} {col_tipo};")
-                    except Exception as col_err:
+                    except Exception:
                         # Ignora se ja existir ou se nao tiver permissao DDL
                         pass
             conn.commit()
@@ -102,7 +123,7 @@ def executar_acao(tarefa_id, titulo, tipo_acao, payload, target_node, id_tarefa_
     erro = None
     try:
         if tipo_acao == "comando_jarvis":
-            data = post_json("http://127.0.0.1/api/jarvis.php", {
+            data = post_json(f"{CASA_BASE_URL}/api/jarvis.php", {
                 "comando": payload,
                 "skip_planner": True,
                 "origem": "SCHEDULER"
@@ -110,7 +131,7 @@ def executar_acao(tarefa_id, titulo, tipo_acao, payload, target_node, id_tarefa_
             resultado = {"resposta": data.get("resposta", ""), "acao": data.get("acao")}
 
         elif tipo_acao == "pesquisa_web":
-            data = post_json("http://127.0.0.1/api/agente_internet.php", {
+            data = post_json(f"{CASA_BASE_URL}/api/agente_internet.php", {
                 "acao": "responder",
                 "query": payload,
                 "max_results": 5
@@ -281,13 +302,28 @@ def atualizar_planos_concluidos():
                   )""")
 
 
+def executar_tick_control_plane():
+    if not SYSTEM_API_TOKEN:
+        return
+    try:
+        post_json(f"{CASA_BASE_URL}/api/v1/rules_tick.php", {}, timeout=20)
+    except Exception as exc:
+        print("[Scheduler ControlPlane Tick]", exc)
+
+
 def main():
     print("=== JARVIS SCHEDULER 2.0 ===")
-    garantir_schema()
+    if DB_PASS and psycopg2 is not None:
+        try:
+            garantir_schema()
+        except Exception as exc:
+            print("[Scheduler Schema Notice]", exc)
     while True:
         try:
-            verificar_agendamentos()
-            atualizar_planos_concluidos()
+            executar_tick_control_plane()
+            if DB_PASS and psycopg2 is not None:
+                verificar_agendamentos()
+                atualizar_planos_concluidos()
         except Exception as exc:
             print("[Scheduler Exception]", exc)
         time.sleep(15)

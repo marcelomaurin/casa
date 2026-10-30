@@ -25,7 +25,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-BASE_DIR = "/home/mmm/servicos/tts"
+BASE_DIR = os.getenv("JARVIS_TTS_DIR", "/home/mmm/servicos/tts")
 MODEL_PATH = os.path.join(BASE_DIR, "modelos", "pt_BR-faber-medium.onnx")
 VOZES_DIR = os.path.join(BASE_DIR, "vozes")
 AUDIOS_DIR = os.path.join(BASE_DIR, "audios")
@@ -34,13 +34,30 @@ PIPER_BIN = os.path.join(BASE_DIR, "venv", "bin", "piper")
 os.makedirs(VOZES_DIR, exist_ok=True)
 os.makedirs(AUDIOS_DIR, exist_ok=True)
 
-# Banco de dados
-DB_HOST = "127.0.0.1"
-DB_NAME = "casadb"
-DB_USER = "casadb_user"
-DB_PASS = "casadb_password_2026"
+def _load_env_file(path):
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+        except Exception:
+            pass
+
+_load_env_file("/etc/casa-tts.env")
+_load_env_file("/etc/casa-node-agent.env")
+
+# Banco de dados (opcional via variaveis de ambiente)
+DB_HOST = os.getenv("JARVIS_DB_HOST", "127.0.0.1")
+DB_NAME = os.getenv("JARVIS_DB_NAME", "casadb")
+DB_USER = os.getenv("JARVIS_DB_USER", "casadb_user")
+DB_PASS = os.getenv("JARVIS_DB_PASS", "")
 
 def get_db():
+    if not DB_PASS:
+        return None
     try:
         return psycopg2.connect(
             host=DB_HOST,
@@ -159,9 +176,13 @@ def sintetizar_fala(texto: str, speaker: str = "padrao", reproduzir: bool = True
     raw_wav = os.path.join(AUDIOS_DIR, f"raw_{timestamp}.wav")
     final_wav = os.path.join(AUDIOS_DIR, f"fala_{speaker}_{timestamp}.wav")
     
-    # 1. Sintetizar base com Piper
-    cmd = f"echo '{texto}' | {PIPER_BIN} --model {MODEL_PATH} --output_file {raw_wav}"
-    res = subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
+    # 1. Sintetizar base com Piper sem shell injection
+    res = subprocess.run(
+        [PIPER_BIN, "--model", MODEL_PATH, "--output_file", raw_wav],
+        input=texto.encode("utf-8"),
+        stderr=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+    )
     if res.returncode != 0:
         raise Exception(f"Falha na sintese Piper: {res.stderr.decode('utf-8', errors='ignore')}")
         

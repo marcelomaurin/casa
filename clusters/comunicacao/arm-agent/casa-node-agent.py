@@ -14,10 +14,13 @@ import subprocess
 
 
 def run_cmd(cmd, timeout=10):
-    """Executa comando externo compativel com todas as versoes de Python (2.7, 3.4+)."""
+    """Executa comando externo compativel com todas as versoes de Python (2.7, 3.2, 3.4+)."""
     try:
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
-        out, err = p.communicate(timeout=timeout)
+        try:
+            out, err = p.communicate(timeout=timeout)
+        except TypeError:
+            out, err = p.communicate()
         return p.returncode, out, err
     except Exception as e:
         return -1, "", str(e)
@@ -165,6 +168,8 @@ def get_ssl_context():
 
 
 def api_request(action, method="GET", payload=None, params=None, timeout=10):
+    if not DEVICE_TOKEN:
+        raise RuntimeError("JARVIS_DEVICE_TOKEN nao configurado em /etc/casa-node-agent.env")
     query = {"acao": action}
     if params:
         query.update(params)
@@ -290,9 +295,64 @@ def run_cluster_update():
     }
 
 
+def get_local_cluster_services():
+    """Consulta o portal local (:8080) para obter servicos ativos e atribuidos ao no."""
+    try:
+        req = make_http_request("http://127.0.0.1:8080/api/v1/telemetry", method="GET")
+        with urllib.request.urlopen(req, timeout=2.0) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return {
+                "services": data.get("services") or {},
+                "services_detail": data.get("services_detail") or [],
+                "assigned_services": data.get("assigned_services") or [],
+                "node_role": data.get("node_role") or "",
+            }
+    except Exception:
+        pass
+    try:
+        if os.path.isfile("/etc/casa-node-services.json"):
+            with open("/etc/casa-node-services.json", "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+                return {
+                    "services": {},
+                    "services_detail": [],
+                    "assigned_services": cfg.get("assigned_services") or [],
+                    "node_role": cfg.get("role") or "",
+                }
+    except Exception:
+        pass
+    return {"services": {}, "services_detail": [], "assigned_services": [], "node_role": ""}
+
+
+def call_local_cluster_site(endpoint, payload):
+    """Chama endpoint de controle de servicos no portal local (:8080)."""
+    url = "http://127.0.0.1:8080" + endpoint
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = make_http_request(
+        url,
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15.0) as resp:
+            raw = resp.read().decode("utf-8")
+            return json.loads(raw) if raw else {"ok": True}
+    except urllib.error.HTTPError as exc:
+        try:
+            err_body = exc.read().decode("utf-8")
+            parsed = json.loads(err_body)
+            raise RuntimeError(parsed.get("error") or err_body)
+        except RuntimeError:
+            raise
+        except Exception:
+            raise RuntimeError("HTTP {0}: {1}".format(exc.code, exc.reason))
+
+
 def send_heartbeat():
     version_str, commit_hash, deployed_at = get_deployed_version()
     up_info = get_update_info(refresh=False)
+    svc_info = get_local_cluster_services()
     payload = {
         "device_id": DEVICE_ID,
         "transport": "https",
@@ -315,6 +375,10 @@ def send_heartbeat():
             "cpu": get_cpu_info(),
             "ram": get_ram_info(),
             "agent_port": AGENT_PORT,
+            "services": svc_info.get("services") or {},
+            "services_detail": svc_info.get("services_detail") or [],
+            "assigned_services": svc_info.get("assigned_services") or [],
+            "node_role": svc_info.get("node_role") or "",
         },
     }
     return api_request("heartbeat", "POST", payload, timeout=10)
@@ -611,6 +675,23 @@ def execute_adapter(command, payload):
 
     if command in ("cluster.check_update", "check_update"):
         return get_update_info(refresh=True)
+
+    # Controle e atribuicao de servicos do cluster via site principal:
+    if command in ("service.control", "services.control", "controlar_servico"):
+        res = call_local_cluster_site("/api/v1/services/control", payload)
+        try:
+            send_heartbeat()
+        except Exception:
+            pass
+        return res
+
+    if command in ("service.assign", "services.assign", "atribuir_servicos"):
+        res = call_local_cluster_site("/api/v1/services/assign", payload)
+        try:
+            send_heartbeat()
+        except Exception:
+            pass
+        return res
 
     # Descoberta de Hardware do Gateway e No:
     if command in ("device.discovery", "gateway.discovery", "hardware.scan", "hardware.telemetry"):

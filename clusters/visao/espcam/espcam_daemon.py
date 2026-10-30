@@ -89,7 +89,7 @@ def find_token(device_id: str, ip: str = None):
 def sync_tokens_from_site():
     global camera_tokens
     try:
-        url = f"{CASA_SERVER.rstrip('/')}/api/camera_discovery.php?acao=get_tokens"
+        url = f"{CASA_SERVER.rstrip('/')}/api/v1/camera.php?acao=get_tokens"
         req = urllib.request.Request(url, headers=casa_headers())
         with urllib.request.urlopen(req, timeout=6) as resp:
             data = json.loads(resp.read().decode("utf-8"))
@@ -168,12 +168,14 @@ class ControlHandler(http.server.BaseHTTPRequestHandler):
 
 
 def start_control_server():
+    global is_leader
     try:
         server = socketserver.TCPServer(("127.0.0.1", CONTROL_PORT), ControlHandler)
         log_lcars(f"Servidor de controle IPC ativo em http://127.0.0.1:{CONTROL_PORT}", "IPC")
         threading.Thread(target=server.serve_forever, daemon=True).start()
     except Exception as e:
-        log_lcars(f"Porta {CONTROL_PORT} já em uso ou inacessível: {e}", "WARN")
+        is_leader = False
+        log_lcars(f"Porta {CONTROL_PORT} já em uso (outro daemon ativo). Entrando em modo STANDBY: {e}", "WARN")
 
 
 # -------------------------------------------------------------
@@ -234,7 +236,7 @@ def fetch_camera_snapshot(ip: str, token: str) -> bytes:
 def sync_house_wifis_from_site():
     global house_wifis
     try:
-        url = f"{CASA_SERVER.rstrip('/')}/api/camera_discovery.php?acao=get_house_wifis"
+        url = f"{CASA_SERVER.rstrip('/')}/api/v1/camera.php?acao=get_house_wifis"
         req = urllib.request.Request(url, headers=casa_headers())
         with urllib.request.urlopen(req, timeout=6) as resp:
             data = json.loads(resp.read().decode("utf-8"))
@@ -297,7 +299,7 @@ def collect_and_report_wifi_survey(device_id: str, ip: str, token: str):
     if not survey_data:
         return
 
-    report_url = f"{CASA_SERVER.rstrip('/')}/api/camera_discovery.php?acao=report_wifi_scan"
+    report_url = f"{CASA_SERVER.rstrip('/')}/api/v1/camera.php?acao=report_wifi_scan"
     payload = {
         "device_id": device_id,
         "ip": ip,
@@ -322,7 +324,7 @@ def collect_and_report_wifi_survey(device_id: str, ip: str, token: str):
 
 def upload_snapshot_to_casa(device_id: str, ip: str, img_bytes: bytes):
     """Envia o frame capturado para o site central CASA (maurinsoft.com.br)."""
-    url = f"{CASA_SERVER}/api/camera_discovery.php?acao=upload_snapshot"
+    url = f"{CASA_SERVER.rstrip('/')}/api/v1/camera.php?acao=upload_snapshot"
     try:
         headers = casa_headers({
             "Content-Type": "image/jpeg",
