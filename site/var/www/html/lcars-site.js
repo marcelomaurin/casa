@@ -2974,8 +2974,13 @@ let computerSpeechGeneration=0;
 let computerBargeIn=null;
 let computerRequestInFlight=false;
 let lastComputerSubmission={text:'',at:0};
+const COMPUTER_HISTORY_MAX=20; // mensagens (usuário + COMPUTER) enviadas como contexto
+function trimComputerHistory(list){ return list.length>COMPUTER_HISTORY_MAX ? list.slice(-COMPUTER_HISTORY_MAX) : list; }
 async function startComputerBargeIn(generation){
   stopComputerBargeIn();
+  // No celular a fala sai pelo alto-falante do próprio aparelho e o cancelamento de eco
+  // não cobre o speechSynthesis: o COMPUTER se interrompia sozinho. Lá usa-se o botão STOP.
+  if(isMobileDevice())return;
   if(!navigator.mediaDevices?.getUserMedia)return;
   try{
     const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
@@ -2984,7 +2989,8 @@ async function startComputerBargeIn(generation){
     const ctx=new Ctx(),src=ctx.createMediaStreamSource(stream),analyser=ctx.createAnalyser();
     analyser.fftSize=1024; analyser.smoothingTimeConstant=.35; src.connect(analyser);
     const data=new Uint8Array(analyser.fftSize);
-    let loudFrames=0,raf=0;
+    let loudFrames=0;
+    const graceUntil=performance.now()+700;
     const state={stream,ctx,raf:0}; computerBargeIn=state;
     const tick=()=>{
       if(computerBargeIn!==state||generation!==computerSpeechGeneration){stopComputerBargeIn();return;}
@@ -2992,8 +2998,9 @@ async function startComputerBargeIn(generation){
       let sum=0;
       for(let i=0;i<data.length;i++){const v=(data[i]-128)/128;sum+=v*v;}
       const rms=Math.sqrt(sum/data.length);
-      loudFrames=rms>.075?loudFrames+1:Math.max(0,loudFrames-1);
-      if(loudFrames>=7){
+      if(performance.now()<graceUntil){state.raf=requestAnimationFrame(tick);return;}
+      loudFrames=rms>.09?loudFrames+1:Math.max(0,loudFrames-1);
+      if(loudFrames>=10){
         stopComputerSpeech();
         setTimeout(()=>window.CASAComputerActions?.voice?.(),120);
         return;
@@ -3138,6 +3145,7 @@ async function renderJarvis(){
       log.scrollTop=log.scrollHeight;
     }
   }
+  conversationHistory=trimComputerHistory(conversationHistory);
 
   const send=async()=>{
     const cmd=input.value.trim();
@@ -3155,12 +3163,12 @@ async function renderJarvis(){
     const sendBtn=document.getElementById('ja-command-send');
     if(sendBtn)sendBtn.disabled=true;
     try{
-      const historicoTexto=conversationHistory.map(m=>(m.role==='assistant'?'ASSISTANT':'USER')+': '+m.content).join('\n\n');
-      const r=await postJson('/casa/api/jarvis.php',{comando:cmd,ia_mode:'auto',historico:historicoTexto,historico_mensagens:conversationHistory});
+      const r=await postJson('/casa/api/jarvis.php',{comando:cmd,ia_mode:'auto',historico_mensagens:conversationHistory});
       const resposta=r.resposta||r.mensagem||'Sem resposta.';
       const botTime = r.data_hora || new Date();
       appendChat('COMPUTER',resposta,'ai',true,botTime);
       conversationHistory.push({role:'user',content:cmd},{role:'assistant',content:String(resposta)});
+      conversationHistory=trimComputerHistory(conversationHistory);
       if(!speakComputer(resposta)){
         appendChat('Sistema','Voz pt-BR não disponível neste navegador.','error');
       }
@@ -3373,6 +3381,7 @@ function voiceStatus(state,text,ok=false){
   window.CASAVoiceStatus=Object.assign({},window.CASAVoiceStatus||{},{mic:{text,kind:ok?'ok':state==='listening'?'warn':'off'}});
   refreshLeftVoiceStatus();
 }
+let voiceCoreOk=null; // null = ainda não verificado nesta página
 async function diagnoseVoiceCore(){
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
   const stt=document.getElementById('ja-stt-state'),tts=document.getElementById('ja-tts-state'),dev=document.getElementById('ja-mic-devices');
@@ -3392,8 +3401,8 @@ async function diagnoseVoiceCore(){
     if(dev)dev.textContent=deviceText;
     window.CASAVoiceStatus=Object.assign({},window.CASAVoiceStatus||{},{devices:{text:'ENTRADAS: '+inputs.length,detail:deviceText,kind:inputs.length?'ok':'off'}});
     refreshLeftVoiceStatus();
-    if(!inputs.length){voiceStatus('error','SEM MICROFONE');return false;}
-    voiceStatus('ready','MIC OK',true);return true;
+    if(!inputs.length){voiceStatus('error','SEM MICROFONE');voiceCoreOk=false;return false;}
+    voiceStatus('ready','MIC OK',true);voiceCoreOk=true;return true;
   }catch(e){
     const denied=e?.name==='NotAllowedError'||e?.name==='SecurityError';
     voiceStatus('error',denied?'MIC SEM PERMISSÃO':'MIC INDISPONÍVEL');
@@ -3413,7 +3422,8 @@ async function startVoice(input,done){
   }
   if(activeRecognition)return;
   stopComputerSpeech();
-  if(!(await diagnoseVoiceCore())){
+  // Abrir o microfone a cada ciclo (escuta contínua no celular) gerava bipes e gasto de bateria.
+  if(voiceCoreOk!==true && !(await diagnoseVoiceCore())){
     updateMobileVoiceBarUI(false,'MIC INDISPONÍVEL');
     if(!isMobileDevice()) appendChat('Sistema','Não foi possível acessar uma entrada de áudio. Verifique a permissão do microfone no navegador.','error');
     return;
@@ -3457,6 +3467,7 @@ async function startVoice(input,done){
     const map={'not-allowed':'Permissão de microfone negada.','service-not-allowed':'Serviço de reconhecimento bloqueado pelo navegador.','audio-capture':'Nenhum áudio pôde ser capturado.','network':'O serviço de reconhecimento de voz não respondeu pela rede.'};
     voiceStatus('error','ERRO DE VOZ');
     updateMobileVoiceBarUI(false,map[e.error]||'ERRO NO MIC');
+    if(e.error==='not-allowed'||e.error==='audio-capture') voiceCoreOk=null;
     if(e.error==='not-allowed'&&isMobileDevice()){
       mobileVoiceEnabled=false;
     }

@@ -42,7 +42,7 @@ function ag_execute(PDO $pdo,array $t){
     if(in_array($tipo,automation_schedule_server_types(),true)){
         $r=automation_schedule_execute($pdo,$t,'SCHEDULER_MANUAL');
     }elseif($tipo==='comando_jarvis'){
-        $r=ag_post_json('http://127.0.0.1/api/jarvis.php',['comando'=>$payload,'skip_planner'=>true,'origem'=>'SCHEDULER_MANUAL'],45);
+        $r=ag_post_json(casa_url_interna('api/jarvis.php'),['comando'=>$payload,'skip_planner'=>true,'origem'=>'SCHEDULER_MANUAL'],45);
     }elseif($tipo==='aviso_fala'){
         $r=ag_post_json('http://127.0.0.1:8097/falar',['texto'=>$payload,'speaker'=>'padrao','reproduzir'=>true],20);
     }elseif($tipo==='dispositivo_devpar'){

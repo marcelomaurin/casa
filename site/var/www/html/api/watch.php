@@ -104,7 +104,7 @@ function watch_chamar_jarvis($texto) {
         'origem' => 'LILYGO_WATCH'
     ], JSON_UNESCAPED_UNICODE);
 
-    $ch = curl_init('http://127.0.0.1/api/jarvis.php');
+    $ch = curl_init(casa_url_interna('api/jarvis.php'));
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);

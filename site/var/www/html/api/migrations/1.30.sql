@@ -1,4 +1,4 @@
-﻿-- CASA / JARVIS - Migration 1.30
+-- CASA / JARVIS - Migration 1.30
 -- Registro forcado no banco de dados para os equipamentos existentes do cluster
 -- Elimina a necessidade de IPs chumbados no codigo e centraliza informacoes no banco.
 

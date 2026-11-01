@@ -36,7 +36,7 @@ function planner_call_json($demanda, array $taskContext) {
         'correlation_id' => $taskContext['correlation_id'] ?? null
     ], JSON_UNESCAPED_UNICODE);
 
-    $ch = curl_init('http://127.0.0.1/api/jarvis.php');
+    $ch = curl_init(casa_url_interna('api/jarvis.php'));
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
@@ -104,7 +104,7 @@ function planner_tipo_acao($executor) {
 function planner_executar_imediata(PDO $pdo, array $ctx, int $taskId, $executor, $payload) {
     $texto = planner_executor_payload($executor, $payload);
     if ($executor === 'web') {
-        return planner_post('http://127.0.0.1/api/agente_internet.php', [
+        return planner_post(casa_url_interna('api/agente_internet.php'), [
             'acao'=>'responder','query'=>$texto,'max_results'=>5,
             'task_context'=>te_public_context($ctx),
             'correlation_id'=>$ctx['correlation_id'] ?? null
@@ -129,7 +129,7 @@ function planner_executar_imediata(PDO $pdo, array $ctx, int $taskId, $executor,
             return ['ok'=>false,'erro'=>$e->getMessage()];
         }
     }
-    return planner_post('http://127.0.0.1/api/jarvis.php', [
+    return planner_post(casa_url_interna('api/jarvis.php'), [
         'comando'=>$texto,'skip_planner'=>true,'origem'=>'PLANEJADOR_EXECUTOR',
         'task_context'=>te_public_context($ctx)
     ], 50);
