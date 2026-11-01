@@ -353,7 +353,7 @@ function openItem(item,updateRoute=true){
     layout:'focus',group:currentGroup,title:item.label,subtitle:GROUPS[currentGroup].subtitle,
     breadcrumb:[],groups:groupRail(currentGroup),status:STATUS,
     items:[{title:item.label,description:'Módulo funcional do CASA no layout atual.'}],
-    footer:{hint:'Use os controles do módulo; dados extensos são paginados para evitar rolagem.'}
+    footer:{hint:item.module==='nodes'?'Consulte os nós e serviços abaixo; use a rolagem e a paginação para ver todos.':'Use os controles do módulo; dados extensos são paginados para evitar rolagem.'}
   });
   if(updateRoute) setRoute(currentGroup,item.id);
   if(item.module) mountNativeModule(item);
@@ -381,12 +381,12 @@ function crud(table,action='listar',extra=''){
   return getJson('/casa/api/crud.php?tabela='+encodeURIComponent(table)+'&acao='+encodeURIComponent(action)+(extra||''));
 }
 
-function moduleShell(title,body,actions=''){
+function moduleShell(title,body,actions='',className=''){
   const c=contentNode(); if(!c) return;
-  c.innerHTML='<section class="ja-native-module"><header class="ja-native-head"><strong>'+esc(title)+'</strong><div class="ja-native-actions">'+actions+'</div></header><div class="ja-native-body">'+body+'</div></section>';
+  c.innerHTML='<section class="ja-native-module '+esc(className)+'"><header class="ja-native-head"><strong>'+esc(title)+'</strong><div class="ja-native-actions">'+actions+'</div></header><div class="ja-native-body">'+body+'</div></section>';
 }
 function showModuleError(msg){ moduleShell('Módulo','<div class="ja-empty">'+esc(msg)+'</div>'); }
-function loading(title){ moduleShell(title,'<div class="ja-empty">Carregando...</div>'); }
+function loading(title,className=''){ moduleShell(title,'<div class="ja-empty">Carregando...</div>','',className); }
 
 function paginate(name,items,pageSize=6){
   const st=moduleState[name]||(moduleState[name]={page:0});
@@ -1077,7 +1077,7 @@ function openNodeServicesModal(node, catalog){
 }
 
 async function renderNodes(){
-  loading('Clusters e agentes Linux ARM');
+  loading('Clusters e agentes Linux ARM','ja-nodes-module');
   try{
     const j=await getJson('/casa/api/arm_nodes.php');
     const all=j.nodes||[];
@@ -1093,7 +1093,7 @@ async function renderNodes(){
           '<h3 style="margin:0;color:#38bdf8;">⚡ ORQUESTRAÇÃO DE SERVIÇOS DO CLUSTER (QUEM EXECUTA O QUÊ · SEM REDUNDÂNCIA)</h3>'+
           '<span style="font-size:0.75rem;color:#94a3b8;">Ao transferir ou ativar um serviço em um servidor, ele é desativado automaticamente nos demais</span>'+
         '</div>'+
-        '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:10px;">'+
+        '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,310px),1fr));gap:10px;">'+
           orch.map(item => {
             const isAct = !!item.active;
             const stColor = isAct ? '#22c55e' : '#f87171';
@@ -1148,8 +1148,8 @@ async function renderNodes(){
                     '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(s.id)+'" data-act="restart" data-dev="'+attr(n.device_id||'')+'" data-ip="'+attr(n.ip_address||'')+'" style="background:#334155;color:#fff;border:none;border-radius:4px;padding:2px 6px;font-size:0.68rem;cursor:pointer;" title="Reiniciar serviço">↻</button>'
                   : '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(s.id)+'" data-act="start" data-dev="'+attr(n.device_id||'')+'" data-ip="'+attr(n.ip_address||'')+'" style="background:#22c55e;color:#000;border:none;border-radius:4px;padding:2px 7px;font-size:0.68rem;font-weight:bold;cursor:pointer;">▶ ATIVAR</button>');
             return '<div style="display:flex;flex-direction:column;gap:4px;padding:6px 8px;background:rgba(2,7,12,0.75);border:1px solid #1e293b;border-radius:5px;">'+
-              '<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">'+
-                '<div style="display:flex;align-items:center;gap:6px;min-width:0;">'+
+              '<div class="ja-node-service-head" style="display:flex;justify-content:space-between;align-items:center;gap:6px;">'+
+                '<div class="ja-node-service-name" style="display:flex;align-items:center;gap:6px;min-width:0;">'+
                   '<span style="width:8px;height:8px;border-radius:50%;background:'+badgeColor+';display:inline-block;flex-shrink:0;"></span>'+
                   '<strong style="font-size:0.77rem;color:#f8fafc;">'+esc(s.label)+'</strong>'+
                   '<code style="font-size:0.7rem;color:#38bdf8;">('+esc(s.id)+')</code>'+
@@ -1162,20 +1162,21 @@ async function renderNodes(){
         '</div>'
       ) : '<span style="opacity:0.6;">Nenhum serviço listado</span>';
 
-      return '<article class="ja-native-card" style="position:relative;">'+
-      '<div style="position:absolute;top:10px;right:10px;display:flex;gap:5px;z-index:2;flex-wrap:wrap;">'+
+      return '<article class="ja-native-card ja-node-card">'+
+      '<header class="ja-node-head"><h3>'+esc(n.nome)+'</h3><span class="ja-state '+(n.online?'ok':'')+'">'+esc(states[n.status]||n.status)+'</span></header>'+
+      '<div class="ja-node-actions">'+
         (n.online && (n.up_to_date === false) ? '<button type="button" class="ja-node-update-btn" data-node-idx="'+attr(String(i))+'" style="background:#eab308;color:#000;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(234,179,8,0.5);" title="Atualizar versão do nó diretamente do Git">⚡ ATUALIZAR (GIT)</button>' : '')+
         '<button type="button" class="ja-node-svcs-btn" data-node-idx="'+attr(String(i))+'" style="background:#a855f7;color:#fff;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.5);" title="Definir quais serviços este nó executa">⚙ SERVIÇOS</button>'+
         '<button type="button" class="ja-node-edit-btn" data-node-idx="'+attr(String(i))+'" style="background:#38bdf8;color:#000;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.5);" title="Editar informações do nó">EDITAR</button>'+
         '<button type="button" class="ja-node-del-btn" data-node-idx="'+attr(String(i))+'" style="background:#ef4444;color:#fff;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.5);" title="Excluir nó do cluster">EXCLUIR</button>'+
       '</div>'+
-      '<h3>'+esc(n.nome)+'</h3><dl>'+
+      '<dl>'+
       '<dt>Identificador</dt><dd>'+esc(n.device_id||'Legado sem identificador')+'</dd>'+
       '<dt>Hostname</dt><dd>'+esc(n.hostname||'—')+'</dd>'+
       '<dt>Programa / função</dt><dd><strong style="color:#f8fafc;">'+esc(n.papel||'—')+'</strong></dd>'+
       '<dt>Plataforma</dt><dd>'+esc(n.platform||'—')+'</dd>'+
       '<dt>IP</dt><dd>'+esc(n.ip_address||'—')+'</dd>'+
-      '<dt>Serviços Atribuídos ao Nó (Controle Direto)</dt><dd>'+svcsHtml+
+      '<dt class="ja-node-services-label">Serviços deste nó</dt><dd class="ja-node-services">'+svcsHtml+
         '<div style="margin-top:6px;"><button type="button" class="ja-node-svcs-btn" data-node-idx="'+attr(String(i))+'" style="background:rgba(168,85,247,0.2);border:1px solid #a855f7;color:#e9d5ff;border-radius:4px;padding:4px 10px;font-size:0.74rem;font-weight:bold;cursor:pointer;">⚙ ESCOLHER SERVIÇOS QUE ESTE NÓ EXECUTA</button></div>'+
       '</dd>'+
       '<dt>Versão Git do Cluster</dt><dd>'+
@@ -1199,10 +1200,10 @@ async function renderNodes(){
       '<dt>Último contato (servidor)</dt><dd>'+esc(n.last_seen||'Ainda não recebido')+'</dd>'+
       '<dt>Acesso SSH</dt><dd><code style="background:#02070c;border:1px solid #24516b;padding:2px 7px;border-radius:4px;color:#00e5ff;font-family:monospace;font-size:0.85rem;user-select:all;">ssh mmm@'+esc(n.ip_address||'—')+'</code></dd>'+
       '<dt>Site do Cluster</dt><dd>'+(n.ip_address?'<a href="http://'+esc(n.ip_address)+':8080/" target="_blank" style="display:inline-block;padding:3px 10px;background:#38bdf8;color:#000;border-radius:4px;text-decoration:none;font-weight:bold;font-size:0.8rem;">ABRIR PORTAL (:8080)</a>':'—')+'</dd>'+
-      '</dl><span class="ja-state '+(n.online?'ok':'')+'">'+esc(states[n.status]||n.status)+'</span></article>';
+      '</dl></article>';
     })+pager('nodes',p):
       '<div class="ja-empty">Nenhum agente Linux ARM registrado. Clique em <b>+ NOVO NÓ</b> acima ou conecte agentes pela API de dispositivos.</div>';
-    moduleShell('Clusters e agentes Linux ARM',summary+orchHtml+body,'<button id="nodes-add" class="ja-mini primary" style="margin-right:8px;">+ NOVO NÓ</button><button id="nodes-refresh" class="ja-mini">Atualizar lista</button>');
+    moduleShell('Clusters e agentes Linux ARM','<div class="ja-nodes-layout">'+summary+orchHtml+body+'</div>','<button id="nodes-add" class="ja-mini primary">+ NOVO NÓ</button><button id="nodes-refresh" class="ja-mini">Atualizar lista</button>','ja-nodes-module');
     bindPager('nodes',p,renderNodes);
     document.getElementById('nodes-add').onclick=openNewNodeModal;
     document.getElementById('nodes-refresh').onclick=renderNodes;
@@ -1344,7 +1345,7 @@ async function renderNodes(){
       };
     });
   }catch(e){
-    moduleShell('Clusters e agentes Linux ARM','<div class="ja-empty">'+esc(e.message||'Falha ao carregar agentes.')+'</div>','<button id="nodes-retry" class="ja-mini">Tentar novamente</button>');
+    moduleShell('Clusters e agentes Linux ARM','<div class="ja-empty">'+esc(e.message||'Falha ao carregar agentes.')+'</div>','<button id="nodes-retry" class="ja-mini">Tentar novamente</button>','ja-nodes-module');
     document.getElementById('nodes-retry').onclick=renderNodes;
   }
 }
