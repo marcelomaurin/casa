@@ -7,12 +7,14 @@ const render=src.slice(src.indexOf('async function renderNodes(){'),src.indexOf(
 let body='', actions='', requested='';
 let rows=Array.from({length:151},(_,i)=>({device_id:'agent-'+i,nome:i===0?'<script>bad</script>':'Agent '+i,capabilities:['arm-agent'],status:'online',online:true}));
 const context={
+  openNewNodeModal(){},
+  attr:v=>String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'),
   loading(){}, getJson:async url=>{requested=url;return {nodes:rows};},
   esc:v=>String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'),
   paginate:(name,items,size)=>({slice:items.slice(0,size),pages:Math.ceil(items.length/size)}),
   cards:(items,fn)=>items.map(fn).join(''), pager:(name,p)=>'pages='+p.pages,
   bindPager(){}, moduleShell:(title,b,a)=>{body=b;actions=a;},
-  document:{getElementById:()=>({onclick:null})}
+  document:{getElementById:()=>({onclick:null}),querySelectorAll:()=>[]}
 };
 vm.createContext(context);
 vm.runInContext(render,context);
