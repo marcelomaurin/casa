@@ -150,7 +150,7 @@ if ($subpath === 'comando') {
     $correlationId=api_v1_correlation_id($input['correlation_id'] ?? null);
 
     // No Hostinger esta rota delega ao jarvis.php do próprio site.
-    $url = 'https://maurinsoft.com.br/casa/api/jarvis.php';
+    $url = casa_url_interna('api/jarvis.php');
     $ch = curl_init($url);
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER=>true,

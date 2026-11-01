@@ -7,7 +7,8 @@ ROOT = Path(__file__).resolve().parents[2]
 checks = {
     "site/var/www/html/api/planejador.php": [
         "te_begin(",
-        "planner_call_json($demanda,$taskContext)",
+        # O planejador repassa o contexto à IA (parâmetros extras, como executores dos daemons, são permitidos).
+        "planner_call_json($demanda,$taskContext",
         "'task_context' => te_public_context($taskContext)",
         "'correlation_id' => $taskContext['correlation_id']",
         "INSERT INTO jarvis_tarefas (id_plano,correlation_id",

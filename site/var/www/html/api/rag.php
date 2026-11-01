@@ -23,7 +23,8 @@ function rag_terms(string $query): array {
     $parts=preg_split('/\s+/',rag_normalize($query),-1,PREG_SPLIT_NO_EMPTY)?:[];
     $out=[];
     foreach($parts as $p) if(mb_strlen($p)>=3 && !in_array($p,$stop,true)) $out[$p]=true;
-    return array_keys($out);
+    // array_keys devolve int para chaves numéricas ("550" vira 550) e substr_count exige string.
+    return array_map('strval', array_keys($out));
 }
 
 function rag_files(): array {

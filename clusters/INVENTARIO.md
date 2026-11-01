@@ -8,6 +8,7 @@ Os destinos abaixo são os declarados nas unidades do repositório, não uma con
 |---|---|---|---|
 | [Comunicação / ARM](comunicacao/arm-agent/) | Heartbeat, comandos e resultados | casa-node-agent.py | casa-node-agent.service; /opt/casa-node-agent |
 | [Automação / scheduler](automacao/casa-scheduler/) | Tarefas recorrentes e únicas | casa-scheduler.py | casa-scheduler.service; /opt/casa-scheduler |
+| [Automação / tarefas](automacao/casa-tarefas/) | Executor da fila do planejador (daemon ou agente externo) | casa-tarefas.py | casa-tarefas.service; /opt/casa-tarefas; /etc/casa-tarefas.env |
 | [Voz / Google Home](voz/google-home-agent/README.md) | Descoberta Cast e reprodução de respostas | google_home_agent.py | casa-google-home.service; /home/mmm/servicos/google-home-agent |
 | [Voz / TTS](voz/tts/) | Síntese e clonagem de voz | server_tts.py | casa-tts.service; /home/mmm/servicos/tts |
 | [Visão / ESPCam](visao/espcam/) | Processamento e análise de imagens | processa_imagem.py; analisa_cena_ia.py | Sem unidade própria |

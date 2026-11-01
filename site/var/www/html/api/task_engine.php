@@ -1,5 +1,6 @@
 <?php
 require_once(__DIR__ . '/v1/device_registry.php');
+require_once(__DIR__ . '/fila_tarefas.php');
 // CASA / COMPUTER - motor generico de tarefas para qualquer solicitacao de IA.
 // Toda pergunta externa cria uma tarefa-raiz. Modulos internos anexam subtarefas ao mesmo contexto.
 
@@ -322,6 +323,10 @@ function te_sync_device_command(PDO $pdo, int $commandId): ?array {
                 'lifecycle_status'=>$life,'result'=>$result
             ]);
         }
+        // Fila: libera dependentes (inclusive outros dispositivos) e fecha o plano quando for a última.
+        // Um problema na fila (ex.: banco ainda sem a migração 1.34) nunca derruba a sincronização do dispositivo.
+        try{ ft_tarefa_terminou($pdo,(int)$row['id_tarefa'],$taskStatus==='CONCLUIDA'); }
+        catch(Throwable $e){ error_log('fila: '.$e->getMessage()); }
     }else{
         $pdo->prepare("UPDATE jarvis_tarefas SET status=:s,iniciado_em=COALESCE(iniciado_em,NOW()) WHERE id=:id")
             ->execute([':s'=>$taskStatus,':id'=>$row['id_tarefa']]);

@@ -7,6 +7,7 @@ on:
       - 'database/**'
       - 'mysql/**'
       - 'site/var/www/html/automacao.php'
+      - 'site/var/www/html/lcars-site.js'
       - 'servicos/device_simulator.py'
       - 'clusters/**'
       - 'android/**'
@@ -110,6 +111,15 @@ jobs:
 
       - name: Test cluster updater (Git)
         run: python3 -m unittest discover -s clusters/infraestrutura/casa-cluster-update/tests -v
+
+      - name: Test task queue (planner -> daemons)
+        run: php .github/tests/test_fila_tarefas.php
+
+      - name: Test casa-tarefas daemon
+        run: python3 clusters/automacao/casa-tarefas/tests/test_casa_tarefas.py
+
+      - name: Test COMPUTER continuous voice
+        run: node .github/tests/test_voz_continua_ui.js
 
       - name: Test Control Plane HTTP end-to-end
         shell: bash

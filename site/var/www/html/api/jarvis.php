@@ -186,7 +186,11 @@ function computer_telemetry_finish(PDO $pdo,int $id,string $status,?string $resp
         $st->execute([':s'=>$status,':r'=>$resposta,':a'=>$acao,':m'=>$modelo,':d'=>$ms,':id'=>$id]);
     }catch(Throwable $e){}
 }
-$reproduzirNaCasa = !$painelWeb || !empty($input['reproduzir_casa']);
+// Chamadas internas (planejador, partes de um plano executadas por daemon) não falam:
+// antes, o pedido do planejador à IA fazia a casa ler o plano em JSON em voz alta.
+$chamadaInterna = $existingTaskContext !== null
+    || in_array(strtoupper($origem), ['PLANEJADOR','PLANEJADOR_EXECUTOR','DAEMON_TAREFAS'], true);
+$reproduzirNaCasa = (!$painelWeb && !$chamadaInterna) || !empty($input['reproduzir_casa']);
 $telemetryStarted=hrtime(true);
 $telemetryId=computer_telemetry_start($pdo,$origem,$comando,(string)$taskContext['correlation_id']);
 
@@ -274,14 +278,25 @@ if (!$skipPlanner && ($forcarPlanejamento || jarvis_deve_planejar($comando))) {
         if ($nIm) $resp .= ", {$nIm} imediata(s)";
         if ($nAg) $resp .= ", {$nAg} agendada(s)";
         if ($nCond) $resp .= ", {$nCond} condicional(is)";
+        $nFila = (int)($dados['fila']['enfileiradas'] ?? 0);
+        if ($nFila > 0) {
+            $resp .= ", {$nFila} enviada(s) para a fila de execução";
+            $semTrab = $dados['fila']['sem_trabalhador'] ?? [];
+            if ($semTrab) $resp .= ' (aguardando um daemon que execute: ' . implode(', ', $semTrab) . ')';
+        }
         $resp .= '. ' . trim($dados['resumo'] ?? '');
         te_complete($pdo,$taskPlanner,['plano'=>$dados]);
         $taskFinal=te_add_subtask($pdo,$taskContext,'Consolidar resposta final','computer',[
             'resposta'=>$resp
         ],$taskPlanner,'EXECUTANDO');
         te_complete($pdo,$taskFinal,['resposta'=>$resp]);
-        te_finish($pdo,$taskContext,$resp,['plano'=>$dados]);
-        $audio = jarvis_tts($resp, $configs['jarvis_voice'] ?? 'padrao', $reproduzirNaCasa);
+        if ($nFila > 0) {
+            // O plano continua aberto: a fila o fecha quando a última tarefa terminar.
+            te_complete($pdo,(int)$taskContext['id_tarefa_raiz'],['resposta'=>$resp,'plano'=>$dados]);
+        } else {
+            te_finish($pdo,$taskContext,$resp,['plano'=>$dados]);
+        }
+        $audio = ($chamadaInterna && !$reproduzirNaCasa) ? null : jarvis_tts($resp, $configs['jarvis_voice'] ?? 'padrao', $reproduzirNaCasa);
         computer_telemetry_finish($pdo,$telemetryId,'SUCESSO',$resp,'PLANO/AGENDAMENTO REGISTRADO','PLANEJADOR',$telemetryStarted);
         echo json_encode(te_attach_context([
             'status'=>'sucesso','resposta'=>$resp,'tipo_tarefa'=>'plano_de_tarefas',
@@ -641,6 +656,9 @@ if ($destinoForcado !== null) {
     $preferenciaModelos = 'cloud';
 } elseif ($routing_mode === 'local_only') {
     $preferenciaModelos = 'local';
+} elseif ($routing_mode === 'cloud_preferido') {
+    // Usado pelo planejador: tenta a nuvem primeiro, mas aceita o modelo local.
+    $preferenciaModelos = 'cloud';
 } else {
     $c = mb_strtolower($comando, 'UTF-8');
     $fisico = preg_match('/(lig|deslig|acend|apag|irriga|bomba|piscina|status|temperatura|rele|porta|janela|alarme|sensor)/u', $c);
@@ -1013,7 +1031,8 @@ $taskFinal=te_add_subtask($pdo,$taskContext,'Consolidar resposta final','compute
 ],$taskIA,'EXECUTANDO');
 te_complete($pdo,$taskFinal,['resposta'=>$respostaLimpa]);
 te_finish($pdo,$taskContext,$respostaLimpa,['acao'=>$acao,'modelo'=>$modelo_usado]);
-$audioUrl = jarvis_tts($respostaLimpa, $jarvis_voice, $reproduzirNaCasa);
+// Chamada interna não gera áudio (ninguém vai ouvir).
+$audioUrl = ($chamadaInterna && !$reproduzirNaCasa) ? null : jarvis_tts($respostaLimpa, $jarvis_voice, $reproduzirNaCasa);
 computer_telemetry_finish(
     $pdo,
     $telemetryId,

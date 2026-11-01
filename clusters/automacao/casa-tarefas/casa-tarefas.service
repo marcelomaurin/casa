@@ -1,0 +1,25 @@
+[Unit]
+Description=CASA/JARVIS - Daemon executor da fila de tarefas do planejador
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=casa-tarefas
+Group=casa-tarefas
+WorkingDirectory=/opt/casa-tarefas
+ExecStart=/usr/bin/python3 /opt/casa-tarefas/casa-tarefas.py --config /etc/casa-tarefas.env
+Restart=always
+RestartSec=10
+# Ao parar, o daemon termina as tarefas em andamento antes de sair.
+KillSignal=SIGTERM
+TimeoutStopSec=300
+StandardOutput=journal
+StandardError=journal
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
