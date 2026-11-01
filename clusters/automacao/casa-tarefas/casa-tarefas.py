@@ -72,6 +72,9 @@ class Config:
         self.web_url = os.getenv("CASA_WEB_AGENT_URL", "http://127.0.0.1:8099/search")
         self.comandos_dir = os.getenv("CASA_TAREFAS_COMANDOS_DIR", "/etc/casa-tarefas/comandos.d")
         self.extensoes_dir = os.getenv("CASA_TAREFAS_EXTENSOES_DIR", "/opt/casa-tarefas/executores")
+        # Ciclo do mordomo (/api/v1/mordomo.php): segundos entre ciclos; 0 desliga.
+        valor = float(os.getenv("CASA_MORDOMO_INTERVALO", "60"))
+        self.mordomo_intervalo = 0.0 if valor <= 0 else max(20.0, valor)
 
     def validar(self):
         erros = []
@@ -165,6 +168,9 @@ class Fila:
 
     def dividir(self, tid, partes):
         return self._post("dividir", id=tid, partes=partes)
+
+    def ciclo_mordomo(self):
+        return http_json(f"{self.cfg.base_url}/api/v1/mordomo.php?acao=ciclo", {}, self.cfg.chave, 120)
 
 
 # ---------------------------------------------------------------------------
@@ -401,6 +407,25 @@ class Daemon:
             except ErroApi as exc:
                 LOG.warning("Não renovou a reserva da tarefa #%s: %s", tid, exc)
 
+    # -- mordomo ---------------------------------------------------------------
+    def rodar_mordomo(self):
+        """Pede ao site um ciclo do mordomo a cada intervalo (detectar, decidir, avisar/agir)."""
+        espera = self.cfg.mordomo_intervalo
+        while not self.parar.wait(espera):
+            try:
+                r = self.fila.ciclo_mordomo()
+                espera = self.cfg.mordomo_intervalo
+                if r.get("novas") or r.get("lembretes"):
+                    for d in r.get("decisoes", []):
+                        LOG.info("Mordomo: %s -> %s %s", d.get("observacao"), d.get("acao"), d.get("ordem") or "")
+                    if r.get("lembretes"):
+                        LOG.info("Mordomo: %d lembrete(s) enviado(s)", r["lembretes"])
+            except ErroApi as exc:
+                LOG.warning("Ciclo do mordomo falhou: %s", exc)
+                espera = min(600, max(self.cfg.mordomo_intervalo, espera * 2)) if exc.http != 403 else 3600
+                if exc.http == 403:
+                    LOG.error("A chave não tem o escopo tasks.worker para o mordomo; ciclo suspenso por 1 h")
+
     # -- laço principal -------------------------------------------------------
     def ciclo(self):
         """Uma rodada: reserva o que couber e despacha. Retorna quantas tarefas pegou."""
@@ -421,6 +446,9 @@ class Daemon:
                  self.cfg.paralelo, self.cfg.base_url)
         renovador = threading.Thread(target=self.renovar_reservas, name="renovador", daemon=True)
         renovador.start()
+        if self.cfg.mordomo_intervalo > 0 and not uma_vez:
+            threading.Thread(target=self.rodar_mordomo, name="mordomo", daemon=True).start()
+            LOG.info("Mordomo: ciclo a cada %.0f s", self.cfg.mordomo_intervalo)
         espera_erro = self.cfg.intervalo
         try:
             while not self.parar.is_set():

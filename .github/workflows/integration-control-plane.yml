@@ -115,6 +115,9 @@ jobs:
       - name: Test task queue (planner -> daemons)
         run: php .github/tests/test_fila_tarefas.php
 
+      - name: Test butler (mordomo)
+        run: php .github/tests/test_mordomo.php
+
       - name: Test casa-tarefas daemon
         run: python3 clusters/automacao/casa-tarefas/tests/test_casa_tarefas.py
 

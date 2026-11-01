@@ -21,6 +21,37 @@ O daemon usa **somente a API v1** e reaproveita os serviços que já rodam no n�
 de pesquisa ([web-agent](../../pesquisa/README.md), porta 8099) e a voz ([tts](../../voz/README.md),
 porta 8097). Ele não acessa o banco de dados.
 
+## Mordomo
+
+O mesmo daemon dispara, a cada `CASA_MORDOMO_INTERVALO` segundos (padrão 60; 0 desliga), um
+ciclo do **mordomo** em `/api/v1/mordomo.php`. No site, o ciclo:
+
+1. **Observa** a casa com detectores simples (sem IA): pedido de assistência não confirmado,
+   dispositivo que parou de responder, bateria baixa, temperatura fora da faixa, irrigação ligada
+   há muito tempo, luz acesa de madrugada, movimento em câmera no horário de silêncio e evento
+   grave de segurança.
+2. **Lembra** do que já viu: só o que é novo (ou voltou a acontecer) segue adiante; o que sumiu é
+   dado como resolvido.
+3. **Decide** com a IA, que recebe o estado atual da casa: avisar, agir ou ignorar cada caso.
+4. **Executa** conforme a autonomia e registra a decisão (o JARVIS passa a saber o que fez).
+
+| `mordomo_autonomia` | Comportamento |
+|---|---|
+| `observar` | Só registra o que viu. |
+| `avisar` (padrão) | Registra e avisa a família; ações viram sugestão no aviso. |
+| `agir` | Também executa ordens — **somente** as que o JARVIS reconhece como ordem direta (luz, irrigação, relé, cena). A IA não consegue inventar outra ação. |
+
+Avisos: notificação no celular sempre; Telegram e fala na casa (tarefa `fala` na fila) quando o
+caso é grave, ou médio fora do horário de silêncio. Caso grave que continua aberto recebe lembrete.
+Se a IA não responder, casos médios e graves são avisados mesmo assim.
+
+Ajustes em `configuracoes_sistema` (todos opcionais): `mordomo_offline_min` (10),
+`mordomo_bateria_min` (20), `mordomo_temp_max` (35), `mordomo_temp_min` (8),
+`mordomo_irrigacao_max_min` (30), `mordomo_silencio` (`22-7`), `mordomo_lembrete_min` (15),
+`mordomo_ignorar_tipos` (`mobile,celular,smartphone,watch,relogio,tv`).
+
+`GET /api/v1/mordomo.php?acao=estado` mostra o que está sendo acompanhado e as últimas decisões.
+
 ## Instalação
 
 1. No painel, em **IA & VOZ → Acesso Web & API segura**, crie uma chave com os escopos

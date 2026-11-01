@@ -36,6 +36,7 @@ require_once(__DIR__ . '/seguranca.php');
 require_once(__DIR__ . '/agente_externo.php');
 require_once(__DIR__ . '/task_engine.php');
 require_once(__DIR__ . '/rag.php');
+require_once(__DIR__ . '/contexto_casa.php');
 
 // A interface web usa cookie de sessao + token aleatorio da propria sessao.
 // Integracoes externas continuam autenticando por Bearer/X-API-Key em verify_api_auth().
@@ -189,7 +190,12 @@ function computer_telemetry_finish(PDO $pdo,int $id,string $status,?string $resp
 // Chamadas internas (planejador, partes de um plano executadas por daemon) não falam:
 // antes, o pedido do planejador à IA fazia a casa ler o plano em JSON em voz alta.
 $chamadaInterna = $existingTaskContext !== null
-    || in_array(strtoupper($origem), ['PLANEJADOR','PLANEJADOR_EXECUTOR','DAEMON_TAREFAS'], true);
+    || in_array(strtoupper($origem), ['PLANEJADOR','PLANEJADOR_EXECUTOR','DAEMON_TAREFAS','MORDOMO'], true);
+// Opções para chamadas internas autenticadas por chave (o painel não usa):
+//   somente_direto: executa apenas uma ordem direta reconhecida (sem IA); senão recusa.
+//   sem_acoes: a IA responde, mas nenhuma marca [[CMD:...]] é executada nem a conversa é gravada.
+$somenteDireto = !$painelWeb && !empty($input['somente_direto']);
+$semAcoes = !$painelWeb && !empty($input['sem_acoes']);
 $reproduzirNaCasa = (!$painelWeb && !$chamadaInterna) || !empty($input['reproduzir_casa']);
 $telemetryStarted=hrtime(true);
 $telemetryId=computer_telemetry_start($pdo,$origem,$comando,(string)$taskContext['correlation_id']);
@@ -798,6 +804,14 @@ $rag=rag_prompt($comando);
 $ragContexto=$rag['prompt']??'';
 $ragFontes=$rag['sources']??[];
 
+// Estado AO VIVO da casa (dispositivos, sensores, alertas...) em todo pedido à IA.
+// configuracoes_sistema: jarvis_contexto_casa = sempre|nunca; jarvis_contexto_max_chars (padrão 3500).
+$contextoCasa=['prompt'=>'','secoes'=>[],'chars'=>0];
+if(strtolower(trim((string)($configs['jarvis_contexto_casa'] ?? 'sempre')))!=='nunca'){
+    $maxCtx=max(800,min(12000,(int)($configs['jarvis_contexto_max_chars'] ?? 3500)));
+    try{ $contextoCasa=casa_contexto_prompt($pdo,$maxCtx); }catch(Throwable $e){ error_log('contexto_casa: '.$e->getMessage()); }
+}
+
 if($taskInterpret>0) te_complete($pdo,$taskInterpret,['roteamento'=>'ia']);
 $taskIA=te_add_subtask($pdo,$taskContext,'Consultar modelo de IA','ia',[
     'preferencia'=>$preferenciaModelos
@@ -853,9 +867,22 @@ function jarvis_executar_acao(PDO $pdo, string $nome, string $arg, string $coman
     try {
         switch ($nome) {
         case 'STATUS_SISTEMA':
-            $nodes = $pdo->query("SELECT nome, ip_address FROM dispositivos_cluster WHERE status='online'")->fetchAll(PDO::FETCH_ASSOC);
-            $nomes = array_map(function($n){ return $n['nome'].' ('.$n['ip_address'].')'; }, $nodes);
-            return ['acao'=>'Relatório de status do sistema','resposta'=>'Afirmativo. Varredura do sistema concluída: '.count($nodes).' subsistema(s) online'.($nomes ? ': '.implode(', ', $nomes) : '').'.','substitui'=>true,'erro'=>false];
+            // Resumo falável a partir do retrato ao vivo (antes: só contava nós online).
+            $disp = cc_secao(fn() => cc_dispositivos($pdo, 200));
+            $partes = [];
+            if ($disp) {
+                $partes[] = rtrim(preg_replace('/^DISPOSITIVOS: /', '', $disp[0]), '.');
+                $fora = [];
+                foreach (array_slice($disp, 1) as $ln) if (strpos($ln, 'FORA DO AR') !== false) $fora[] = trim(explode(' (', substr($ln, 2))[0]);
+                if ($fora) $partes[] = 'fora do ar: ' . implode(', ', array_slice($fora, 0, 6)) . (count($fora) > 6 ? ' e outros' : '');
+            }
+            $alertas = cc_secao(fn() => cc_alertas($pdo));
+            $nAlertas = max(0, count($alertas) - 1);
+            $partes[] = $nAlertas ? ($nAlertas . ' alerta(s) ou evento(s) recente(s)') : 'nenhum alerta pendente';
+            $sens = cc_secao(fn() => cc_sensores($pdo));
+            $nSens = max(0, count($sens) - 1);
+            if ($nSens) $partes[] = $nSens . ' sensor(es) com leitura nas últimas 24 horas';
+            return ['acao'=>'Relatório de status da casa','resposta'=>'Afirmativo. Varredura concluída: ' . implode('; ', $partes) . '.','substitui'=>true,'erro'=>false];
 
         case 'RELE':
             if (!preg_match('/^(\d{1,3}):([01])$/', $arg, $m)) return $erro('marca de relé inválida');
@@ -930,11 +957,19 @@ function jarvis_executar_acao(PDO $pdo, string $nome, string $arg, string $coman
     return null;
 }
 
-$tagDireta = jarvis_comando_direto($comando);
+$tagDireta = $semAcoes ? null : jarvis_comando_direto($comando);
+if ($somenteDireto && $tagDireta === null) {
+    if($taskInterpret>0) te_fail($pdo,$taskInterpret,'Ordem direta não reconhecida');
+    computer_telemetry_finish($pdo,$telemetryId,'RECUSADO',null,null,null,$telemetryStarted);
+    http_response_code(422);
+    echo json_encode(['status'=>'erro','mensagem'=>'Não é uma ordem direta reconhecida: '.$comando], JSON_UNESCAPED_UNICODE);
+    exit;
+}
 
 foreach (($tagDireta === null ? $modelosIA : []) as $modeloIA) {
     $promptSistema = (($modeloIA['nivel_capacidade'] ?? '') === 'PROFESSOR' || ($modeloIA['nivel_capacidade'] ?? '') === 'PROFISSIONAL')
         ? $systemCloud : $systemLocal;
+    $promptSistema.=$contextoCasa['prompt'];
     if($ragContexto!=='') $promptSistema.=$ragContexto;
     $r = jarvis_chamar_modelo($modeloIA, $promptSistema, $comando, $historicoConversa);
 
@@ -989,7 +1024,7 @@ $acoes = [];
 $confirmacoes = [];
 $erros = [];
 $substituta = null;
-if (!$iaFalhou && preg_match_all('/\[\[CMD:([A-Z_]+)(?::([^\]]*))?\]\]/', $resposta, $marcas, PREG_SET_ORDER)) {
+if (!$iaFalhou && !$semAcoes && preg_match_all('/\[\[CMD:([A-Z_]+)(?::([^\]]*))?\]\]/', $resposta, $marcas, PREG_SET_ORDER)) {
     $vistas = [];
     foreach ($marcas as $mc) {
         $nomeAcao = $mc[1]; $argAcao = $mc[2] ?? '';
@@ -1006,7 +1041,7 @@ if (!$iaFalhou && preg_match_all('/\[\[CMD:([A-Z_]+)(?::([^\]]*))?\]\]/', $respo
 }
 $acao = $acoes ? implode('; ', $acoes) : null;
 
-$respostaLimpa = trim(preg_replace('/\[\[CMD:.*?\]\]/', '', $resposta));
+$respostaLimpa = $semAcoes ? trim((string)$resposta) : trim(preg_replace('/\[\[CMD:.*?\]\]/', '', $resposta));
 if ($substituta !== null) {
     $respostaLimpa = $substituta;
 } elseif ($respostaLimpa === '') {
@@ -1014,7 +1049,7 @@ if ($substituta !== null) {
 }
 if ($erros) $respostaLimpa = trim($respostaLimpa . ' ' . implode(' ', $erros));
 
-try {
+if (!$semAcoes) try {
     $stmt = $pdo->prepare("INSERT INTO llm_conversas (user_msg,bot_msg,contexto,usuario) VALUES (:u,:b,:c,:us)");
     $stmt->execute([':u'=>$comando, ':b'=>$respostaLimpa, ':c'=>mb_substr((string)$provedor,0,80,'UTF-8'), ':us'=>$usuarioConversa]);
 } catch (Throwable $e) {
@@ -1046,6 +1081,7 @@ echo json_encode(te_attach_context([
     'status'=>'sucesso','comando'=>$comando,'resposta'=>$respostaLimpa,'data_hora'=>date('Y-m-d H:i:s'),
     'historico_chars'=>strlen($historicoTexto),'historico_mensagens'=>count($historicoConversa),
     'rag_fontes'=>$ragFontes,'rag_matches'=>count($ragFontes),
+    'contexto_casa'=>['secoes'=>$contextoCasa['secoes'],'chars'=>$contextoCasa['chars']],
     'provedor'=>$provedor,'target_ia'=>$target_ia,'tipo_tarefa'=>$tipo_tarefa,
     'modo_roteamento'=>$routing_mode,'acao'=>$acao,'audio_url'=>$audioUrl,
     'speaker'=>$jarvis_voice,'modelo_usado'=>$modelo_usado,'ia_diagnostico'=>$ia_diagnostico,
