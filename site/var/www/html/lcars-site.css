@@ -1799,3 +1799,21 @@ body{overscroll-behavior:none}
 .ja-chat-content {
   display: block;
 }
+
+/* ---------------------------------------------------------------------------
+   Linha de comando do COMPUTER: o campo de texto ocupa a largura; o botão de voz
+   é curto (só o ícone). A grade segue a ordem dos elementos:
+   [voz] [texto] [enviar] [parar fala]
+   --------------------------------------------------------------------------- */
+.ja-command{grid-template-columns:auto minmax(0,1fr) auto auto !important;align-items:stretch}
+.ja-command input{min-height:44px;font-size:clamp(14px,1.15vw,17px);padding:8px 14px}
+.ja-command .ja-voice-inline-btn{
+  width:44px;min-width:44px !important;max-width:52px;padding:0 !important;
+  font-size:22px !important;line-height:1;border-radius:50%;aspect-ratio:1/1;align-self:center
+}
+.ja-command .ja-voice-inline-btn.ligada{background:#f2a000}
+.ja-command .ja-voice-inline-btn.listening{background:#39e58c !important}
+@media(max-width:760px){
+  .ja-command input{font-size:16px !important} /* 16px evita o zoom automático do iOS */
+  .ja-command .ja-voice-inline-btn{width:46px;min-width:46px !important;min-height:46px !important}
+}
