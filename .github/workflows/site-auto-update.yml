@@ -1,0 +1,20 @@
+name: Site Auto Update
+on:
+  push:
+    paths: ['site/**', '.github/tests/test_site_update*', '.github/workflows/site-auto-update.yml']
+  pull_request:
+    paths: ['site/**', '.github/tests/test_site_update*', '.github/workflows/site-auto-update.yml']
+permissions:
+  contents: read
+jobs:
+  php:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: php .github/tests/test_site_update.php
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test fast-forward, CI gate and local preservation
+        run: python .github/tests/test_site_update_windows.py

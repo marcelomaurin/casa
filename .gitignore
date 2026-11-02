@@ -38,3 +38,5 @@ config.local.php
 
 # Logs
 *.log
+.casa-site-update-maintenance
+/site/var/.casa-site-update-*/

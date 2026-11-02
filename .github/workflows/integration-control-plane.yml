@@ -3,7 +3,7 @@ name: Integration Control Plane
 on:
   push:
     paths:
-      - 'site/var/www/html/api/**'
+      - 'site/**'
       - 'site/var/www/html/workers/github*.php'
       - 'tests/test_projetos_github*.php'
       - 'site/var/www/html/projetos.php'

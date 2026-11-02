@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__.'/site_update_guard.php';
 // Banco central do JARVIS/CASA.
 // Produção Hostinger: MySQL/MariaDB via config.local.php privado ou variáveis de ambiente.
 // A senha do MySQL nunca deve ser versionada no Git.
