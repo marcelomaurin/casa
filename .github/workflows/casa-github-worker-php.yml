@@ -5,6 +5,7 @@ on:
     paths:
       - 'site/var/www/html/api/projetos_github*.php'
       - 'site/var/www/html/workers/github_worker.php'
+      - 'site/var/www/html/workers/github_queue_once.php'
       - 'tests/test_projetos_github_manifesto.php'
       - '.github/workflows/casa-github-worker-php.yml'
   pull_request:
@@ -30,6 +31,7 @@ jobs:
           php -l site/var/www/html/api/projetos_github_manifesto.php
           php -l site/var/www/html/api/projetos_github_ia.php
           php -l site/var/www/html/workers/github_worker.php
+          php -l site/var/www/html/workers/github_queue_once.php
           php -l tests/test_projetos_github_manifesto.php
       - name: Manifest validation regression tests
         run: php tests/test_projetos_github_manifesto.php
