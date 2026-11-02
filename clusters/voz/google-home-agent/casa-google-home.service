@@ -7,11 +7,13 @@ Wants=network-online.target
 Type=simple
 User=mmm
 WorkingDirectory=/home/mmm/servicos/google-home-agent
-EnvironmentFile=-/etc/casa/google-home-agent.env
+EnvironmentFile=/etc/casa/google-home-agent.env
 ExecStart=/home/mmm/servicos/google-home-agent/venv/bin/python3 /home/mmm/servicos/google-home-agent/google_home_agent.py
 Restart=always
 RestartSec=5
+TimeoutStopSec=150
 NoNewPrivileges=true
+UMask=0077
 
 [Install]
 WantedBy=multi-user.target

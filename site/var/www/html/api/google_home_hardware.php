@@ -3,6 +3,7 @@ header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 require_once(__DIR__.'/db.php');
 require_once(__DIR__.'/seguranca.php');
+require_once(__DIR__.'/google_home_bridge.php');
 
 function ghw_out($d,$c=200){http_response_code($c);echo json_encode($d,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);exit;}
 function ghw_input(){ $j=json_decode(file_get_contents('php://input'),true); return is_array($j)?$j:[]; }
@@ -16,10 +17,7 @@ function ghw_computer($command){
     return ['ok'=>false,'erro'=>$err?:($j['mensagem']??('HTTP '.$http))];
 }
 function ghw_speak($text,$device=''){
-    $ch=curl_init('http://127.0.0.1:8100/speak');
-    curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_POST=>true,CURLOPT_POSTFIELDS=>json_encode(['texto'=>$text,'device'=>$device?:null,'speaker'=>'padrao'],JSON_UNESCAPED_UNICODE),CURLOPT_HTTPHEADER=>['Content-Type: application/json'],CURLOPT_CONNECTTIMEOUT=>2,CURLOPT_TIMEOUT=>35]);
-    $raw=curl_exec($ch);$http=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);curl_close($ch);
-    return $raw!==false&&$http>=200&&$http<300;
+    $r=gh_enqueue_speech(get_db_pdo(),$text,$device);unset($r['context']);return $r;
 }
 
 $in=ghw_input();
@@ -59,13 +57,14 @@ if($acao==='comando'){
     $r=ghw_computer($cmd);
     if(!$r['ok'])ghw_out(['status'=>'erro','mensagem'=>$r['erro']],502);
     $resp=(string)($r['data']['resposta']??$r['data']['mensagem']??'');
-    $falou=false;
-    if(!empty($in['falar_resposta'])&&$resp!=='')$falou=ghw_speak($resp,trim((string)($in['device']??'')));
+    $speech=null;
+    if(!empty($in['falar_resposta'])&&$resp!=='')$speech=ghw_speak($resp,trim((string)($in['device']??'')));
     try{
         $log=$pdo->prepare("INSERT INTO comandos_log(iddevice,comando,origem,resultado) VALUES(:id,:c,'GOOGLE_HOME_HARDWARE',:r)");
         $log->execute([':id'=>$dev['id'],':c'=>'Resposta COMPUTER',':r'=>mb_substr($resp,0,2000,'UTF-8')]);
     }catch(Throwable $e){}
-    ghw_out(['status'=>'sucesso','device_id'=>$dev['device_id'],'comando'=>$cmd,'resposta'=>$resp,'falou'=>$falou,'dados'=>$r['data']]);
+    ghw_out(['status'=>'sucesso','device_id'=>$dev['device_id'],'comando'=>$cmd,'resposta'=>$resp,'falou'=>false,
+        'fala_enfileirada'=>$speech!==null,'id_tarefa_fala'=>$speech['id_tarefa']??null,'dados'=>$r['data']]);
 }
 
 ghw_out(['status'=>'erro','mensagem'=>'Ação desconhecida.'],400);

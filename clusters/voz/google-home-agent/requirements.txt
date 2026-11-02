@@ -1,4 +1,4 @@
-fastapi
-uvicorn
-requests
-pychromecast
+fastapi>=0.110,<1
+uvicorn>=0.27,<1
+requests>=2.31,<3
+pychromecast>=14,<15

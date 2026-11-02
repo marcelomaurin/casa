@@ -2145,13 +2145,13 @@ async function renderAgents(){
   const devices=Array.isArray(gh.devices)?gh.devices:[];
   const ghCard='<article class="ja-native-card ja-google-home-card">'+
     '<h3>GOOGLE HOME / HARDWARE</h3>'+
-    '<p>'+esc(gh.online?'Agente conectado. O Google Home pode falar respostas do COMPUTER e enviar comandos como hardware.':(gh.mensagem||'Agente Google Home offline.'))+'</p>'+
+    '<p>'+esc(gh.mensagem||'Agente Google Home sem contato recente.')+'</p>'+
     '<dl><dt>Status</dt><dd>'+(gh.online?'ONLINE':'OFFLINE')+'</dd><dt>Google Cast</dt><dd>'+esc(devices.length)+'</dd><dt>Hardware</dt><dd>'+esc(gh.hardware_status||'—')+'</dd></dl>'+
     '<label class="ja-google-home-field"><span>Destino</span><select id="gh-device"><option value="">Automático</option>'+
       devices.map(d=>'<option value="'+attr(d.uuid||d.name||'')+'">'+esc(d.name||d.uuid||'Google Home')+'</option>').join('')+
     '</select></label>'+
     '<label class="ja-google-home-field"><span>Comando</span><input id="gh-command" placeholder="Ex.: Como está o sistema?"></label>'+
-    '<div class="ja-row-actions">'+actionBtn('ENVIAR E FALAR','gh-send','primary')+actionBtn('ATUALIZAR','gh-refresh')+actionBtn('PROVISIONAR HARDWARE','gh-provision')+'</div>'+
+    '<div class="ja-row-actions">'+actionBtn('ENVIAR E FALAR','gh-send','primary')+actionBtn('ANUNCIAR TEXTO','gh-speak')+actionBtn('ATUALIZAR','gh-refresh')+actionBtn('PROVISIONAR HARDWARE','gh-provision')+'</div>'+
     '<div id="gh-result" class="ja-google-home-result"></div>'+
   '</article>';
 
@@ -2163,17 +2163,27 @@ async function renderAgents(){
   moduleShell('Agentes externos',body);
 
   document.querySelector('[data-act="gh-refresh"]')?.addEventListener('click',renderAgents);
-  document.querySelector('[data-act="gh-send"]')?.addEventListener('click',async()=>{
+  const ghSend=async(acao)=>{
     const cmd=document.getElementById('gh-command')?.value.trim()||'';
     const device=document.getElementById('gh-device')?.value||'';
     const out=document.getElementById('gh-result');
     if(!cmd){if(out)out.textContent='Digite um comando.';return;}
     if(out){out.textContent='Enviando ao COMPUTER...';out.className='ja-google-home-result pending';}
     try{
-      const r=await postJson('/casa/api/google_home.php',{acao:'comando',comando:cmd,device});
-      if(out){out.textContent=r.resposta||r.mensagem||'Comando enviado.';out.className='ja-google-home-result ok';}
+      const r=await postJson('/casa/api/google_home.php',{acao,comando:cmd,texto:cmd,device});
+      if(out){out.textContent=(r.resposta?r.resposta+' — ':'')+(r.mensagem||'Aguardando agente.');out.className='ja-google-home-result pending';}
+      if(r.fala_enfileirada && r.id_tarefa){
+        for(let i=0;i<40 && out?.isConnected;i++){
+          await new Promise(resolve=>setTimeout(resolve,3000));
+          const s=await getJson('/casa/api/google_home.php?acao=resultado&id_tarefa='+encodeURIComponent(r.id_tarefa));
+          if(s.tarefa?.status==='CONCLUIDA'){out.textContent='O Google Home confirmou o inicio da reproducao.';out.className='ja-google-home-result ok';break;}
+          if(['ERRO','CANCELADA'].includes(s.tarefa?.status)){out.textContent=s.tarefa.erro||'A fala nao foi concluida.';out.className='ja-google-home-result error';break;}
+        }
+      }
     }catch(e){if(out){out.textContent=e.message||'Falha no agente.';out.className='ja-google-home-result error';}}
-  });
+  };
+  document.querySelector('[data-act="gh-send"]')?.addEventListener('click',()=>ghSend('comando'));
+  document.querySelector('[data-act="gh-speak"]')?.addEventListener('click',()=>ghSend('falar'));
   document.querySelector('[data-act="gh-provision"]')?.addEventListener('click',async()=>{
     const out=document.getElementById('gh-result');
     if(out){out.textContent='Provisionando hardware virtual...';out.className='ja-google-home-result pending';}

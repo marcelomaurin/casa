@@ -118,6 +118,13 @@ jobs:
       - name: Test task queue (planner -> daemons)
         run: php .github/tests/test_fila_tarefas.php
 
+      - name: Test Google Home queue and Cast agent
+        run: |
+          php .github/tests/test_google_home.php
+          python3 -m venv /tmp/google-home-test
+          /tmp/google-home-test/bin/pip install -r clusters/voz/google-home-agent/requirements.txt httpx
+          /tmp/google-home-test/bin/python clusters/voz/google-home-agent/tests/test_google_home.py
+
       - name: Test GitHub development queue and human review
         run: php .github/tests/test_github_queue.php
 

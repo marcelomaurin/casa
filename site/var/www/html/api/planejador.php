@@ -21,6 +21,7 @@ function planner_call_json($demanda, array $taskContext, array $executoresExtras
     if ($executoresExtras) {
         $extras = 'Executores extras de daemons/agentes ativos (use o nome exato em "executor"; "fila" opcional com o nome do agente): ' .
             implode('; ', $executoresExtras) . '. ';
+        $extras .= 'Quando google_home estiver disponivel e a demanda pedir anunciar no Google Home, use executor google_home, payload {"modo":"falar","texto":"mensagem a anunciar","device":"nome ou UUID, somente se informado","speaker":"padrao"}. Nao envie comandos de automacao nesse executor; execute a acao em tarefa separada e anuncie depois. ';
     }
     $prompt = "Voce e o planejador do JARVIS. Data/hora atual: {$agora}. " .
         "Decomponha a demanda do usuario em tarefas executaveis. Retorne SOMENTE JSON valido, sem markdown. " .
