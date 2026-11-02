@@ -31,3 +31,7 @@ A fila atual de projetos suporta executores `jarvis` e `web`. **Não** converter
 ## Endpoint de contexto (fase 10)
 
 `GET /api/v1/projetos_github_contexto.php?tarefa_id=123` exige cliente API v1 com escopo `tasks.worker`. Consulta projeto e tarefa já aprovados e ligados à fila, verifica a lista de repositórios permitidos e retorna JSON com repositório, branch determinística, descrição e critérios de aceite. Não entrega tokens e não cria branches/PRs. O agente externo ainda deve usar `/api/v1/fila.php` para reservar/concluir tarefas; o endpoint de contexto **não prova a posse de uma reserva** e não deve ser usado como autorização para executar operações GitHub sem verificações adicionais.
+
+## Operações preparadas (fase 11)
+
+`api/projetos_github_operacoes.php` oferece `casa_github_plano_branch` e `casa_github_plano_pr`, que produzem descrições estruturadas de requisições para criação de branch e Pull Request **em rascunho**. Validam o repositório contra a lista autorizada e a base `main`/`master`. Não realizam requisições HTTP, não obtêm o SHA base, não editam arquivos e não executam testes. A implementação do worker executor permanece pendente.
