@@ -4,7 +4,8 @@ foreach (['HOST'=>'127.0.0.1','PORT'=>'3306','NAME'=>'casa_test','USER'=>'root',
 putenv('JARVIS_AUTO_INIT_DB=1');
 require __DIR__.'/../../site/var/www/html/api/db.php';
 require __DIR__.'/../../site/var/www/html/api/task_engine.php';
-$pdo=get_db_pdo();$token=get_system_api_token();$checks=0;
+$token='conversation-ci-'.bin2hex(random_bytes(16));putenv('JARVIS_SYSTEM_API_TOKEN='.$token);
+$pdo=get_db_pdo();$checks=0;
 function chat_ok(bool $v,string $m):void {global $checks;if(!$v)throw new RuntimeException($m);$checks++;}
 function chat_counts(PDO $pdo):array {return [(int)$pdo->query('SELECT COUNT(*) FROM jarvis_planos')->fetchColumn(),(int)$pdo->query('SELECT COUNT(*) FROM jarvis_tarefas')->fetchColumn()];}
 function chat_port():string {$s=stream_socket_server('tcp://127.0.0.1:0');$address=stream_socket_get_name($s,false);fclose($s);return $address;}

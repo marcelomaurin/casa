@@ -810,7 +810,7 @@ $rag=$respostaSaudacao===null?rag_prompt($comando):[];
 $ragContexto=$rag['prompt']??'';
 $ragFontes=$rag['sources']??[];
 
-// Estado AO VIVO da casa (dispositivos, sensores, alertas...) em todo pedido à IA.
+// Estado da casa apenas para assuntos relacionados; fila somente quando consultada.
 // configuracoes_sistema: jarvis_contexto_casa = sempre|nunca; jarvis_contexto_max_chars (padrão 3500).
 $contextoCasa=['prompt'=>'','secoes'=>[],'chars'=>0];
 if(computer_precisa_contexto_casa($comando) && strtolower(trim((string)($configs['jarvis_contexto_casa'] ?? 'sempre')))!=='nunca'){
