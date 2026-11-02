@@ -74,6 +74,65 @@ try {
         $q->execute([$id,$agent,$dependency,$title,$description,$criteria?:null,$priority]);
         api_v1_json_response(201,['status'=>'ok','id'=>(int)$pdo->lastInsertId()]);
     }
+    if ($action === 'planejar') {
+        // Recebe um plano estruturado gerado pelo ChatGPT; nenhuma tarefa e executada.
+        $id=(int)($input['projeto_id']??0);
+        $agents=$input['agentes']??[];
+        $steps=$input['tarefas']??[];
+        if ($id<=0 || !is_array($agents) || array_keys($agents)!==range(0,count($agents)-1) && count($agents)>0 || count($agents)>12 ||
+            !is_array($steps) || array_keys($steps)!==range(0,count($steps)-1) || count($steps)<1 || count($steps)>60)
+            api_v1_json_response(400,['status'=>'erro','mensagem'=>'Plano invalido (ate 12 agentes e 60 tarefas)']);
+        $normalizedAgents=[];
+        foreach ($agents as $a) {
+            if (!is_array($a)) api_v1_json_response(400,['status'=>'erro','mensagem'=>'Agente invalido']);
+            $name=project_text($a['nome']??null,120,'nome do agente');
+            $specialty=project_text($a['especialidade']??null,80,'especialidade');
+            $executor=project_text($a['executor']??'jarvis',80,'executor');
+            if (!preg_match('/^[a-zA-Z0-9_.-]+$/',$executor))
+                api_v1_json_response(400,['status'=>'erro','mensagem'=>'Executor invalido']);
+            $normalizedAgents[]=[$name,$specialty,$executor];
+        }
+        $normalizedSteps=[];
+        foreach ($steps as $i=>$step) {
+            if (!is_array($step)) api_v1_json_response(400,['status'=>'erro','mensagem'=>'Tarefa invalida']);
+            $title=project_text($step['titulo']??null,200,'titulo');
+            $description=project_text($step['descricao']??null,10000,'descricao');
+            $criterion=project_text($step['criterio_aceite']??null,10000,'criterio_aceite');
+            $priority=(int)($step['prioridade']??3);
+            $agentIndex=$step['agente_indice']??null;
+            $dependency=$step['depende_da_tarefa']??null;
+            if ($priority<1 || $priority>5 ||
+                ($agentIndex!==null && (!is_int($agentIndex) || $agentIndex<1 || $agentIndex>count($agents))) ||
+                ($dependency!==null && (!is_int($dependency) || $dependency<1 || $dependency>$i)))
+                api_v1_json_response(400,['status'=>'erro','mensagem'=>'Prioridade, agente ou dependencia invalida na tarefa '.($i+1)]);
+            $normalizedSteps[]=[$title,$description,$criterion,$priority,$agentIndex,$dependency];
+        }
+        $pdo->beginTransaction();
+        try {
+            $q=$pdo->prepare('SELECT id,status FROM casa_projetos WHERE id=? FOR UPDATE');
+            $q->execute([$id]);$project=$q->fetch(PDO::FETCH_ASSOC);
+            if (!$project) { $pdo->rollBack(); api_v1_json_response(404,['status'=>'erro','mensagem'=>'Projeto nao encontrado']); }
+            if ($project['status']!=='planejamento') { $pdo->rollBack(); api_v1_json_response(409,['status'=>'erro','mensagem'=>'Projeto fora do planejamento']); }
+            $q=$pdo->prepare('SELECT COUNT(*) FROM casa_projeto_tarefas WHERE projeto_id=?');$q->execute([$id]);
+            if ((int)$q->fetchColumn()>0) { $pdo->rollBack(); api_v1_json_response(409,['status'=>'erro','mensagem'=>'Projeto ja possui tarefas; revise antes de gerar outro plano']); }
+            $q=$pdo->prepare('SELECT COUNT(*) FROM casa_projeto_agentes WHERE projeto_id=?');$q->execute([$id]);
+            if ((int)$q->fetchColumn()>0) { $pdo->rollBack(); api_v1_json_response(409,['status'=>'erro','mensagem'=>'Projeto ja possui agentes']); }
+            $insAgent=$pdo->prepare('INSERT INTO casa_projeto_agentes(projeto_id,nome,especialidade,executor) VALUES(?,?,?,?)');
+            $agentIds=[];
+            foreach ($normalizedAgents as $a) { $insAgent->execute(array_merge([$id],$a));$agentIds[]=(int)$pdo->lastInsertId(); }
+            $insTask=$pdo->prepare('INSERT INTO casa_projeto_tarefas(projeto_id,agente_id,depende_de,titulo,descricao,criterio_aceite,prioridade) VALUES(?,?,?,?,?,?,?)');
+            $taskIds=[];
+            foreach ($normalizedSteps as $s) {
+                [$title,$description,$criterion,$priority,$agentIndex,$dependency]=$s;
+                $insTask->execute([$id,$agentIndex===null?null:$agentIds[$agentIndex-1],
+                    $dependency===null?null:$taskIds[$dependency-1],$title,$description,$criterion,$priority]);
+                $taskIds[]=(int)$pdo->lastInsertId();
+            }
+            $pdo->commit();
+            api_v1_log($pdo,'PROJETO_PLANEJADO','INFO',$client['nome']??null,['projeto_id'=>$id,'agentes'=>count($agentIds),'tarefas'=>count($taskIds)]);
+            api_v1_json_response(201,['status'=>'ok','projeto_id'=>$id,'agentes'=>$agentIds,'tarefas'=>$taskIds,'execucao'=>'nao_iniciada']);
+        } catch (Throwable $e) { if ($pdo->inTransaction()) $pdo->rollBack(); throw $e; }
+    }
     api_v1_json_response(404,['status'=>'erro','mensagem'=>'Acao desconhecida']);
 } catch (PDOException $e) {
     error_log('projetos v1: '.$e->getMessage());
