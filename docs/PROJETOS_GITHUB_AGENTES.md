@@ -43,3 +43,7 @@ A fila atual de projetos suporta executores `jarvis` e `web`. **Não** converter
 ## Worker CLI (fase 13)
 
 `php site/var/www/html/workers/github_worker.php --tarefa 123` consulta banco, valida projeto aprovado, status da fila e allowlist, e imprime contexto em modo de simulação, sem token ou alteração remota. O sinalizador `--executar` é **deliberadamente bloqueado**, inclusive com `CASA_GITHUB_WORKER_ENABLED=1`, até existir verificação confiável do proprietário da reserva. Não confundir com um executor funcional.
+
+## Reserva verificada (fase 14)
+
+O worker CLI `--executar` agora exige `CASA_GITHUB_WORKER_ENABLED=1`, `CASA_GITHUB_WORKER_NAME` correspondente ao proprietário da reserva ativa e tarefa na fila `github` com executor `github`. Usa `ft_exigir_reserva` e verifica prazo e plano antes de chamar a API para **criar somente a branch**. Não conclui a tarefa, não edita arquivos e não abre PR. O fluxo de aprovação atual publica apenas executores `jarvis`/`web` na fila `geral`; portanto, **ainda é necessário integrar um despachante GitHub autorizado** antes de usar o modo de execução em projetos comuns. Evitar executar manualmente contra uma reserva cujo lease esteja perto do vencimento; idempotência de branches também permanece pendente.
