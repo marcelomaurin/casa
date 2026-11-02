@@ -79,8 +79,8 @@ try {
         $id=(int)($input['projeto_id']??0);
         $agents=$input['agentes']??[];
         $steps=$input['tarefas']??[];
-        if ($id<=0 || !is_array($agents) || array_keys($agents)!==range(0,count($agents)-1) && count($agents)>0 || count($agents)>12 ||
-            !is_array($steps) || array_keys($steps)!==range(0,count($steps)-1) || count($steps)<1 || count($steps)>60)
+        if ($id<=0 || !is_array($agents) || ($agents !== [] && array_keys($agents) !== range(0,count($agents)-1)) || count($agents)>12 ||
+            !is_array($steps) || array_keys($steps) !== range(0,count($steps)-1) || count($steps)<1 || count($steps)>60)
             api_v1_json_response(400,['status'=>'erro','mensagem'=>'Plano invalido (ate 12 agentes e 60 tarefas)']);
         $normalizedAgents=[];
         foreach ($agents as $a) {
