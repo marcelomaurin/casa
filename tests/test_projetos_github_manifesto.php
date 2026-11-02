@@ -21,4 +21,7 @@ rejeita([['path'=>'vendor/lib.php','content'=>'x']],'vendor');
 rejeita([['path'=>'src/a.exe','content'=>'x']],'extensao');
 rejeita([['path'=>'src/a.php','content'=>'x'],['path'=>'SRC/A.php','content'=>'y']],'duplicado');
 rejeita([['path'=>'src/a.php','content'=>str_repeat('x',100001)]],'conteudo grande');
+rejeita([['path'=>'src/b.php','content'=>'<?php function x( {']],'sintaxe PHP invalida');
+rejeita([['path'=>'src/b.php','content'=>'echo 1;']],'PHP sem abertura');
+ok(count(casa_gh_validar_alteracoes([['path'=>'src/b.php','content'=>'<?php function x(): int { return 1; }']]))===1,'PHP valido');
 echo "OK: {$pass} verificacoes\n";
