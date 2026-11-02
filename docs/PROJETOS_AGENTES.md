@@ -72,3 +72,9 @@ A resposta inclui o status de cada tarefa na fila, tentativas, trabalhador, erro
 Acesse `/casa/projetos.php` com a sessão autenticada do Casa. Permite criar projetos, adicionar agentes, cadastrar tarefas com dependências e visualizar estado da fila. Os formulários usam token CSRF de sessão e PDO parametrizado; nenhum token externo é exposto ao navegador.
 
 A aprovação permanece no endpoint autenticado `projetos_execucao.php`; o painel não a executa automaticamente. A página não gera planos por IA nem exibe os detalhes completos dos resultados; estas integrações ficam pendentes. Acesso pela URL direta até integrar navegação principal. Validar em PHP/MySQL antes de liberar para produção.
+
+## Painel — importação e progresso (fase 5)
+
+No projeto vazio em planejamento, o painel permite importar JSON estruturado com `agentes` e `tarefas`, no formato descrito acima, validando índices, critérios, prioridade e dependências. A importação é atômica, protegida por sessão e CSRF, e não inicia a execução. O JSON pode ser preparado por uma IA externa, mas **não há chamada LLM automática nesta fase**.
+
+O painel também calcula o percentual concluído consultando o status de `jarvis_tarefas` e permite expandir os resultados (limitados a 12 mil caracteres por tarefa). Não há ainda aprovação diretamente no painel, nem atualização de status agregado ou validação automática dos artefatos. Testar em PHP 8.1+ e MySQL/MariaDB antes de disponibilizar no servidor.
