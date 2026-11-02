@@ -80,7 +80,7 @@ try {
         $pr=casa_gh_criar_pr_rascunho($project,$task);
         echo json_encode(['status'=>'pr_rascunho','branch'=>$ctx['branch'],
             'commits'=>$commits,'pr_url'=>$pr['html_url']??null,'tarefa_id'=>$id],
-            JSON_UNESCAPED_UNICODE)."\\n";
+            JSON_UNESCAPED_UNICODE)."\n";
         exit(0);
     }
     echo json_encode(['status'=>'branch_criada','branch'=>$ctx['branch'],
