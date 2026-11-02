@@ -21,7 +21,7 @@ Leia e revise integralmente o JSON antes de aplicar. O modelo pode produzir codi
 CASA_GITHUB_WRITE_ENABLED=1 php site/var/www/html/workers/github_worker.php --tarefa 123 --executar --alteracoes /tmp/casa-tarefa-123.json
 ```
 
-Exige ainda `CASA_GITHUB_TOKEN` e reserva vigente. O worker cria ou reutiliza branch, grava arquivos e abre PR em rascunho. Nao faz merge automatico. A fila ainda nao e consumida continuamente por este worker, e a conclusao da tarefa nao e automatizada.
+Exige ainda `CASA_GITHUB_TOKEN` e reserva vigente. O worker cria ou reutiliza branch, grava arquivos e abre PR em rascunho. Nao faz merge automatico. O consumidor `github_queue_once.php` reserva uma tarefa e conclui apenas a etapa de preparacao da branch, registrando `aguardando_geracao_e_revisao` no resultado Jarvis. Isso evita que a mesma tarefa seja reservada indefinidamente. **A conclusao na fila nao equivale a codigo implementado, PR criado ou aprovado.** A geracao e a revisao continuam manuais; ainda nao existe daemon continuo.
 
 ## Validacao local
 ```bash
