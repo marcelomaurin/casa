@@ -132,6 +132,9 @@ class TestAgente(unittest.TestCase):
         self.assertIsInstance(run.call_args.args[0], list)
         self.assertNotIn("shell", run.call_args.kwargs)
         self.assertNotIn(self.cfg.chave, r["saida"])
+        with patch.object(ag.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout="ActiveState=active", stderr="")) as run:
+            a.executar_ferramenta("servico_estado", {"servico": "casa-tarefas"})
+        self.assertEqual(run.call_args.args[0][2], "casa-tarefas.service")
 
     def test_comandos_apenas_cadastrados(self):
         a = self.agent([])
