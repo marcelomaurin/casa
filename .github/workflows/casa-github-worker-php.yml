@@ -1,0 +1,34 @@
+name: Casa GitHub Worker PHP
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - 'site/var/www/html/api/projetos_github*.php'
+      - 'site/var/www/html/workers/github_worker.php'
+      - 'tests/test_projetos_github_manifesto.php'
+      - '.github/workflows/casa-github-worker-php.yml'
+  pull_request:
+    paths:
+      - 'site/var/www/html/api/projetos_github*.php'
+      - 'site/var/www/html/workers/github_worker.php'
+      - 'tests/test_projetos_github_manifesto.php'
+      - '.github/workflows/casa-github-worker-php.yml'
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: PHP version
+        run: php -v
+      - name: Syntax checks
+        run: |
+          php -l site/var/www/html/api/projetos_github.php
+          php -l site/var/www/html/api/projetos_github_cliente.php
+          php -l site/var/www/html/api/projetos_github_arquivos.php
+          php -l site/var/www/html/api/projetos_github_manifesto.php
+          php -l site/var/www/html/workers/github_worker.php
+          php -l tests/test_projetos_github_manifesto.php
+      - name: Manifest validation regression tests
+        run: php tests/test_projetos_github_manifesto.php
