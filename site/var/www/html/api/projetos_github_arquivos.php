@@ -34,7 +34,7 @@ function casa_gh_gravar_arquivo(array $project,array $task,string $path,string $
         if ($payload!==null) curl_setopt($ch,CURLOPT_POSTFIELDS,json_encode($payload,JSON_UNESCAPED_SLASHES));
         $raw=curl_exec($ch);$status=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);curl_close($ch);
         $json=is_string($raw)?json_decode($raw,true):null;
-        if ($status!==404 && ($status<200 || $status>=300 || !is_array($json)))
+        if (!(($method==='GET' && $status===404) || ($status>=200 && $status<300 && is_array($json))))
             throw new RuntimeException('GitHub HTTP '.$status);
         return ['status'=>$status,'data'=>$json];
     };
