@@ -84,3 +84,7 @@ O painel também calcula o percentual concluído consultando o status de `jarvis
 O painel `/casa/projetos.php` agora permite que usuários com perfil de sessão `admin`, `administrador` ou `gestor` aprovem projetos em planejamento com tarefas cadastradas. Exige confirmação por checkbox e token CSRF. A operação é transacional, verifica dependências e limita executores a `jarvis` e `web`, publicando na fila `jarvis_tarefas` e vinculando o plano. Uma segunda aprovação é rejeitada. **Aprovar dispara a fila de execução**; testar em ambiente isolado antes de liberar aos usuários.
 
 A autorização da sessão web é separada da API tokenizada. Ainda faltam geração LLM automática, testes integrados e integração GitHub dos agentes.
+
+## Progresso agregado na API (fase 7)
+
+`GET /api/v1/projetos_execucao.php?acao=status&projeto_id=ID` inclui agora `progresso` com total, concluídas, falhas, ativas, percentual e situação derivada (`sem_tarefas`, `concluido`, `falhou`, `parcial`, `pendente`). O cálculo usa estados das tarefas na fila e não atualiza o campo persistido `casa_projetos.status`; o encerramento automático no banco continua pendente. O painel também reconhece tarefas reservadas e falhas/cancelamentos.
