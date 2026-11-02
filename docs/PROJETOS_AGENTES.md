@@ -44,3 +44,25 @@ O ChatGPT pode produzir um JSON estruturado e enviá-lo por `POST /api/v1/projet
 Índices de agente e dependência começam em 1; dependências devem apontar para tarefas anteriores no mesmo lote. Limites: 12 agentes e 60 tarefas. A API rejeita replanejamento que poderia duplicar tarefas. Para obter resultados, use `GET ?acao=detalhes&id=1`.
 
 **Pendente:** integração com gerador de plano LLM, aprovação, despacho na fila, sincronização de estados e painel visual. Esta etapa não pressupõe que o ChatGPT possa acessar a API privada sem uma conexão autorizada.
+
+## Aprovação e fila distribuída (fase 3)
+
+Após cadastrar e planejar o projeto, uma chamada **explícita** de aprovação pode publicar as tarefas na fila de execução já existente:
+
+```http
+POST /api/v1/projetos_execucao.php?acao=aprovar
+Authorization: Bearer <token-com-projects.manage>
+Content-Type: application/json
+
+{"projeto_id":1,"confirmar":true}
+```
+
+A aprovação cria um `jarvis_planos` e tarefas em `jarvis_tarefas` com dependências preservadas e associação por IDs, tudo numa transação. A API rejeita aprovação duplicada. Apenas executores `jarvis` e `web` são aceitos nesta fase: scripts, comandos e dispositivos não são liberados por esse caminho. **Aprovar inicia o despacho automático aos daemons ativos**; revisar antes de enviar.
+
+Consultar estado e resultados (token com `projects.manage`):
+
+`GET /api/v1/projetos_execucao.php?acao=status&projeto_id=1`
+
+A resposta inclui o status de cada tarefa na fila, tentativas, trabalhador, erro e resultado. O status agregado do projeto ainda não é recalculado automaticamente quando todas as tarefas terminam; consultar o status das tarefas para saber o resultado final.
+
+**Pendente:** testes integrados no servidor, interface de aprovação, geração automática de plano pela IA, cancelamento e sincronização de estado agregado. Não presumir deploy concluído só porque o código foi integrado à `master`.
