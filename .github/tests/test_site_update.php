@@ -96,14 +96,17 @@ if (PHP_OS_FAMILY!=='Windows') {
 // O navegador nao pode executar o instalador; durante a troca recebe 503.
 $f=new SiteFixture();
 su_put($f->root.'/api/site_update_guard.php',(string)file_get_contents(__DIR__.'/../../site/var/www/html/api/site_update_guard.php'));
+su_put($f->root.'/api/site_self_update.php',(string)file_get_contents(__DIR__.'/../../site/var/www/html/api/site_self_update.php'));
+su_put($f->root.'/api/site_update_hook.php',(string)file_get_contents(__DIR__.'/../../site/var/www/html/api/site_update_hook.php'));
 su_put($f->root.'/workers/site_update.php',(string)file_get_contents(__DIR__.'/../../site/var/www/html/workers/site_update.php'));
 su_put($f->root.'/atualizar_casa.php',(string)file_get_contents(__DIR__.'/../../site/var/www/html/atualizar_casa.php'));
-su_put($f->root.'/index.php','<?php require __DIR__."/api/site_update_guard.php"; echo "disponivel";');
+su_put($f->root.'/index.php','<?php require __DIR__."/api/site_update_hook.php"; require __DIR__."/api/site_update_guard.php"; echo "disponivel";');
 $socket=stream_socket_server('tcp://127.0.0.1:0',$errno,$errstr);
 if (!$socket) throw new RuntimeException('Porta de teste indisponivel');
 $address=stream_socket_get_name($socket,false);fclose($socket);
 $log=dirname($f->root).'/http-test.log';
-$proc=proc_open([PHP_BINARY,'-S',$address,'-t',$f->root],[0=>['pipe','r'],1=>['file',$log,'a'],2=>['file',$log,'a']],$pipes);
+$proc=proc_open([PHP_BINARY,'-S',$address,'-t',$f->root],[0=>['pipe','r'],1=>['file',$log,'a'],2=>['file',$log,'a']],$pipes,null,
+    array_merge(getenv(),['CASA_SITE_UPDATE_STATE_DIR'=>$f->state]));
 if (!is_resource($proc)) throw new RuntimeException('Servidor de teste indisponivel');
 fclose($pipes[0]);
 try {
@@ -125,6 +128,10 @@ try {
     unlink($f->root.'/.casa-site-update-maintenance');
     $body=file_get_contents('http://'.$address.'/',false,$context);
     su_ok(str_contains($http_response_header[0]??'','200') && $body==='disponivel','site volta depois da troca');
+    su_ok(!file_exists($f->state.'/web-tick.lock'),'hook desabilitado nao inicia atualizacao');
+    su_put($f->state.'/settings.json','{"enabled":true}');$stamp=(string)time();su_put($f->state.'/web-tick.lock',$stamp);
+    $body=file_get_contents('http://'.$address.'/',false,$context);
+    su_ok($body==='disponivel' && file_get_contents($f->state.'/web-tick.lock')===$stamp,'hook respeita intervalo de cinco minutos');
 } finally { proc_terminate($proc);proc_close($proc); }
 
 // Exercitar o bootstrap de arquivo unico com componentes e hashes controlados.

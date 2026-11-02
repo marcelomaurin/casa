@@ -39,7 +39,7 @@ function casaInstallerBootstrap(string $root,?callable $fetch=null): void {
     $required=['.github/workflows/integration-control-plane.yml'=>null,'.github/workflows/site-auto-update.yml'=>null];
     foreach ($runs['workflow_runs']??[] as $run) {
         $path=$run['path']??'';
-        if (array_key_exists($path,$required) && $required[$path]===null && ($run['head_sha']??'')===$sha && ($run['head_branch']??'')==='master')
+        if (array_key_exists($path,$required) && $required[$path]===null && ($run['head_sha']??'')===$sha)
             $required[$path]=($run['status']??'')==='completed' && ($run['conclusion']??'')==='success';
     }
     if (in_array(null,$required,true) || in_array(false,$required,true)) throw new RuntimeException('A nova versao ainda nao terminou os testes. Tente novamente depois.');

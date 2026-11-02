@@ -132,7 +132,7 @@ final class CasaSiteUpdater {
         $required=['.github/workflows/integration-control-plane.yml'=>null,'.github/workflows/site-auto-update.yml'=>null];
         foreach ($data['workflow_runs']??[] as $run) {
             $path=$run['path']??'';
-            if (array_key_exists($path,$required) && $required[$path]===null && ($run['head_sha']??'')===$sha && ($run['head_branch']??'')==='master')
+            if (array_key_exists($path,$required) && $required[$path]===null && ($run['head_sha']??'')===$sha)
                 $required[$path]=($run['status']??'')==='completed' && ($run['conclusion']??'')==='success';
         }
         return !in_array(null,$required,true) && !in_array(false,$required,true);

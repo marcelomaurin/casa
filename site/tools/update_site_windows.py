@@ -47,7 +47,7 @@ def ci_passed(commit):
     found = {}
     for item in json.loads(raw).get("workflow_runs", []):
         path = item.get("path")
-        if path in WORKFLOWS and path not in found and item.get("head_sha") == commit and item.get("head_branch") == "master":
+        if path in WORKFLOWS and path not in found and item.get("head_sha") == commit:
             found[path] = item.get("status") == "completed" and item.get("conclusion") == "success"
     return set(found) == WORKFLOWS and all(found.values())
 

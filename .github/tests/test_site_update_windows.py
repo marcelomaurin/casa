@@ -110,6 +110,9 @@ class UpdaterTests(unittest.TestCase):
             def read(self, size): return json.dumps({"workflow_runs": runs}).encode()
         with patch.object(up.urllib.request, "urlopen", return_value=Response()):
             self.assertTrue(up.ci_passed(sha))
+            for item in runs:
+                item["head_branch"] = "codex/tested-before-main"
+            self.assertTrue(up.ci_passed(sha))
             runs.insert(0, dict(runs[0], conclusion="failure"))
             self.assertFalse(up.ci_passed(sha))
             runs.clear()
