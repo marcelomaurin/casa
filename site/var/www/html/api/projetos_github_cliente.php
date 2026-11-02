@@ -41,12 +41,12 @@ function casa_gh_criar_branch(array $project,array $task,string $base='master'):
         throw new RuntimeException('SHA base invalido');
     return casa_gh_http('POST','/repos/'.$repo.'/git/refs',['ref'=>'refs/heads/'.$ctx['branch'],'sha'=>$sha]);
 }
-function casa_gh_pr_existente(array $project,array $task): ?array {
+function casa_gh_pr_existente(array $project,array $task,string $base='master'): ?array {
     $ctx=casa_github_preparar_tarefa($project,$task);
     $prs=casa_gh_http('GET','/repos/'.$ctx['repositorio'].'/pulls');
     foreach ($prs as $pr) {
         if (($pr['head']['ref']??'')===$ctx['branch'] &&
-            ($pr['base']['ref']??'')==='master' &&
+            ($pr['base']['ref']??'')===$base &&
             ($pr['state']??'')==='open') return $pr;
     }
     return null;
@@ -55,7 +55,7 @@ function casa_gh_criar_pr_rascunho(array $project,array $task,string $base='mast
     if (!in_array($base,['main','master'],true)) throw new InvalidArgumentException('Base invalida');
     $ctx=casa_github_preparar_tarefa($project,$task);
     // Nao duplicar PRs em repeticoes da tarefa.
-    $existing=casa_gh_pr_existente($project,$task);
+    $existing=casa_gh_pr_existente($project,$task,$base);
     if ($existing!==null) return $existing+['ja_existia'=>true];
     return casa_gh_http('POST','/repos/'.$ctx['repositorio'].'/pulls',[
         'title'=>$ctx['titulo'],'head'=>$ctx['branch'],'base'=>$base,
