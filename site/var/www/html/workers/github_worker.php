@@ -3,7 +3,7 @@
 if (PHP_SAPI!=='cli') { http_response_code(403); exit; }
 require_once __DIR__.'/../api/db.php';
 require_once __DIR__.'/../api/projetos_github_cliente.php';
-require_once __DIR__.'/../api/projetos_github_arquivos.php';
+require_once __DIR__.'/../api/projetos_github_manifesto.php';
 require_once __DIR__.'/../api/fila_tarefas.php';
 if (($argv[1]??'')!=='--tarefa' || !ctype_digit((string)($argv[2]??''))) {
     fwrite(STDERR,"Uso: php github_worker.php --tarefa ID [--executar] [--alteracoes arquivo.json]\n");exit(2);
@@ -51,15 +51,7 @@ try {
             filesize($filename)>500000)
             throw new RuntimeException('Arquivo de alteracoes ausente ou grande demais');
         $changes=json_decode((string)file_get_contents($filename),true,32,JSON_THROW_ON_ERROR);
-        if (!is_array($changes) || !array_is_list($changes) || count($changes)>5)
-            throw new RuntimeException('Alteracoes devem ser lista de ate cinco arquivos');
-        foreach ($changes as $change) {
-            if (!is_array($change) || !isset($change['path'],$change['content']) ||
-                !is_string($change['path']) || !is_string($change['content']) ||
-                strlen($change['content'])>100000)
-                throw new RuntimeException('Alteracao invalida');
-            casa_gh_validar_caminho($change['path']);
-        }
+        $changes=casa_gh_validar_alteracoes($changes);
         if ($changes && getenv('CASA_GITHUB_WRITE_ENABLED')!=='1')
             throw new RuntimeException('Escrita GitHub desabilitada');
     }
