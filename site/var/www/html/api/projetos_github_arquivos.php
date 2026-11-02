@@ -9,6 +9,10 @@ function casa_gh_validar_caminho(string $path): string {
             throw new InvalidArgumentException('Arquivo oculto ou caminho relativo proibido');
     if (preg_match('~(^|/)(vendor|node_modules|secrets|credentials)(/|$)~i',$path))
         throw new InvalidArgumentException('Diretorio protegido');
+    if (preg_match('~(^|/)(config\.local\.[^/]+|.*\.(pem|key)|id_rsa[^/]*|credentials[^/]*|secrets?[^/]*)(/|$)~i',$path) ||
+        preg_match('~(^|/)(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|/|$)~i',$path) ||
+        preg_match('~\.(?:/|$)~',$path))
+        throw new InvalidArgumentException('Arquivo privado ou caminho nao portavel');
     if (!preg_match('/\.(php|pas|pp|py|js|ts|css|html|md|json|sql|sh|yml|yaml|txt)$/iD',$path))
         throw new InvalidArgumentException('Extensao nao autorizada');
     return $path;

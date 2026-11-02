@@ -1,49 +1,13 @@
-# Integração GitHub dos agentes — contrato inicial
+# Integracao GitHub dos agentes
 
-## Segurança e escopo
+O fluxo completo implementado esta documentado em [CASA_GITHUB_IA_FLUXO.md](CASA_GITHUB_IA_FLUXO.md).
 
-A fila atual de projetos suporta executores `jarvis` e `web`. **Não** converter tarefas textuais em comandos de shell nem dar push automático na `master`. O worker de desenvolvimento GitHub deve ser separado, com credenciais de escopo mínimo e repositórios explicitamente permitidos pelo administrador.
+- Aprovar o plano publica tarefas GitHub na fila apropriada, com allowlist e chave de habilitacao.
+- O consumidor prepara snapshot, gera codigo, valida manifesto/sintaxe, publica commit atomico e abre draft PR.
+- Checkpoints, reservas e backoff permitem retomadas sem branches ou PRs duplicados.
+- CI e aprovacao humana sao vinculados ao HEAD atual; dependencias aguardam merge realizado por uma pessoa.
+- O agente nunca aprova ou mescla PRs e nunca executa comandos de tarefas no servidor Casa.
 
-## Fluxo proposto
+`projetos_github.php` fornece validacao de repositorio e branch deterministica; `projetos_github_fluxo.php` implementa a maquina de estados e o transporte restrito. O endpoint `GET /api/v1/projetos_github_contexto.php?tarefa_id=123` entrega contexto a clientes com escopo `tasks.worker`, sem tokens. O contexto nao substitui a verificacao de reserva. `github_queue_runtime.php` conecta as etapas a fila e revalida projeto/plano e lease antes dos efeitos remotos.
 
-1. Após aprovação do plano, selecionar tarefa com dependências concluídas.
-2. Validar `owner/repo` contra lista de permissões do servidor; nunca aceitar URL Git arbitrária ou credenciais no payload.
-3. Criar branch `casa/tarefa-<id>` a partir de commit conhecido da principal.
-4. Gerar alterações em workspace isolado, com limites de CPU, tempo, rede e arquivos; registrar logs sem segredos.
-5. Executar testes e produzir evidências, sem acesso aos serviços do servidor principal.
-6. Abrir Pull Request com resumo, arquivos alterados e testes. **Não mesclar automaticamente**.
-7. Atualizar o resultado da tarefa com URL e identificador do PR; revisão humana é obrigatória.
-
-## Critérios de aceite para implementação
-
-- Token GitHub App com acesso apenas aos repositórios permitidos, armazenado fora do banco de tarefas.
-- Idempotência por ID de tarefa para não duplicar branches ou PRs em reexecuções.
-- Verificação de escopo por projeto e auditoria por ação.
-- Rejeitar comandos perigosos, caminhos fora do workspace, forks desconhecidos e mudanças em segredos.
-- Testes com repositório de sandbox antes de ativar workers reais.
-
-**Status:** especificação; worker GitHub ainda não implementado.
-
-## Fundação implementada
-
-`site/var/www/html/api/projetos_github.php` fornece funções para validar `owner/repo`, impor lista permitida configurada via variável de ambiente `CASA_GITHUB_REPOS_PERMITIDOS` (valores separados por vírgula), gerar branch determinística por projeto/tarefa e preparar o contexto da tarefa. **Sem variável configurada, nenhum repositório é autorizado.** Não existem credenciais ou chamadas à API GitHub nesse módulo. Não é um worker executável; conectar com o despachante e criar branches/PRs permanece pendente.
-
-## Endpoint de contexto (fase 10)
-
-`GET /api/v1/projetos_github_contexto.php?tarefa_id=123` exige cliente API v1 com escopo `tasks.worker`. Consulta projeto e tarefa já aprovados e ligados à fila, verifica a lista de repositórios permitidos e retorna JSON com repositório, branch determinística, descrição e critérios de aceite. Não entrega tokens e não cria branches/PRs. O agente externo ainda deve usar `/api/v1/fila.php` para reservar/concluir tarefas; o endpoint de contexto **não prova a posse de uma reserva** e não deve ser usado como autorização para executar operações GitHub sem verificações adicionais.
-
-## Operações preparadas (fase 11)
-
-`api/projetos_github_operacoes.php` oferece `casa_github_plano_branch` e `casa_github_plano_pr`, que produzem descrições estruturadas de requisições para criação de branch e Pull Request **em rascunho**. Validam o repositório contra a lista autorizada e a base `main`/`master`. Não realizam requisições HTTP, não obtêm o SHA base, não editam arquivos e não executam testes. A implementação do worker executor permanece pendente.
-
-## Cliente REST GitHub (fase 12)
-
-`api/projetos_github_cliente.php` implementa funções explícitas `casa_gh_criar_branch` e `casa_gh_criar_pr_rascunho` usando HTTPS e token `CASA_GITHUB_TOKEN` no ambiente do worker. O cliente só aceita repositórios da lista `CASA_GITHUB_REPOS_PERMITIDOS` e rotas GitHub restritas. **Não é chamado automaticamente**; precisa de um worker autorizado, gerenciamento de idempotência, commit de alterações e testes antes de ser usado em produção. O GitHub rejeita PRs sem diferenças entre branches. Nunca forneça token no payload de tarefas.
-
-## Worker CLI (fase 13)
-
-`php site/var/www/html/workers/github_worker.php --tarefa 123` consulta banco, valida projeto aprovado, status da fila e allowlist, e imprime contexto em modo de simulação, sem token ou alteração remota. O sinalizador `--executar` é **deliberadamente bloqueado**, inclusive com `CASA_GITHUB_WORKER_ENABLED=1`, até existir verificação confiável do proprietário da reserva. Não confundir com um executor funcional.
-
-## Reserva verificada (fase 14)
-
-O worker CLI `--executar` agora exige `CASA_GITHUB_WORKER_ENABLED=1`, `CASA_GITHUB_WORKER_NAME` correspondente ao proprietário da reserva ativa e tarefa na fila `github` com executor `github`. Usa `ft_exigir_reserva` e verifica prazo e plano antes de chamar a API para **criar somente a branch**. Não conclui a tarefa, não edita arquivos e não abre PR. O fluxo de aprovação atual publica apenas executores `jarvis`/`web` na fila `geral`; portanto, **ainda é necessário integrar um despachante GitHub autorizado** antes de usar o modo de execução em projetos comuns. Evitar executar manualmente contra uma reserva cujo lease esteja perto do vencimento; idempotência de branches também permanece pendente.
+Os utilitarios `projetos_github_operacoes.php`, `projetos_github_cliente.php`, `projetos_github_arquivos.php` e o CLI assistido continuam disponiveis para operadores. As antigas notas de fases descreviam etapas incompletas e foram substituidas pelo contrato operacional atual.

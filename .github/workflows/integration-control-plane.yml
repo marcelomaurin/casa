@@ -4,6 +4,9 @@ on:
   push:
     paths:
       - 'site/var/www/html/api/**'
+      - 'site/var/www/html/workers/github*.php'
+      - 'tests/test_projetos_github*.php'
+      - 'site/var/www/html/projetos.php'
       - 'database/**'
       - 'mysql/**'
       - 'site/var/www/html/automacao.php'
@@ -114,6 +117,9 @@ jobs:
 
       - name: Test task queue (planner -> daemons)
         run: php .github/tests/test_fila_tarefas.php
+
+      - name: Test GitHub development queue and human review
+        run: php .github/tests/test_github_queue.php
 
       - name: Test butler (mordomo)
         run: php .github/tests/test_mordomo.php

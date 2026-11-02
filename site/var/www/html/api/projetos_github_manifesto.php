@@ -11,6 +11,11 @@ function casa_gh_validar_alteracoes($changes): array {
             strlen($change['content'])>100000)
             throw new InvalidArgumentException('Alteracao invalida');
         $path=casa_gh_validar_caminho($change['path']);
+        if (str_contains($change['content'],"\0")) throw new InvalidArgumentException('Conteudo binario proibido');
+        if (strtolower(pathinfo($path,PATHINFO_EXTENSION))==='json') {
+            try { json_decode($change['content'],true,64,JSON_THROW_ON_ERROR); }
+            catch (JsonException $e) { throw new InvalidArgumentException('JSON invalido em '.$path,0,$e); }
+        }
         if (isset($seen[strtolower($path)]))
             throw new InvalidArgumentException('Caminho duplicado');
         if (strtolower(pathinfo($path,PATHINFO_EXTENSION))==='php') {

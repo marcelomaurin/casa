@@ -2,6 +2,7 @@
 // Painel de projetos CASA: usa sessao web, sem expor tokens de API no navegador.
 if (session_status()===PHP_SESSION_NONE) session_start();
 if (empty($_SESSION['auth_user'])) { header('Location: /casa/login.php'); exit; }
+require_once __DIR__.'/api/projetos_github.php';
 require_once __DIR__.'/api/db.php';
 header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: SAMEORIGIN');
@@ -38,7 +39,9 @@ if (($_SERVER['REQUEST_METHOD']??'GET')==='POST') {
                 $name=trim((string)($_POST['nome']??''));$specialty=trim((string)($_POST['especialidade']??''));
                 if ($name===''||mb_strlen($name)>120||$specialty===''||mb_strlen($specialty)>80) throw new InvalidArgumentException('Agente inválido.');
                 $q=$pdo->prepare('INSERT INTO casa_projeto_agentes(projeto_id,nome,especialidade,executor) SELECT id,?,?,? FROM casa_projetos WHERE id=? AND status=?');
-                $q->execute([$name,$specialty,'jarvis',$selected,'planejamento']);
+                $executor=strtolower((string)($_POST['executor']??'jarvis'));
+                if (!in_array($executor,['jarvis','web','github'],true)) throw new InvalidArgumentException('Executor invalido.');
+                $q->execute([$name,$specialty,$executor,$selected,'planejamento']);
                 if (!$q->rowCount()) throw new InvalidArgumentException('Projeto indisponível para edição.');
             } elseif ($action==='tarefa' && $selected>0) {
                 $title=trim((string)($_POST['titulo']??''));$desc=trim((string)($_POST['descricao']??''));$criterion=trim((string)($_POST['criterio']??''));
@@ -70,7 +73,9 @@ if (($_SERVER['REQUEST_METHOD']??'GET')==='POST') {
                         if (!is_array($a)) throw new InvalidArgumentException('Agente inválido.');
                         $name=trim((string)($a['nome']??''));$specialty=trim((string)($a['especialidade']??''));
                         if ($name===''||mb_strlen($name)>120||$specialty===''||mb_strlen($specialty)>80) throw new InvalidArgumentException('Nome ou especialidade inválida.');
-                        $agentRows[]=[$name,$specialty];
+                        $executor=strtolower((string)($a['executor']??'jarvis'));
+                        if (!in_array($executor,['jarvis','web','github'],true)) throw new InvalidArgumentException('Executor invalido.');
+                        $agentRows[]=[$name,$specialty,$executor];
                     }
                     foreach ($plan['tarefas'] as $i=>$t) {
                         if (!is_array($t)) throw new InvalidArgumentException('Tarefa inválida.');
@@ -82,8 +87,8 @@ if (($_SERVER['REQUEST_METHOD']??'GET')==='POST') {
                             ($dep!==null&&(!is_int($dep)||$dep<1||$dep>$i))) throw new InvalidArgumentException('Tarefa ou dependência inválida na posição '.($i+1));
                         $taskRows[]=[$title,$desc,$criterion,$priority,$ai,$dep];
                     }
-                    $q=$pdo->prepare("INSERT INTO casa_projeto_agentes(projeto_id,nome,especialidade,executor) VALUES(?,?,?,'jarvis')");
-                    $agentIds=[];foreach($agentRows as $a){$q->execute([$selected,$a[0],$a[1]]);$agentIds[]=(int)$pdo->lastInsertId();}
+                    $q=$pdo->prepare("INSERT INTO casa_projeto_agentes(projeto_id,nome,especialidade,executor) VALUES(?,?,?,?)");
+                    $agentIds=[];foreach($agentRows as $a){$q->execute([$selected,$a[0],$a[1],$a[2]]);$agentIds[]=(int)$pdo->lastInsertId();}
                     $q=$pdo->prepare('INSERT INTO casa_projeto_tarefas(projeto_id,agente_id,depende_de,titulo,descricao,criterio_aceite,prioridade) VALUES(?,?,?,?,?,?,?)');
                     $taskIds=[];foreach($taskRows as $t){
                         [$title,$desc,$criterion,$priority,$ai,$dep]=$t;
@@ -104,21 +109,25 @@ if (($_SERVER['REQUEST_METHOD']??'GET')==='POST') {
                     if (!$rows) throw new InvalidArgumentException('Projeto sem tarefas.');
                     $seen=[];
                     foreach($rows as $t) {
-                        if (!in_array(strtolower((string)($t['executor']??'jarvis')),['jarvis','web'],true)) throw new InvalidArgumentException('Executor nao permitido.');
+                        if (!in_array(strtolower((string)($t['executor']??'jarvis')),['jarvis','web','github'],true)) throw new InvalidArgumentException('Executor nao permitido.');
+                        if (strtolower((string)($t['executor']??'jarvis'))==='github') {
+                            if (getenv('CASA_GITHUB_DISPATCH_ENABLED')!=='1') throw new InvalidArgumentException('Despacho GitHub desabilitado.');
+                            casa_github_preparar_tarefa($proj,$t);
+                        }
                         if ($t['depende_de']!==null&&!isset($seen[(int)$t['depende_de']])) throw new InvalidArgumentException('Dependencia invalida.');
                         $seen[(int)$t['id']]=true;
                     }
                     $corr='proj_'.$selected.'_'.bin2hex(random_bytes(8));
                     $q=$pdo->prepare("INSERT INTO jarvis_planos(demanda_original,origem,status,resumo,correlation_id) VALUES(?,'PROJETOS','EXECUTANDO',?,?)");
                     $q->execute([$proj['objetivo'],$proj['nome'],$corr]);$planId=(int)$pdo->lastInsertId();
-                    $ins=$pdo->prepare("INSERT INTO jarvis_tarefas(id_plano,correlation_id,ordem,titulo,descricao,tipo,executor,fila,payload,depende_de,status,max_tentativas) VALUES(?,?,?,?,?,'IMEDIATA',?,'geral',?,?,'PENDENTE',3)");
+                    $ins=$pdo->prepare("INSERT INTO jarvis_tarefas(id_plano,correlation_id,ordem,titulo,descricao,tipo,executor,fila,payload,depende_de,status,max_tentativas) VALUES(?,?,?,?,?,'IMEDIATA',?,?,?,?,'PENDENTE',3)");
                     $up=$pdo->prepare("UPDATE casa_projeto_tarefas SET jarvis_tarefa_id=?,status='enfileirada' WHERE id=? AND projeto_id=?");
                     $mapped=[];
                     foreach($rows as $i=>$t) {
                         $executor=strtolower((string)($t['executor']??'jarvis'));
-                        $payload=$executor==='web'?['query'=>$t['descricao'],'max_results'=>5,'fetch_pages'=>false]:['comando'=>$t['descricao']."\nCriterio de aceite: ".(string)($t['criterio_aceite']??'')];
+                        $payload=$executor==='web'?['query'=>$t['descricao'],'max_results'=>5,'fetch_pages'=>false]:($executor==='github'?['modo'=>'github','projeto_id'=>$selected,'tarefa_id'=>(int)$t['id']]:['comando'=>$t['descricao']."\nCriterio de aceite: ".(string)($t['criterio_aceite']??'')]);
                         $dep=$t['depende_de']===null?null:$mapped[(int)$t['depende_de']];
-                        $ins->execute([$planId,$corr,$i+1,mb_substr($t['titulo'],0,180),$t['descricao'],$executor,json_encode($payload,JSON_UNESCAPED_UNICODE),$dep]);
+                        $ins->execute([$planId,$corr,$i+1,mb_substr($t['titulo'],0,180),$t['descricao'],$executor,$executor==='github'?'github':'geral',json_encode($payload,JSON_UNESCAPED_UNICODE),$dep]);
                         $qid=(int)$pdo->lastInsertId();$mapped[(int)$t['id']]=$qid;$up->execute([$qid,$t['id'],$selected]);
                     }
                     $pdo->prepare("UPDATE casa_projetos SET status='executando',jarvis_plano_id=? WHERE id=?")->execute([$planId,$selected]);
@@ -137,7 +146,8 @@ try {
         $q=$pdo->prepare('SELECT * FROM casa_projetos WHERE id=?');$q->execute([$selected]);$project=$q->fetch(PDO::FETCH_ASSOC);
         if ($project) {
             $q=$pdo->prepare('SELECT * FROM casa_projeto_agentes WHERE projeto_id=? ORDER BY id');$q->execute([$selected]);$agents=$q->fetchAll(PDO::FETCH_ASSOC);
-            $q=$pdo->prepare('SELECT t.*,j.status AS fila_status,j.erro,j.tentativas,j.resultado FROM casa_projeto_tarefas t LEFT JOIN jarvis_tarefas j ON j.id=t.jarvis_tarefa_id WHERE t.projeto_id=? ORDER BY t.id');$q->execute([$selected]);$tasks=$q->fetchAll(PDO::FETCH_ASSOC);\n            $progress['total']=count($tasks);foreach($tasks as $task){$st=$task['fila_status']??$task['status'];if($st==='CONCLUIDA')$progress['done']++;elseif(in_array($st,['ERRO','FALHOU','CANCELADA'],true))$progress['failed']++;elseif(in_array($st,['EXECUTANDO','PENDENTE','AGUARDANDO','AGENDADA','RESERVADA'],true))$progress['running']++;}if($progress['total'])$progress['percent']=(int)round(100*$progress['done']/$progress['total']);
+            $q=$pdo->prepare('SELECT t.*,j.status AS fila_status,j.erro,j.tentativas,j.resultado FROM casa_projeto_tarefas t LEFT JOIN jarvis_tarefas j ON j.id=t.jarvis_tarefa_id WHERE t.projeto_id=? ORDER BY t.id');$q->execute([$selected]);$tasks=$q->fetchAll(PDO::FETCH_ASSOC);
+            $progress['total']=count($tasks);foreach($tasks as $task){$st=$task['fila_status']??$task['status'];if($st==='CONCLUIDA')$progress['done']++;elseif(in_array($st,['ERRO','FALHOU','CANCELADA'],true))$progress['failed']++;elseif(in_array($st,['EXECUTANDO','PENDENTE','AGUARDANDO','AGENDADA','RESERVADA'],true))$progress['running']++;}if($progress['total'])$progress['percent']=(int)round(100*$progress['done']/$progress['total']);
         }
     }
 } catch(Throwable $e) {error_log('projetos painel: '.$e->getMessage());$error='Falha ao carregar dados. Verifique a migração do banco.';$projects=[];$project=null;$agents=[];$tasks=[];$progress=['total'=>0,'done'=>0,'failed'=>0,'running'=>0,'percent'=>0];}
@@ -161,9 +171,9 @@ small,.muted{color:#b5c6d5}.error{color:#ffc3c3}.item{padding:9px;border-bottom:
 <?php if($project):?><section><h2><?=h($project['nome'])?></h2><p><?=nl2br(h($project['objetivo']))?></p><p>Status: <strong><?=h($project['status'])?></strong> · Repositório: <?=h($project['repositorio']??'—')?></p></section>
 <section><h2>Progresso</h2><progress value="<?= (int)$progress['done']?>" max="<?= max(1,(int)$progress['total'])?>"></progress><p><?= (int)$progress['percent']?>% concluído · <?= (int)$progress['done']?> concluídas · <?= (int)$progress['running']?> em andamento · <?= (int)$progress['failed']?> com erro · <?= (int)$progress['total']?> no total</p><p class="muted">O progresso é calculado pelo estado real da fila, sem alterar automaticamente o estado do projeto.</p></section>
 <?php if($project['status']==='planejamento' && !$agents && !$tasks):?><section><h2>Planejamento com IA</h2><?php if(in_array(strtolower((string)($_SESSION['auth_perfil']??'')),['admin','administrador','gestor'],true)):?><form method="post"><input type="hidden" name="csrf" value="<?=h($csrf)?>"><input type="hidden" name="acao" value="gerar_ia"><input type="hidden" name="projeto_id" value="<?= (int)$selected?>"><button type="submit">Gerar rascunho com IA</button></form><?php endif;?><p class="muted">Cole um JSON com arrays <code>agentes</code> e <code>tarefas</code>, no formato documentado em docs/PROJETOS_AGENTES.md. Revise antes de importar. Isso não inicia a execução.</p><form method="post"><input type="hidden" name="csrf" value="<?=h($csrf)?>"><input type="hidden" name="acao" value="importar_plano"><input type="hidden" name="projeto_id" value="<?= (int)$selected?>"><label>JSON do planejamento<textarea name="plano_json" maxlength="120000" rows="10" required><?=h($generatedPlan)?></textarea></label><button>Importar plano para revisão</button></form></section><?php endif;?>
-<div class="grid"><section><h2>Agentes (<?=count($agents)?>)</h2><?php foreach($agents as $a):?><div class="item">#<?= (int)$a['id']?> <?=h($a['nome'])?> · <?=h($a['especialidade'])?></div><?php endforeach;?>
+<div class="grid"><section><h2>Agentes (<?=count($agents)?>)</h2><?php foreach($agents as $a):?><div class="item">#<?= (int)$a['id']?> <?=h($a['nome'])?> · <?=h($a['especialidade'])?> · <?=h($a['executor'])?></div><?php endforeach;?>
 <?php if($project['status']==='planejamento'):?><form method="post"><input type="hidden" name="csrf" value="<?=h($csrf)?>"><input type="hidden" name="acao" value="agente"><input type="hidden" name="projeto_id" value="<?= (int)$selected?>">
-<label>Nome<input name="nome" maxlength="120" required></label><label>Especialidade<input name="especialidade" maxlength="80" required></label><button>Adicionar agente</button></form><?php endif;?></section>
+<label>Nome<input name="nome" maxlength="120" required></label><label>Especialidade<input name="especialidade" maxlength="80" required></label><label>Executor<select name="executor"><option value="jarvis">Jarvis</option><option value="web">Pesquisa web</option><option value="github">Desenvolvimento no GitHub</option></select></label><button>Adicionar agente</button></form><?php endif;?></section>
 <section><h2>Tarefas (<?=count($tasks)?>)</h2><?php if($project['status']==='planejamento'):?><form method="post"><input type="hidden" name="csrf" value="<?=h($csrf)?>"><input type="hidden" name="acao" value="tarefa"><input type="hidden" name="projeto_id" value="<?= (int)$selected?>">
 <label>Título<input name="titulo" maxlength="200" required></label><label>Descrição<textarea name="descricao" maxlength="10000" required></textarea></label><label>Critério de aceite<textarea name="criterio" maxlength="10000"></textarea></label>
 <label>Agente<select name="agente_id"><option value="0">Sem agente</option><?php foreach($agents as $a):?><option value="<?= (int)$a['id']?>"><?=h($a['nome'])?></option><?php endforeach;?></select></label>
@@ -175,5 +185,5 @@ small,.muted{color:#b5c6d5}.error{color:#ffc3c3}.item{padding:9px;border-bottom:
 <label><input type="checkbox" name="confirmar" value="sim" required style="width:auto"> Confirmo que revisei o plano e autorizo a execucao.</label>
 <button type="submit">Aprovar e iniciar tarefas</button></form></section>
 <?php endif;?>
-<section><h2>Andamento da execução</h2><table><thead><tr><th>ID</th><th>Tarefa</th><th>Prioridade</th><th>Fila</th><th>Tentativas</th><th>Erro</th><th>Resultado</th></tr></thead><tbody><?php foreach($tasks as $t):?><tr><td><?= (int)$t['id']?></td><td><?=h($t['titulo'])?></td><td><?= (int)$t['prioridade']?></td><td><?=h($t['fila_status']??$t['status'])?></td><td><?= (int)($t['tentativas']??0)?></td><td><?=h($t['erro']??'')?></td><td><?php if(!empty($t['resultado'])):?><details><summary>Ver resultado</summary><pre class="result"><?=h(mb_substr((string)$t['resultado'],0,12000))?></pre></details><?php else:?>—<?php endif;?></td></tr><?php endforeach;?></tbody></table><p class="muted">Atualize a página para consultar os resultados mais recentes. A aprovação está disponível para administradores e gestores neste painel. Atualize a página para consultar o estado mais recente.</p></section>
+<section><h2>Andamento da execução</h2><table><thead><tr><th>ID</th><th>Tarefa</th><th>Prioridade</th><th>Fila</th><th>Tentativas</th><th>Erro</th><th>Resultado</th></tr></thead><tbody><?php foreach($tasks as $t):?><tr><td><?= (int)$t['id']?></td><td><?=h($t['titulo'])?></td><td><?= (int)$t['prioridade']?></td><td><?=h($t['fila_status']??$t['status'])?></td><td><?= (int)($t['tentativas']??0)?></td><td><?=h($t['erro']??'')?></td><td><?php if(!empty($t['resultado'])):?><?php $flow=json_decode((string)$t['resultado'],true); if(is_array($flow) && isset($flow['etapa'])):?><p><?=h($flow['status']??$flow['etapa'])?></p><?php if(preg_match('~^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*$~D',(string)($flow['pr_url']??''))):?><a href="<?=h($flow['pr_url'])?>" target="_blank" rel="noopener noreferrer">Revisar Pull Request</a><?php endif;?><?php endif;?><details><summary>Ver resultado</summary><pre class="result"><?=h(mb_substr((string)$t['resultado'],0,12000))?></pre></details><?php else:?>—<?php endif;?></td></tr><?php endforeach;?></tbody></table><p class="muted">Atualize a página para consultar os resultados. Pull Requests de desenvolvimento exigem testes e revisão humana no GitHub. O agente não aprova nem faz merge.</p></section>
 <?php elseif($selected):?><p class="error">Projeto não encontrado.</p><?php endif;?></body></html>
