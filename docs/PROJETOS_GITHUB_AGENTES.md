@@ -27,3 +27,7 @@ A fila atual de projetos suporta executores `jarvis` e `web`. **Não** converter
 ## Fundação implementada
 
 `site/var/www/html/api/projetos_github.php` fornece funções para validar `owner/repo`, impor lista permitida configurada via variável de ambiente `CASA_GITHUB_REPOS_PERMITIDOS` (valores separados por vírgula), gerar branch determinística por projeto/tarefa e preparar o contexto da tarefa. **Sem variável configurada, nenhum repositório é autorizado.** Não existem credenciais ou chamadas à API GitHub nesse módulo. Não é um worker executável; conectar com o despachante e criar branches/PRs permanece pendente.
+
+## Endpoint de contexto (fase 10)
+
+`GET /api/v1/projetos_github_contexto.php?tarefa_id=123` exige cliente API v1 com escopo `tasks.worker`. Consulta projeto e tarefa já aprovados e ligados à fila, verifica a lista de repositórios permitidos e retorna JSON com repositório, branch determinística, descrição e critérios de aceite. Não entrega tokens e não cria branches/PRs. O agente externo ainda deve usar `/api/v1/fila.php` para reservar/concluir tarefas; o endpoint de contexto **não prova a posse de uma reserva** e não deve ser usado como autorização para executar operações GitHub sem verificações adicionais.
