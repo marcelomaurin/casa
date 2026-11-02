@@ -3,7 +3,7 @@
 require_once __DIR__.'/projetos_github.php';
 class CasaGithubNaoEncontrado extends RuntimeException {}
 function casa_gh_http(string $method,string $path,?array $payload=null): array {
-    if (!in_array($method,['GET','POST'],true) || !preg_match('~^/repos/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/(git/ref/heads/(main|master|casa/projeto-[1-9][0-9]*/tarefa-[1-9][0-9]*)|git/refs|pulls(?:/[1-9][0-9]*)?)$~D',$path,$matches))
+    if (!in_array($method,['GET','POST'],true) || !preg_match('~^/repos/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/(git/ref/heads/(main|master|casa/projeto-[1-9][0-9]*/tarefa-[1-9][0-9]*)|git/refs|pulls(?:/[1-9][0-9]*)?(?:\\?state=open&per_page=100&page=(?:[1-9]|10))?)$~D',$path,$matches))
         throw new InvalidArgumentException('Operacao GitHub nao permitida');
     casa_github_repo_validar($matches[1],casa_github_permitidos_ambiente());
     $token=(string)getenv('CASA_GITHUB_TOKEN');
@@ -43,12 +43,18 @@ function casa_gh_criar_branch(array $project,array $task,string $base='master'):
 }
 function casa_gh_pr_existente(array $project,array $task,string $base='master'): ?array {
     $ctx=casa_github_preparar_tarefa($project,$task);
-    $prs=casa_gh_http('GET','/repos/'.$ctx['repositorio'].'/pulls');
-    foreach ($prs as $pr) {
-        if (($pr['head']['ref']??'')===$ctx['branch'] &&
-            ($pr['base']['ref']??'')===$base &&
-            ($pr['state']??'')==='open') return $pr;
+    // Paginar explicitamente, sem seguir URLs arbitrarias de cabecalhos HTTP.
+    for ($page=1;$page<=10;$page++) {
+        $prs=casa_gh_http('GET','/repos/'.$ctx['repositorio'].'/pulls?state=open&per_page=100&page='.$page);
+        foreach ($prs as $pr) {
+            if (($pr['head']['ref']??'')===$ctx['branch'] &&
+                ($pr['head']['repo']['full_name']??'')===$ctx['repositorio'] &&
+                ($pr['base']['ref']??'')===$base &&
+                ($pr['state']??'')==='open') return $pr;
+        }
+        if (count($prs)<100) return null;
     }
+    throw new RuntimeException('Limite de paginacao de PRs atingido; operacao cancelada');
     return null;
 }
 function casa_gh_criar_pr_rascunho(array $project,array $task,string $base='master'): array {
