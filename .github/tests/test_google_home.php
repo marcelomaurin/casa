@@ -3,7 +3,7 @@ putenv('JARVIS_DB_HOST=127.0.0.1');putenv('JARVIS_DB_PORT=3306');putenv('JARVIS_
 putenv('JARVIS_DB_USER=root');putenv('JARVIS_DB_PASS=root');putenv('JARVIS_AUTO_INIT_DB=1');
 require __DIR__.'/../../site/var/www/html/api/db.php';
 require __DIR__.'/../../site/var/www/html/api/google_home_bridge.php';
-require __DIR__.'/../../site/var/www/html/api/fila_tarefas.php';
+require_once __DIR__.'/../../site/var/www/html/api/fila_tarefas.php';
 $pdo=get_db_pdo();
 function gh_test($v,$name){if(!$v)throw new RuntimeException($name);echo 'OK '.$name."\n";}
 $s=gh_bridge_snapshot(['online'=>true,'queue_alive'=>true,'devices'=>[['uuid'=>'uuid-test','name'=>'Sala','host'=>'192.168.2.50','token'=>'secret']]],1000);

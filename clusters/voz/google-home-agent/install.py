@@ -76,7 +76,7 @@ def main():
         conf.parent.mkdir(mode=0o750,parents=True,exist_ok=True)
         os.chown(conf.parent,0,user.pw_gid)
         temp=conf.with_suffix('.new')
-        with temp.open('w',opener=lambda path,flags:os.open(path,flags,0o600)) as stream:
+        with open(temp,'w',opener=lambda path,flags:os.open(path,flags,0o600)) as stream:
             for key,value in cfg.items():
                 if '\n' in value or '\r' in value:
                     raise RuntimeError('Valor de configuracao invalido')
