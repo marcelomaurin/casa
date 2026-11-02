@@ -13,6 +13,15 @@ function casa_gh_validar_alteracoes($changes): array {
         $path=casa_gh_validar_caminho($change['path']);
         if (isset($seen[strtolower($path)]))
             throw new InvalidArgumentException('Caminho duplicado');
+        if (strtolower(pathinfo($path,PATHINFO_EXTENSION))==='php') {
+            if (!str_starts_with(ltrim($change['content']), '<?php'))
+                throw new InvalidArgumentException('Arquivo PHP deve iniciar com <?php');
+            try {
+                token_get_all($change['content'],TOKEN_PARSE);
+            } catch (ParseError $e) {
+                throw new InvalidArgumentException('Erro de sintaxe PHP em '.$path,0,$e);
+            }
+        }
         $seen[strtolower($path)]=true;
     }
     return $changes;
