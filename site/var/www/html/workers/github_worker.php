@@ -4,9 +4,10 @@ if (PHP_SAPI!=='cli') { http_response_code(403); exit; }
 require_once __DIR__.'/../api/db.php';
 require_once __DIR__.'/../api/projetos_github_cliente.php';
 require_once __DIR__.'/../api/projetos_github_manifesto.php';
+require_once __DIR__.'/../api/projetos_github_ia.php';
 require_once __DIR__.'/../api/fila_tarefas.php';
 if (($argv[1]??'')!=='--tarefa' || !ctype_digit((string)($argv[2]??''))) {
-    fwrite(STDERR,"Uso: php github_worker.php --tarefa ID [--executar] [--alteracoes arquivo.json]\n");exit(2);
+    fwrite(STDERR,"Uso: php github_worker.php --tarefa ID [--executar] [--gerar-ia|--alteracoes arquivo.json]\n");exit(2);
 }
 $id=(int)$argv[2];
 if ($id<1) exit(2);
@@ -43,6 +44,15 @@ try {
     $q=$pdo->prepare("SELECT 1 FROM jarvis_tarefas WHERE id=? AND reservado_ate>NOW()");
     $q->execute([(int)$reserva['id']]);
     if (!$q->fetchColumn()) throw new RuntimeException('Reserva vencida');
+    if (in_array('--gerar-ia',$argv,true)) {
+        if (in_array('--alteracoes',$argv,true))
+            throw new RuntimeException('Escolha gerar IA ou fornecer alteracoes');
+        $manifesto=casa_gh_gerar_manifesto_ia($pdo,$ctx+[
+            'titulo'=>$task['titulo'],'descricao'=>$task['descricao'],
+            'criterio_aceite'=>$task['criterio_aceite']]);
+        echo json_encode($manifesto,JSON_UNESCAPED_UNICODE|JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES)."\n";
+        exit(0);
+    }
     $changes=[];
     $fileIndex=array_search('--alteracoes',$argv,true);
     if ($fileIndex!==false) {
