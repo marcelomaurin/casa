@@ -9,11 +9,16 @@ final class CasaSiteUpdater {
     private $request;
     private $health;
 
+    public static function statePath(string $root): string {
+        $root=rtrim(str_replace('\\','/',realpath($root)?:$root),'/');
+        return getenv('CASA_SITE_UPDATE_STATE_DIR')?:dirname($root,2).'/.casa-site-update-'.substr(hash('sha256',$root),0,12);
+    }
+
     public function __construct(string $root,?string $state=null,?callable $request=null,?callable $health=null) {
         $resolved=realpath($root);
         if ($resolved===false || !is_dir($resolved)) throw new RuntimeException('Raiz do site inexistente');
         $this->root=rtrim(str_replace('\\','/',$resolved),'/');
-        $state=$state??(dirname($this->root,2).'/.casa-site-update-'.substr(hash('sha256',$this->root),0,12));
+        $state=$state??self::statePath($this->root);
         if (!is_dir($state) && !mkdir($state,0700,true)) throw new RuntimeException('Diretorio privado de atualizacao indisponivel');
         $this->state=rtrim(str_replace('\\','/',(string)realpath($state)),'/');
         if ($this->state==='' || self::inside($this->state,$this->root)) throw new RuntimeException('Estado e backups devem ficar fora da raiz publica');
@@ -207,7 +212,7 @@ final class CasaSiteUpdater {
             // Instalar o guard antes dos arquivos que passam a inclui-lo.
             $priority=static function(array $op):int {
                 if ($op['after_sha']===null) return 50;
-                if ($op['path']==='api/site_update_guard.php') return 0;
+                if (in_array($op['path'],['api/site_update_guard.php','api/site_update_hook.php'],true)) return 0;
                 if (in_array($op['path'],['api/db.php','index.php'],true)) return 1;
                 return 2;
             };

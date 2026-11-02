@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__.'/api/site_update_hook.php';
 require_once __DIR__.'/api/site_update_guard.php';
 if (session_status() === PHP_SESSION_NONE) session_start();
 if (empty($_SESSION['auth_user'])) { header('Location: /casa/login.php'); exit; }

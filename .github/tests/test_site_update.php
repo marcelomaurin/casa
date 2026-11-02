@@ -97,6 +97,7 @@ if (PHP_OS_FAMILY!=='Windows') {
 $f=new SiteFixture();
 su_put($f->root.'/api/site_update_guard.php',(string)file_get_contents(__DIR__.'/../../site/var/www/html/api/site_update_guard.php'));
 su_put($f->root.'/workers/site_update.php',(string)file_get_contents(__DIR__.'/../../site/var/www/html/workers/site_update.php'));
+su_put($f->root.'/atualizar_casa.php',(string)file_get_contents(__DIR__.'/../../site/var/www/html/atualizar_casa.php'));
 su_put($f->root.'/index.php','<?php require __DIR__."/api/site_update_guard.php"; echo "disponivel";');
 $socket=stream_socket_server('tcp://127.0.0.1:0',$errno,$errstr);
 if (!$socket) throw new RuntimeException('Porta de teste indisponivel');
@@ -116,6 +117,8 @@ try {
     $context=stream_context_create(['http'=>['ignore_errors'=>true,'follow_location'=>0,'timeout'=>5]]);
     file_get_contents('http://'.$address.'/workers/site_update.php',false,$context);
     su_ok(str_contains($http_response_header[0]??'','403'),'instalador recusa HTTP');
+    file_get_contents('http://'.$address.'/atualizar_casa.php',false,$context);
+    su_ok(str_contains($http_response_header[0]??'','403'),'painel de atualizacao exige administrador');
     su_put($f->root.'/.casa-site-update-maintenance','troca em andamento');
     $body=file_get_contents('http://'.$address.'/',false,$context);
     su_ok(str_contains($http_response_header[0]??'','503') && str_contains($body,'atualizacao'),'guard de manutencao responde 503');
@@ -123,4 +126,22 @@ try {
     $body=file_get_contents('http://'.$address.'/',false,$context);
     su_ok(str_contains($http_response_header[0]??'','200') && $body==='disponivel','site volta depois da troca');
 } finally { proc_terminate($proc);proc_close($proc); }
+
+// Exercitar o bootstrap de arquivo unico com componentes e hashes controlados.
+if (session_status()!==PHP_SESSION_ACTIVE) session_start();
+$_SESSION['auth_user']='fixture';$_SESSION['auth_perfil']='admin';$_SERVER['REQUEST_METHOD']='GET';
+ob_start();require __DIR__.'/../../site/var/www/html/atualizar_casa.php';ob_end_clean();
+$f=new SiteFixture();
+foreach (['api/site_self_update.php','api/site_update_guard.php','api/site_update_hook.php','workers/site_update.php'] as $path)
+    $f->files[$path]=(string)file_get_contents(__DIR__.'/../../site/var/www/html/'.$path);
+casaInstallerBootstrap($f->root,[$f,'request']);
+su_ok(is_file($f->root.'/api/site_update_hook.php') && is_file($f->root.'/workers/site_update.php'),'bootstrap instala todos os componentes');
+su_ok(str_contains(file_get_contents($f->root.'/api/config.local.php'),'privado'),'bootstrap preserva configuracao privada');
+$f=new SiteFixture();$f->ci=false;su_fail(fn()=>casaInstallerBootstrap($f->root,[$f,'request']),'bootstrap aguarda CI');
+su_ok(!file_exists($f->root.'/workers/site_update.php'),'bootstrap nao grava antes de validar');
+$f=new SiteFixture();
+foreach (['api/site_self_update.php','api/site_update_guard.php','api/site_update_hook.php','workers/site_update.php'] as $path)
+    $f->files[$path]=(string)file_get_contents(__DIR__.'/../../site/var/www/html/'.$path);
+$f->badHash=true;su_fail(fn()=>casaInstallerBootstrap($f->root,[$f,'request']),'bootstrap recusa download adulterado');
+su_ok(!file_exists($f->root.'/api/site_self_update.php'),'bootstrap invalido nao grava componente');
 echo "OK: {$checks} verificacoes de atualizacao e recuperacao\n";
