@@ -9,7 +9,7 @@ O serviço roda em cada Raspberry/nó Linux e **busca os fontes direto do Git** 
 3. Havendo commit novo (ou pedido forçado), atualiza um cache Git local em `/var/lib/casa-cluster-update/repo.git` (bare, raso, sem baixar blobs desnecessários) e, para cada integrador **já instalado neste nó**, copia somente os arquivos de código alterados.
 4. Reinicia os serviços que estavam ativos e informa o resultado à API (`acao=node_report`).
 
-O painel **Segurança › Atualizações** mostra, por nó, o commit instalado comparado ao último commit da master no GitHub, o resultado por integrador, erros e permite **forçar** a atualização de um nó ou de todos. Forçar reinstala todos os arquivos e reinicia os serviços ativos na próxima consulta do nó (até ~2 min).
+O catálogo inclui também o executor **casa-tarefas** instalado em `/opt/casa-tarefas`, com unidade `casa-tarefas.service`. Para atualizá-lo, o serviço `casa-cluster-update.timer` deve estar instalado e habilitado no mesmo nó; o atualizador não instala daemons ausentes nem sobrescreve arquivos `.env` ou `.cfg`.\n\nO painel **Segurança › Atualizações** mostra, por nó, o commit instalado comparado ao último commit da master no GitHub, o resultado por integrador, erros e permite **forçar** a atualização de um nó ou de todos. Forçar reinstala todos os arquivos e reinicia os serviços ativos na próxima consulta do nó (até ~2 min).
 
 ## Proteções
 
