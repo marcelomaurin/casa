@@ -73,6 +73,18 @@ class TestAgente(unittest.TestCase):
                         {"tipo": "concluir", "resposta": "Arquivo ausente; estado do no consultado", "evidencias": [2]}])
         self.assertEqual(a.rodar()["evidencias"][0]["id"], 2)
 
+    def test_criterio_obrigatorio_recusa_conclusao_prematura(self):
+        self.task["payload"]["ferramentas_obrigatorias"] = ["no_estado", "gravar_arquivo", "ler_arquivo"]
+        self.cfg.agente_passos = 8
+        a = self.agent([{"tipo": "ferramenta", "nome": "no_estado", "args": {}},
+                        {"tipo": "ferramenta", "nome": "gravar_arquivo", "args": {"path": "x.txt", "content": "ok"}},
+                        {"tipo": "concluir", "resposta": "Pronto", "evidencias": [1, 2]},
+                        {"tipo": "ferramenta", "nome": "ler_arquivo", "args": {"path": "x.txt"}},
+                        {"tipo": "concluir", "resposta": "Agora conferido", "evidencias": [1, 2, 4]}])
+        r = a.rodar()
+        self.assertEqual(r["passos"], 5)
+        self.assertEqual(a.historico[2]["ferramenta"], "conclusao_recusada")
+
     def test_workspace_e_segredos_protegidos(self):
         a = self.agent([])
         for p in ("../fora.txt", "/etc/passwd", ".env", "x/../a.txt", "x//a.txt", "config.local.php", "secrets.json", "NUL.txt", "x.sh", "a/../../x.py"):

@@ -43,6 +43,11 @@ class AgenteLocal:
             self.ferramentas["executar_comando"] = {"descricao": "Executar programa autorizado sem shell", "args": {"nome": self.scripts, "args": []}}
         if "web" in ctx.cfg.executores:
             self.ferramentas["pesquisar_web"] = {"descricao": "Pesquisar no agente web local", "args": {"query": "texto"}}
+        payload = tarefa.get("payload") if isinstance(tarefa.get("payload"), dict) else {}
+        self.obrigatorias = payload.get("ferramentas_obrigatorias", [])
+        if not isinstance(self.obrigatorias, list) or len(self.obrigatorias) > 10 or any(
+                not isinstance(n, str) or n not in self.ferramentas for n in self.obrigatorias):
+            raise ErroAgente("Criterios de ferramentas obrigatorias invalidos neste no")
 
     def _scripts(self):
         base = Path(self.ctx.cfg.comandos_dir)
@@ -181,6 +186,7 @@ class AgenteLocal:
             'Responda SOMENTE JSON. Para agir: {"tipo":"ferramenta","nome":"nome","args":{...}}. '
             'Para concluir: {"tipo":"concluir","resposta":"resultado concreto","evidencias":[1,2]}. '
             'Evidencias sao IDs de ferramentas bem sucedidas do historico. Uma conclusao exige ao menos uma evidencia. '
+            'Se a tarefa especificar ferramentas_obrigatorias, todas devem ter sucesso e constar nas evidencias. '
             'Se nao conseguir satisfazer a tarefa: {"tipo":"falhar","motivo":"impedimento real"}. '
             'Nao ha shell livre, sudo, acesso a credenciais ou merge GitHub. Arquivos sao relativos ao workspace da tarefa. '
         )
@@ -205,6 +211,12 @@ class AgenteLocal:
                 validas = {e["id"] for e in self.historico if e["ok"]}
                 if not isinstance(ids, list) or not ids or any(type(i) is not int or i not in validas for i in ids):
                     raise ErroAgente("Conclusao sem evidencias reais de ferramentas")
+                nomes = {e["ferramenta"] for e in self.historico if e["id"] in ids and e["ok"]}
+                faltando = sorted(set(self.obrigatorias) - nomes)
+                if faltando:
+                    self.registrar({"id": passo, "ferramenta": "conclusao_recusada", "ok": False,
+                                    "erro": "Faltam ferramentas obrigatorias nas evidencias: " + ", ".join(faltando)})
+                    continue
                 resposta = decisao.get("resposta")
                 if not isinstance(resposta, str) or not resposta.strip():
                     raise ErroAgente("Conclusao sem resultado")

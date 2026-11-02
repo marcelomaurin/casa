@@ -198,3 +198,5 @@ python3 clusters/automacao/casa-tarefas/tests/test_agente_local.py
 ```
 
 Os testes verificam um ciclo fila -> agente -> gravacao real -> evidencia -> conclusao confirmada, alem de limites, caminhos externos, links, redacao, falhas de ferramenta, perda da reserva e conclusao inventada. O modelo e simulado nesses testes; uma verificacao no no deve confirmar a disponibilidade real da IA.
+
+Para tarefas que exigem uma sequencia auditavel, o payload pode informar `ferramentas_obrigatorias`, por exemplo `["no_estado","gravar_arquivo","ler_arquivo"]`. O daemon recusa uma conclusao que omita essas evidencias e devolve a pendencia para a IA corrigir, dentro do limite de passos. Isso permite especificar criterios verificaveis sem confiar apenas no texto final do modelo.
