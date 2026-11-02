@@ -1,5 +1,5 @@
 <?php
-// Consome UMA tarefa da fila GitHub por invocacao. Nao gera/aplica codigo automaticamente.
+// Consome UMA tarefa de preparacao GitHub por invocacao. Nao gera/aplica codigo automaticamente.
 if (PHP_SAPI!=='cli') { http_response_code(403); exit(1); }
 require_once __DIR__.'/../api/db.php';
 require_once __DIR__.'/../api/fila_tarefas.php';
@@ -38,8 +38,14 @@ try {
         if (!is_array($result) || ($result['status']??'')!=='branch_criada' ||
             (int)($result['tarefa_id']??0)!==(int)$payload['tarefa_id'])
             throw new RuntimeException('Resposta inesperada do worker');
-        // Nao concluir: a tarefa ainda precisa de geracao, revisao e PR.
-        ft_liberar($pdo,$jarvisId,$worker);
+        // Conclui APENAS a etapa de preparacao, para impedir loop da mesma tarefa.
+        // O resultado NAO significa codigo pronto nem PR aprovado.
+        ft_concluir($pdo,$jarvisId,$worker,[
+            'etapa'=>'preparacao_branch','status'=>'aguardando_geracao_e_revisao',
+            'projeto_tarefa_id'=>(int)$payload['tarefa_id'],
+            'branch'=>$result['branch'],
+            'ja_existia'=>$result['ja_existia']??false
+        ]);
         echo json_encode(['jarvis_tarefa_id'=>$jarvisId,'resultado'=>$result],JSON_UNESCAPED_UNICODE)."\n";
     } catch (Throwable $e) {
         ft_falhar($pdo,$jarvisId,$worker,$e->getMessage(),true);
