@@ -55,7 +55,6 @@ function casa_gh_pr_existente(array $project,array $task,string $base='master'):
         if (count($prs)<100) return null;
     }
     throw new RuntimeException('Limite de paginacao de PRs atingido; operacao cancelada');
-    return null;
 }
 function casa_gh_criar_pr_rascunho(array $project,array $task,string $base='master'): array {
     if (!in_array($base,['main','master'],true)) throw new InvalidArgumentException('Base invalida');
