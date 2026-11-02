@@ -38,7 +38,8 @@ try {
         if (!is_array($result) || ($result['status']??'')!=='branch_criada' ||
             (int)($result['tarefa_id']??0)!==(int)$payload['tarefa_id'])
             throw new RuntimeException('Resposta inesperada do worker');
-        ft_concluir($pdo,$jarvisId,$worker,['status'=>'branch_preparada','branch'=>$result['branch']]);
+        // Nao concluir: a tarefa ainda precisa de geracao, revisao e PR.
+        ft_liberar($pdo,$jarvisId,$worker);
         echo json_encode(['jarvis_tarefa_id'=>$jarvisId,'resultado'=>$result],JSON_UNESCAPED_UNICODE)."\n";
     } catch (Throwable $e) {
         ft_falhar($pdo,$jarvisId,$worker,$e->getMessage(),true);
