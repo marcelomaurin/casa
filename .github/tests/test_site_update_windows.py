@@ -144,6 +144,24 @@ class UpdaterTests(unittest.TestCase):
             self.assertEqual(up.install_task(self.local, 5)["status"], "agendado")
         self.assertEqual(len(calls), 3)
 
+    def test_only_apk_publication_can_inherit_parent_ci(self):
+        sha, parent = "a" * 40, "b" * 40
+        meta = {"parents": [{"sha": parent}], "files": [{"filename": "site/var/www/html/bin/android/CasaMobile-debug.apk", "status": "modified"}]}
+        def response(route):
+            if route.startswith("/commits/"):
+                return meta
+            return {"workflow_runs": [] if "head_sha=" + sha in route else [
+                {"path": p, "head_sha": parent, "status": "completed", "conclusion": "success"} for p in up.WORKFLOWS]}
+        with patch.object(up, "github_json", side_effect=response):
+            self.assertTrue(up.ci_passed(sha))
+            meta["files"][0]["status"] = "renamed"
+            self.assertFalse(up.ci_passed(sha))
+            meta["files"][0] = {"filename": "site/var/www/html/index.php", "status": "modified"}
+            self.assertFalse(up.ci_passed(sha))
+        with patch.object(up, "ci_state", return_value=False), patch.object(up, "github_json") as api:
+            self.assertFalse(up.ci_passed(sha))
+            api.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

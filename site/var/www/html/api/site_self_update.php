@@ -1,6 +1,6 @@
 <?php
 // Atualizador por HTTPS, independente do banco e de credenciais SSH/Git.
-// O executor publico e somente CLI; nao existe rota HTTP que instale codigo.
+// O worker e somente CLI; o painel web exige a sessao administrativa existente.
 final class CasaSiteUpdater {
     public const REPO='marcelomaurin/casa';
     public const PREFIX='site/var/www/html/';
@@ -127,8 +127,9 @@ final class CasaSiteUpdater {
         $this->save('status.json',$result);return $result;
     }
 
-    private function ci(string $sha): bool {
+    private function ci(string $sha): ?bool {
         $data=$this->api('/actions/runs?head_sha='.$sha.'&event=push&per_page=100');
+        if (($data['workflow_runs']??[])===[]) return null;
         $required=['.github/workflows/integration-control-plane.yml'=>null,'.github/workflows/site-auto-update.yml'=>null];
         foreach ($data['workflow_runs']??[] as $run) {
             $path=$run['path']??'';
@@ -136,6 +137,26 @@ final class CasaSiteUpdater {
                 $required[$path]=($run['status']??'')==='completed' && ($run['conclusion']??'')==='success';
         }
         return !in_array(null,$required,true) && !in_array(false,$required,true);
+    }
+
+    private function ciReference(string $sha): ?string {
+        for ($depth=0;$depth<10;$depth++) {
+            $result=$this->ci($sha);
+            if ($result===true) return $sha;
+            if ($result===false) return null; // Nunca contornar CI pendente ou falho.
+            $commit=$this->api('/commits/'.$sha);
+            $files=$commit['files']??[];
+            if (!$files || count($files)>=300 || count($commit['parents']??[])!==1) return null;
+            foreach ($files as $file) {
+                $path=$file['filename']??'';
+                if (($file['status']??'')==='renamed' ||
+                    (!preg_match('~^(?:site/var/www/html/)?bin/android/[A-Za-z0-9_.-]+\.apk$~D',$path) &&
+                     !in_array($path,['bin/versions.json','site/var/www/html/bin/versions.json'],true))) return null;
+            }
+            // Publicador de APK usa [skip ci]. Somente artefatos, nunca PHP/JS/config.
+            $sha=self::sha($commit['parents'][0]['sha']??null);
+        }
+        return null;
     }
 
     private function recover(): void {
@@ -176,7 +197,8 @@ final class CasaSiteUpdater {
             $sha=self::sha($commits[0]['sha']??null);
             $installed=$this->json('installed.json',['files'=>[]]);
             if (($installed['commit']??'')===$sha) return $this->report('atualizado',['commit'=>$sha]);
-            if (!$this->ci($sha)) return $this->report('aguardando_testes',['available_commit'=>$sha]);
+            $ciReference=$this->ciReference($sha);
+            if ($ciReference===null) return $this->report('aguardando_testes',['available_commit'=>$sha]);
             $treeSha=self::sha($commits[0]['commit']['tree']['sha']??null);
             $tree=$this->api('/git/trees/'.$treeSha.'?recursive=1');
             if (!empty($tree['truncated'])) throw new RuntimeException('Arvore GitHub incompleta');
@@ -217,7 +239,7 @@ final class CasaSiteUpdater {
                 return 2;
             };
             usort($operations,static fn($a,$b)=>$priority($a)<=>$priority($b));
-            if ($checkOnly) return $this->report('verificado',['available_commit'=>$sha,'changed_files'=>count($operations)]);
+            if ($checkOnly) return $this->report('verificado',['available_commit'=>$sha,'ci_commit'=>$ciReference,'changed_files'=>count($operations)]);
             // Baixar e validar tudo antes de alterar um unico arquivo do site.
             if (!is_dir($this->state.'/cache')) mkdir($this->state.'/cache',0700);
             foreach ($operations as $op) {
@@ -244,7 +266,7 @@ final class CasaSiteUpdater {
                 else self::write($target,(string)file_get_contents($this->state.'/cache/'.$op['after_sha']));
             }
             if ($this->health!==null && ($this->health)($this->root)!==true) throw new RuntimeException('Verificacao do site falhou; restaurando versao anterior');
-            $this->save('installed.json',['commit'=>$sha,'installed_at'=>gmdate('c'),'files'=>$files]);
+            $this->save('installed.json',['commit'=>$sha,'ci_commit'=>$ciReference,'installed_at'=>gmdate('c'),'files'=>$files]);
             unlink($this->state.'/transaction.json');unlink($this->root.'/.casa-site-update-maintenance');
             return $this->report('atualizado',['commit'=>$sha,'changed_files'=>count($operations),'backup'=>$backup]);
         } catch (Throwable $e) {

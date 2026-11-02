@@ -35,14 +35,30 @@ function casaInstallerBootstrap(string $root,?callable $fetch=null): void {
     $commits=$get('/commits?sha=master&path=site%2Fvar%2Fwww%2Fhtml&per_page=1');
     $sha=$commits[0]['sha']??'';$treeSha=$commits[0]['commit']['tree']['sha']??'';
     if (!preg_match('/^[a-f0-9]{40}$/D',$sha) || !preg_match('/^[a-f0-9]{40}$/D',$treeSha)) throw new RuntimeException('Versao GitHub invalida');
-    $runs=$get('/actions/runs?head_sha='.$sha.'&event=push&per_page=100');
-    $required=['.github/workflows/integration-control-plane.yml'=>null,'.github/workflows/site-auto-update.yml'=>null];
-    foreach ($runs['workflow_runs']??[] as $run) {
-        $path=$run['path']??'';
-        if (array_key_exists($path,$required) && $required[$path]===null && ($run['head_sha']??'')===$sha)
-            $required[$path]=($run['status']??'')==='completed' && ($run['conclusion']??'')==='success';
+    $approved=false;$ciSha=$sha;
+    for ($depth=0;$depth<10;$depth++) {
+        $runs=$get('/actions/runs?head_sha='.$ciSha.'&event=push&per_page=100');
+        if (($runs['workflow_runs']??[])!==[]) {
+            $required=['.github/workflows/integration-control-plane.yml'=>null,'.github/workflows/site-auto-update.yml'=>null];
+            foreach ($runs['workflow_runs'] as $run) {
+                $path=$run['path']??'';
+                if (array_key_exists($path,$required) && $required[$path]===null && ($run['head_sha']??'')===$ciSha)
+                    $required[$path]=($run['status']??'')==='completed' && ($run['conclusion']??'')==='success';
+            }
+            $approved=!in_array(null,$required,true) && !in_array(false,$required,true);break;
+        }
+        $commit=$get('/commits/'.$ciSha);$files=$commit['files']??[];
+        if (!$files || count($files)>=300 || count($commit['parents']??[])!==1) break;
+        foreach ($files as $file) {
+            $path=$file['filename']??'';
+            if (($file['status']??'')==='renamed' ||
+                (!preg_match('~^(?:site/var/www/html/)?bin/android/[A-Za-z0-9_.-]+\.apk$~D',$path) &&
+                 !in_array($path,['bin/versions.json','site/var/www/html/bin/versions.json'],true))) break 2;
+        }
+        $ciSha=$commit['parents'][0]['sha']??'';
+        if (!preg_match('/^[a-f0-9]{40}$/D',$ciSha)) break;
     }
-    if (in_array(null,$required,true) || in_array(false,$required,true)) throw new RuntimeException('A nova versao ainda nao terminou os testes. Tente novamente depois.');
+    if (!$approved) throw new RuntimeException('A nova versao ainda nao terminou os testes. Tente novamente depois.');
     $tree=$get('/git/trees/'.$treeSha.'?recursive=1');
     if (!empty($tree['truncated'])) throw new RuntimeException('Pacote incompleto');
     $wanted=['api/site_self_update.php'=>null,'api/site_update_guard.php'=>null,'api/site_update_hook.php'=>null,'workers/site_update.php'=>null];

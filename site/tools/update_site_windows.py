@@ -35,21 +35,47 @@ def git(root, *args):
     return proc.stdout.strip()
 
 
-def ci_passed(commit):
-    if not re.fullmatch(r"[a-f0-9]{40}", commit):
-        raise ValueError("Commit invalido")
-    req = urllib.request.Request("https://api.github.com/repos/" + REPO + "/actions/runs?head_sha=" + commit + "&event=push&per_page=100",
+def github_json(route):
+    req = urllib.request.Request("https://api.github.com/repos/" + REPO + route,
                                  headers={"User-Agent": "Casa-Site-Updater", "Accept": "application/vnd.github+json"})
     with urllib.request.urlopen(req, timeout=30) as response:
         raw = response.read(4000001)
     if len(raw) > 4000000:
-        raise RuntimeError("Resposta do CI excessiva")
+        raise RuntimeError("Resposta do GitHub excessiva")
+    return json.loads(raw)
+
+
+def ci_state(commit):
+    if not re.fullmatch(r"[a-f0-9]{40}", commit):
+        raise ValueError("Commit invalido")
+    runs = github_json("/actions/runs?head_sha=" + commit + "&event=push&per_page=100").get("workflow_runs", [])
+    if not runs:
+        return None
     found = {}
-    for item in json.loads(raw).get("workflow_runs", []):
+    for item in runs:
         path = item.get("path")
         if path in WORKFLOWS and path not in found and item.get("head_sha") == commit:
             found[path] = item.get("status") == "completed" and item.get("conclusion") == "success"
     return set(found) == WORKFLOWS and all(found.values())
+
+
+def ci_passed(commit):
+    for _ in range(10):
+        state = ci_state(commit)
+        if state is not None:
+            return state
+        info = github_json("/commits/" + commit)
+        files = info.get("files", [])
+        parents = info.get("parents", [])
+        if not files or len(files) >= 300 or len(parents) != 1:
+            return False
+        for item in files:
+            path = item.get("filename", "")
+            if item.get("status") == "renamed" or not (re.fullmatch(r"(?:site/var/www/html/)?bin/android/[A-Za-z0-9_.-]+\.apk", path) or
+                                                       path in ("bin/versions.json", "site/var/www/html/bin/versions.json")):
+                return False
+        commit = parents[0].get("sha", "")
+    return False
 
 
 def save_status(path, result):

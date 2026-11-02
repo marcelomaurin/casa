@@ -7,6 +7,7 @@ function su_dir(string $path):void { if (!is_dir($path)) mkdir($path,0700,true);
 function su_put(string $path,string $raw):void { su_dir(dirname($path));file_put_contents($path,$raw); }
 final class SiteFixture {
     public string $root;public string $state;public string $sha;public array $files;public bool $ci=true;public bool $badHash=false;public array $requests=[];
+    public bool $artifactOnly=false;public string $artifactPath='site/var/www/html/bin/android/CasaMobile-debug.apk';public string $artifactStatus='modified';
     public function __construct() {
         $base=sys_get_temp_dir().'/casa-site-test-'.bin2hex(random_bytes(6));
         $this->root=$base.'/web';$this->state=$base.'/private';su_dir($this->root);
@@ -20,10 +21,13 @@ final class SiteFixture {
     public function request(string $url,int $limit):string {
         $this->requests[]=$url;
         if (str_contains($url,'/commits?')) return json_encode([['sha'=>$this->sha,'commit'=>['tree'=>['sha'=>str_repeat('b',40)]]]]);
+        if (str_contains($url,'/commits/')) return json_encode(['parents'=>[['sha'=>str_repeat('e',40)]],'files'=>[['filename'=>$this->artifactPath,'status'=>$this->artifactStatus]]]);
         if (str_contains($url,'/actions/runs?')) {
+            $head=str_contains($url,'head_sha='.str_repeat('e',40))?str_repeat('e',40):$this->sha;
+            if ($this->artifactOnly && $head===$this->sha) return json_encode(['workflow_runs'=>[]]);
             $runs=[];
             foreach (['integration-control-plane.yml','site-auto-update.yml'] as $file)
-                $runs[]=['path'=>'.github/workflows/'.$file,'head_sha'=>$this->sha,'head_branch'=>'master','status'=>'completed','conclusion'=>$this->ci?'success':'failure'];
+                $runs[]=['path'=>'.github/workflows/'.$file,'head_sha'=>$head,'head_branch'=>'master','status'=>'completed','conclusion'=>$this->ci?'success':'failure'];
             return json_encode(['workflow_runs'=>$runs]);
         }
         if (str_contains($url,'/git/trees/')) {
@@ -64,6 +68,16 @@ $f->ci=true;$f->badHash=true;su_fail(fn()=>$u->run(),'hash adulterado');
 su_ok(str_contains(file_get_contents($f->root.'/index.php'),'antigo'),'download invalido nao altera site');
 $f->badHash=false;$f->files['api/db.php']='<?php function x( {';su_fail(fn()=>$u->run(),'PHP quebrado');
 su_ok(str_contains(file_get_contents($f->root.'/index.php'),'antigo'),'PHP invalido recusado antes de escrever');
+
+$f=new SiteFixture();$f->artifactOnly=true;$f->files['bin/android/CasaMobile-debug.apk']='apk-test';$u=$f->updater();$u->enable(true);
+su_ok($u->run()['status']==='atualizado' && file_get_contents($f->root.'/bin/android/CasaMobile-debug.apk')==='apk-test','publicacao somente APK herda CI do codigo anterior');
+su_ok($u->status()['installed']['ci_commit']===str_repeat('e',40),'registra commit do codigo validado');
+foreach (['site/var/www/html/index.php','bin/android/arquivo.js'] as $path) {
+    $f=new SiteFixture();$f->artifactOnly=true;$f->artifactPath=$path;$u=$f->updater();$u->enable(true);
+    su_ok($u->run()['status']==='aguardando_testes','codigo sem CI nao herda aprovacao: '.$path);
+}
+$f=new SiteFixture();$f->artifactOnly=true;$f->artifactStatus='renamed';$u=$f->updater();$u->enable(true);
+su_ok($u->run()['status']==='aguardando_testes','renomeacao nao contorna verificacao');
 
 $f=new SiteFixture();$u=$f->updater(static fn()=>false);$u->enable(true);
 su_fail(fn()=>$u->run(),'rollback por falha da verificacao');
@@ -144,6 +158,13 @@ foreach (['api/site_self_update.php','api/site_update_guard.php','api/site_updat
 casaInstallerBootstrap($f->root,[$f,'request']);
 su_ok(is_file($f->root.'/api/site_update_hook.php') && is_file($f->root.'/workers/site_update.php'),'bootstrap instala todos os componentes');
 su_ok(str_contains(file_get_contents($f->root.'/api/config.local.php'),'privado'),'bootstrap preserva configuracao privada');
+$f=new SiteFixture();$f->artifactOnly=true;
+foreach (['api/site_self_update.php','api/site_update_guard.php','api/site_update_hook.php','workers/site_update.php'] as $path)
+    $f->files[$path]=(string)file_get_contents(__DIR__.'/../../site/var/www/html/'.$path);
+casaInstallerBootstrap($f->root,[$f,'request']);
+su_ok(is_file($f->root.'/api/site_self_update.php'),'bootstrap funciona depois de publicacao somente APK');
+$f=new SiteFixture();$f->artifactOnly=true;$f->artifactPath='site/var/www/html/index.php';
+su_fail(fn()=>casaInstallerBootstrap($f->root,[$f,'request']),'bootstrap recusa codigo sem CI');
 $f=new SiteFixture();$f->ci=false;su_fail(fn()=>casaInstallerBootstrap($f->root,[$f,'request']),'bootstrap aguarda CI');
 su_ok(!file_exists($f->root.'/workers/site_update.php'),'bootstrap nao grava antes de validar');
 $f=new SiteFixture();
