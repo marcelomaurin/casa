@@ -7,7 +7,7 @@
       "version_code": 283,
       "package_id": "br.com.maurinsoft.jarvismobile.debug",
       "apk_url": "https://github.com/marcelomaurin/casa/releases/download/jarvis-mobile-v2.8.3-debug/CasaMobile-v2.8.3-debug.apk",
-      "sha256": "80d5dc935cd2d2bb552f81c661fcee75d08380034694cf86e4f824b634057203"
+      "sha256": "f2cc1dd90ae4c216d7f3e22acf2c5476ffd2ecca5fde4eeab5de40113b8d831b"
     },
     "jarvis-tv-debug": {
       "enabled": false,
