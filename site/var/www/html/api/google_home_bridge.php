@@ -12,14 +12,15 @@ function gh_bridge_snapshot(array $in,int $now): array {
             'host'=>filter_var($d['host']??'',FILTER_VALIDATE_IP)?:null];
     }
     return ['received_at'=>$now,'devices'=>$devices,'agent_online'=>true,
-        'online'=>!empty($in['online']) && count($devices)>0,'queue_alive'=>($in['queue_alive']??false)===true,
+        'online'=>($in['online']??false)===true && count($devices)>0,'queue_alive'=>($in['queue_alive']??false)===true,
         'version'=>substr((string)($in['version']??''),0,40),'trabalhador'=>substr((string)($in['trabalhador']??''),0,80)];
 }
 
 function gh_bridge_status(PDO $pdo,?int $now=null): array {
     $st=$pdo->query("SELECT valor FROM configuracoes_sistema WHERE chave='google_home_agent_status' LIMIT 1");
     $data=json_decode((string)$st->fetchColumn(),true)?:[];
-    $recent=($data['received_at']??0) >= (($now??time())-90);
+    $now=$now??time();$seen=$data['received_at']??0;
+    $recent=is_int($seen) && $seen>0 && $seen<=$now && $seen>=($now-90);
     $online=$recent && !empty($data['online']) && !empty($data['queue_alive']);
     return ['status'=>$online?'ok':'offline','online'=>$online,'agent_online'=>$recent,
         'devices'=>$recent?($data['devices']??[]):[],'hardware_status'=>$online?'ONLINE':'OFFLINE',

@@ -12,6 +12,7 @@ $stmt=$pdo->prepare("INSERT INTO configuracoes_sistema(chave,valor,descricao) VA
 $stmt->execute([':v'=>json_encode($s)]);
 gh_test(gh_bridge_status($pdo,1050)['online'],'heartbeat recente fica online');
 gh_test(!gh_bridge_status($pdo,1100)['online'],'heartbeat vencido fica offline');
+gh_test(!gh_bridge_status($pdo,999)['online'],'horario futuro nao parece online');
 $s['queue_alive']=false;$stmt->execute([':v'=>json_encode($s)]);
 gh_test(!gh_bridge_status($pdo,1050)['online'],'worker parado nao parece disponivel');
 $pdo->exec("UPDATE jarvis_tarefas SET status='CANCELADA' WHERE executor='google_home' AND status NOT IN ('CONCLUIDA','ERRO','CANCELADA')");
