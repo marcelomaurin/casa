@@ -28,7 +28,17 @@ try {
         foreach ($tasks as &$t) {
             if ($t['resultado']!==null) $t['resultado']=json_decode($t['resultado'],true);
         } unset($t);
-        api_v1_json_response(200,['status'=>'ok','projeto'=>$project,'tarefas'=>$tasks]);
+        // Estado agregado derivado das tarefas reais, sem assumir que enfileirar significa concluir.
+        $total=count($tasks);$done=0;$failed=0;$active=0;
+        foreach($tasks as $task) {
+            $st=strtoupper((string)($task['status_execucao']??''));
+            if ($st==='CONCLUIDA') $done++;
+            elseif (in_array($st,['ERRO','FALHOU','CANCELADA'],true)) $failed++;
+            elseif (in_array($st,['EXECUTANDO','PENDENTE','AGENDADA','RESERVADA'],true)) $active++;
+        }
+        $derived=$total===0?'sem_tarefas':($done===$total?'concluido':($failed>0&&$active===0?'falhou':($done>0?'parcial':'pendente')));
+        $progress=['total'=>$total,'concluidas'=>$done,'falhas'=>$failed,'ativas'=>$active,'percentual'=>$total?(int)round(100*$done/$total):0,'situacao'=>$derived];
+        api_v1_json_response(200,['status'=>'ok','projeto'=>$project,'progresso'=>$progress,'tarefas'=>$tasks]);
     }
     if ($action!=='aprovar' || $method!=='POST') api_v1_json_response(405,['status'=>'erro','mensagem'=>'Use POST acao=aprovar ou GET acao=status']);
     if (($input['confirmar']??false)!==true) api_v1_json_response(400,['status'=>'erro','mensagem'=>'confirmar=true obrigatorio']);
