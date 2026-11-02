@@ -3,6 +3,7 @@
 if (PHP_SAPI!=='cli') { http_response_code(403); exit; }
 require_once __DIR__.'/../api/db.php';
 require_once __DIR__.'/../api/projetos_github_cliente.php';
+require_once __DIR__.'/../api/fila_tarefas.php';
 if (($argv[1]??'')!=='--tarefa' || !ctype_digit((string)($argv[2]??''))) {
     fwrite(STDERR,"Uso: php github_worker.php --tarefa ID [--executar]\n");exit(2);
 }
@@ -31,10 +32,19 @@ try {
     }
     if (getenv('CASA_GITHUB_WORKER_ENABLED')!=='1')
         throw new RuntimeException('Worker desabilitado. Defina CASA_GITHUB_WORKER_ENABLED=1');
-    // Nao e seguro disparar alteracoes remotas sem reserva exclusiva da fila.
-    if (strtoupper((string)$r['fila_status'])!=='RESERVADA')
-        throw new RuntimeException('A tarefa deve estar reservada pelo executor antes da operacao');
-    throw new RuntimeException('Execucao bloqueada ate integrar verificacao do dono da reserva');
+    $trabalhador=(string)getenv('CASA_GITHUB_WORKER_NAME');
+    if (!ft_nome_valido($trabalhador) || $trabalhador==='servidor')
+        throw new RuntimeException('Configure CASA_GITHUB_WORKER_NAME valido');
+    $reserva=ft_exigir_reserva($pdo,(int)$r['jarvis_tarefa_id'],$trabalhador);
+    if ((int)$reserva['id_plano']!==(int)$r['jarvis_plano_id'] ||
+        $reserva['executor']!=='github' || $reserva['fila']!=='github')
+        throw new RuntimeException('Reserva nao pertence ao executor GitHub');
+    $q=$pdo->prepare("SELECT 1 FROM jarvis_tarefas WHERE id=? AND reservado_ate>NOW()");
+    $q->execute([(int)$reserva['id']]);
+    if (!$q->fetchColumn()) throw new RuntimeException('Reserva vencida');
+    $branch=casa_gh_criar_branch($project,$task);
+    echo json_encode(['status'=>'branch_criada','branch'=>$ctx['branch'],
+        'referencia'=>$branch['ref']??null,'tarefa_id'=>$id],JSON_UNESCAPED_UNICODE)."\n";
 } catch (Throwable $e) {
     fwrite(STDERR,"Worker GitHub: ".$e->getMessage()."\n");exit(1);
 }
