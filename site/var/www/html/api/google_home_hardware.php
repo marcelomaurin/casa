@@ -8,7 +8,7 @@ function ghw_out($d,$c=200){http_response_code($c);echo json_encode($d,JSON_UNES
 function ghw_input(){ $j=json_decode(file_get_contents('php://input'),true); return is_array($j)?$j:[]; }
 function ghw_computer($command){
     $token=get_system_api_token();
-    $ch=curl_init('http://127.0.0.1/api/jarvis.php');
+    $ch=curl_init(casa_url_interna('api/jarvis.php'));
     curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_POST=>true,CURLOPT_POSTFIELDS=>json_encode(['comando'=>$command,'origem'=>'GOOGLE_HOME_HARDWARE'],JSON_UNESCAPED_UNICODE),CURLOPT_HTTPHEADER=>['Content-Type: application/json','X-API-Key: '.$token],CURLOPT_CONNECTTIMEOUT=>3,CURLOPT_TIMEOUT=>50]);
     $raw=curl_exec($ch);$http=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);$err=curl_error($ch);curl_close($ch);
     $j=$raw!==false?json_decode((string)$raw,true):null;

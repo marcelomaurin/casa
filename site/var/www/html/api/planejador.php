@@ -3,6 +3,7 @@ header('Content-Type: application/json; charset=utf-8');
 require_once(__DIR__ . '/db.php');
 require_once(__DIR__ . '/seguranca.php');
 require_once(__DIR__ . '/task_engine.php');
+require_once(__DIR__ . '/fila_tarefas.php');
 
 verify_api_auth();
 $pdo = get_db_pdo();
@@ -14,29 +15,38 @@ function planner_input() {
     return is_array($j) ? $j : [];
 }
 
-function planner_call_json($demanda, array $taskContext) {
+function planner_call_json($demanda, array $taskContext, array $executoresExtras = []) {
     $agora = date('Y-m-d H:i:s');
+    $extras = '';
+    if ($executoresExtras) {
+        $extras = 'Executores extras de daemons/agentes ativos (use o nome exato em "executor"; "fila" opcional com o nome do agente): ' .
+            implode('; ', $executoresExtras) . '. ';
+    }
     $prompt = "Voce e o planejador do JARVIS. Data/hora atual: {$agora}. " .
         "Decomponha a demanda do usuario em tarefas executaveis. Retorne SOMENTE JSON valido, sem markdown. " .
         "Formato obrigatorio: {\"resumo\":\"...\",\"tarefas\":[{" .
         "\"ordem\":1,\"titulo\":\"...\",\"descricao\":\"...\",\"tipo\":\"IMEDIATA|AGENDADA|CONDICIONAL\"," .
-        "\"executor\":\"jarvis|web|dispositivo|fala\",\"payload\":{\"comando\":\"...\"}," .
+        "\"executor\":\"jarvis|web|dispositivo|fala\",\"fila\":null,\"payload\":{\"comando\":\"...\"}," .
         "Para executor dispositivo, payload DEVE ser {\"device_id\":\"id registrado\",\"command\":\"comando\",\"payload\":{},\"required_capability\":\"capability opcional\",\"risk_level\":1}. " .
         "\"executar_em\":null,\"recorrencia\":null,\"depende_de_ordem\":null}]} . " .
         "Use AGENDADA quando houver data/hora futura ou recorrencia. Use CONDICIONAL quando depender de evento/condicao. " .
         "Use web quando a tarefa exigir pesquisa atual na internet. Nao invente data ausente. " .
+        "Divida a demanda em partes pequenas: uma acao por tarefa. Partes independentes ficam sem dependencia (podem rodar em paralelo); " .
+        "quando uma parte precisa do resultado de outra, preencha depende_de_ordem com a ordem dela (o resultado sera entregue como entrada). " .
+        $extras .
         "Demanda: " . $demanda;
 
     $token = get_system_api_token();
     $payload = json_encode([
-        'comando' => '/cloud ' . $prompt,
+        'comando' => $prompt,
+        'ia_mode' => 'cloud_preferido',
         'skip_planner' => true,
         'origem' => 'PLANEJADOR',
         'task_context' => te_public_context($taskContext),
         'correlation_id' => $taskContext['correlation_id'] ?? null
     ], JSON_UNESCAPED_UNICODE);
 
-    $ch = curl_init('http://127.0.0.1/api/jarvis.php');
+    $ch = curl_init(casa_url_interna('api/jarvis.php'));
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
@@ -104,7 +114,7 @@ function planner_tipo_acao($executor) {
 function planner_executar_imediata(PDO $pdo, array $ctx, int $taskId, $executor, $payload) {
     $texto = planner_executor_payload($executor, $payload);
     if ($executor === 'web') {
-        return planner_post('http://127.0.0.1/api/agente_internet.php', [
+        return planner_post(casa_url_interna('api/agente_internet.php'), [
             'acao'=>'responder','query'=>$texto,'max_results'=>5,
             'task_context'=>te_public_context($ctx),
             'correlation_id'=>$ctx['correlation_id'] ?? null
@@ -129,7 +139,7 @@ function planner_executar_imediata(PDO $pdo, array $ctx, int $taskId, $executor,
             return ['ok'=>false,'erro'=>$e->getMessage()];
         }
     }
-    return planner_post('http://127.0.0.1/api/jarvis.php', [
+    return planner_post(casa_url_interna('api/jarvis.php'), [
         'comando'=>$texto,'skip_planner'=>true,'origem'=>'PLANEJADOR_EXECUTOR',
         'task_context'=>te_public_context($ctx)
     ], 50);
@@ -143,6 +153,25 @@ if ($demanda === '') {
     http_response_code(400);
     echo json_encode(['status'=>'erro','mensagem'=>'Demanda vazia'], JSON_UNESCAPED_UNICODE);
     exit;
+}
+
+// Execução: 'direto' (o site executa na hora, como antes), 'fila' (daemons/agentes executam)
+// ou 'auto' (fila quando houver trabalhador ativo para o executor da tarefa).
+$modoExecucao = strtolower(trim((string)($in['execucao'] ?? '')));
+if ($modoExecucao === '') {
+    try {
+        $cfgModo = $pdo->query("SELECT valor FROM configuracoes_sistema WHERE chave='planejador_execucao' LIMIT 1")->fetchColumn();
+        $modoExecucao = strtolower(trim((string)$cfgModo));
+    } catch (Throwable $e) { $modoExecucao = ''; }
+}
+if (!in_array($modoExecucao, ['auto','fila','direto'], true)) $modoExecucao = 'auto';
+$trabalhadoresAtivos = ft_trabalhadores_ativos($pdo, 300);
+$executoresAtivos = ft_executores_ativos($pdo, 300);
+$executoresSite = ['jarvis','web','dispositivo','fala'];
+$descExtras = [];
+foreach ($trabalhadoresAtivos as $nomeTrab => $tInfo) {
+    $proprios = array_values(array_diff($tInfo['executores'], $executoresSite));
+    if ($proprios) $descExtras[] = $nomeTrab . ': ' . implode(', ', $proprios);
 }
 
 $taskContext=te_begin(
@@ -159,7 +188,7 @@ $taskPlanning=te_add_subtask($pdo,$taskContext,'Gerar plano estruturado','planej
     'demanda'=>$demanda
 ],null,'EXECUTANDO');
 
-$gen = planner_call_json($demanda,$taskContext);
+$gen = planner_call_json($demanda,$taskContext,$descExtras);
 if (!$gen['ok']) {
     te_fail_with_plan($pdo,$taskContext,$taskPlanning,(string)$gen['erro'],['raw'=>$gen['raw'] ?? null]);
     http_response_code(502);
@@ -179,6 +208,7 @@ $pdo->prepare("UPDATE jarvis_planos SET status='EM_EXECUCAO',resumo=:r,dados_pla
     ]);
 
 $idsPorOrdem = [];
+$filaPorOrdem = [];
 $tarefasSalvas = [];
 $baseOrdem=te_next_order($pdo,$idPlano);
 foreach ($plano['tarefas'] as $idx => $t) {
@@ -186,22 +216,44 @@ foreach ($plano['tarefas'] as $idx => $t) {
     $ordem = $baseOrdem + $idx;
     $tipo = strtoupper(trim($t['tipo'] ?? 'IMEDIATA'));
     if (!in_array($tipo, ['IMEDIATA','AGENDADA','CONDICIONAL'], true)) $tipo = 'IMEDIATA';
-    $executor = strtolower(trim($t['executor'] ?? 'jarvis'));
-    if (!in_array($executor, ['jarvis','web','dispositivo','fala'], true)) $executor = 'jarvis';
+    $executor = strtolower(trim((string)($t['executor'] ?? 'jarvis')));
+    $executorConhecido = in_array($executor, $executoresSite, true)
+        || (ft_nome_valido($executor) && in_array($executor, $executoresAtivos, true));
+    if (!$executorConhecido) $executor = 'jarvis';
     $payload = is_array($t['payload'] ?? null) ? $t['payload'] : ['comando'=>(string)($t['payload'] ?? '')];
     $executarEm = !empty($t['executar_em']) ? date('Y-m-d H:i:s', strtotime($t['executar_em'])) : null;
     $status = $tipo === 'AGENDADA' ? 'AGENDADA' : ($tipo === 'CONDICIONAL' ? 'AGUARDANDO' : 'PENDENTE');
 
-    $st = $pdo->prepare("INSERT INTO jarvis_tarefas (id_plano,correlation_id,ordem,titulo,descricao,tipo,executor,payload,status,executar_em,recorrencia,tarefa_pai_id) VALUES (:p,:corr,:o,:t,:d,:tp,:e,:j,:s,:x,:r,:pai)");
+    // Destino: fila (daemon/agente) ou o próprio site.
+    $filaPedida = strtolower(trim((string)($t['fila'] ?? '')));
+    if ($filaPedida !== '' && !isset($trabalhadoresAtivos[$filaPedida])) $filaPedida = '';
+    $depOrdem = $t['depende_de_ordem'] ?? null;
+    $dependeDeFila = $depOrdem !== null && !empty($filaPorOrdem[intval($depOrdem)]);
+    $fila = null;
+    if ($tipo !== 'CONDICIONAL' && empty($t['recorrencia']) && $modoExecucao !== 'direto') {
+        if ($executor === 'dispositivo') {
+            // Dispositivos são acionados pelo site (validação de capacidade e risco);
+            // se dependem de uma tarefa da fila, o site dispara quando ela concluir.
+            if ($dependeDeFila) $fila = 'servidor';
+        } elseif ($modoExecucao === 'fila' || $filaPedida !== '' || $dependeDeFila
+            || in_array($executor, $executoresAtivos, true) || !in_array($executor, $executoresSite, true)) {
+            $fila = $filaPedida !== '' ? $filaPedida : 'geral';
+        }
+    }
+    if ($fila !== null && $status === 'AGENDADA' && !$executarEm) { $status = 'AGUARDANDO'; }
+
+    $st = $pdo->prepare("INSERT INTO jarvis_tarefas (id_plano,correlation_id,ordem,titulo,descricao,tipo,executor,fila,payload,status,executar_em,recorrencia,tarefa_pai_id,max_tentativas) VALUES (:p,:corr,:o,:t,:d,:tp,:e,:f,:j,:s,:x,:r,:pai,:m)");
     $st->execute([
-        ':p'=>$idPlano, ':corr'=>$taskContext['correlation_id'] ?? null, ':o'=>$ordem, ':t'=>trim($t['titulo'] ?? ('Tarefa '.$ordem)),
-        ':d'=>trim($t['descricao'] ?? ''), ':tp'=>$tipo, ':e'=>$executor,
+        ':p'=>$idPlano, ':corr'=>$taskContext['correlation_id'] ?? null, ':o'=>$ordem, ':t'=>mb_substr(trim($t['titulo'] ?? ('Tarefa '.$ordem)),0,180,'UTF-8'),
+        ':d'=>trim($t['descricao'] ?? ''), ':tp'=>$tipo, ':e'=>$executor, ':f'=>$fila,
         ':j'=>json_encode($payload, JSON_UNESCAPED_UNICODE), ':s'=>$status,
-        ':x'=>$executarEm, ':r'=>$t['recorrencia'] ?? null, ':pai'=>$taskContext['id_tarefa_raiz']
+        ':x'=>$executarEm, ':r'=>$t['recorrencia'] ?? null, ':pai'=>$taskContext['id_tarefa_raiz'],
+        ':m'=>max(1, min(10, (int)($t['max_tentativas'] ?? 3)))
     ]);
     $idTarefa = (int)$pdo->lastInsertId();
     $idsPorOrdem[$ordemDeclarada] = $idTarefa;
-    $tarefasSalvas[] = ['id'=>$idTarefa,'ordem'=>$ordem,'tipo'=>$tipo,'executor'=>$executor,'payload'=>$payload,'executar_em'=>$executarEm,'depende_de_ordem'=>$t['depende_de_ordem'] ?? null];
+    $filaPorOrdem[$ordemDeclarada] = $fila;
+    $tarefasSalvas[] = ['id'=>$idTarefa,'ordem'=>$ordem,'tipo'=>$tipo,'executor'=>$executor,'fila'=>$fila,'status'=>$status,'payload'=>$payload,'executar_em'=>$executarEm,'depende_de_ordem'=>$depOrdem];
 }
 
 foreach ($tarefasSalvas as &$t) {
@@ -212,6 +264,7 @@ foreach ($tarefasSalvas as &$t) {
         $t['depende_de'] = $depId;
     }
 
+    if ($t['fila'] !== null) continue; // a fila cuida de dependência e horário
     if ($t['tipo'] === 'AGENDADA') {
         $quando = $t['executar_em'];
         if (!$quando) {
@@ -233,7 +286,7 @@ unset($t);
 $resultados = [];
 if ($executarImediatas) {
     foreach ($tarefasSalvas as &$t) {
-        if ($t['tipo'] !== 'IMEDIATA') continue;
+        if ($t['tipo'] !== 'IMEDIATA' || $t['fila'] !== null) continue;
         if (!empty($t['depende_de'])) {
             $q = $pdo->prepare("SELECT status FROM jarvis_tarefas WHERE id=:id");
             $q->execute([':id'=>$t['depende_de']]);
@@ -268,9 +321,19 @@ if ($executarImediatas) {
 
 $pdo->prepare("UPDATE jarvis_planos SET status='EM_EXECUCAO' WHERE id=:id")->execute([':id'=>$idPlano]);
 
+$enfileiradas = count(array_filter($tarefasSalvas, fn($x) => $x['fila'] !== null && $x['fila'] !== 'servidor'));
+ft_atualizar_plano($pdo, $idPlano);
+
 echo json_encode(te_attach_context([
     'status'=>'ok',
     'resumo'=>$plano['resumo'] ?? '',
+    'fila'=>[
+        'modo'=>$modoExecucao,
+        'enfileiradas'=>$enfileiradas,
+        'trabalhadores_ativos'=>array_keys($trabalhadoresAtivos),
+        'sem_trabalhador'=>array_values(array_unique(array_map(fn($x)=>$x['executor'], array_filter($tarefasSalvas,
+            fn($x)=>$x['fila'] !== null && $x['fila'] !== 'servidor' && !in_array($x['executor'], $executoresAtivos, true)))))
+    ],
     'tarefas'=>$tarefasSalvas,
     'resultados_imediatos'=>$resultados
 ],$taskContext,$pdo), JSON_UNESCAPED_UNICODE);

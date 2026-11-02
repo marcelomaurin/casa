@@ -11,7 +11,8 @@ clusters/
 ├── comunicacao/
 │   └── arm-agent/                 Agente principal do nó ARM
 ├── automacao/
-│   └── casa-scheduler/            Agendamento e execução de tarefas
+│   ├── casa-scheduler/            Agendamento e execução de tarefas
+│   └── casa-tarefas/              Executor da fila de tarefas do planejador
 ├── voz/
 │   ├── google-home-agent/         Integração Google Home / Chromecast
 │   └── tts/                       Síntese e clonagem de voz
@@ -34,7 +35,7 @@ clusters/
 |---|---|---|
 | [Site do Cluster](site/README.md) | casa-cluster-site | Portal web local (porta 8080) para visualização e telemetria dos serviços do nó |
 | [Comunicação](comunicacao/README.md) | arm-agent | Heartbeat e comandos pela API v1; aparece no painel ARM |
-| [Automação](automacao/README.md) | casa-scheduler | Serviço auxiliar de agendamento; sem heartbeat próprio ARM |
+| [Automação](automacao/README.md) | casa-scheduler, casa-tarefas | Agendamento; executor da fila do planejador pela API v1 (`/api/v1/fila.php`) |
 | [Voz](voz/README.md) | google-home-agent, tts | Google Home usa registro específico; TTS é serviço auxiliar |
 | [Visão](visao/README.md) | espcam, raspberrypi-avatar-agent | Avatar usa heartbeat v1; ESPCam contém processadores auxiliares |
 | [Pesquisa](pesquisa/README.md) | web-agent | API de pesquisa; sem heartbeat próprio ARM |

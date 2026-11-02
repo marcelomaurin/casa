@@ -5,7 +5,7 @@
 
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
-const CASA_SCHEMA_VERSION = '1.32';
+const CASA_SCHEMA_VERSION = '1.35';
 
 function local_config(): array { static $cfg=null; if(is_array($cfg))return $cfg; $file=__DIR__.'/config.local.php'; if(is_file($file)){ $loaded=require $file; if(is_array($loaded)){ $cfg=$loaded; return $cfg; }} $cfg=[]; return $cfg; }
 function cfg_value(string $configKey,string $envKey,?string $default=null):?string { $cfg=local_config(); if(array_key_exists($configKey,$cfg)&&$cfg[$configKey]!=='')return(string)$cfg[$configKey]; $value=getenv($envKey); return($value===false||$value==='')?$default:$value; }
@@ -83,6 +83,9 @@ function casa_execute_schema_file(PDO $pdo, string $file): void {
     if (!is_file($file)) throw new RuntimeException('Arquivo de schema MySQL não encontrado: ' . basename($file));
     $lines = file($file, FILE_IGNORE_NEW_LINES);
     if ($lines === false) throw new RuntimeException('Não foi possível ler o schema MySQL.');
+    // Arquivo salvo com BOM UTF-8 (ex.: migrations/1.30.sql): sem remover, o MariaDB recusa a 1ª instrução
+    // e a cadeia de migrações para ali.
+    if (isset($lines[0])) $lines[0] = preg_replace('/^\xEF\xBB\xBF/', '', $lines[0]);
     $statement = '';
     foreach ($lines as $line) {
         $trim = trim($line);
@@ -99,7 +102,7 @@ function casa_execute_schema_file(PDO $pdo, string $file): void {
 function casa_ensure_param_table(PDO $pdo):void { $pdo->exec("CREATE TABLE IF NOT EXISTS param (chave VARCHAR(120) NOT NULL,valor TEXT NULL,atualizado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,PRIMARY KEY (chave)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"); }
 function casa_schema_version(PDO $pdo):?string { casa_ensure_param_table($pdo);$stmt=$pdo->prepare("SELECT valor FROM param WHERE chave='VERSAO' LIMIT 1");$stmt->execute();$value=$stmt->fetchColumn();return$value===false?null:trim((string)$value); }
 function casa_set_schema_version(PDO $pdo,string $version):void { $stmt=$pdo->prepare("INSERT INTO param(chave,valor) VALUES('VERSAO',:v) ON DUPLICATE KEY UPDATE valor=VALUES(valor), atualizado_em=CURRENT_TIMESTAMP");$stmt->execute([':v'=>$version]); }
-function casa_run_version_migrations(PDO $pdo,?string $currentVersion):void { if($currentVersion===CASA_SCHEMA_VERSION)return; $migrations=['1.20'=>[__DIR__.'/migrations/1.20.sql',__DIR__.'/migrations/1.20_audit.sql'],'1.21'=>[__DIR__.'/migrations/1.21.sql'],'1.22'=>[__DIR__.'/migrations/1.22.sql'],'1.23'=>[__DIR__.'/migrations/1.23.sql'],'1.24'=>[__DIR__.'/migrations/1.24.sql'],'1.25'=>[__DIR__.'/migrations/1.25.sql'],'1.26'=>[__DIR__.'/migrations/1.26.sql'],'1.27'=>[__DIR__.'/migrations/1.27.sql'],'1.28'=>[__DIR__.'/migrations/1.28.sql'],'1.29'=>[__DIR__.'/migrations/1.29.sql'],'1.30'=>[__DIR__.'/migrations/1.30.sql'],'1.31'=>[__DIR__.'/migrations/1.31.sql'],'1.32'=>[__DIR__.'/migrations/1.32.sql']]; foreach($migrations as $version=>$files){if($currentVersion!==null&&version_compare($currentVersion,$version,'>='))continue;foreach($files as $file)casa_execute_schema_file($pdo,$file);casa_set_schema_version($pdo,$version);$currentVersion=$version;} }
+function casa_run_version_migrations(PDO $pdo,?string $currentVersion):void { if($currentVersion===CASA_SCHEMA_VERSION)return; $migrations=['1.20'=>[__DIR__.'/migrations/1.20.sql',__DIR__.'/migrations/1.20_audit.sql'],'1.21'=>[__DIR__.'/migrations/1.21.sql'],'1.22'=>[__DIR__.'/migrations/1.22.sql'],'1.23'=>[__DIR__.'/migrations/1.23.sql'],'1.24'=>[__DIR__.'/migrations/1.24.sql'],'1.25'=>[__DIR__.'/migrations/1.25.sql'],'1.26'=>[__DIR__.'/migrations/1.26.sql'],'1.27'=>[__DIR__.'/migrations/1.27.sql'],'1.28'=>[__DIR__.'/migrations/1.28.sql'],'1.29'=>[__DIR__.'/migrations/1.29.sql'],'1.30'=>[__DIR__.'/migrations/1.30.sql'],'1.31'=>[__DIR__.'/migrations/1.31.sql'],'1.32'=>[__DIR__.'/migrations/1.32.sql'],'1.33'=>[__DIR__.'/migrations/1.33.sql'],'1.34'=>[__DIR__.'/migrations/1.34.sql'],'1.35'=>[__DIR__.'/migrations/1.35.sql']]; foreach($migrations as $version=>$files){if($currentVersion!==null&&version_compare($currentVersion,$version,'>='))continue;foreach($files as $file)casa_execute_schema_file($pdo,$file);casa_set_schema_version($pdo,$version);$currentVersion=$version;} }
 function ensure_database_schema(PDO $pdo): void {
     static $checked = false;
     if ($checked || !cfg_bool('auto_init_db', 'JARVIS_AUTO_INIT_DB', true)) return;
@@ -148,5 +151,33 @@ function casa_ensure_ai_config_defaults(PDO $pdo):void { $defaults=[['ia_provide
 function get_db_pdo():PDO { static $pdo=null;if($pdo instanceof PDO)return$pdo;$host=cfg_value('db_host','JARVIS_DB_HOST','localhost');$port=cfg_value('db_port','JARVIS_DB_PORT','3306');$name=cfg_value('db_name','JARVIS_DB_NAME','u820932905_casadb');$user=cfg_value('db_user','JARVIS_DB_USER','u820932905_root');$pass=cfg_value('db_pass','JARVIS_DB_PASS','');$charset=cfg_value('db_charset','JARVIS_DB_CHARSET','utf8mb4');if($pass==='')throw new RuntimeException('Senha do banco MySQL não configurada no ambiente.');$dsn="mysql:host={$host};port={$port};dbname={$name};charset={$charset}";$pdo=new PDO($dsn,$user,$pass,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC,PDO::ATTR_EMULATE_PREPARES=>false]);$pdo->exec("SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci");ensure_database_schema($pdo);casa_ensure_ai_config_defaults($pdo);return$pdo; }
 function get_secondary_db_pdo(){return false;} function qryExec($sql){return get_db_pdo()->exec($sql);}
 function get_system_api_token():string { $token=cfg_value('system_api_token','JARVIS_SYSTEM_API_TOKEN','');if($token!=='')return$token;try{$pdo=get_db_pdo();$stmt=$pdo->prepare("SELECT valor FROM configuracoes_sistema WHERE chave IN ('system_api_token','external_api_key') AND valor <> '' ORDER BY FIELD(chave,'system_api_token','external_api_key') LIMIT 1");$stmt->execute();$row=$stmt->fetch();if($row&&!empty($row['valor']))return$row['valor'];}catch(Throwable $e){}return''; }
-function verify_api_auth(){if(!empty($_SESSION['auth_user']))return true;$token='';$authHeader=$_SERVER['HTTP_AUTHORIZATION']??'';if(preg_match('/Bearer\s+(\S+)/i',$authHeader,$m)){$token=trim($m[1]);}elseif(!empty($_SERVER['HTTP_X_API_KEY'])){$token=trim($_SERVER['HTTP_X_API_KEY']);}elseif(!empty($_SERVER['HTTP_X_DEVICE_TOKEN'])){$token=trim($_SERVER['HTTP_X_DEVICE_TOKEN']);}$expectedToken=get_system_api_token();if($token!==''){if($expectedToken!==''&&hash_equals($expectedToken,$token))return true;try{$pdo=get_db_pdo();$hash=hash('sha256',$token);$stmt=$pdo->prepare("SELECT id,nome FROM api_client_tokens WHERE token_hash=:h AND ativo=1 AND revogado_em IS NULL AND (expira_em IS NULL OR expira_em > NOW()) LIMIT 1");$stmt->execute([':h'=>$hash]);$row=$stmt->fetch();if($row){$ip=$_SERVER['REMOTE_ADDR']??'';$pdo->prepare("UPDATE api_client_tokens SET ultimo_uso=NOW(),ultimo_ip=:ip WHERE id=:id")->execute([':ip'=>$ip?:null,':id'=>$row['id']]);return true;}$stmtDev=$pdo->prepare("SELECT id FROM dispositivos_cluster WHERE ativo=1 AND (device_token_hash=:h OR device_token=:t) LIMIT 1");$stmtDev->execute([':h'=>$hash,':t'=>$token]);if($stmtDev->fetch())return true;}catch(Throwable $e){}}if($expectedToken===''&&$token===''){http_response_code(503);header('Content-Type: application/json; charset=utf-8');echo json_encode(['status'=>'erro','mensagem'=>'API ainda não configurada no ambiente de produção.'],JSON_UNESCAPED_UNICODE);exit;}if($token!==''){/* Chave/token apresentado e recusado: conta como falha de autenticação do IP (sem sessão expirada do painel, que não envia token). */try{if(!function_exists('registrar_falha_seguranca')){if(!defined('CASA_SEGURANCA_SEM_AUTOCHECK'))define('CASA_SEGURANCA_SEM_AUTOCHECK',true);require_once __DIR__.'/seguranca.php';}registrar_falha_seguranca('Chave de API inválida ('.substr($token,0,6).'…) em '.substr((string)parse_url($_SERVER['REQUEST_URI']??'',PHP_URL_PATH),0,120),'AVISO','api');}catch(Throwable $e){}}http_response_code(401);header('Content-Type: application/json; charset=utf-8');echo json_encode(['status'=>'erro','mensagem'=>'Acesso negado: autenticação requerida.'],JSON_UNESCAPED_UNICODE);exit;}
+function verify_api_auth(){$GLOBALS['casa_auth_tipo']=null;if(!empty($_SESSION['auth_user'])){$GLOBALS['casa_auth_tipo']='sessao';return true;}$token='';$authHeader=$_SERVER['HTTP_AUTHORIZATION']??'';if(preg_match('/Bearer\s+(\S+)/i',$authHeader,$m)){$token=trim($m[1]);}elseif(!empty($_SERVER['HTTP_X_API_KEY'])){$token=trim($_SERVER['HTTP_X_API_KEY']);}elseif(!empty($_SERVER['HTTP_X_DEVICE_TOKEN'])){$token=trim($_SERVER['HTTP_X_DEVICE_TOKEN']);}$expectedToken=get_system_api_token();if($token!==''){if($expectedToken!==''&&hash_equals($expectedToken,$token)){$GLOBALS['casa_auth_tipo']='sistema';return true;}try{$pdo=get_db_pdo();$hash=hash('sha256',$token);$stmt=$pdo->prepare("SELECT id,nome FROM api_client_tokens WHERE token_hash=:h AND ativo=1 AND revogado_em IS NULL AND (expira_em IS NULL OR expira_em > NOW()) LIMIT 1");$stmt->execute([':h'=>$hash]);$row=$stmt->fetch();if($row){$ip=$_SERVER['REMOTE_ADDR']??'';$pdo->prepare("UPDATE api_client_tokens SET ultimo_uso=NOW(),ultimo_ip=:ip WHERE id=:id")->execute([':ip'=>$ip?:null,':id'=>$row['id']]);$GLOBALS['casa_auth_tipo']='cliente';return true;}$stmtDev=$pdo->prepare("SELECT id FROM dispositivos_cluster WHERE ativo=1 AND (device_token_hash=:h OR device_token=:t) LIMIT 1");$stmtDev->execute([':h'=>$hash,':t'=>$token]);if($stmtDev->fetch()){$GLOBALS['casa_auth_tipo']='dispositivo';return true;}}catch(Throwable $e){}}if($expectedToken===''&&$token===''){http_response_code(503);header('Content-Type: application/json; charset=utf-8');echo json_encode(['status'=>'erro','mensagem'=>'API ainda não configurada no ambiente de produção.'],JSON_UNESCAPED_UNICODE);exit;}if($token!==''){/* Chave/token apresentado e recusado: conta como falha de autenticação do IP (sem sessão expirada do painel, que não envia token). */try{if(!function_exists('registrar_falha_seguranca')){if(!defined('CASA_SEGURANCA_SEM_AUTOCHECK'))define('CASA_SEGURANCA_SEM_AUTOCHECK',true);require_once __DIR__.'/seguranca.php';}registrar_falha_seguranca('Chave de API inválida ('.substr($token,0,6).'…) em '.substr((string)parse_url($_SERVER['REQUEST_URI']??'',PHP_URL_PATH),0,120),'AVISO','api');}catch(Throwable $e){}}http_response_code(401);header('Content-Type: application/json; charset=utf-8');echo json_encode(['status'=>'erro','mensagem'=>'Acesso negado: autenticação requerida.'],JSON_UNESCAPED_UNICODE);exit;}
+
+// Endereço interno do próprio site (planejador, agente web, JARVIS).
+// Ordem: url_interna (config/ambiente) > host da requisição se estiver na lista permitida > 127.0.0.1.
+// O host só é usado se estiver na lista, porque a chave do sistema segue junto na chamada.
+function casa_base_path(): string {
+    $cfg = cfg_value('base_path', 'CASA_BASE_PATH', null);
+    if ($cfg !== null) { $cfg = trim($cfg, '/'); return $cfg === '' ? '' : '/' . $cfg; }
+    $script = (string)($_SERVER['SCRIPT_NAME'] ?? '');
+    if (preg_match('#^(.*?)/api(/|$)#', $script, $m)) return rtrim($m[1], '/');
+    return '';
+}
+function casa_url_interna(string $rota): string {
+    $rota = '/' . ltrim($rota, '/');
+    $fixa = trim((string)cfg_value('url_interna', 'CASA_URL_INTERNA', ''));
+    if ($fixa !== '') return rtrim($fixa, '/') . $rota;
+    $base = casa_base_path();
+    $host = strtolower(trim((string)($_SERVER['HTTP_HOST'] ?? '')));
+    $hostSemPorta = preg_replace('/:\d+$/', '', $host);
+    $permitidos = array_filter(array_map('trim', explode(',', strtolower((string)cfg_value(
+        'hosts_permitidos', 'CASA_HOSTS_PERMITIDOS', 'maurinsoft.com.br,www.maurinsoft.com.br,localhost,127.0.0.1'
+    )))));
+    if ($host !== '' && in_array($hostSemPorta, $permitidos, true) && preg_match('/^[a-z0-9.\-]+(:\d+)?$/', $host)) {
+        $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+            || strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https';
+        return ($https ? 'https' : 'http') . '://' . $host . $base . $rota;
+    }
+    return 'http://127.0.0.1' . $base . $rota;
+}
 ?>

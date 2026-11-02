@@ -1,4 +1,4 @@
-﻿[Unit]
+[Unit]
 Description=CASA Cluster Monitor Daemon (Queda e Healthcheck dos Nos ARM - 40s)
 After=network.target mysql.service mariadb.service
 Wants=network.target

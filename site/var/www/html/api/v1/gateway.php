@@ -70,7 +70,7 @@ if ($subpath === 'comando') {
 
     $correlationId=api_v1_correlation_id($input['correlation_id'] ?? null);
     $internalToken=get_system_api_token();
-    $ch=curl_init('https://maurinsoft.com.br/casa/api/jarvis.php');
+    $ch=curl_init(casa_url_interna('api/jarvis.php'));
     curl_setopt_array($ch,[
         CURLOPT_RETURNTRANSFER=>true,
         CURLOPT_POST=>true,
@@ -81,7 +81,9 @@ if ($subpath === 'comando') {
             'idioma'=>$input['idioma'] ?? null,
             'locale'=>$input['locale'] ?? null,
             'correlation_id'=>$correlationId,
-            'task_context'=>$input['task_context'] ?? null
+            'task_context'=>$input['task_context'] ?? null,
+            // Daemons de tarefas executam partes de um plano já feito: não replanejar.
+            'skip_planner'=>!empty($input['skip_planner'])
         ],JSON_UNESCAPED_UNICODE),
         CURLOPT_HTTPHEADER=>['Content-Type: application/json','X-API-Key: '.$internalToken],
         CURLOPT_TIMEOUT=>45
@@ -98,6 +100,7 @@ if ($subpath === 'comando') {
         'acao_executada'=>$data['acao'] ?? $data['acao_executada'] ?? null,
         'audio_url'=>$data['audio_url'] ?? null,
         'id_plano'=>$data['id_plano'] ?? null,
+        'status_jarvis'=>$data['status'] ?? null,
         'id_tarefa_raiz'=>$data['id_tarefa_raiz'] ?? null,
         'task_context'=>$data['task_context'] ?? null,
         'task_status'=>$data['task_status'] ?? null,

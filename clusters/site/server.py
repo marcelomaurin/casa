@@ -217,12 +217,12 @@ MANAGED_SERVICES = [
     },
     {
         "id": "jarvis-web-agent",
-        "label": "Agente de Pesquisa Web IA (:8092)",
+        "label": "Agente de Pesquisa Web IA (:8099)",
         "category": "cluster",
         "protected": False,
         "owner_ip": "192.168.2.13",
         "owner_name": "Raspberry Pi 4B (.13)",
-        "port": 8092,
+        "port": 8099,
         "entrypoint": "/opt/jarvis-web-agent/web_agent.py",
         "purpose": "Daemon de busca na internet, raspagem de páginas, consulta de notícias, previsão do tempo e alimentação de contexto externo atualizado para a IA Jarvis.",
         "impact_when_stopped": "O Jarvis perde a capacidade de consultar informações em tempo real na internet (notícias, cotações, clima e pesquisas web).",
@@ -277,12 +277,12 @@ MANAGED_SERVICES = [
     },
     {
         "id": "casa-runpod-agent",
-        "label": "Agente RunPod & GPU Remota (:8096)",
+        "label": "Agente RunPod & GPU Remota (:5005)",
         "category": "cluster",
         "protected": False,
         "owner_ip": "192.168.2.16",
         "owner_name": "Raspberry Pi 3B (.16)",
-        "port": 8096,
+        "port": 5005,
         "entrypoint": "/opt/casa/servicos/runpod-agent/casa-runpod-agent.py",
         "purpose": "Gerencia sob demanda instâncias de GPU na nuvem (RunPod) para tarefas pesadas de IA (modelos LLM grandes, visão avançada e treinamento), desligando pods ociosos para economizar custos.",
         "impact_when_stopped": "Desativa o provisionamento automático e o monitoramento de GPUs remotas no RunPod.",
@@ -1308,13 +1308,22 @@ class ClusterSiteHandler(SimpleHTTPRequestHandler):
             "casa-tts": 8097,
             "casa-ssh-agent": 8095,
             "casa-cluster-site": PORT,
-            "jarvis-web-agent": 8092,
-            "casa-runpod-agent": 8096,
+            "jarvis-web-agent": 8099,   # web_agent.py (antes: 8092, porta inexistente)
+            "casa-runpod-agent": 5005,  # AGENT_PORT padrão (8096 é o TCP legado do TTS)
+        }
+        # Rota de saúde de cada serviço (cada agente expõe uma diferente).
+        health_paths = {
+            "casa-node-agent": "/status",
+            "casa-tts": "/status",
+            "casa-ssh-agent": "/health",
+            "casa-cluster-site": "/api/status",
+            "jarvis-web-agent": "/health",
+            "casa-runpod-agent": "/api/status",
         }
         port = ports_map.get(clean)
         http_check = None
         if port:
-            endpoint = "/health" if port in (8095, 8096) else ("/status" if port != PORT else "/api/status")
+            endpoint = health_paths.get(clean, "/status")
             try:
                 req = urllib.request.Request("http://127.0.0.1:{0}{1}".format(port, endpoint), headers={"User-Agent": "ClusterSiteIntegrity/1.0"})
                 with urllib.request.urlopen(req, timeout=2.0) as r:
