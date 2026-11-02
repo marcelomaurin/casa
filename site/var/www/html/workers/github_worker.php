@@ -3,9 +3,10 @@
 if (PHP_SAPI!=='cli') { http_response_code(403); exit; }
 require_once __DIR__.'/../api/db.php';
 require_once __DIR__.'/../api/projetos_github_cliente.php';
+require_once __DIR__.'/../api/projetos_github_arquivos.php';
 require_once __DIR__.'/../api/fila_tarefas.php';
 if (($argv[1]??'')!=='--tarefa' || !ctype_digit((string)($argv[2]??''))) {
-    fwrite(STDERR,"Uso: php github_worker.php --tarefa ID [--executar]\n");exit(2);
+    fwrite(STDERR,"Uso: php github_worker.php --tarefa ID [--executar] [--alteracoes arquivo.json]\n");exit(2);
 }
 $id=(int)$argv[2];
 if ($id<1) exit(2);
@@ -42,7 +43,46 @@ try {
     $q=$pdo->prepare("SELECT 1 FROM jarvis_tarefas WHERE id=? AND reservado_ate>NOW()");
     $q->execute([(int)$reserva['id']]);
     if (!$q->fetchColumn()) throw new RuntimeException('Reserva vencida');
+    $changes=[];
+    $fileIndex=array_search('--alteracoes',$argv,true);
+    if ($fileIndex!==false) {
+        $filename=$argv[$fileIndex+1]??'';
+        if (!is_string($filename) || $filename==='' || !is_file($filename) ||
+            filesize($filename)>500000)
+            throw new RuntimeException('Arquivo de alteracoes ausente ou grande demais');
+        $changes=json_decode((string)file_get_contents($filename),true,32,JSON_THROW_ON_ERROR);
+        if (!is_array($changes) || !array_is_list($changes) || count($changes)>5)
+            throw new RuntimeException('Alteracoes devem ser lista de ate cinco arquivos');
+        foreach ($changes as $change) {
+            if (!is_array($change) || !isset($change['path'],$change['content']) ||
+                !is_string($change['path']) || !is_string($change['content']) ||
+                strlen($change['content'])>100000)
+                throw new RuntimeException('Alteracao invalida');
+            casa_gh_validar_caminho($change['path']);
+        }
+        if ($changes && getenv('CASA_GITHUB_WRITE_ENABLED')!=='1')
+            throw new RuntimeException('Escrita GitHub desabilitada');
+    }
     $branch=casa_gh_criar_branch($project,$task);
+    $commits=[];
+    foreach ($changes as $change) {
+        // Validar novamente a reserva antes de cada efeito remoto.
+        ft_exigir_reserva($pdo,(int)$r['jarvis_tarefa_id'],$trabalhador);
+        $q->execute([(int)$reserva['id']]);
+        if (!$q->fetchColumn()) throw new RuntimeException('Reserva vencida');
+        $commits[]=casa_gh_gravar_arquivo($project,$task,$change['path'],
+            $change['content'],'CASA tarefa '.$id.': '.$task['titulo']);
+    }
+    if ($changes) {
+        ft_exigir_reserva($pdo,(int)$r['jarvis_tarefa_id'],$trabalhador);
+        $q->execute([(int)$reserva['id']]);
+        if (!$q->fetchColumn()) throw new RuntimeException('Reserva vencida');
+        $pr=casa_gh_criar_pr_rascunho($project,$task);
+        echo json_encode(['status'=>'pr_rascunho','branch'=>$ctx['branch'],
+            'commits'=>$commits,'pr_url'=>$pr['html_url']??null,'tarefa_id'=>$id],
+            JSON_UNESCAPED_UNICODE)."\\n";
+        exit(0);
+    }
     echo json_encode(['status'=>'branch_criada','branch'=>$ctx['branch'],
         'referencia'=>$branch['ref']??null,'ja_existia'=>$branch['ja_existia']??false,'tarefa_id'=>$id],JSON_UNESCAPED_UNICODE)."\n";
 } catch (Throwable $e) {
