@@ -81,6 +81,38 @@ if (($_SERVER['REQUEST_METHOD']??'GET')==='POST') {
                     }
                     $pdo->commit();
                 } catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}
+            } elseif ($action==='aprovar' && $selected>0) {
+                if (!in_array(strtolower((string)($_SESSION['auth_perfil']??'')),['admin','administrador','gestor'],true)) throw new InvalidArgumentException('Sem permissao para aprovar.');
+                if (($_POST['confirmar']??'')!=='sim') throw new InvalidArgumentException('Confirmacao obrigatoria.');
+                $pdo->beginTransaction();
+                try {
+                    $q=$pdo->prepare('SELECT * FROM casa_projetos WHERE id=? FOR UPDATE');$q->execute([$selected]);$proj=$q->fetch(PDO::FETCH_ASSOC);
+                    if (!$proj||$proj['status']!=='planejamento'||$proj['jarvis_plano_id']!==null) throw new InvalidArgumentException('Projeto indisponivel.');
+                    $q=$pdo->prepare('SELECT t.*,a.executor FROM casa_projeto_tarefas t LEFT JOIN casa_projeto_agentes a ON a.id=t.agente_id WHERE t.projeto_id=? ORDER BY t.id');
+                    $q->execute([$selected]);$rows=$q->fetchAll(PDO::FETCH_ASSOC);
+                    if (!$rows) throw new InvalidArgumentException('Projeto sem tarefas.');
+                    $seen=[];
+                    foreach($rows as $t) {
+                        if (!in_array(strtolower((string)($t['executor']??'jarvis')),['jarvis','web'],true)) throw new InvalidArgumentException('Executor nao permitido.');
+                        if ($t['depende_de']!==null&&!isset($seen[(int)$t['depende_de']])) throw new InvalidArgumentException('Dependencia invalida.');
+                        $seen[(int)$t['id']]=true;
+                    }
+                    $corr='proj_'.$selected.'_'.bin2hex(random_bytes(8));
+                    $q=$pdo->prepare("INSERT INTO jarvis_planos(demanda_original,origem,status,resumo,correlation_id) VALUES(?,'PROJETOS','EXECUTANDO',?,?)");
+                    $q->execute([$proj['objetivo'],$proj['nome'],$corr]);$planId=(int)$pdo->lastInsertId();
+                    $ins=$pdo->prepare("INSERT INTO jarvis_tarefas(id_plano,correlation_id,ordem,titulo,descricao,tipo,executor,fila,payload,depende_de,status,max_tentativas) VALUES(?,?,?,?,?,'IMEDIATA',?,'geral',?,?,'PENDENTE',3)");
+                    $up=$pdo->prepare("UPDATE casa_projeto_tarefas SET jarvis_tarefa_id=?,status='enfileirada' WHERE id=? AND projeto_id=?");
+                    $mapped=[];
+                    foreach($rows as $i=>$t) {
+                        $executor=strtolower((string)($t['executor']??'jarvis'));
+                        $payload=$executor==='web'?['query'=>$t['descricao'],'max_results'=>5,'fetch_pages'=>false]:['comando'=>$t['descricao']."\nCriterio de aceite: ".(string)($t['criterio_aceite']??'')];
+                        $dep=$t['depende_de']===null?null:$mapped[(int)$t['depende_de']];
+                        $ins->execute([$planId,$corr,$i+1,mb_substr($t['titulo'],0,180),$t['descricao'],$executor,json_encode($payload,JSON_UNESCAPED_UNICODE),$dep]);
+                        $qid=(int)$pdo->lastInsertId();$mapped[(int)$t['id']]=$qid;$up->execute([$qid,$t['id'],$selected]);
+                    }
+                    $pdo->prepare("UPDATE casa_projetos SET status='executando',jarvis_plano_id=? WHERE id=?")->execute([$planId,$selected]);
+                    $pdo->commit();
+                }catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}
             } else throw new InvalidArgumentException('Ação inválida.');
             header('Location: /casa/projetos.php'.($selected?'?id='.$selected:''),true,303);exit;
         } catch (InvalidArgumentException $e) {$error=$e->getMessage();}
