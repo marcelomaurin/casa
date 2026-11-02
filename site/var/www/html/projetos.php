@@ -39,6 +39,48 @@ if (($_SERVER['REQUEST_METHOD']??'GET')==='POST') {
                 if ($dep) {$q=$pdo->prepare('SELECT 1 FROM casa_projeto_tarefas WHERE id=? AND projeto_id=?');$q->execute([$dep,$selected]);if (!$q->fetchColumn()) throw new InvalidArgumentException('Dependência inválida.');}
                 $q=$pdo->prepare('INSERT INTO casa_projeto_tarefas(projeto_id,agente_id,depende_de,titulo,descricao,criterio_aceite,prioridade) VALUES(?,?,?,?,?,?,?)');
                 $q->execute([$selected,$agent?:null,$dep?:null,$title,$desc,$criterion?:null,$priority]);
+            } elseif ($action==='importar_plano' && $selected>0) {
+                $raw=(string)($_POST['plano_json']??'');
+                if (strlen($raw)>120000) throw new InvalidArgumentException('Plano excede o limite.');
+                $plan=json_decode($raw,true);
+                if (!is_array($plan) || !isset($plan['agentes'],$plan['tarefas']) || !is_array($plan['agentes']) || !is_array($plan['tarefas']) ||
+                    count($plan['agentes'])>12 || count($plan['tarefas'])<1 || count($plan['tarefas'])>60 ||
+                    !array_is_list($plan['agentes']) || !array_is_list($plan['tarefas'])) throw new InvalidArgumentException('JSON do plano inválido.');
+                $pdo->beginTransaction();
+                try {
+                    $q=$pdo->prepare('SELECT status FROM casa_projetos WHERE id=? FOR UPDATE');$q->execute([$selected]);
+                    if ($q->fetchColumn()!=='planejamento') throw new InvalidArgumentException('Projeto não está em planejamento.');
+                    foreach (['casa_projeto_agentes','casa_projeto_tarefas'] as $table) {
+                        $q=$pdo->prepare('SELECT COUNT(*) FROM '.$table.' WHERE projeto_id=?');$q->execute([$selected]);
+                        if ((int)$q->fetchColumn()>0) throw new InvalidArgumentException('Projeto já possui agentes ou tarefas. Importe apenas em projeto vazio.');
+                    }
+                    $agentRows=[];$taskRows=[];
+                    foreach ($plan['agentes'] as $a) {
+                        if (!is_array($a)) throw new InvalidArgumentException('Agente inválido.');
+                        $name=trim((string)($a['nome']??''));$specialty=trim((string)($a['especialidade']??''));
+                        if ($name===''||mb_strlen($name)>120||$specialty===''||mb_strlen($specialty)>80) throw new InvalidArgumentException('Nome ou especialidade inválida.');
+                        $agentRows[]=[$name,$specialty];
+                    }
+                    foreach ($plan['tarefas'] as $i=>$t) {
+                        if (!is_array($t)) throw new InvalidArgumentException('Tarefa inválida.');
+                        $title=trim((string)($t['titulo']??''));$desc=trim((string)($t['descricao']??''));$criterion=trim((string)($t['criterio_aceite']??''));
+                        $priority=$t['prioridade']??3;$ai=$t['agente_indice']??null;$dep=$t['depende_da_tarefa']??null;
+                        if ($title===''||mb_strlen($title)>200||$desc===''||mb_strlen($desc)>10000||$criterion===''||mb_strlen($criterion)>10000||
+                            !is_int($priority)||$priority<1||$priority>5||
+                            ($ai!==null&&(!is_int($ai)||$ai<1||$ai>count($agentRows)))||
+                            ($dep!==null&&(!is_int($dep)||$dep<1||$dep>$i))) throw new InvalidArgumentException('Tarefa ou dependência inválida na posição '.($i+1));
+                        $taskRows[]=[$title,$desc,$criterion,$priority,$ai,$dep];
+                    }
+                    $q=$pdo->prepare("INSERT INTO casa_projeto_agentes(projeto_id,nome,especialidade,executor) VALUES(?,?,?,'jarvis')");
+                    $agentIds=[];foreach($agentRows as $a){$q->execute([$selected,$a[0],$a[1]]);$agentIds[]=(int)$pdo->lastInsertId();}
+                    $q=$pdo->prepare('INSERT INTO casa_projeto_tarefas(projeto_id,agente_id,depende_de,titulo,descricao,criterio_aceite,prioridade) VALUES(?,?,?,?,?,?,?)');
+                    $taskIds=[];foreach($taskRows as $t){
+                        [$title,$desc,$criterion,$priority,$ai,$dep]=$t;
+                        $q->execute([$selected,$ai===null?null:$agentIds[$ai-1],$dep===null?null:$taskIds[$dep-1],$title,$desc,$criterion,$priority]);
+                        $taskIds[]=(int)$pdo->lastInsertId();
+                    }
+                    $pdo->commit();
+                } catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}
             } else throw new InvalidArgumentException('Ação inválida.');
             header('Location: /casa/projetos.php'.($selected?'?id='.$selected:''),true,303);exit;
         } catch (InvalidArgumentException $e) {$error=$e->getMessage();}
@@ -47,15 +89,15 @@ if (($_SERVER['REQUEST_METHOD']??'GET')==='POST') {
 }
 try {
     $projects=$pdo->query('SELECT id,nome,status,repositorio,atualizado_em FROM casa_projetos ORDER BY id DESC LIMIT 100')->fetchAll(PDO::FETCH_ASSOC);
-    $project=null;$agents=[];$tasks=[];
+    $project=null;$agents=[];$tasks=[];$progress=['total'=>0,'done'=>0,'failed'=>0,'running'=>0,'percent'=>0];
     if ($selected) {
         $q=$pdo->prepare('SELECT * FROM casa_projetos WHERE id=?');$q->execute([$selected]);$project=$q->fetch(PDO::FETCH_ASSOC);
         if ($project) {
             $q=$pdo->prepare('SELECT * FROM casa_projeto_agentes WHERE projeto_id=? ORDER BY id');$q->execute([$selected]);$agents=$q->fetchAll(PDO::FETCH_ASSOC);
-            $q=$pdo->prepare('SELECT t.*,j.status AS fila_status,j.erro,j.tentativas,j.resultado FROM casa_projeto_tarefas t LEFT JOIN jarvis_tarefas j ON j.id=t.jarvis_tarefa_id WHERE t.projeto_id=? ORDER BY t.id');$q->execute([$selected]);$tasks=$q->fetchAll(PDO::FETCH_ASSOC);
+            $q=$pdo->prepare('SELECT t.*,j.status AS fila_status,j.erro,j.tentativas,j.resultado FROM casa_projeto_tarefas t LEFT JOIN jarvis_tarefas j ON j.id=t.jarvis_tarefa_id WHERE t.projeto_id=? ORDER BY t.id');$q->execute([$selected]);$tasks=$q->fetchAll(PDO::FETCH_ASSOC);\n            $progress['total']=count($tasks);foreach($tasks as $task){$st=$task['fila_status']??$task['status'];if($st==='CONCLUIDA')$progress['done']++;elseif($st==='ERRO')$progress['failed']++;elseif(in_array($st,['EXECUTANDO','PENDENTE','AGUARDANDO','AGENDADA'],true))$progress['running']++;}if($progress['total'])$progress['percent']=(int)round(100*$progress['done']/$progress['total']);
         }
     }
-} catch(Throwable $e) {error_log('projetos painel: '.$e->getMessage());$error='Falha ao carregar dados. Verifique a migração do banco.';$projects=[];$project=null;$agents=[];$tasks=[];}
+} catch(Throwable $e) {error_log('projetos painel: '.$e->getMessage());$error='Falha ao carregar dados. Verifique a migração do banco.';$projects=[];$project=null;$agents=[];$tasks=[];$progress=['total'=>0,'done'=>0,'failed'=>0,'running'=>0,'percent'=>0];}
 ?><!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Casa | Projetos e Agentes</title>
 <style>
 :root{font-family:system-ui,Arial,sans-serif;color-scheme:dark;background:#0e1622;color:#e8eff8}
@@ -65,7 +107,7 @@ label{display:block;margin:10px 0 4px}input,textarea,select{box-sizing:border-bo
 textarea{min-height:75px}button{margin-top:12px;padding:10px 18px;background:#69b8e0;color:#081521;border:0;border-radius:7px;font-weight:700;cursor:pointer}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}.grid section{margin:0}
 table{border-collapse:collapse;width:100%;display:block;overflow:auto}th,td{text-align:left;padding:10px;border-bottom:1px solid #31465a;white-space:normal}
-small,.muted{color:#b5c6d5}.error{color:#ffc3c3}.item{padding:9px;border-bottom:1px solid #31465a}
+small,.muted{color:#b5c6d5}.error{color:#ffc3c3}.item{padding:9px;border-bottom:1px solid #31465a}progress{width:100%;height:22px;accent-color:#69b8e0}.result{white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto;background:#0e1c2b;padding:10px;border-radius:6px}
 </style></head><body><nav><a href="/casa/index.php">← Casa</a><strong>Projetos e Agentes</strong><a href="/casa/projetos.php">Todos os projetos</a></nav>
 <h1>Gerenciamento de projetos</h1><p class="muted">Cadastre projetos, agentes e tarefas. A execução exige aprovação separada pela API autenticada.</p>
 <?php if($error):?><p class="error" role="alert"><?=h($error)?></p><?php endif;?>
@@ -74,6 +116,7 @@ small,.muted{color:#b5c6d5}.error{color:#ffc3c3}.item{padding:9px;border-bottom:
 <label>Repositório GitHub (opcional)<input name="repositorio" placeholder="usuario/repositorio"></label><button>Criar projeto</button></form></section>
 <section><h2>Projetos recentes</h2><?php foreach($projects as $p):?><div class="item"><a href="?id=<?= (int)$p['id']?>"><?=h($p['nome'])?></a> <small><?=h($p['status'])?></small><div class="muted"><?=h($p['repositorio']??'')?></div></div><?php endforeach;?><?php if(!$projects):?><p>Nenhum projeto cadastrado.</p><?php endif;?></section></div>
 <?php if($project):?><section><h2><?=h($project['nome'])?></h2><p><?=nl2br(h($project['objetivo']))?></p><p>Status: <strong><?=h($project['status'])?></strong> · Repositório: <?=h($project['repositorio']??'—')?></p></section>
+<section><h2>Progresso</h2><progress value="<?= (int)$progress['done']?>" max="<?= max(1,(int)$progress['total'])?>"></progress><p><?= (int)$progress['percent']?>% concluído · <?= (int)$progress['done']?> concluídas · <?= (int)$progress['running']?> em andamento · <?= (int)$progress['failed']?> com erro · <?= (int)$progress['total']?> no total</p><p class="muted">O progresso é calculado pelo estado real da fila, sem alterar automaticamente o estado do projeto.</p></section>\n<?php if($project['status']==='planejamento' && !$agents && !$tasks):?><section><h2>Importar plano estruturado da IA</h2><p class="muted">Cole um JSON com arrays <code>agentes</code> e <code>tarefas</code>, no formato documentado em docs/PROJETOS_AGENTES.md. Revise antes de importar. Isso não inicia a execução.</p><form method="post"><input type="hidden" name="csrf" value="<?=h($csrf)?>"><input type="hidden" name="acao" value="importar_plano"><input type="hidden" name="projeto_id" value="<?= (int)$selected?>"><label>JSON do planejamento<textarea name="plano_json" maxlength="120000" rows="10" required placeholder='{"agentes":[{"nome":"Programador","especialidade":"PHP"}],"tarefas":[{"titulo":"Criar API","descricao":"Implementar endpoint","criterio_aceite":"Testes aprovados","agente_indice":1}]}'></textarea></label><button>Importar plano para revisão</button></form></section><?php endif;?>
 <div class="grid"><section><h2>Agentes (<?=count($agents)?>)</h2><?php foreach($agents as $a):?><div class="item">#<?= (int)$a['id']?> <?=h($a['nome'])?> · <?=h($a['especialidade'])?></div><?php endforeach;?>
 <?php if($project['status']==='planejamento'):?><form method="post"><input type="hidden" name="csrf" value="<?=h($csrf)?>"><input type="hidden" name="acao" value="agente"><input type="hidden" name="projeto_id" value="<?= (int)$selected?>">
 <label>Nome<input name="nome" maxlength="120" required></label><label>Especialidade<input name="especialidade" maxlength="80" required></label><button>Adicionar agente</button></form><?php endif;?></section>
@@ -82,5 +125,5 @@ small,.muted{color:#b5c6d5}.error{color:#ffc3c3}.item{padding:9px;border-bottom:
 <label>Agente<select name="agente_id"><option value="0">Sem agente</option><?php foreach($agents as $a):?><option value="<?= (int)$a['id']?>"><?=h($a['nome'])?></option><?php endforeach;?></select></label>
 <label>Depende de<select name="depende_de"><option value="0">Sem dependência</option><?php foreach($tasks as $t):?><option value="<?= (int)$t['id']?>">#<?= (int)$t['id']?> <?=h($t['titulo'])?></option><?php endforeach;?></select></label>
 <label>Prioridade<select name="prioridade"><option value="1">1 - Urgente</option><option value="2">2 - Alta</option><option value="3" selected>3 - Normal</option><option value="4">4 - Baixa</option><option value="5">5 - Opcional</option></select></label><button>Adicionar tarefa</button></form><?php endif;?></section></div>
-<section><h2>Andamento da execução</h2><table><thead><tr><th>ID</th><th>Tarefa</th><th>Prioridade</th><th>Fila</th><th>Tentativas</th><th>Erro</th></tr></thead><tbody><?php foreach($tasks as $t):?><tr><td><?= (int)$t['id']?></td><td><?=h($t['titulo'])?></td><td><?= (int)$t['prioridade']?></td><td><?=h($t['fila_status']??$t['status'])?></td><td><?= (int)($t['tentativas']??0)?></td><td><?=h($t['erro']??'')?></td></tr><?php endforeach;?></tbody></table><p class="muted">Atualize a página para consultar os resultados mais recentes. A aprovação é feita pela API /api/v1/projetos_execucao.php.</p></section>
+<section><h2>Andamento da execução</h2><table><thead><tr><th>ID</th><th>Tarefa</th><th>Prioridade</th><th>Fila</th><th>Tentativas</th><th>Erro</th><th>Resultado</th></tr></thead><tbody><?php foreach($tasks as $t):?><tr><td><?= (int)$t['id']?></td><td><?=h($t['titulo'])?></td><td><?= (int)$t['prioridade']?></td><td><?=h($t['fila_status']??$t['status'])?></td><td><?= (int)($t['tentativas']??0)?></td><td><?=h($t['erro']??'')?></td><td><?php if(!empty($t['resultado'])):?><details><summary>Ver resultado</summary><pre class="result"><?=h(mb_substr((string)$t['resultado'],0,12000))?></pre></details><?php else:?>—<?php endif;?></td></tr><?php endforeach;?></tbody></table><p class="muted">Atualize a página para consultar os resultados mais recentes. A aprovação continua protegida pela API autenticada /api/v1/projetos_execucao.php.</p></section>
 <?php elseif($selected):?><p class="error">Projeto não encontrado.</p><?php endif;?></body></html>
