@@ -44,7 +44,7 @@ try {
     if (!$q->fetchColumn()) throw new RuntimeException('Reserva vencida');
     $branch=casa_gh_criar_branch($project,$task);
     echo json_encode(['status'=>'branch_criada','branch'=>$ctx['branch'],
-        'referencia'=>$branch['ref']??null,'tarefa_id'=>$id],JSON_UNESCAPED_UNICODE)."\n";
+        'referencia'=>$branch['ref']??null,'ja_existia'=>$branch['ja_existia']??false,'tarefa_id'=>$id],JSON_UNESCAPED_UNICODE)."\n";
 } catch (Throwable $e) {
     fwrite(STDERR,"Worker GitHub: ".$e->getMessage()."\n");exit(1);
 }
