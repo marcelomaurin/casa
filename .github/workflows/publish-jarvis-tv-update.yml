@@ -48,6 +48,8 @@ jobs:
               with open(os.environ['GITHUB_ENV'],'a') as f: f.write(f'{key}={match.group(1)}\n')
           PY
       - name: Create immutable versioned release
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           cp android/JarvisTV/app/build/outputs/apk/debug/app-debug.apk "JarvisTV-v${VERSION}-debug.apk"
           TAG="jarvis-tv-v${VERSION}-debug"
