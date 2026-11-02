@@ -35,3 +35,7 @@ A fila atual de projetos suporta executores `jarvis` e `web`. **Não** converter
 ## Operações preparadas (fase 11)
 
 `api/projetos_github_operacoes.php` oferece `casa_github_plano_branch` e `casa_github_plano_pr`, que produzem descrições estruturadas de requisições para criação de branch e Pull Request **em rascunho**. Validam o repositório contra a lista autorizada e a base `main`/`master`. Não realizam requisições HTTP, não obtêm o SHA base, não editam arquivos e não executam testes. A implementação do worker executor permanece pendente.
+
+## Cliente REST GitHub (fase 12)
+
+`api/projetos_github_cliente.php` implementa funções explícitas `casa_gh_criar_branch` e `casa_gh_criar_pr_rascunho` usando HTTPS e token `CASA_GITHUB_TOKEN` no ambiente do worker. O cliente só aceita repositórios da lista `CASA_GITHUB_REPOS_PERMITIDOS` e rotas GitHub restritas. **Não é chamado automaticamente**; precisa de um worker autorizado, gerenciamento de idempotência, commit de alterações e testes antes de ser usado em produção. O GitHub rejeita PRs sem diferenças entre branches. Nunca forneça token no payload de tarefas.
