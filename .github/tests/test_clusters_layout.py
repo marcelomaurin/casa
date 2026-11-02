@@ -7,6 +7,7 @@ ROOT = Path(__file__).resolve().parents[2]
 PROGRAMS = {
     'comunicacao/arm-agent': 'casa-node-agent.py',
     'automacao/casa-scheduler': 'casa-scheduler.py',
+    'automacao/casa-tarefas': 'casa-tarefas.py',
     'voz/google-home-agent': 'google_home_agent.py',
     'voz/tts': 'server_tts.py',
     'visao/espcam': 'processa_imagem.py',

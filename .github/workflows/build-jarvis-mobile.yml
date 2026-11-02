@@ -29,7 +29,7 @@ jobs:
             git rm -r --cached --ignore-unmatch -- "$dir"
           done < <(find android/JarvisMobile -type d -name build -print0 2>/dev/null)
 
-# Mantem binarios APK em bin/android e site/var/www/html/bin/android
+          # Mantem binarios APK em bin/android e site/var/www/html/bin/android
 
           if git diff --cached --quiet; then
             echo "Repositorio ja esta limpo."

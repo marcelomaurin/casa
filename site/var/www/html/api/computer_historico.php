@@ -13,8 +13,22 @@ if (empty($_SESSION['auth_user'])) {
 
 require_once(__DIR__ . '/db.php');
 
+// Cada operador do painel vê e limpa apenas a própria conversa (coluna usuario, migração 1.33).
+$usuario=substr((string)$_SESSION['auth_user'],0,120);
+function hist_tem_coluna_usuario(PDO $pdo):bool{
+    try{
+        $st=$pdo->query("SHOW COLUMNS FROM llm_conversas LIKE 'usuario'");
+        return (bool)$st->fetch();
+    }catch(Throwable $e){return false;}
+}
+
 try{
     $pdo=get_db_pdo();
+    if(!hist_tem_coluna_usuario($pdo)){
+        http_response_code(503);
+        echo json_encode(['status'=>'erro','mensagem'=>'Banco sem a migração 1.33 (histórico por usuário). Recarregue o painel para aplicar.'],JSON_UNESCAPED_UNICODE);
+        exit;
+    }
 
     if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         $in=json_decode(file_get_contents('php://input'),true);
@@ -27,9 +41,12 @@ try{
             exit;
         }
 
-        $qtd=(int)$pdo->query("SELECT COUNT(*) FROM llm_conversas")->fetchColumn();
+        $cnt=$pdo->prepare("SELECT COUNT(*) FROM llm_conversas WHERE usuario=:u");
+        $cnt->execute([':u'=>$usuario]);
+        $qtd=(int)$cnt->fetchColumn();
         $pdo->beginTransaction();
-        $pdo->exec("DELETE FROM llm_conversas");
+        $del=$pdo->prepare("DELETE FROM llm_conversas WHERE usuario=:u");
+        $del->execute([':u'=>$usuario]);
 
         try{
             $log=$pdo->prepare("INSERT INTO comandos_log (comando,origem,resultado) VALUES (:cmd,'COMPUTER',:res)");
@@ -52,9 +69,12 @@ try{
     $limite=max(1,min(100,$limite));
     $sql="SELECT id,user_msg,bot_msg,contexto,data_hora
           FROM llm_conversas
+          WHERE usuario=:u
           ORDER BY id DESC
           LIMIT ".$limite;
-    $rows=$pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+    $st=$pdo->prepare($sql);
+    $st->execute([':u'=>$usuario]);
+    $rows=$st->fetchAll(PDO::FETCH_ASSOC);
     $rows=array_reverse($rows);
 
     echo json_encode([

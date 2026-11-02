@@ -9,10 +9,14 @@ let rows=Array.from({length:151},(_,i)=>({device_id:'agent-'+i,nome:i===0?'<scri
 const context={
   loading(){}, getJson:async url=>{requested=url;return {nodes:rows};},
   esc:v=>String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'),
+  // Mesmos auxiliares do lcars-site.js usados por renderNodes.
+  attr:v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])).replace(/\n/g,' '),
   paginate:(name,items,size)=>({slice:items.slice(0,size),pages:Math.ceil(items.length/size)}),
   cards:(items,fn)=>items.map(fn).join(''), pager:(name,p)=>'pages='+p.pages,
   bindPager(){}, moduleShell:(title,b,a)=>{body=b;actions=a;},
-  document:{getElementById:()=>({onclick:null})}
+  // Definidas fora do trecho testado; aqui só precisam existir.
+  openNewNodeModal(){}, openNodeEditor(){}, openNodeServicesModal(){}, postJson:async()=>({}), alert(){}, confirm:()=>false,
+  document:{getElementById:()=>({onclick:null}),querySelectorAll:()=>[]}
 };
 vm.createContext(context);
 vm.runInContext(render,context);

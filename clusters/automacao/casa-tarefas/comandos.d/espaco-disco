@@ -1,0 +1,8 @@
+#!/bin/sh
+# Exemplo de script autorizado para o executor "comando".
+# Para liberar: sudo chmod +x /etc/casa-tarefas/comandos.d/espaco-disco
+# Tarefa: {"executor":"comando","payload":{"nome":"espaco-disco"}}
+# A tarefa chega em JSON pela entrada padrão; a última linha em JSON vira o resultado.
+uso=$(df -P / | awk 'NR==2 {print $5}')
+livre=$(df -Ph / | awk 'NR==2 {print $4}')
+printf '{"particao":"/","uso":"%s","livre":"%s"}\n' "$uso" "$livre"

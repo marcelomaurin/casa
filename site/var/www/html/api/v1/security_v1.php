@@ -42,6 +42,15 @@ function api_v1_load_client($pdo){$token=api_v1_token_from_request();if($token==
       return ['id'=>1,'nome'=>'Chave Mestre CASA','device_id'=>'master','scopes'=>['*'],'ativo'=>1];
     }
   }catch(Throwable $e){}
+  // Chave do sistema (JARVIS_SYSTEM_API_TOKEN / system_api_token): já dá acesso total às rotas
+  // antigas; daemons internos (agendador, planejador) também a usam na API v1. Sem isto,
+  // quando ela difere da external_api_key, o tick de regras do agendador recebia 401.
+  if(function_exists('get_system_api_token')){
+    $sys=(string)get_system_api_token();
+    if($sys!==''&&hash_equals($sys,$token)){
+      return ['id'=>0,'nome'=>'Chave do sistema CASA','device_id'=>'master','scopes'=>['*'],'ativo'=>1];
+    }
+  }
   $hash=hash('sha256',$token);try{$stmt=$pdo->prepare("SELECT id,nome,device_id,scopes,ativo,expira_em,revogado_em FROM api_client_tokens WHERE token_hash=:h LIMIT 1");$stmt->execute([':h'=>$hash]);$client=$stmt->fetch(PDO::FETCH_ASSOC);if(!$client||!$client['ativo']||!empty($client['revogado_em'])||(!empty($client['expira_em'])&&strtotime($client['expira_em'])<time())){api_v1_log($pdo,'AUTH_DENIED','ALTO');api_v1_json_response(401,['status'=>'erro','mensagem'=>'Token invalido, inativo, revogado ou expirado']);}
  if(!empty($client['device_id'])){$ds=$pdo->prepare("SELECT status,credential_revoked_at FROM dispositivos_cluster WHERE device_id=:d LIMIT 1");$ds->execute([':d'=>$client['device_id']]);$device=$ds->fetch(PDO::FETCH_ASSOC);if(!$device||!empty($device['credential_revoked_at'])||$device['status']==='revoked'){api_v1_log($pdo,'DEVICE_CREDENTIAL_REVOKED','ALTO',$client['nome'],['device_id'=>$client['device_id']]);api_v1_json_response(401,['status'=>'erro','mensagem'=>'Credencial do device revogada']);}}
  $client['scopes']=api_v1_decode_scopes($client['scopes']);$pdo->prepare("UPDATE api_client_tokens SET ultimo_uso=NOW(),ultimo_ip=:ip WHERE id=:id")->execute([':ip'=>api_v1_client_ip(),':id'=>$client['id']]);return$client;}catch(PDOException $e){api_v1_json_response(503,['status'=>'erro','mensagem'=>'Estrutura de seguranca da API ainda nao foi aplicada no banco']);}}

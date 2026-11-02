@@ -1,0 +1,86 @@
+name: Publish Jarvis TV update
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'android/JarvisTV/**'
+      - '.github/workflows/publish-jarvis-tv-update.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: jarvis-tv-update-master
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Restore stable debug signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: jarvis-tv-debug-keystore-v1
+      - name: Build and validate APK
+        working-directory: android/JarvisTV
+        run: gradle --no-daemon :app:assembleDebug
+      - name: Extract version and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import re, os
+          from pathlib import Path
+          text=Path('android/JarvisTV/app/build.gradle.kts').read_text()
+          for key,pattern in [('VERSION',r'versionName\s*=\s*"([^"]+)"'),('CODE',r'versionCode\s*=\s*(\d+)')]:
+              match=re.search(pattern,text)
+              if not match: raise SystemExit(f'Missing {key}')
+              with open(os.environ['GITHUB_ENV'],'a') as f: f.write(f'{key}={match.group(1)}\n')
+          PY
+      - name: Create immutable versioned release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android/JarvisTV/app/build/outputs/apk/debug/app-debug.apk "JarvisTV-v${VERSION}-debug.apk"
+          TAG="jarvis-tv-v${VERSION}-debug"
+          ASSET="JarvisTV-v${VERSION}-debug.apk"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release already exists: $TAG; do not overwrite a signed artifact."
+            exit 1
+          fi
+          gh release create "$TAG" "$ASSET" --target "$GITHUB_SHA" --title "Jarvis TV v${VERSION} Debug" --notes "Atualização autorizada Jarvis TV" --prerelease
+      - name: Authorize published version in manifest
+        run: |
+          git fetch origin master
+          git checkout -B master origin/master
+          python3 - <<'PY'
+          import json, hashlib, os
+          from pathlib import Path
+          p=Path('bin/versions.json')
+          data=json.loads(p.read_text())
+          version=os.environ['VERSION']; code=int(os.environ['CODE'])
+          apk=Path(f'JarvisTV-v{version}-debug.apk')
+          data['components']['jarvis-tv-debug']={
+              'enabled':True,
+              'version':version,
+              'version_code':code,
+              'package_id':'br.com.maurinsoft.jarvistv.debug',
+              'apk_url':f'https://github.com/marcelomaurin/casa/releases/download/jarvis-tv-v{version}-debug/JarvisTV-v{version}-debug.apk',
+              'sha256':hashlib.sha256(apk.read_bytes()).hexdigest()
+          }
+          p.write_text(json.dumps(data,indent=2)+'\n')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add bin/versions.json
+          git diff --cached --quiet || (git commit -m 'Authorize published Jarvis TV APK [skip ci]' && git push origin HEAD:master)

@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 CASA / JARVIS - Cluster Monitor Daemon (Python)
 Monitoramento em background dos nos do cluster ARM sob padrao invertido:

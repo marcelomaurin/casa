@@ -36,7 +36,7 @@ function tia_is_daily_summary($question){
 
 function tia_call_computer($prompt,$timeout=55,$taskContext=null){
     $token=get_system_api_token();
-    $ch=curl_init('http://127.0.0.1/api/jarvis.php');
+    $ch=curl_init(casa_url_interna('api/jarvis.php'));
     curl_setopt_array($ch,[
         CURLOPT_RETURNTRANSFER=>true,
         CURLOPT_POST=>true,

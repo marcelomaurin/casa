@@ -90,10 +90,12 @@ CREATE TABLE IF NOT EXISTS llm_conversas (
   user_msg LONGTEXT NOT NULL,
   bot_msg LONGTEXT NOT NULL,
   contexto VARCHAR(80) NOT NULL DEFAULT 'geral',
+  usuario VARCHAR(120) NULL,
   tokens_usados INT NOT NULL DEFAULT 0,
   data_hora TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
-  KEY idx_llm_data (data_hora)
+  KEY idx_llm_data (data_hora),
+  KEY idx_llm_usuario (usuario, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS comandos_log (

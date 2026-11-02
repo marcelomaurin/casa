@@ -11,6 +11,7 @@ TARGETS = [
     ROOT / "arduino",
     ROOT / "clusters" / "visao" / "raspberrypi-avatar-agent",
     ROOT / "clusters" / "comunicacao" / "arm-agent",
+    ROOT / "clusters" / "automacao" / "casa-tarefas",
 ]
 EXTENSIONS = {".kt", ".java", ".ino", ".cpp", ".h", ".hpp", ".py", ".c"}
 
