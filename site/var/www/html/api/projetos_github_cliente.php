@@ -1,8 +1,9 @@
 <?php
 // Cliente restrito para worker GitHub externo. Nunca acionado automaticamente pelo painel.
 require_once __DIR__.'/projetos_github.php';
+class CasaGithubNaoEncontrado extends RuntimeException {}
 function casa_gh_http(string $method,string $path,?array $payload=null): array {
-    if (!in_array($method,['GET','POST'],true) || !preg_match('~^/repos/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/(git/ref/heads/(main|master)|git/refs|pulls)$~D',$path,$matches))
+    if (!in_array($method,['GET','POST'],true) || !preg_match('~^/repos/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/(git/ref/heads/(main|master|casa/projeto-[1-9][0-9]*/tarefa-[1-9][0-9]*)|git/refs|pulls)$~D',$path,$matches))
         throw new InvalidArgumentException('Operacao GitHub nao permitida');
     casa_github_repo_validar($matches[1],casa_github_permitidos_ambiente());
     $token=(string)getenv('CASA_GITHUB_TOKEN');
@@ -16,6 +17,7 @@ function casa_gh_http(string $method,string $path,?array $payload=null): array {
     if ($payload!==null) curl_setopt($ch,CURLOPT_POSTFIELDS,json_encode($payload,JSON_UNESCAPED_SLASHES));
     $raw=curl_exec($ch);$status=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);curl_close($ch);
     $data=is_string($raw)?json_decode($raw,true):null;
+    if ($status===404) throw new CasaGithubNaoEncontrado('Recurso GitHub nao encontrado');
     if ($status<200||$status>=300||!is_array($data))
         throw new RuntimeException('Falha na API GitHub (HTTP '.$status.')');
     return $data;
@@ -24,6 +26,15 @@ function casa_gh_criar_branch(array $project,array $task,string $base='master'):
     if (!in_array($base,['main','master'],true)) throw new InvalidArgumentException('Base invalida');
     $ctx=casa_github_preparar_tarefa($project,$task);
     $repo=$ctx['repositorio'];
+    // Reexecucao segura: nao criar outra branch nem mover uma existente.
+    try {
+        $existing=casa_gh_http('GET','/repos/'.$repo.'/git/ref/heads/'.$ctx['branch']);
+        if (($existing['ref']??'')==='refs/heads/'.$ctx['branch'])
+            return ['ref'=>$existing['ref'],'ja_existia'=>true];
+        throw new RuntimeException('Referencia existente inesperada');
+    } catch (CasaGithubNaoEncontrado $e) {
+        // Branch inexistente; continuar.
+    }
     $ref=casa_gh_http('GET','/repos/'.$repo.'/git/ref/heads/'.$base);
     $sha=$ref['object']['sha']??null;
     if (!is_string($sha)||!preg_match('/^[a-f0-9]{40}$/D',$sha))
