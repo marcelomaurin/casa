@@ -39,3 +39,7 @@ A fila atual de projetos suporta executores `jarvis` e `web`. **Não** converter
 ## Cliente REST GitHub (fase 12)
 
 `api/projetos_github_cliente.php` implementa funções explícitas `casa_gh_criar_branch` e `casa_gh_criar_pr_rascunho` usando HTTPS e token `CASA_GITHUB_TOKEN` no ambiente do worker. O cliente só aceita repositórios da lista `CASA_GITHUB_REPOS_PERMITIDOS` e rotas GitHub restritas. **Não é chamado automaticamente**; precisa de um worker autorizado, gerenciamento de idempotência, commit de alterações e testes antes de ser usado em produção. O GitHub rejeita PRs sem diferenças entre branches. Nunca forneça token no payload de tarefas.
+
+## Worker CLI (fase 13)
+
+`php site/var/www/html/workers/github_worker.php --tarefa 123` consulta banco, valida projeto aprovado, status da fila e allowlist, e imprime contexto em modo de simulação, sem token ou alteração remota. O sinalizador `--executar` é **deliberadamente bloqueado**, inclusive com `CASA_GITHUB_WORKER_ENABLED=1`, até existir verificação confiável do proprietário da reserva. Não confundir com um executor funcional.
