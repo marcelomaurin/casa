@@ -88,3 +88,7 @@ A autorização da sessão web é separada da API tokenizada. Ainda faltam gera�
 ## Progresso agregado na API (fase 7)
 
 `GET /api/v1/projetos_execucao.php?acao=status&projeto_id=ID` inclui agora `progresso` com total, concluídas, falhas, ativas, percentual e situação derivada (`sem_tarefas`, `concluido`, `falhou`, `parcial`, `pendente`). O cálculo usa estados das tarefas na fila e não atualiza o campo persistido `casa_projetos.status`; o encerramento automático no banco continua pendente. O painel também reconhece tarefas reservadas e falhas/cancelamentos.
+
+## Gerar rascunho com IA (fase 8)
+
+Em projeto vazio em planejamento, administradores/gestores podem usar **Gerar rascunho com IA** no painel. O CASA seleciona o primeiro modelo ativo de `ia_modelos` (padrão e prioridade), suporta Ollama e APIs OpenAI-compatíveis e solicita JSON de agentes/tarefas. O resultado aparece no campo de edição para revisão humana; **não é salvo nem executado automaticamente**. Clique em Importar plano para revisão para validar e persistir; a execução exige aprovação separada. Erros de modelo ou formato aparecem no painel. Provedores Gemini e Anthropic não são suportados neste fluxo. Requer extensão PHP cURL, modelo acessível e testes de integração antes de produção.

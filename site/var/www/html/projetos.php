@@ -10,14 +10,25 @@ header('Content-Security-Policy: default-src \'self\'; style-src \'self\' \'unsa
 if (empty($_SESSION['projetos_csrf'])) $_SESSION['projetos_csrf']=bin2hex(random_bytes(24));
 $csrf=$_SESSION['projetos_csrf'];
 function h($s){return htmlspecialchars((string)$s,ENT_QUOTES,'UTF-8');}
-$pdo=get_db_pdo();$error='';$notice='';
+$pdo=get_db_pdo();$error='';$notice='';$generatedPlan='';
 $selected=max(0,(int)($_GET['id']??$_POST['projeto_id']??0));
 if (($_SERVER['REQUEST_METHOD']??'GET')==='POST') {
     if (!hash_equals($csrf,(string)($_POST['csrf']??''))) {http_response_code(403);$error='Sessão expirada. Atualize a página.';}
     else {
         try {
             $action=(string)($_POST['acao']??'');
-            if ($action==='criar') {
+            if ($action==='gerar_ia' && $selected>0) {
+                if (!in_array(strtolower((string)($_SESSION['auth_perfil']??'')),['admin','administrador','gestor'],true)) throw new InvalidArgumentException('Sem permissao para gerar plano.');
+                $q=$pdo->prepare('SELECT * FROM casa_projetos WHERE id=?');$q->execute([$selected]);$proj=$q->fetch(PDO::FETCH_ASSOC);
+                if (!$proj||$proj['status']!=='planejamento') throw new InvalidArgumentException('Projeto nao esta em planejamento.');
+                foreach (['casa_projeto_agentes','casa_projeto_tarefas'] as $table) {
+                    $q=$pdo->prepare('SELECT COUNT(*) FROM '.$table.' WHERE projeto_id=?');$q->execute([$selected]);
+                    if ((int)$q->fetchColumn()>0) throw new InvalidArgumentException('Geracao disponivel apenas em projeto vazio.');
+                }
+                require_once __DIR__.'/api/projetos_ia.php';
+                $generatedPlan=json_encode(casa_gerar_plano_ia($pdo,$proj),JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+                $notice='Rascunho gerado. Revise o JSON e clique em Importar para salvar.';
+            } elseif ($action==='criar') {
                 $name=trim((string)($_POST['nome']??''));$goal=trim((string)($_POST['objetivo']??''));$repo=trim((string)($_POST['repositorio']??''));
                 if ($name===''||mb_strlen($name)>180||$goal===''||mb_strlen($goal)>10000||($repo!==''&&!preg_match('~^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$~',$repo))) throw new InvalidArgumentException('Nome, objetivo ou repositório inválido.');
                 $q=$pdo->prepare('INSERT INTO casa_projetos(nome,objetivo,repositorio,criado_por) VALUES(?,?,?,?)');
@@ -114,7 +125,7 @@ if (($_SERVER['REQUEST_METHOD']??'GET')==='POST') {
                     $pdo->commit();
                 }catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}
             } else throw new InvalidArgumentException('Ação inválida.');
-            header('Location: /casa/projetos.php'.($selected?'?id='.$selected:''),true,303);exit;
+            if ($action!=='gerar_ia') {header('Location: /casa/projetos.php'.($selected?'?id='.$selected:''),true,303);exit;}
         } catch (InvalidArgumentException $e) {$error=$e->getMessage();}
           catch (Throwable $e) {error_log('projetos painel: '.$e->getMessage());$error='Falha ao salvar. Verifique a migração do banco.';}
     }
@@ -142,14 +153,14 @@ table{border-collapse:collapse;width:100%;display:block;overflow:auto}th,td{text
 small,.muted{color:#b5c6d5}.error{color:#ffc3c3}.item{padding:9px;border-bottom:1px solid #31465a}progress{width:100%;height:22px;accent-color:#69b8e0}.result{white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto;background:#0e1c2b;padding:10px;border-radius:6px}
 </style></head><body><nav><a href="/casa/index.php">← Casa</a><strong>Projetos e Agentes</strong><a href="/casa/projetos.php">Todos os projetos</a></nav>
 <h1>Gerenciamento de projetos</h1><p class="muted">Cadastre projetos, agentes e tarefas. A execução exige aprovação separada pela API autenticada.</p>
-<?php if($error):?><p class="error" role="alert"><?=h($error)?></p><?php endif;?>
+<?php if($error):?><p class="error" role="alert"><?=h($error)?></p><?php endif;?><?php if($notice):?><p role="status"><?=h($notice)?></p><?php endif;?>
 <div class="grid"><section><h2>Novo projeto</h2><form method="post"><input type="hidden" name="csrf" value="<?=h($csrf)?>"><input type="hidden" name="acao" value="criar">
 <label>Nome<input name="nome" maxlength="180" required></label><label>Objetivo<textarea name="objetivo" maxlength="10000" required></textarea></label>
 <label>Repositório GitHub (opcional)<input name="repositorio" placeholder="usuario/repositorio"></label><button>Criar projeto</button></form></section>
 <section><h2>Projetos recentes</h2><?php foreach($projects as $p):?><div class="item"><a href="?id=<?= (int)$p['id']?>"><?=h($p['nome'])?></a> <small><?=h($p['status'])?></small><div class="muted"><?=h($p['repositorio']??'')?></div></div><?php endforeach;?><?php if(!$projects):?><p>Nenhum projeto cadastrado.</p><?php endif;?></section></div>
 <?php if($project):?><section><h2><?=h($project['nome'])?></h2><p><?=nl2br(h($project['objetivo']))?></p><p>Status: <strong><?=h($project['status'])?></strong> · Repositório: <?=h($project['repositorio']??'—')?></p></section>
 <section><h2>Progresso</h2><progress value="<?= (int)$progress['done']?>" max="<?= max(1,(int)$progress['total'])?>"></progress><p><?= (int)$progress['percent']?>% concluído · <?= (int)$progress['done']?> concluídas · <?= (int)$progress['running']?> em andamento · <?= (int)$progress['failed']?> com erro · <?= (int)$progress['total']?> no total</p><p class="muted">O progresso é calculado pelo estado real da fila, sem alterar automaticamente o estado do projeto.</p></section>
-<?php if($project['status']==='planejamento' && !$agents && !$tasks):?><section><h2>Importar plano estruturado da IA</h2><p class="muted">Cole um JSON com arrays <code>agentes</code> e <code>tarefas</code>, no formato documentado em docs/PROJETOS_AGENTES.md. Revise antes de importar. Isso não inicia a execução.</p><form method="post"><input type="hidden" name="csrf" value="<?=h($csrf)?>"><input type="hidden" name="acao" value="importar_plano"><input type="hidden" name="projeto_id" value="<?= (int)$selected?>"><label>JSON do planejamento<textarea name="plano_json" maxlength="120000" rows="10" required placeholder='{"agentes":[{"nome":"Programador","especialidade":"PHP"}],"tarefas":[{"titulo":"Criar API","descricao":"Implementar endpoint","criterio_aceite":"Testes aprovados","agente_indice":1}]}'></textarea></label><button>Importar plano para revisão</button></form></section><?php endif;?>
+<?php if($project['status']==='planejamento' && !$agents && !$tasks):?><section><h2>Planejamento com IA</h2><?php if(in_array(strtolower((string)($_SESSION['auth_perfil']??'')),['admin','administrador','gestor'],true)):?><form method="post"><input type="hidden" name="csrf" value="<?=h($csrf)?>"><input type="hidden" name="acao" value="gerar_ia"><input type="hidden" name="projeto_id" value="<?= (int)$selected?>"><button type="submit">Gerar rascunho com IA</button></form><?php endif;?><p class="muted">Cole um JSON com arrays <code>agentes</code> e <code>tarefas</code>, no formato documentado em docs/PROJETOS_AGENTES.md. Revise antes de importar. Isso não inicia a execução.</p><form method="post"><input type="hidden" name="csrf" value="<?=h($csrf)?>"><input type="hidden" name="acao" value="importar_plano"><input type="hidden" name="projeto_id" value="<?= (int)$selected?>"><label>JSON do planejamento<textarea name="plano_json" maxlength="120000" rows="10" required><?=h($generatedPlan)?></textarea></label><button>Importar plano para revisão</button></form></section><?php endif;?>
 <div class="grid"><section><h2>Agentes (<?=count($agents)?>)</h2><?php foreach($agents as $a):?><div class="item">#<?= (int)$a['id']?> <?=h($a['nome'])?> · <?=h($a['especialidade'])?></div><?php endforeach;?>
 <?php if($project['status']==='planejamento'):?><form method="post"><input type="hidden" name="csrf" value="<?=h($csrf)?>"><input type="hidden" name="acao" value="agente"><input type="hidden" name="projeto_id" value="<?= (int)$selected?>">
 <label>Nome<input name="nome" maxlength="120" required></label><label>Especialidade<input name="especialidade" maxlength="80" required></label><button>Adicionar agente</button></form><?php endif;?></section>
