@@ -2,6 +2,7 @@
 // CASA Projetos: aprovacao explicita e envio atomico para a fila ja existente.
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/security_v1.php';
+require_once __DIR__ . '/../projetos_github.php';
 $pdo=get_db_pdo();
 api_v1_basic_guard($pdo);
 $client=api_v1_auth_client($pdo,['projects.manage']);
@@ -55,8 +56,17 @@ try {
     foreach ($tasks as $t) {
         $executor=strtolower((string)($t['executor']??'jarvis'));
         // Nao permitir execucao arbitraria de scripts, dispositivos ou extensoes via projetos.
-        if (!in_array($executor,['jarvis','web'],true)) {
+        if (!in_array($executor,['jarvis','web','github'],true)) {
             $pdo->rollBack();api_v1_json_response(400,['status'=>'erro','mensagem'=>'Executor nao permitido: '.$executor]);
+        }
+        if ($executor==='github') {
+            if (getenv('CASA_GITHUB_DISPATCH_ENABLED')!=='1') {
+                $pdo->rollBack();api_v1_json_response(403,['status'=>'erro','mensagem'=>'Despacho GitHub desabilitado']);
+            }
+            try { casa_github_preparar_tarefa($project,$t); }
+            catch (DomainException|InvalidArgumentException $e) {
+                $pdo->rollBack();api_v1_json_response(403,['status'=>'erro','mensagem'=>'Repositorio GitHub nao autorizado']);
+            }
         }
         if ($t['depende_de']!==null && !isset($seen[(int)$t['depende_de']])) {
             $pdo->rollBack();api_v1_json_response(400,['status'=>'erro','mensagem'=>'Dependencia invalida ou posterior']);
@@ -70,15 +80,18 @@ try {
     $planId=(int)$pdo->lastInsertId();
     $insert=$pdo->prepare("INSERT INTO jarvis_tarefas
         (id_plano,correlation_id,ordem,titulo,descricao,tipo,executor,fila,payload,depende_de,status,max_tentativas)
-        VALUES(?,?,?,?,?,'IMEDIATA',?,'geral',?,?,'PENDENTE',3)");
+        VALUES(?,?,?,?,?,'IMEDIATA',?,?,?,?, 'PENDENTE',3)");
     $update=$pdo->prepare("UPDATE casa_projeto_tarefas SET jarvis_tarefa_id=?,status='enfileirada' WHERE id=? AND projeto_id=?");
     $mapped=[];
     foreach ($tasks as $i=>$t) {
         $executor=strtolower((string)($t['executor']??'jarvis'));
         $instruction=$t['descricao']."\nCriterio de aceite: ".(string)($t['criterio_aceite']??'Nao informado');
-        $payload=$executor==='web'?['query'=>$t['descricao'],'max_results'=>5,'fetch_pages'=>false]:['comando'=>$instruction];
+        $payload=$executor==='web'?['query'=>$t['descricao'],'max_results'=>5,'fetch_pages'=>false]:
+            ($executor==='github'?['projeto_id'=>$id,'tarefa_id'=>(int)$t['id'],'modo'=>'github']:
+            ['comando'=>$instruction]);
+        $fila=$executor==='github'?'github':'geral';
         $dep=$t['depende_de']!==null?$mapped[(int)$t['depende_de']]:null;
-        $insert->execute([$planId,$corr,$i+1,mb_substr($t['titulo'],0,180),$t['descricao'],$executor,
+        $insert->execute([$planId,$corr,$i+1,mb_substr($t['titulo'],0,180),$t['descricao'],$executor,$fila,
             json_encode($payload,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES),$dep]);
         $queueId=(int)$pdo->lastInsertId();
         $mapped[(int)$t['id']]=$queueId;
