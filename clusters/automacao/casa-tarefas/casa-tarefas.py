@@ -31,7 +31,7 @@ import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
-VERSAO = "1.0.0"
+VERSAO = "1.1.0"
 LOG = logging.getLogger("casa-tarefas")
 NOME_VALIDO = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.:\-]{0,79}$")
 
@@ -75,6 +75,11 @@ class Config:
         # Ciclo do mordomo (/api/v1/mordomo.php): segundos entre ciclos; 0 desliga.
         valor = float(os.getenv("CASA_MORDOMO_INTERVALO", "60"))
         self.mordomo_intervalo = 0.0 if valor <= 0 else max(20.0, valor)
+        self.agente_enabled = os.getenv("CASA_TAREFAS_AGENTE_ENABLED", "0") == "1"
+        self.jarvis_modo = os.getenv("CASA_TAREFAS_JARVIS_MODO", "central").strip().lower()
+        self.agente_workspace = os.getenv("CASA_TAREFAS_AGENTE_WORKSPACE", "/var/lib/casa-tarefas/workspaces")
+        self.agente_passos = max(2, min(20, int(os.getenv("CASA_TAREFAS_AGENTE_PASSOS", "10"))))
+        self.agente_servicos = lista(os.getenv("CASA_TAREFAS_AGENTE_SERVICOS", "casa-tarefas.service,casa-node-agent.service,jarvis-web-agent.service"))
 
     def validar(self):
         erros = []
@@ -87,6 +92,14 @@ class Config:
         for e in self.executores + self.filas:
             if not NOME_VALIDO.match(e):
                 erros.append(f"Nome inválido em executores/filas: {e!r}")
+        if self.jarvis_modo not in ("central", "agente"):
+            erros.append("CASA_TAREFAS_JARVIS_MODO deve ser central ou agente")
+        if (self.jarvis_modo == "agente" or "agente" in self.executores) and not self.agente_enabled:
+            erros.append("Configure CASA_TAREFAS_AGENTE_ENABLED=1 para usar o agente local")
+        if not os.path.isabs(self.agente_workspace):
+            erros.append("Workspace do agente deve ser absoluto")
+        if any(not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.@-]{0,100}\.service", s) for s in self.agente_servicos):
+            erros.append("Nome de servico autorizado invalido")
         return erros
 
 
@@ -207,6 +220,8 @@ def resumo_entrada(tarefa, limite=3000):
 
 
 def executor_jarvis(tarefa, ctx):
+    if ctx.cfg.jarvis_modo == "agente":
+        return executor_agente(tarefa, ctx)
     comando = texto_da_tarefa(tarefa, "comando", "texto", "query")
     if not comando:
         raise FalhaDefinitiva("Tarefa sem comando")
@@ -286,7 +301,26 @@ def executor_comando(tarefa, ctx):
     return estruturado if isinstance(estruturado, dict) else {"saida": saida[-4000:]}
 
 
-EMBUTIDOS = {"jarvis": executor_jarvis, "web": executor_web, "fala": executor_fala, "comando": executor_comando}
+def executor_agente(tarefa, ctx):
+    if not ctx.cfg.agente_enabled:
+        raise FalhaDefinitiva("Agente local desabilitado")
+    spec = importlib.util.spec_from_file_location("casa_tarefas_agente", os.path.join(os.path.dirname(__file__), "casa_tarefas_agente.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    def modelo(prompt):
+        r = http_json(f"{ctx.cfg.base_url}/api/v1/comando", {
+            "comando": prompt, "origem": "DAEMON_TAREFAS", "skip_planner": True,
+            "correlation_id": tarefa.get("correlation_id"), "task_context": tarefa.get("task_context"),
+        }, ctx.cfg.chave, max(ctx.cfg.tempo_http, 90))
+        if r.get("status_jarvis") == "erro" or r.get("status") not in (None, "sucesso", "ok"):
+            raise RuntimeError("Modelo do agente indisponivel: " + str(r.get("mensagem") or r.get("resposta") or "erro")[:300])
+        return r.get("resposta")
+
+    return mod.AgenteLocal(tarefa, ctx, modelo, executor_comando, executor_web).rodar()
+
+
+EMBUTIDOS = {"jarvis": executor_jarvis, "agente": executor_agente, "web": executor_web, "fala": executor_fala, "comando": executor_comando}
 
 
 def carregar_extensoes(pasta):
@@ -362,11 +396,13 @@ class Daemon:
                 resultado = {"resultado": resultado}
             resultado.setdefault("duracao_ms", int((time.monotonic() - inicio) * 1000))
             resultado.setdefault("trabalhador", self.cfg.nome)
-            self._reportar(lambda: self.fila.concluir(tid, resultado))
-            LOG.info("Tarefa #%s concluída em %d ms", tid, resultado["duracao_ms"])
+            if self._reportar(lambda: self.fila.concluir(tid, resultado)):
+                LOG.info("Tarefa #%s concluída em %d ms", tid, resultado["duracao_ms"])
+            else:
+                LOG.warning("Tarefa #%s executada localmente, mas conclusao nao confirmada pela fila", tid)
         except Dividir as d:
-            self._reportar(lambda: self.fila.dividir(tid, d.partes))
-            LOG.info("Tarefa #%s dividida em %d parte(s)", tid, len(d.partes))
+            if self._reportar(lambda: self.fila.dividir(tid, d.partes)):
+                LOG.info("Tarefa #%s dividida em %d parte(s)", tid, len(d.partes))
         except FalhaDefinitiva as exc:
             self._reportar(lambda: self.fila.falhar(tid, exc, repetir=False))
             LOG.warning("Tarefa #%s falhou sem nova tentativa: %s", tid, exc)
@@ -381,14 +417,15 @@ class Daemon:
         espera = 2
         for n in range(tentativas):
             try:
-                return chamada()
+                chamada()
+                return True
             except ErroApi as exc:
                 if exc.http in (404, 409):  # reserva perdida (venceu ou foi para outro): nada a fazer
                     LOG.warning("Resultado recusado pelo servidor: %s", exc)
-                    return None
+                    return False
                 if n == tentativas - 1:
                     LOG.error("Não consegui informar o resultado: %s", exc)
-                    return None
+                    return False
                 time.sleep(espera)
                 espera = min(30, espera * 2)
 

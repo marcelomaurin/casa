@@ -161,3 +161,40 @@ curl -s -H "$CH" -d '{"trabalhador":"meu-agente","id":123,"resultado":{"ok":true
 
 A fila `geral` é atendida por todos; uma tarefa com `fila` igual ao nome de um agente só vai para
 ele. O nome `servidor` é reservado ao site.
+
+## Agente de IA no daemon (v1.1)
+
+O daemon pode atuar como agente local: recebe a tarefa, consulta a IA configurada no Casa, escolhe uma ferramenta, executa no no, observa o resultado e repete ate concluir ou registrar um impedimento. A IA pode ficar no servidor central; as ferramentas e a verificacao dos efeitos ficam no daemon.
+
+Para habilitar na configuracao privada do no:
+
+```ini
+CASA_TAREFAS_AGENTE_ENABLED=1
+CASA_TAREFAS_JARVIS_MODO=agente
+CASA_TAREFAS_EXECUTORES=jarvis,agente,web
+CASA_TAREFAS_AGENTE_WORKSPACE=/var/lib/casa-tarefas/workspaces
+CASA_TAREFAS_AGENTE_PASSOS=10
+CASA_TAREFAS_AGENTE_SERVICOS=casa-tarefas.service,casa-node-agent.service,jarvis-web-agent.service
+```
+
+Com `JARVIS_MODO=agente`, tarefas existentes com executor `jarvis` usam o ciclo local. O nome `agente` tambem pode ser usado explicitamente pelo planejador. Sem essa opcao, `jarvis` mantem o modo central anterior. O agente recebe tarefa, resultado anterior e descricoes das ferramentas; o token da API fica apenas no transporte HTTP.
+
+Ferramentas disponiveis:
+
+- `no_estado`: sistema, arquitetura, carga e espaco livre.
+- `servico_estado` e `servico_logs`: estado e logs somente dos servicos configurados; sem elevar privilegios.
+- `listar_arquivos`, `ler_arquivo` e `gravar_arquivo`: workspace isolado por tarefa, com limite de tamanho e verificacao de SHA-256 apos gravar. Arquivos privados, links e caminhos externos sao recusados.
+- `executar_comando`: aparece somente quando ha programas explicitamente autorizados e executaveis no diretorio de comandos. Reutiliza o executor sem shell e seus limites.
+- `pesquisar_web`: aparece quando o executor web esta disponivel.
+
+Nao existe execucao de comandos de shell fornecidos pela IA nem reinicio livre de servicos. Novas atividades sao implementadas como ferramentas ou scripts autorizados pelo operador. O agente nao possui ferramenta de aprovacao ou merge GitHub.
+
+Cada acao gera evidencia real no resultado e auditoria privada em `tarefa-ID/.casa-auditoria.jsonl`. Uma resposta textual sem evidencias nao conclui a tarefa. A reserva e renovada antes das decisoes e dos efeitos. Erros de ferramenta voltam para a IA como observacao; limite de passos, falha de modelo ou perda da reserva impedem conclusao. O daemon so anuncia conclusao depois de confirmacao da API da fila.
+
+O instalador inclui o modulo `casa_tarefas_agente.py` e prepara `/var/lib/casa-tarefas` para o usuario do servico. Em instalacoes existentes, atualize os dois arquivos Python e a unidade, preserve a configuracao privada e reinicie o servico. O atualizador de cluster continua instalando os fontes do catalogo.
+
+```bash
+python3 clusters/automacao/casa-tarefas/tests/test_agente_local.py
+```
+
+Os testes verificam um ciclo fila -> agente -> gravacao real -> evidencia -> conclusao confirmada, alem de limites, caminhos externos, links, redacao, falhas de ferramenta, perda da reserva e conclusao inventada. O modelo e simulado nesses testes; uma verificacao no no deve confirmar a disponibilidade real da IA.

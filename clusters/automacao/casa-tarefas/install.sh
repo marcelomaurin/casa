@@ -17,6 +17,8 @@ getent group audio >/dev/null && usermod -aG audio casa-tarefas || true
 
 install -d -m 0755 "$DEST" "$DEST/executores" "$CMDS"
 install -m 0755 "$DIR/casa-tarefas.py" "$DEST/casa-tarefas.py"
+install -m 0644 "$DIR/casa_tarefas_agente.py" "$DEST/casa_tarefas_agente.py"
+install -d -m 0750 -o casa-tarefas -g casa-tarefas /var/lib/casa-tarefas /var/lib/casa-tarefas/workspaces
 for f in "$DIR"/executores/*.py; do [ -e "$f" ] && install -m 0644 "$f" "$DEST/executores/"; done
 
 if [ ! -f "$CONF" ]; then
