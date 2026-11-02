@@ -41,5 +41,24 @@ function casa_gerar_plano_ia(PDO $pdo, array $project): array {
     if (!is_array($plan)||!isset($plan['agentes'],$plan['tarefas'])||!is_array($plan['agentes'])||!is_array($plan['tarefas'])||
         count($plan['agentes'])>8||count($plan['tarefas'])<1||count($plan['tarefas'])>20)
         throw new RuntimeException('IA nao retornou planejamento valido. Tente novamente.');
+    if (!array_is_list($plan['agentes']) || !array_is_list($plan['tarefas'])) throw new RuntimeException('Listas invalidas.');
+    foreach ($plan['agentes'] as $a) {
+        if (!is_array($a) || !is_string($a['nome']??null) || !is_string($a['especialidade']??null) ||
+            trim($a['nome'])==='' || trim($a['especialidade'])==='' ||
+            mb_strlen($a['nome'])>120 || mb_strlen($a['especialidade'])>80)
+            throw new RuntimeException('Agente invalido.');
+    }
+    foreach ($plan['tarefas'] as $i=>$task) {
+        if (!is_array($task)) throw new RuntimeException('Tarefa invalida.');
+        foreach (['titulo'=>200,'descricao'=>10000,'criterio_aceite'=>10000] as $field=>$max) {
+            if (!is_string($task[$field]??null) || trim($task[$field])==='' || mb_strlen($task[$field])>$max)
+                throw new RuntimeException('Campo invalido: '.$field);
+        }
+        $a=$task['agente_indice']??null;$d=$task['depende_da_tarefa']??null;$priority=$task['prioridade']??3;
+        if (!is_int($priority)||$priority<1||$priority>5||
+            ($a!==null&&(!is_int($a)||$a<1||$a>count($plan['agentes'])))||
+            ($d!==null&&(!is_int($d)||$d<1||$d>$i)))
+            throw new RuntimeException('Indice ou prioridade invalida.');
+    }
     return $plan;
 }
