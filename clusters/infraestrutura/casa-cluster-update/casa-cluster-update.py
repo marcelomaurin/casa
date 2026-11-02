@@ -68,6 +68,7 @@ STATE_DIR = '/var/lib/casa-cluster-update'
 CATALOG = {
     'arm-agent': ('clusters/comunicacao/arm-agent/', '/opt/casa-node-agent', 'casa-node-agent'),
     'scheduler': ('clusters/automacao/casa-scheduler/', '/opt/casa-scheduler', 'casa-scheduler'),
+    'casa-tarefas': ('clusters/automacao/casa-tarefas/', '/opt/casa-tarefas', 'casa-tarefas'),
     'google-home': ('clusters/voz/google-home-agent/', '/home/mmm/servicos/google-home-agent', 'casa-google-home'),
     'tts': ('clusters/voz/tts/', '/home/mmm/servicos/tts', 'casa-tts'),
     'espcam': ('clusters/visao/espcam/', '/opt/casa/espcam', ''),
