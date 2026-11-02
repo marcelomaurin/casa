@@ -78,3 +78,9 @@ A aprovação permanece no endpoint autenticado `projetos_execucao.php`; o paine
 No projeto vazio em planejamento, o painel permite importar JSON estruturado com `agentes` e `tarefas`, no formato descrito acima, validando índices, critérios, prioridade e dependências. A importação é atômica, protegida por sessão e CSRF, e não inicia a execução. O JSON pode ser preparado por uma IA externa, mas **não há chamada LLM automática nesta fase**.
 
 O painel também calcula o percentual concluído consultando o status de `jarvis_tarefas` e permite expandir os resultados (limitados a 12 mil caracteres por tarefa). Não há ainda aprovação diretamente no painel, nem atualização de status agregado ou validação automática dos artefatos. Testar em PHP 8.1+ e MySQL/MariaDB antes de disponibilizar no servidor.
+
+## Aprovação no painel (fase 6)
+
+O painel `/casa/projetos.php` agora permite que usuários com perfil de sessão `admin`, `administrador` ou `gestor` aprovem projetos em planejamento com tarefas cadastradas. Exige confirmação por checkbox e token CSRF. A operação é transacional, verifica dependências e limita executores a `jarvis` e `web`, publicando na fila `jarvis_tarefas` e vinculando o plano. Uma segunda aprovação é rejeitada. **Aprovar dispara a fila de execução**; testar em ambiente isolado antes de liberar aos usuários.
+
+A autorização da sessão web é separada da API tokenizada. Ainda faltam geração LLM automática, testes integrados e integração GitHub dos agentes.
