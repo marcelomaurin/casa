@@ -270,7 +270,16 @@ class FalaRequest(BaseModel):
 
 @app.get("/status")
 def get_status():
-    return {"status": "online", "model": "Piper Neural TTS pt-BR", "engine": "ONNX Runtime"}
+    # "online" só quando o Piper e o modelo existem; antes respondia online mesmo sem eles
+    # e o painel tratava a voz como saudável sem conseguir falar.
+    faltando = [nome for nome, caminho in (("piper", PIPER_BIN), ("modelo", MODEL_PATH)) if not os.path.exists(caminho)]
+    return {
+        "status": "online" if not faltando else "degradado",
+        "pronto": not faltando,
+        "faltando": faltando,
+        "model": "Piper Neural TTS pt-BR",
+        "engine": "ONNX Runtime",
+    }
 
 @app.get("/vozes")
 def listar_vozes():

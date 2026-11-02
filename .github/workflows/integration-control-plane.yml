@@ -124,6 +124,9 @@ jobs:
       - name: Test COMPUTER continuous voice
         run: node .github/tests/test_voz_continua_ui.js
 
+      - name: Test ARM agent command results
+        run: python3 clusters/comunicacao/arm-agent/tests/test_resultado_comando.py
+
       - name: Test Control Plane HTTP end-to-end
         shell: bash
         run: |

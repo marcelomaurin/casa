@@ -771,7 +771,13 @@ def poll_commands_once():
         try:
             ack_command(command_id)
             result = execute_adapter(command, payload)
-            report_result(command_id, True, result=result)
+            # Adaptadores de hardware devolvem {"ok": false, "error": ...} sem lançar exceção:
+            # isso é falha (antes era relatado como sucesso e o relé "ligava" só no painel).
+            if isinstance(result, dict) and result.get("ok") is False:
+                report_result(command_id, False, result=result,
+                              error=result.get("error") or "Adaptador informou falha")
+            else:
+                report_result(command_id, True, result=result)
         except Exception as exc:
             print("[Command Error] #{0} {1}: {2}".format(
                 command_id, command, exc

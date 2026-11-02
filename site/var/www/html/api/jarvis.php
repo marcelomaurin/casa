@@ -196,7 +196,11 @@ $chamadaInterna = $existingTaskContext !== null
 //   sem_acoes: a IA responde, mas nenhuma marca [[CMD:...]] é executada nem a conversa é gravada.
 $somenteDireto = !$painelWeb && !empty($input['somente_direto']);
 $semAcoes = !$painelWeb && !empty($input['sem_acoes']);
-$reproduzirNaCasa = (!$painelWeb && !$chamadaInterna) || !empty($input['reproduzir_casa']);
+// Google Home: o agente sintetiza e toca a resposta no próprio aparelho; tocar aqui também
+// fazia a casa ouvir a resposta duas vezes.
+$origemTocaAudio = stripos($origem, 'GOOGLE_HOME') === 0;
+$reproduzirNaCasa = ((!$painelWeb && !$chamadaInterna && !$origemTocaAudio) || !empty($input['reproduzir_casa']));
+$chamadaInterna = $chamadaInterna || $origemTocaAudio; // também não gera áudio desnecessário
 $telemetryStarted=hrtime(true);
 $telemetryId=computer_telemetry_start($pdo,$origem,$comando,(string)$taskContext['correlation_id']);
 
@@ -887,7 +891,8 @@ function jarvis_executar_acao(PDO $pdo, string $nome, string $arg, string $coman
         case 'RELE':
             if (!preg_match('/^(\d{1,3}):([01])$/', $arg, $m)) return $erro('marca de relé inválida');
             $num = (int)$m[1]; $estado = (int)$m[2];
-            $dev = $pdo->query("SELECT device_id FROM dispositivos_cluster WHERE (capabilities LIKE '%hardware-gateway%' OR capabilities LIKE '%relay%') AND credential_revoked_at IS NULL ORDER BY id ASC LIMIT 1")->fetchColumn();
+            $dev = $pdo->query("SELECT device_id FROM dispositivos_cluster WHERE (capabilities LIKE '%hardware-gateway%' OR capabilities LIKE '%relay%') AND credential_revoked_at IS NULL
+                ORDER BY (status='online') DESC, ultimo_heartbeat DESC, id ASC LIMIT 1")->fetchColumn(); // prefere nó online e recente
             if (!$dev) return $erro('nenhum nó de relés cadastrado');
             // Mesmo caminho da automação: status pending/QUEUED, que é o que o nó busca em /api/v1/device.php.
             require_once(__DIR__ . '/automation_common.php');
@@ -897,7 +902,7 @@ function jarvis_executar_acao(PDO $pdo, string $nome, string $arg, string $coman
                 'prioridade'=>'normal', 'risk_level'=>1, 'ttl_seconds'=>300
             ], 'COMPUTER', (string)$taskContext['correlation_id'], 'jarvis_'.bin2hex(random_bytes(8)));
             $txt = $estado ? 'LIGADO' : 'DESLIGADO';
-            return ['acao'=>"Relé {$num} definido como {$txt} no nó {$dev}",'resposta'=>"Afirmativo. Relé {$num} ".strtolower($txt).", comando enviado ao nó {$dev}.",'substitui'=>false,'erro'=>false];
+            return ['acao'=>"Relé {$num} definido como {$txt} no nó {$dev}",'resposta'=>"Afirmativo. Comando para ".($estado ? 'ligar' : 'desligar')." o relé {$num} enviado ao nó {$dev}.",'substitui'=>false,'erro'=>false];
 
         case 'CENA':
             $slug = strtolower(preg_replace('/[^a-zA-Z0-9_\-]/', '', $arg));

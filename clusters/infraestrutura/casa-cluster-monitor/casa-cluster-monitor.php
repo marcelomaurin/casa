@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 /**
  * CASA / JARVIS - Servico de Monitoramento de Clusters e Nos ARM
  *
