@@ -201,6 +201,8 @@ function md_sincronizar(PDO $pdo, array $achados): array {
         VALUES (:c,:t,:s,:ti,:d,'ABERTA',NOW(),NOW())");
     $upd = $pdo->prepare("UPDATE jarvis_mordomo_observacoes SET titulo=:ti, severidade=:s, detalhes=:d, ultima_vez=NOW(),
         status='ABERTA', resolvida_em=NULL WHERE id=:id");
+    // "Já vi" (DISPENSADA): continua registrada enquanto o problema existir, sem voltar à IA nem avisar.
+    $updDisp = $pdo->prepare("UPDATE jarvis_mordomo_observacoes SET titulo=:ti, severidade=:s, detalhes=:d, ultima_vez=NOW() WHERE id=:id");
     foreach ($achados as $o) {
         $sel->execute([':c' => $o['chave']]);
         $row = $sel->fetch(PDO::FETCH_ASSOC);
@@ -208,17 +210,53 @@ function md_sincronizar(PDO $pdo, array $achados): array {
         if (!$row) {
             $ins->execute([':c' => $o['chave'], ':t' => $o['tipo'], ':s' => $o['severidade'], ':ti' => $o['titulo'], ':d' => $det]);
             $novas[] = $o + ['id' => (int)$pdo->lastInsertId(), 'reaberta' => false];
+        } elseif ($row['status'] === 'DISPENSADA') {
+            $updDisp->execute([':ti' => $o['titulo'], ':s' => $o['severidade'], ':d' => $det, ':id' => $row['id']]);
         } else {
             $upd->execute([':ti' => $o['titulo'], ':s' => $o['severidade'], ':d' => $det, ':id' => $row['id']]);
             if ($row['status'] !== 'ABERTA') $novas[] = $o + ['id' => (int)$row['id'], 'reaberta' => true];
         }
     }
     // O que não apareceu neste ciclo está resolvido.
-    $abertas = $pdo->query("SELECT id,chave FROM jarvis_mordomo_observacoes WHERE status='ABERTA'")->fetchAll(PDO::FETCH_ASSOC);
+    $abertas = $pdo->query("SELECT id,chave FROM jarvis_mordomo_observacoes WHERE status IN ('ABERTA','DISPENSADA')")->fetchAll(PDO::FETCH_ASSOC);
     $res = $pdo->prepare("UPDATE jarvis_mordomo_observacoes SET status='RESOLVIDA', resolvida_em=NOW() WHERE id=:id");
     $resolvidas = 0;
     foreach ($abertas as $a) if (!in_array($a['chave'], $chaves, true)) { $res->execute([':id' => $a['id']]); $resolvidas++; }
     return ['novas' => $novas, 'resolvidas' => $resolvidas, 'abertas' => count($chaves)];
+}
+
+/** Grava um ajuste do mordomo em configuracoes_sistema. */
+function md_gravar_config(PDO $pdo, string $chave, string $valor, ?string $descricao = null): void {
+    $pdo->prepare("INSERT INTO configuracoes_sistema (chave,valor,descricao) VALUES (:k,:v,:d)
+        ON DUPLICATE KEY UPDATE valor=VALUES(valor), descricao=COALESCE(VALUES(descricao),descricao)")
+        ->execute([':k' => $chave, ':v' => $valor, ':d' => $descricao]);
+}
+
+/**
+ * "Já vi": o caso sai da lista de avisos até o problema sumir e voltar.
+ * Pedido de assistência também é confirmado (alguém atendeu).
+ */
+function md_dispensar(PDO $pdo, int $id, string $usuario): array {
+    $st = $pdo->prepare("SELECT * FROM jarvis_mordomo_observacoes WHERE id=:id");
+    $st->execute([':id' => $id]);
+    $o = $st->fetch(PDO::FETCH_ASSOC);
+    if (!$o) throw new RuntimeException('Observação não encontrada');
+    if ($o['status'] !== 'ABERTA') throw new RuntimeException('Esta observação não está aberta');
+    $pdo->prepare("UPDATE jarvis_mordomo_observacoes SET status='DISPENSADA' WHERE id=:id")->execute([':id' => $id]);
+    $confirmou = false;
+    if ($o['tipo'] === 'assistencia') {
+        $det = json_decode((string)$o['detalhes'], true);
+        $idEv = (int)($det['id'] ?? 0);
+        if ($idEv > 0) {
+            try {
+                $pdo->prepare("UPDATE assistencia_eventos SET confirmado=1, confirmado_em=NOW() WHERE id=:id AND confirmado=0")->execute([':id' => $idEv]);
+                $confirmou = true;
+            } catch (Throwable $e) {}
+        }
+    }
+    md_registrar($pdo, $id, ['acao' => 'ignorar', 'mensagem' => '', 'ordem' => '', 'sugestao' => '',
+        'motivo' => 'Marcado como visto por ' . mb_substr($usuario, 0, 60, 'UTF-8') . ($confirmou ? ' (assistência confirmada)' : '')], 'painel', true, 'dispensada');
+    return ['tipo' => $o['tipo'], 'assistencia_confirmada' => $confirmou];
 }
 
 // ---------------------------------------------------------------------------
@@ -389,5 +427,6 @@ function md_ciclo(PDO $pdo, ?callable $chamarIa = null, ?callable $executarOrdem
             $resumo['lembretes']++;
         }
     }
+    try { md_gravar_config($pdo, 'mordomo_ultimo_ciclo', date('Y-m-d H:i:s'), 'Último ciclo do mordomo (gravado automaticamente)'); } catch (Throwable $e) {}
     return $resumo;
 }

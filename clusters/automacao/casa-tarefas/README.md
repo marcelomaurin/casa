@@ -50,7 +50,10 @@ Ajustes em `configuracoes_sistema` (todos opcionais): `mordomo_offline_min` (10)
 `mordomo_irrigacao_max_min` (30), `mordomo_silencio` (`22-7`), `mordomo_lembrete_min` (15),
 `mordomo_ignorar_tipos` (`mobile,celular,smartphone,watch,relogio,tv`).
 
-`GET /api/v1/mordomo.php?acao=estado` mostra o que está sendo acompanhado e as últimas decisões.
+No painel, **IA & VOZ → Mordomo da casa** mostra os casos acompanhados (com "já vi" e "confirmar
+atendimento"), as decisões recentes e o estado do ciclo, e permite mudar a autonomia e os limites
+(somente perfil administrador; cada mudança fica em `comandos_log`). Pela API, o mesmo resumo está em
+`GET /api/v1/mordomo.php?acao=estado`.
 
 ## Instalação
 

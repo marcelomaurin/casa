@@ -87,6 +87,7 @@ const GROUPS={
     sections:[
       {title:'COMPUTER',items:[
         {id:'jarvis',label:'Núcleo de reconhecimento & voz',module:'jarvis'},
+        {id:'mordomo',label:'Mordomo da casa',module:'butler'},
         {id:'frases',label:'Frases & avisos',module:'phrases'},
         {id:'agentes',label:'Agentes externos',module:'agents'}
       ]},
@@ -426,6 +427,7 @@ async function mountNativeModule(item){
     if(m==='jarvis') return renderJarvis();
     if(m==='cameras') return renderCameras();
     if(m==='health') return renderHealth();
+    if(m==='butler') return renderButler();
     showModuleError('Módulo não reconhecido: '+m);
   }catch(e){showModuleError(e.message||String(e));}
 }
@@ -1928,6 +1930,208 @@ async function renderSecurity(){
   moduleShell('Defesa & anti-intrusão','<div class="ja-sec-layout">'+summary+body+'</div>','<button class="ja-mini" id="sec-refresh">ATUALIZAR</button>');
   document.getElementById('sec-refresh').onclick=renderSecurity;
   document.querySelectorAll('.ja-native-body [data-open]').forEach(el=>el.onclick=()=>el.dataset.open==='ips'?openBlockedIps():openSecurityEvents());
+}
+
+// =============================================================================
+// MÓDULO: MORDOMO DA CASA
+// O que o mordomo está acompanhando, o que decidiu e os ajustes de autonomia e limites.
+// Dados: /casa/api/mordomo_painel.php (sessão do painel). Atualiza sozinho a cada 30 s.
+// =============================================================================
+const MD_API='/casa/api/mordomo_painel.php';
+let mdDados=null, mdCarregadoEm=0, mdAba='casos', mdPagina=0, mdTimer=null, mdOcupado=false;
+const MD_AUTONOMIA={
+  observar:{rotulo:'OBSERVAR',texto:'Só registra o que vê. Não avisa ninguém nem age.'},
+  avisar:{rotulo:'AVISAR',texto:'Registra e avisa a família. Ações viram sugestão no aviso.'},
+  agir:{rotulo:'AGIR',texto:'Avisa e também executa ordens diretas seguras: luz, irrigação, relé e cena.'}
+};
+const MD_TIPOS={assistencia:'Assistência',dispositivo_fora:'Fora do ar',bateria_baixa:'Bateria',temperatura:'Temperatura',
+  irrigacao_longa:'Irrigação',luz_madrugada:'Luz',movimento_noite:'Movimento',seguranca:'Segurança'};
+function mdData(v){ if(!v) return null; const d=new Date(String(v).replace(' ','T')); return isNaN(d)?null:d; }
+// Tempo relativo usando o relógio do servidor (evita diferença de fuso entre servidor e navegador).
+function mdHa(v){
+  const d=mdData(v), agora=mdData(mdDados?.agora);
+  if(!d||!agora) return '—';
+  const s=Math.max(0,Math.round((agora-d)/1000+(Date.now()-mdCarregadoEm)/1000));
+  if(s<60) return 'há '+s+' s';
+  if(s<5400) return 'há '+Math.round(s/60)+' min';
+  if(s<172800) return 'há '+Math.round(s/3600)+' h';
+  return 'há '+Math.round(s/86400)+' dias';
+}
+function mdSev(s){ const k=String(s||'').toLowerCase(); return '<span class="md-sev '+attr(k)+'">'+esc({alta:'GRAVE',media:'MÉDIA',baixa:'BAIXA'}[k]||k.toUpperCase())+'</span>'; }
+function mdParar(){ if(mdTimer){ clearInterval(mdTimer); mdTimer=null; } }
+
+async function renderButler(){
+  mdParar();
+  loading('Mordomo da casa');
+  await mdCarregar();
+  mdTimer=setInterval(()=>{
+    if(currentItem!=='mordomo'){ mdParar(); return; }
+    if(mdAba!=='ajustes' && !mdOcupado) mdCarregar(true);
+  },30000);
+}
+async function mdCarregar(silencioso=false){
+  try{
+    mdDados=await getJson(MD_API+'?acao=estado'); mdCarregadoEm=Date.now();
+  }catch(e){
+    if(silencioso) return;
+    moduleShell('Mordomo da casa','<div class="ja-empty">'+esc(e.message||'Falha ao carregar o mordomo.')+'</div>','<button class="ja-mini" id="md-retry">TENTAR NOVAMENTE</button>');
+    document.getElementById('md-retry').onclick=renderButler; return;
+  }
+  mdDesenhar();
+}
+function mdDesenhar(){
+  const d=mdDados, aut=d.ajustes.mordomo_autonomia;
+  const abertos=d.casos.filter(c=>c.status==='ABERTA'), graves=abertos.filter(c=>c.severidade==='alta').length;
+  const vistos=d.casos.length-abertos.length;
+  const seg=d.ciclo.segundos, daemons=d.ciclo.daemons||[];
+  let cicloTxt, cicloCls;
+  if(seg===null){ cicloTxt='NUNCA RODOU'; cicloCls='off'; }
+  else if(seg<=180){ cicloTxt=mdHa(d.ciclo.ultimo).toUpperCase(); cicloCls=daemons.length?'ok':'warn'; }
+  else { cicloTxt='PARADO '+mdHa(d.ciclo.ultimo).toUpperCase(); cicloCls='off'; }
+  // Sem daemon casa-tarefas ativo o ciclo só roda quando alguém aperta RODAR CICLO.
+  const cicloSub=daemons.length?esc(daemons.map(x=>x.nome).join(', '))+' ativo(s)':'ciclo automático parado: nenhum daemon casa-tarefas ativo';
+  const c24=d.contagem_24h;
+  const resumo='<div class="md-resumo">'+
+    '<button type="button" class="md-tile" data-aba="ajustes"><b>AUTONOMIA</b><strong class="md-aut '+attr(aut)+'">'+esc(MD_AUTONOMIA[aut]?.rotulo||aut)+'</strong><small>'+esc(MD_AUTONOMIA[aut]?.texto||'')+'</small></button>'+
+    '<button type="button" class="md-tile" data-aba="casos"><b>ACOMPANHANDO</b><strong>'+abertos.length+'</strong><small>'+(graves?graves+' grave(s)':'nenhum grave')+(vistos?' · '+vistos+' já visto(s)':'')+'</small></button>'+
+    '<button type="button" class="md-tile" data-aba="decisoes"><b>ÚLTIMAS 24 H</b><strong>'+(c24.avisos+c24.acoes)+'</strong><small>'+c24.avisos+' aviso(s) · '+c24.acoes+' ação(ões) · '+c24.ignorados+' ignorado(s)</small></button>'+
+    '<div class="md-tile"><b>CICLO</b><strong class="md-ciclo '+cicloCls+'">'+esc(cicloTxt)+'</strong><small>'+cicloSub+'</small></div>'+
+  '</div>';
+  const abas='<div class="md-abas" role="tablist">'+
+    [['casos','CASOS',abertos.length],['decisoes','DECISÕES',null],['ajustes','AJUSTES',null]].map(([k,r,n])=>
+      '<button type="button" role="tab" aria-selected="'+(mdAba===k)+'" class="md-aba'+(mdAba===k?' ativa':'')+'" data-aba="'+k+'">'+r+(n!==null?' <span>'+n+'</span>':'')+'</button>').join('')+
+  '</div>';
+  moduleShell('Mordomo da casa','<div class="md-layout">'+resumo+abas+'<div class="md-area" id="md-area"></div><div id="md-pager"></div></div>',
+    '<button class="ja-mini primary" id="md-ciclo" title="Observar a casa e decidir agora"'+(mdOcupado?' disabled':'')+'>'+(mdOcupado?'RODANDO...':'RODAR CICLO')+'</button><button class="ja-mini" id="md-atualizar">ATUALIZAR</button>');
+  document.querySelector('.ja-native-head')?.classList.add('md-head');
+  document.getElementById('md-atualizar').onclick=()=>mdCarregar();
+  document.getElementById('md-ciclo').onclick=mdRodarCiclo;
+  document.querySelectorAll('.md-layout [data-aba]').forEach(b=>b.onclick=()=>{ mdAba=b.dataset.aba; mdPagina=0; mdDesenhar(); });
+  if(mdAba==='ajustes') mdAjustes(); else mdLista();
+}
+// Quantas linhas cabem na área visível (o painel não rola).
+let mdAlturaLinha=0; // medida da linha real (0 = ainda não medida)
+function mdPorPagina(){
+  const area=document.getElementById('md-area');
+  const alt=area?area.clientHeight:400, linha=(mdAlturaLinha||(window.innerWidth<=760?96:70))+6;
+  return Math.max(2,Math.floor((alt+6)/linha));
+}
+function mdLista(){
+  const d=mdDados, area=document.getElementById('md-area');
+  let itens, vazio, linha;
+  if(mdAba==='casos'){
+    itens=d.casos.concat(d.resolvidos_24h.map(r=>Object.assign({},r,{status:'RESOLVIDA'})));
+    vazio='Nada para acompanhar agora. A casa está tranquila.';
+    linha=c=>{
+      const aberto=c.status==='ABERTA';
+      const btn=aberto?'<button class="ja-mini'+(c.tipo==='assistencia'?' danger':'')+'" data-dispensar="'+attr(c.id)+'">'+(c.tipo==='assistencia'?'CONFIRMAR ATENDIMENTO':'JÁ VI')+'</button>':'';
+      const situacao=aberto?'':(c.status==='DISPENSADA'?'<span class="md-chip">JÁ VISTO</span>':'<span class="md-chip ok">RESOLVIDO '+esc(mdHa(c.resolvida_em).toUpperCase())+'</span>');
+      const meta=[esc(MD_TIPOS[c.tipo]||c.tipo),'desde '+esc(mdHa(c.primeira_vez))];
+      if(aberto && Number(c.avisos)>0) meta.push(esc(c.avisos)+' aviso(s), o último '+esc(mdHa(c.ultimo_aviso)));
+      return '<article class="md-linha sev-'+attr(c.severidade)+(aberto?'':' apagada')+'"><div class="md-corpo"><div class="md-titulo">'+mdSev(c.severidade)+'<span>'+esc(c.titulo)+'</span></div><div class="md-meta">'+meta.join(' · ')+'</div></div><div class="md-acoes">'+situacao+btn+'</div></article>';
+    };
+  }else{
+    itens=d.decisoes;
+    vazio='O mordomo ainda não tomou nenhuma decisão.';
+    const ROT={avisar:'AVISOU',agir:'AGIU',ignorar:'IGNOROU'}, ORIG={ia:'decidido pela IA',padrao:'automático (IA indisponível)',lembrete:'lembrete',painel:'pelo painel'};
+    linha=x=>{
+      const rot=x.origem==='painel'?'JÁ VISTO':x.origem==='lembrete'?'LEMBRETE':(ROT[x.acao]||x.acao.toUpperCase());
+      let texto=x.acao==='agir'?('Ordem: '+(x.ordem||'—')):(x.acao==='avisar'?(x.mensagem||x.titulo||''):(x.titulo||''));
+      const falhou=x.acao==='agir' && Number(x.executado)!==1;
+      const meta=[esc(mdHa(x.criado_em)),esc(ORIG[x.origem]||x.origem)];
+      if(x.acao==='avisar' && x.resultado) meta.push(esc(String(x.resultado).replace(/^aviso: /,'canais: ')));
+      if(x.motivo) meta.push('motivo: '+esc(x.motivo));
+      return '<article class="md-linha dec-'+attr(x.acao)+(falhou?' falhou':'')+'"><div class="md-corpo"><div class="md-titulo"><span class="md-acao '+attr(x.origem==='lembrete'?'lembrete':x.acao)+'">'+esc(rot)+'</span><span>'+esc(texto)+'</span></div>'+
+        (x.acao==='agir'&&x.titulo?'<div class="md-meta">Caso: '+esc(x.titulo)+'</div>':'')+'<div class="md-meta">'+meta.join(' · ')+'</div></div>'+
+        '<div class="md-acoes">'+(falhou?'<span class="md-chip erro">FALHOU</span>':(x.acao==='agir'?'<span class="md-chip ok">FEITO</span>':''))+'</div></article>';
+    };
+  }
+  if(!itens.length){ area.innerHTML='<div class="ja-empty">'+esc(vazio)+'</div>'; document.getElementById('md-pager').innerHTML=''; return; }
+  const por=mdPorPagina(), paginas=Math.ceil(itens.length/por);
+  mdPagina=Math.min(Math.max(0,mdPagina),paginas-1);
+  area.innerHTML='<div class="md-lista">'+itens.slice(mdPagina*por,mdPagina*por+por).map(linha).join('')+'</div>';
+  const pg=document.getElementById('md-pager');
+  pg.innerHTML=paginas>1?'<div class="ja-pager"><button data-md-pag="-1" aria-label="Página anterior"'+(mdPagina===0?' disabled':'')+'>‹</button><span>'+(mdPagina+1)+' / '+paginas+'</span><button data-md-pag="1" aria-label="Próxima página"'+(mdPagina>=paginas-1?' disabled':'')+'>›</button></div>':'';
+  pg.querySelectorAll('[data-md-pag]').forEach(b=>b.onclick=()=>{ mdPagina+=Number(b.dataset.mdPag); mdLista(); });
+  area.querySelectorAll('[data-dispensar]').forEach(b=>b.onclick=()=>mdDispensar(b));
+  // Primeira vez: mede a linha mais alta desta página e refaz a paginação se couber mais (ou menos).
+  const linhas=[...area.querySelectorAll('.md-linha')];
+  const maior=Math.max(0,...linhas.map(l=>l.offsetHeight));
+  if(maior && Math.abs(maior-mdAlturaLinha)>4){ mdAlturaLinha=maior; if(mdPorPagina()!==por){ mdLista(); } }
+}
+window.addEventListener('resize',()=>{ if(currentItem==='mordomo' && mdDados && mdAba!=='ajustes'){ mdAlturaLinha=0; mdLista(); } });
+async function mdDispensar(btn){
+  btn.disabled=true; const original=btn.textContent; btn.textContent='...';
+  try{ await postJson(MD_API,{acao:'dispensar',id:Number(btn.dataset.dispensar)}); await mdCarregar(true); }
+  catch(e){ btn.disabled=false; btn.textContent=original; alert(e.message||'Falha ao marcar o caso.'); }
+}
+async function mdRodarCiclo(){
+  if(mdOcupado) return;
+  mdOcupado=true; mdDesenhar();
+  let msg;
+  try{
+    const r=await postJson(MD_API,{acao:'ciclo'});
+    const dec=(r.decisoes||[]).map(x=>({avisar:'avisou',agir:'agiu',ignorar:'ignorou'}[x.acao]||x.acao)+': '+x.observacao);
+    msg=r.novas?(r.novas+' caso(s) novo(s). '+dec.join(' | ')):('Nenhum caso novo'+(r.resolvidas?'; '+r.resolvidas+' resolvido(s)':'')+'.');
+    if(r.lembretes) msg+=' '+r.lembretes+' lembrete(s) enviado(s).';
+  }catch(e){ msg=e.message||'Falha no ciclo.'; }
+  mdOcupado=false;
+  await mdCarregar(true);
+  const area=document.getElementById('md-area');
+  if(area){ const aviso=document.createElement('div'); aviso.className='md-aviso'; aviso.setAttribute('role','status'); aviso.textContent=msg; area.prepend(aviso); setTimeout(()=>aviso.remove(),8000); }
+}
+function mdAjustes(){
+  const d=mdDados, a=d.ajustes, area=document.getElementById('md-area');
+  document.getElementById('md-pager').innerHTML='';
+  const bloqueado=!d.admin;
+  const sil=String(a.mordomo_silencio||'0-0').split('-').map(Number), semSil=sil[0]===sil[1];
+  const horas=sel=>Array.from({length:24},(_,h)=>'<option value="'+h+'"'+(h===sel?' selected':'')+'>'+String(h).padStart(2,'0')+':00</option>').join('');
+  const campo=(k,rot,un,tipo='number',extra='')=>'<label class="md-campo"><span>'+esc(rot)+'</span><div><input id="md-'+k+'" type="'+tipo+'" value="'+attr(a['mordomo_'+k])+'" '+extra+(bloqueado?' disabled':'')+'>'+(un?'<em>'+esc(un)+'</em>':'')+'</div></label>';
+  area.innerHTML='<form class="md-ajustes" id="md-form" novalidate>'+
+    '<fieldset class="md-autonomia"'+(bloqueado?' disabled':'')+'><legend>Autonomia</legend>'+
+      Object.entries(MD_AUTONOMIA).map(([k,v])=>'<label class="md-opcao'+(a.mordomo_autonomia===k?' marcada':'')+'"><input type="radio" name="md-aut" value="'+k+'"'+(a.mordomo_autonomia===k?' checked':'')+'><strong>'+v.rotulo+'</strong><small>'+esc(v.texto)+'</small></label>').join('')+
+    '</fieldset>'+
+    '<div class="md-campos">'+
+      campo('offline_min','Fora do ar após','min','number','min="2" max="1440" step="1"')+
+      campo('bateria_min','Bateria baixa abaixo de','%','number','min="1" max="100" step="1"')+
+      campo('temp_min','Temperatura mínima','°C','number','min="-20" max="60" step="0.5"')+
+      campo('temp_max','Temperatura máxima','°C','number','min="-10" max="80" step="0.5"')+
+      campo('irrigacao_max_min','Irrigação ligada no máximo','min','number','min="5" max="1440" step="1"')+
+      campo('lembrete_min','Lembrete de caso grave a cada','min','number','min="5" max="1440" step="1"')+
+      '<div class="md-campo md-silencio"><span>Horário de silêncio <small>(só casos graves tocam e chegam no Telegram)</small></span><div>'+
+        '<select id="md-sil-ini" aria-label="Início do silêncio"'+(bloqueado||semSil?' disabled':'')+'>'+horas(semSil?22:sil[0])+'</select><em>até</em>'+
+        '<select id="md-sil-fim" aria-label="Fim do silêncio"'+(bloqueado||semSil?' disabled':'')+'>'+horas(semSil?7:sil[1])+'</select>'+
+        '<label class="md-check"><input type="checkbox" id="md-sem-sil"'+(semSil?' checked':'')+(bloqueado?' disabled':'')+'> sem silêncio</label></div></div>'+
+      '<label class="md-campo md-tipos"><span>Podem ficar fora do ar sem aviso <small>(tipos, separados por vírgula)</small></span><div><input id="md-ignorar_tipos" type="text" value="'+attr(a.mordomo_ignorar_tipos)+'"'+(bloqueado?' disabled':'')+'></div></label>'+
+    '</div>'+
+    '<div class="md-salvar"><span id="md-msg" role="status">'+(bloqueado?'Somente administradores alteram estes ajustes.':'')+'</span>'+
+      '<button type="submit" class="ja-mini primary"'+(bloqueado?' disabled':'')+'>SALVAR AJUSTES</button></div>'+
+  '</form>';
+  if(bloqueado) return;
+  const form=document.getElementById('md-form');
+  form.querySelectorAll('input[name="md-aut"]').forEach(r=>r.onchange=()=>form.querySelectorAll('.md-opcao').forEach(o=>o.classList.toggle('marcada',o.querySelector('input').checked)));
+  const sem=document.getElementById('md-sem-sil');
+  sem.onchange=()=>{ document.getElementById('md-sil-ini').disabled=sem.checked; document.getElementById('md-sil-fim').disabled=sem.checked; };
+  form.onsubmit=async ev=>{
+    ev.preventDefault();
+    const msg=document.getElementById('md-msg'), v=id=>document.getElementById('md-'+id).value;
+    const aut=form.querySelector('input[name="md-aut"]:checked')?.value;
+    const ini=v('sil-ini'), fim=v('sil-fim');
+    if(!sem.checked && ini===fim){ msg.className='erro'; msg.textContent='O início e o fim do silêncio precisam ser diferentes.'; return; }
+    if(aut==='agir' && a.mordomo_autonomia!=='agir' && !confirm('Com autonomia AGIR, o mordomo liga e desliga luz, irrigação, relés e cenas sozinho quando julgar necessário. Confirmar?')) return;
+    const ajustes={mordomo_autonomia:aut,mordomo_silencio:sem.checked?'0-0':ini+'-'+fim,mordomo_ignorar_tipos:v('ignorar_tipos')};
+    ['offline_min','bateria_min','temp_min','temp_max','irrigacao_max_min','lembrete_min'].forEach(k=>ajustes['mordomo_'+k]=v(k));
+    msg.className=''; msg.textContent='Salvando...';
+    form.querySelectorAll('input,select').forEach(i=>i.removeAttribute('aria-invalid'));
+    try{
+      const r=await postJson(MD_API,{acao:'salvar',ajustes});
+      await mdCarregar(true);
+      const m=document.getElementById('md-msg');
+      if(m){ m.className='ok'; m.textContent=r.alterados?.length?'Salvo: '+r.alterados.join('; '):'Nada mudou.'; }
+    }catch(e){
+      msg.className='erro'; msg.textContent=e.message||'Falha ao salvar.';
+    }
+  };
 }
 
 async function renderAgents(){

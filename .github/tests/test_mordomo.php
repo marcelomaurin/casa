@@ -143,5 +143,32 @@ igual([md_no_intervalo('22-7', 23), md_no_intervalo('22-7', 3), md_no_intervalo(
 $c = casa_contexto($pdo, 6000);
 if (strpos($c['texto'], 'MORDOMO (o que você está acompanhando') === false || strpos($c['texto'], 'agiu: desligue a irrigação') === false) falha('retrato sem o mordomo');
 
+// 11. "Já vi": não volta à IA nem avisa enquanto o problema existir; some -> resolvida; volta -> novo.
 cfg($pdo, 'mordomo_autonomia', 'avisar');
-echo "Mordomo OK: detectores, memória, autonomia (observar/avisar/agir), ordem direta, lembrete, IA fora do ar e retrato.\n";
+$respostaIa = '{"decisoes":[]}';
+$pdo->exec("UPDATE dispositivos_cluster SET ultimo_heartbeat=NOW()-INTERVAL 30 MINUTE WHERE device_id='md_esp'");
+md_ciclo($pdo, $ia, $executar);
+$o = $pdo->query("SELECT * FROM jarvis_mordomo_observacoes WHERE chave='offline:md_esp'")->fetch(PDO::FETCH_ASSOC);
+igual($o['status'], 'ABERTA', 'portão fora do ar aberto');
+md_dispensar($pdo, (int)$o['id'], 'teste');
+$antes = count($pedidos);
+$r = md_ciclo($pdo, $ia, $executar);
+igual([$r['novas'], count($pedidos)], [0, $antes], 'caso visto não volta à IA');
+igual($pdo->query("SELECT status FROM jarvis_mordomo_observacoes WHERE id=" . (int)$o['id'])->fetchColumn(), 'DISPENSADA', 'continua visto');
+$pdo->exec("UPDATE dispositivos_cluster SET ultimo_heartbeat=NOW() WHERE device_id='md_esp'");
+md_ciclo($pdo, $ia, $executar);
+igual($pdo->query("SELECT status FROM jarvis_mordomo_observacoes WHERE id=" . (int)$o['id'])->fetchColumn(), 'RESOLVIDA', 'resolve quando volta');
+$pdo->exec("UPDATE dispositivos_cluster SET ultimo_heartbeat=NOW()-INTERVAL 30 MINUTE WHERE device_id='md_esp'");
+$r = md_ciclo($pdo, $ia, $executar);
+igual(in_array('offline:md_esp', array_map(fn($d) => $d, array_column($pdo->query("SELECT chave FROM jarvis_mordomo_observacoes WHERE status='ABERTA'")->fetchAll(PDO::FETCH_ASSOC), 'chave')), true), true, 'nova queda vira caso aberto de novo');
+try { md_dispensar($pdo, 999999, 'teste'); falha('dispensou caso inexistente'); } catch (RuntimeException $e) {}
+// Confirmar atendimento confirma o pedido de assistência.
+$ab = $pdo->query("SELECT id FROM jarvis_mordomo_observacoes WHERE tipo='assistencia' AND status='ABERTA' LIMIT 1")->fetchColumn();
+if ($ab) {
+    $r = md_dispensar($pdo, (int)$ab, 'teste');
+    igual($r['assistencia_confirmada'], true, 'assistência confirmada');
+}
+igual((string)$pdo->query("SELECT valor FROM configuracoes_sistema WHERE chave='mordomo_ultimo_ciclo'")->fetchColumn() !== '', true, 'último ciclo gravado');
+
+cfg($pdo, 'mordomo_autonomia', 'avisar');
+echo "Mordomo OK: detectores, memória, autonomia (observar/avisar/agir), ordem direta, lembrete, IA fora do ar, já visto e retrato.\n";
