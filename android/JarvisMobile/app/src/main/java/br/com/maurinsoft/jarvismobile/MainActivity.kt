@@ -70,6 +70,25 @@ private val permissionLauncher = registerForActivityResult(
         setContent { JarvisApp() }
     }
 
+    private val updateHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val periodicUpdateCheck = object : Runnable {
+        override fun run() {
+            UpdateManager.checkAndDownloadAsync(this@MainActivity)
+            updateHandler.postDelayed(this, java.util.concurrent.TimeUnit.HOURS.toMillis(1))
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        updateHandler.removeCallbacks(periodicUpdateCheck)
+        updateHandler.post(periodicUpdateCheck)
+    }
+
+    override fun onPause() {
+        updateHandler.removeCallbacks(periodicUpdateCheck)
+        super.onPause()
+    }
+
     override fun onDestroy() {
         if (::speechInput.isInitialized) speechInput.destroy()
         super.onDestroy()
