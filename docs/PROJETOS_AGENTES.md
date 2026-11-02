@@ -66,3 +66,9 @@ Consultar estado e resultados (token com `projects.manage`):
 A resposta inclui o status de cada tarefa na fila, tentativas, trabalhador, erro e resultado. O status agregado do projeto ainda não é recalculado automaticamente quando todas as tarefas terminam; consultar o status das tarefas para saber o resultado final.
 
 **Pendente:** testes integrados no servidor, interface de aprovação, geração automática de plano pela IA, cancelamento e sincronização de estado agregado. Não presumir deploy concluído só porque o código foi integrado à `master`.
+
+## Painel web (fase 4)
+
+Acesse `/casa/projetos.php` com a sessão autenticada do Casa. Permite criar projetos, adicionar agentes, cadastrar tarefas com dependências e visualizar estado da fila. Os formulários usam token CSRF de sessão e PDO parametrizado; nenhum token externo é exposto ao navegador.
+
+A aprovação permanece no endpoint autenticado `projetos_execucao.php`; o painel não a executa automaticamente. A página não gera planos por IA nem exibe os detalhes completos dos resultados; estas integrações ficam pendentes. Acesso pela URL direta até integrar navegação principal. Validar em PHP/MySQL antes de liberar para produção.
