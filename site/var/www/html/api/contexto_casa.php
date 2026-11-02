@@ -236,7 +236,7 @@ function cc_mordomo(PDO $pdo): array {
  * Monta o retrato. $max limita o total de caracteres (seções inteiras são cortadas
  * do fim para o começo, na ordem de menor prioridade).
  */
-function casa_contexto(PDO $pdo, int $max = 3500): array {
+function casa_contexto(PDO $pdo, int $max = 3500, bool $incluirTarefas = true): array {
     $dias = ['domingo','segunda-feira','terça-feira','quarta-feira','quinta-feira','sexta-feira','sábado'];
     $secoes = [
         'agora' => ['Agora: ' . date('d/m/Y H:i') . ' (' . $dias[(int)date('w')] . ').'],
@@ -246,7 +246,7 @@ function casa_contexto(PDO $pdo, int $max = 3500): array {
         'equipamentos' => cc_secao(fn() => cc_equipamentos($pdo)),
         'sensores' => cc_secao(fn() => cc_sensores($pdo)),
         'nos' => cc_secao(fn() => cc_nos($pdo)),
-        'tarefas' => cc_secao(fn() => cc_tarefas($pdo)),
+        'tarefas' => $incluirTarefas ? cc_secao(fn() => cc_tarefas($pdo)) : [],
         'familia' => cc_secao(fn() => cc_familia($pdo)),
         'comandos' => cc_secao(fn() => cc_comandos($pdo)),
     ];
@@ -272,8 +272,8 @@ function casa_contexto(PDO $pdo, int $max = 3500): array {
 }
 
 /** Bloco pronto para o pedido à IA. */
-function casa_contexto_prompt(PDO $pdo, int $max = 3500): array {
-    $c = casa_contexto($pdo, $max);
+function casa_contexto_prompt(PDO $pdo, int $max = 3500, bool $incluirTarefas = true): array {
+    $c = casa_contexto($pdo, $max, $incluirTarefas);
     $c['prompt'] = "\n\n=== ESTADO ATUAL DA CASA (dados ao vivo do banco, lidos agora) ===\n" . $c['texto'] .
         "\n=== FIM DO ESTADO ATUAL ===\n" .
         "Para perguntas sobre a casa (o que está ligado, dispositivos, sensores, temperatura, quem está online, alertas, status), " .

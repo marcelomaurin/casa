@@ -37,6 +37,7 @@ require_once(__DIR__ . '/agente_externo.php');
 require_once(__DIR__ . '/task_engine.php');
 require_once(__DIR__ . '/rag.php');
 require_once(__DIR__ . '/contexto_casa.php');
+require_once(__DIR__ . '/computer_intent.php');
 
 // A interface web usa cookie de sessao + token aleatorio da propria sessao.
 // Integracoes externas continuam autenticando por Bearer/X-API-Key em verify_api_auth().
@@ -141,7 +142,12 @@ if ($comando === '') {
 $pdo = get_db_pdo();
 
 $existingTaskContext=te_context_from_input($input['task_context'] ?? null);
-$taskContext=te_begin($pdo,$comando,$origem,'computer',$existingTaskContext,$input['correlation_id'] ?? null);
+$pedidoAcao=$forcarPlanejamento || computer_pedido_acao($comando);
+if ($forcarPlanejamento && $existingTaskContext && te_is_conversation($existingTaskContext)) $existingTaskContext=null;
+$taskContext=($pedidoAcao || $existingTaskContext)
+    ? te_begin($pdo,$comando,$origem,'computer',$existingTaskContext,$input['correlation_id'] ?? null)
+    : te_conversation($origem,'computer',$input['correlation_id'] ?? null);
+$conversaSemTarefas=te_is_conversation($taskContext);
 $taskInterpret=0;
 if($taskContext['root_created']){
     $taskInterpret=te_add_subtask($pdo,$taskContext,'Interpretar e planejar solicitação','computer',[
@@ -248,13 +254,7 @@ function jarvis_tts($texto, $speaker='padrao', $reproduzir=true) {
 }
 
 function jarvis_deve_planejar($cmd) {
-    $c = mb_strtolower($cmd, 'UTF-8');
-    if (preg_match('/^\s*\/planejar\b/u', $c)) return true;
-    if (preg_match('/\b(amanh[aã]|depois de amanh[aã]|daqui a|[àa]s \d{1,2}(:\d{2})?|todo dia|toda semana|todo m[eê]s|semanalmente|diariamente)\b/u', $c)) return true;
-    if (preg_match('/\b(e depois|depois disso|em seguida|logo depois|ap[oó]s isso)\b/u', $c)) return true;
-    if (preg_match('/\b(quando|assim que|se acontecer|caso aconte[cç]a|quando detectar|quando chegar)\b/u', $c)) return true;
-    if (substr_count($cmd, ';') >= 1) return true;
-    return false;
+    return computer_deve_planejar($cmd);
 }
 
 function jarvis_pedido_web($cmd) {
@@ -263,7 +263,7 @@ function jarvis_pedido_web($cmd) {
 }
 
 // 0. Planejamento antes da execucao quando a demanda pede varias etapas, futuro ou condicao.
-if (!$skipPlanner && ($forcarPlanejamento || jarvis_deve_planejar($comando))) {
+if (!$skipPlanner && !$conversaSemTarefas && ($forcarPlanejamento || jarvis_deve_planejar($comando))) {
     $demanda = preg_replace('/^\s*\/planejar\s*/iu', '', $comando);
     if($taskInterpret>0) te_complete($pdo,$taskInterpret,['roteamento'=>'planejador']);
     $taskPlanner=te_add_subtask($pdo,$taskContext,'Planejar e decompor solicitação','planejador',[
@@ -691,6 +691,7 @@ $instrucoesAcoes = " Para automação e controle de hardware, use as marcas abai
     "[[CMD:RELE:NUMERO:ESTADO]] (ex: [[CMD:RELE:1:1]] liga, [[CMD:RELE:2:0]] desliga), " .
     "[[CMD:CENA:SLUG]] (ex: [[CMD:CENA:boa-noite]]), " .
     "[[CMD:STATUS_SISTEMA]].";
+if ($conversaSemTarefas) $instrucoesAcoes = ' Esta mensagem e uma conversa ou consulta, nao uma tarefa de execucao. Responda ao que foi dito; nao crie, mencione ou ofereca planos e tarefas sem que sejam pedidos. Nao emita marcas CMD nem afirme ter executado acoes. Para uma mensagem ambigua, peca um esclarecimento breve sobre o assunto.';
 
 $systemLocal = "Você é o Computador de Bordo do sistema residencial CASA/JARVIS, operando estritamente nos padrões de inteligência e interface LCARS da Frota Estelar (Star Trek: The Next Generation). " .
     "Seja formal, objetivo, técnico e conciso como a voz clássica do Computador da Enterprise. " .
@@ -804,16 +805,17 @@ foreach ($candidatos as $cand) {
     if (!$dup) $modelosIA[] = $cand;
 }
 
-$rag=rag_prompt($comando);
+$respostaSaudacao=$conversaSemTarefas?computer_saudacao($comando):null;
+$rag=$respostaSaudacao===null?rag_prompt($comando):[];
 $ragContexto=$rag['prompt']??'';
 $ragFontes=$rag['sources']??[];
 
 // Estado AO VIVO da casa (dispositivos, sensores, alertas...) em todo pedido à IA.
 // configuracoes_sistema: jarvis_contexto_casa = sempre|nunca; jarvis_contexto_max_chars (padrão 3500).
 $contextoCasa=['prompt'=>'','secoes'=>[],'chars'=>0];
-if(strtolower(trim((string)($configs['jarvis_contexto_casa'] ?? 'sempre')))!=='nunca'){
+if(computer_precisa_contexto_casa($comando) && strtolower(trim((string)($configs['jarvis_contexto_casa'] ?? 'sempre')))!=='nunca'){
     $maxCtx=max(800,min(12000,(int)($configs['jarvis_contexto_max_chars'] ?? 3500)));
-    try{ $contextoCasa=casa_contexto_prompt($pdo,$maxCtx); }catch(Throwable $e){ error_log('contexto_casa: '.$e->getMessage()); }
+    try{ $contextoCasa=casa_contexto_prompt($pdo,$maxCtx,computer_consulta_tarefas($comando)); }catch(Throwable $e){ error_log('contexto_casa: '.$e->getMessage()); }
 }
 
 if($taskInterpret>0) te_complete($pdo,$taskInterpret,['roteamento'=>'ia']);
@@ -971,7 +973,7 @@ if ($somenteDireto && $tagDireta === null) {
     exit;
 }
 
-foreach (($tagDireta === null ? $modelosIA : []) as $modeloIA) {
+foreach (($tagDireta === null && $respostaSaudacao === null ? $modelosIA : []) as $modeloIA) {
     $promptSistema = (($modeloIA['nivel_capacidade'] ?? '') === 'PROFESSOR' || ($modeloIA['nivel_capacidade'] ?? '') === 'PROFISSIONAL')
         ? $systemCloud : $systemLocal;
     $promptSistema.=$contextoCasa['prompt'];
@@ -1012,7 +1014,10 @@ foreach (($tagDireta === null ? $modelosIA : []) as $modeloIA) {
 }
 
 $iaFalhou = false;
-if ($tagDireta !== null) {
+if ($respostaSaudacao !== null && $tagDireta === null) {
+    $resposta=$respostaSaudacao;
+    $provedor='COMPUTER';$target_ia='conversa';$tipo_tarefa='conversa';
+} elseif ($tagDireta !== null) {
     $resposta = $tagDireta;
     $provedor = 'Comando direto';
     $target_ia = 'comando_direto';
@@ -1033,6 +1038,7 @@ if (!$iaFalhou && !$semAcoes && preg_match_all('/\[\[CMD:([A-Z_]+)(?::([^\]]*))?
     $vistas = [];
     foreach ($marcas as $mc) {
         $nomeAcao = $mc[1]; $argAcao = $mc[2] ?? '';
+        if ($conversaSemTarefas && !($tagDireta!==null && in_array($nomeAcao,['CLIMA','STATUS_SISTEMA'],true))) continue;
         if (isset($vistas[$nomeAcao.':'.$argAcao])) continue;
         $vistas[$nomeAcao.':'.$argAcao] = true;
         if ($tagDireta === null && in_array($nomeAcao, ['CLIMA','TELEGRAM'], true)) continue;
@@ -1050,7 +1056,7 @@ $respostaLimpa = $semAcoes ? trim((string)$resposta) : trim(preg_replace('/\[\[C
 if ($substituta !== null) {
     $respostaLimpa = $substituta;
 } elseif ($respostaLimpa === '') {
-    $respostaLimpa = $confirmacoes ? implode(' ', $confirmacoes) : ($erros ? '' : 'Comando executado.');
+    $respostaLimpa = $confirmacoes ? implode(' ', $confirmacoes) : ($erros ? '' : ($conversaSemTarefas?'Pode esclarecer o que deseja saber?':'Comando executado.'));
 }
 if ($erros) $respostaLimpa = trim($respostaLimpa . ' ' . implode(' ', $erros));
 
@@ -1087,7 +1093,7 @@ echo json_encode(te_attach_context([
     'historico_chars'=>strlen($historicoTexto),'historico_mensagens'=>count($historicoConversa),
     'rag_fontes'=>$ragFontes,'rag_matches'=>count($ragFontes),
     'contexto_casa'=>['secoes'=>$contextoCasa['secoes'],'chars'=>$contextoCasa['chars']],
-    'provedor'=>$provedor,'target_ia'=>$target_ia,'tipo_tarefa'=>$tipo_tarefa,
+    'provedor'=>$provedor,'target_ia'=>$target_ia,'tipo_tarefa'=>$conversaSemTarefas?'conversa':$tipo_tarefa,
     'modo_roteamento'=>$routing_mode,'acao'=>$acao,'audio_url'=>$audioUrl,
     'speaker'=>$jarvis_voice,'modelo_usado'=>$modelo_usado,'ia_diagnostico'=>$ia_diagnostico,
     'tarefas_execucao'=>te_list_tasks($pdo,$taskContext)

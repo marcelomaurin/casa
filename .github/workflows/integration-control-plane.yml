@@ -86,6 +86,11 @@ jobs:
       - name: Enforce universal task context
         run: python3 .github/tests/test_task_context_contract.py
 
+      - name: Test conversational intent without plans
+        run: |
+          php .github/tests/test_computer_intent.php
+          php .github/tests/test_computer_conversa_http.php
+
       - name: Test automatic empty-database install
         run: php .github/tests/test_schema_install.php
 

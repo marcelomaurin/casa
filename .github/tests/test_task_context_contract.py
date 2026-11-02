@@ -56,10 +56,14 @@ task_engine = (ROOT / "site/var/www/html/api/task_engine.php").read_text(encodin
 if "array_key_exists('root_created',$ctx) && !$ctx['root_created']" not in task_engine:
     errors.append("task_engine.php: subchamada ainda pode encerrar plano raiz")
 
+for rel in ["site/var/www/html/api/jarvis.php", "site/var/www/html/api/jarvis_site.php"]:
+    if "te_conversation(" not in (ROOT / rel).read_text(encoding="utf-8"):
+        errors.append(f"{rel}: conversa comum ainda exige plano")
+
 if errors:
     print("Task context contract FAILED")
     for err in errors:
         print(" -", err)
     sys.exit(1)
 
-print("Task context contract OK: entradas e subchamadas preservam plano, tarefa raiz e correlation_id.")
+print("Task context contract OK: acoes preservam plano; conversas propagam correlacao sem criar tarefas.")

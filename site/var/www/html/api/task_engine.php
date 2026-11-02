@@ -1,8 +1,17 @@
 <?php
 require_once(__DIR__ . '/v1/device_registry.php');
 require_once(__DIR__ . '/fila_tarefas.php');
-// CASA / COMPUTER - motor generico de tarefas para qualquer solicitacao de IA.
-// Toda pergunta externa cria uma tarefa-raiz. Modulos internos anexam subtarefas ao mesmo contexto.
+// Pedidos de execucao criam tarefas; conversas propagam apenas correlacao, sem plano.
+
+function te_is_conversation(array $ctx): bool {
+    return ($ctx['modo']??'')==='conversa' && (int)($ctx['id_plano']??0)===0 && (int)($ctx['id_tarefa_raiz']??0)===0;
+}
+
+function te_conversation(string $origem='COMPUTER',string $modulo='computer',?string $correlation=null): array {
+    if (!$correlation || !preg_match('/^[A-Za-z0-9._:-]{8,80}$/D',$correlation)) $correlation='req_'.bin2hex(random_bytes(16));
+    return ['modo'=>'conversa','id_plano'=>0,'id_tarefa_raiz'=>0,'correlation_id'=>$correlation,
+        'origem'=>$origem,'modulo'=>$modulo,'root_created'=>false];
+}
 
 function te_json($value): string {
     return json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
@@ -24,6 +33,7 @@ function te_has_parent_column(PDO $pdo): bool {
 
 function te_context_from_input($value): ?array {
     if (!is_array($value)) return null;
+    if (te_is_conversation($value)) return te_conversation((string)($value['origem']??'COMPUTER'),(string)($value['modulo']??'computer'),$value['correlation_id']??null);
     $plan = (int)($value['id_plano'] ?? 0);
     $root = (int)($value['id_tarefa_raiz'] ?? 0);
     if ($plan <= 0 || $root <= 0) return null;
@@ -38,6 +48,7 @@ function te_context_from_input($value): ?array {
 }
 
 function te_begin(PDO $pdo, string $pergunta, string $origem='COMPUTER', string $modulo='computer', ?array $existing=null, ?string $requestedCorrelation=null): array {
+    if ($existing && te_is_conversation($existing)) return te_conversation($origem,$modulo,$existing['correlation_id']??$requestedCorrelation);
     if ($existing && !empty($existing['id_plano']) && !empty($existing['id_tarefa_raiz'])) {
         $corr=trim((string)($existing['correlation_id'] ?? ''));
         if($corr===''){
@@ -112,6 +123,7 @@ function te_next_order(PDO $pdo, int $plan): int {
 }
 
 function te_add_subtask(PDO $pdo, array $ctx, string $titulo, string $executor, $payload=null, ?int $dependeDe=null, string $status='PENDENTE'): int {
+    if (te_is_conversation($ctx)) return 0;
     $order=te_next_order($pdo,(int)$ctx['id_plano']);
     $desc=is_array($payload) ? (string)($payload['descricao'] ?? '') : '';
 
@@ -179,6 +191,7 @@ function te_finish_error(PDO $pdo, array $ctx, string $erro): void {
 }
 
 function te_public_context(array $ctx): array {
+    if (te_is_conversation($ctx)) return $ctx;
     return [
         'id_plano'=>(int)$ctx['id_plano'],
         'id_tarefa_raiz'=>(int)$ctx['id_tarefa_raiz'],
@@ -189,6 +202,7 @@ function te_public_context(array $ctx): array {
 }
 
 function te_list_tasks(PDO $pdo, array $ctx): array {
+    if (te_is_conversation($ctx)) return [];
     $parentCol=te_has_parent_column($pdo) ? "tarefa_pai_id" : "NULL AS tarefa_pai_id";
     $st=$pdo->prepare("SELECT id,ordem,titulo,tipo,executor,status,depende_de,".$parentCol.",erro,iniciado_em,concluido_em FROM jarvis_tarefas WHERE id_plano=:p ORDER BY ordem,id");
     $st->execute([':p'=>$ctx['id_plano']]);
@@ -405,6 +419,14 @@ function te_plan_snapshot(PDO $pdo, array $ctx): array {
 }
 
 function te_attach_context(array $response, array $ctx, ?PDO $pdo=null): array {
+    if (te_is_conversation($ctx)) {
+        unset($response['id_plano'],$response['id_tarefa_raiz'],$response['task_context'],$response['task_status']);
+        $response['tipo_solicitacao']='conversa';
+        $response['correlation_id']=$ctx['correlation_id'];
+        $response['tarefas_execucao']=[];
+        return $response;
+    }
+    $response['tipo_solicitacao']='tarefa';
     $response['id_plano']=(int)$ctx['id_plano'];
     $response['id_tarefa_raiz']=(int)$ctx['id_tarefa_raiz'];
     $response['task_context']=te_public_context($ctx);

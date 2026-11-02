@@ -20,7 +20,9 @@ if ($comando === '') {
 
 $pdo = get_db_pdo();
 $existingTaskContext=te_context_from_input($input['task_context'] ?? null);
-$taskContext=te_begin($pdo,$comando,trim((string)($input['origem'] ?? 'JARVIS_SITE')),'jarvis_site',$existingTaskContext,$input['correlation_id'] ?? null);
+$taskContext=$existingTaskContext
+    ? te_begin($pdo,$comando,trim((string)($input['origem'] ?? 'JARVIS_SITE')),'jarvis_site',$existingTaskContext,$input['correlation_id'] ?? null)
+    : te_conversation(trim((string)($input['origem'] ?? 'JARVIS_SITE')),'jarvis_site',$input['correlation_id'] ?? null);
 $taskIa=te_add_subtask($pdo,$taskContext,'Consultar IA externa do site','runpod',[
     'modo'=>'cloud_only'
 ],null,'EXECUTANDO');
