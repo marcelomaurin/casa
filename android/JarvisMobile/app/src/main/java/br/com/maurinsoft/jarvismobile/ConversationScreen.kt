@@ -10,6 +10,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -49,9 +50,13 @@ fun ConversationScreen(online: Boolean, speech: SpeechInputController, audio: Ja
         scope.launch {
             try {
                 val result = withContext(Dispatchers.IO) { JarvisCommandController(context).send(value) }
-                add("JARVIS", result.text ?: result.message)
-                if (result.delivered) audio.play(result.audioUrl)
+                add("JARVIS", result.text?.takeIf { it.isNotBlank() } ?: result.message)
+                if (result.delivered) runCatching { audio.play(result.audioUrl) }
                 pending = JarvisApi.pendingCount(context)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                add("JARVIS", "Falha ao processar a resposta: ${e.message ?: "erro desconhecido"}")
             } finally { busy = false }
         }
     }
