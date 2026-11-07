@@ -5428,13 +5428,33 @@ function refreshLeftVoiceStatus(){
   host.innerHTML=items.map(x=>'<button type="button" class="ja-left-status '+attr(x.kind||'off')+'" title="'+attr(x.detail||x.text||'')+'" disabled>'+esc(x.text||'—')+'</button>').join('');
 }
 
+// O seletor de idiomas pertence ao painel da direita. Guardar o nó DOM evita
+// perder a preferência e os eventos registrados quando o LCARS redesenha a tela.
+const casaLanguagePicker=document.getElementById('casa-language-picker');
+
+function placeLanguagePicker(adminBox){
+  if(!casaLanguagePicker) return;
+  const narrow=window.matchMedia && window.matchMedia('(max-width: 760px)').matches;
+  if(narrow || !adminBox){
+    if(casaLanguagePicker.parentElement!==document.body) document.body.appendChild(casaLanguagePicker);
+    casaLanguagePicker.classList.remove('in-admin-panel');
+    return;
+  }
+  const logout=adminBox.querySelector('.logout');
+  if(casaLanguagePicker.parentElement!==adminBox ||
+     (logout && casaLanguagePicker.nextElementSibling!==logout)){
+    adminBox.insertBefore(casaLanguagePicker,logout || null);
+  }
+  casaLanguagePicker.classList.add('in-admin-panel');
+}
+
 function mountAdminTools(){
   const status=document.querySelector('#app .ja-status');
   const template=document.getElementById('ja-admin-template');
-  if(!status || !template) return;
+  if(!status || !template){ placeLanguagePicker(null); return; }
 
   let box=status.querySelector('.ja-admin-tools');
-  if(box) return;
+  if(box){ placeLanguagePicker(box); return; }
 
   box=document.createElement('section');
   box.className='ja-admin-tools';
@@ -5481,6 +5501,7 @@ function mountAdminTools(){
   if(logout) box.appendChild(logout);
 
   status.appendChild(box);
+  placeLanguagePicker(box);
 }
 
 function scheduleAdminMount(){
@@ -5522,7 +5543,7 @@ if(document.readyState==='loading'){
   bootLCARS();
 }
 window.addEventListener('popstate',restoreRoute);
-window.addEventListener('resize',()=>{const f=document.querySelector('.ja-module-frame');if(f)fitFrame(f);});
+window.addEventListener('resize',()=>{const f=document.querySelector('.ja-module-frame');if(f)fitFrame(f);scheduleAdminMount();});
 // Expor funcoes globais para acoes de eventos onclick nos templates HTML do LCARS
 window.renderCameras = renderCameras;
 window.setCamFilter = setCamFilter;
