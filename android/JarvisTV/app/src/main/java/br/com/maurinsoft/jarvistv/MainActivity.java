@@ -36,15 +36,18 @@ public class MainActivity extends Activity {
     private final Handler handler=new Handler(Looper.getMainLooper());
     private final ExecutorService io=Executors.newSingleThreadExecutor();
     private final List<CameraItem> cameras=new ArrayList<>();
-    private EditText urlEdit; private TextView status,alertText,cameraTitle,familyText,pairingText; private ImageView cameraImage;
+    private EditText urlEdit; private TextView status,alertText,cameraTitle,familyText,pairingText,updateText; private ImageView cameraImage;
     private int selectedCamera=0; private boolean active=false;
     private TvProvisioningClient provisioning; private TvControlPlaneClient control;
 
     private static class CameraItem { final String name,location,captureUrl,status; CameraItem(String n,String l,String u,String s){name=n;location=l;captureUrl=u;status=s;} }
 
-    @Override protected void onCreate(Bundle b){ super.onCreate(b); provisioning=new TvProvisioningClient(this); control=new TvControlPlaneClient(this); buildUi(); TvUpdateManager.check(this); }
+    @Override protected void onCreate(Bundle b){ super.onCreate(b); provisioning=new TvProvisioningClient(this); control=new TvControlPlaneClient(this); buildUi(); TvUpdateJobService.schedule(this); TvUpdateManager.check(this); }
     private final Runnable updateCheck = new Runnable() { @Override public void run() { if (active) { TvUpdateManager.check(MainActivity.this); handler.postDelayed(this, 3600000L); } } };
-    @Override protected void onResume(){ super.onResume(); active=true; handler.post(updateCheck); scheduleRefresh(100); scheduleCamera(500); scheduleControl(250); }
+    private final Runnable updateStatusRefresh = new Runnable() { @Override public void run() {
+        if (active) { if (updateText != null) updateText.setText(TvUpdateManager.status(MainActivity.this)); handler.postDelayed(this, 15000L); }
+    } };
+    @Override protected void onResume(){ super.onResume(); active=true; handler.post(updateCheck); handler.post(updateStatusRefresh); scheduleRefresh(100); scheduleCamera(500); scheduleControl(250); }
     @Override protected void onPause(){ active=false; handler.removeCallbacks(updateCheck); handler.removeCallbacksAndMessages(null); super.onPause(); }
     @Override protected void onDestroy(){ active=false; io.shutdownNow(); super.onDestroy(); }
 
@@ -61,6 +64,17 @@ public class MainActivity extends Activity {
         LinearLayout actions=new LinearLayout(this); actions.setOrientation(LinearLayout.HORIZONTAL);
         Button pair=button(control.isAuthorized()?"REAUTORIZAR":"AUTORIZAR TV",ORANGE); pair.setOnClickListener(v->requestPairing());
         Button refresh=button("ATUALIZAR",GREEN); refresh.setOnClickListener(v->{saveBaseUrl(); refreshDashboard();}); actions.addView(pair,actionWeight(1f,dp(8))); actions.addView(refresh,actionWeight(1f,0)); config.addView(actions); root.addView(config,fullWidth(dp(12)));
+
+        LinearLayout updates=panel(); updates.addView(sectionTitle("ATUALIZACOES AUTOMATICAS"));
+        updateText=text(TvUpdateManager.status(this),15,INK,false); updates.addView(updateText,fullWidth(dp(8)));
+        LinearLayout updateActions=new LinearLayout(this); updateActions.setOrientation(LinearLayout.HORIZONTAL);
+        Button checkUpdate=button("BUSCAR NO GITHUB",BLUE);
+        checkUpdate.setOnClickListener(v->{ updateText.setText("Consultando versoes no GitHub..."); TvUpdateManager.check(this,true); });
+        Button installUpdate=button("INSTALAR ATUALIZACAO",GREEN);
+        installUpdate.setOnClickListener(v->TvUpdateManager.openInstaller(this));
+        updateActions.addView(checkUpdate,actionWeight(1f,dp(8)));
+        updateActions.addView(installUpdate,actionWeight(1f,0));
+        updates.addView(updateActions); root.addView(updates,fullWidth(dp(12)));
 
         status=text("TV em modo de exibição.",15,INK,true); status.setPadding(dp(14),dp(10),dp(14),dp(10)); status.setBackground(rounded(BLUE,18)); root.addView(status,fullWidth(dp(12)));
         LinearLayout grid=new LinearLayout(this); grid.setOrientation(LinearLayout.HORIZONTAL);

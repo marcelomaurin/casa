@@ -7,10 +7,19 @@ on:
       - 'android/JarvisMobile/**'
       - '.github/workflows/build-jarvis-mobile.yml'
       - '.gitignore'
+  pull_request:
+    paths:
+      - 'android/JarvisMobile/**'
+      - '.github/workflows/build-jarvis-mobile.yml'
   workflow_dispatch:
 
 permissions:
   contents: write
+
+# Mobile e TV publicam no mesmo JSON: evitar pushes simultaneos.
+concurrency:
+  group: ${{ github.ref == 'refs/heads/master' && 'casa-android-manifest-master' || format('casa-mobile-{0}', github.ref) }}
+  cancel-in-progress: false
 
 jobs:
   repository-hygiene:

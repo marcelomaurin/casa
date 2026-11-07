@@ -31,49 +31,83 @@ object UpdateManager {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("status", message).apply()
     }
 
-    @Synchronized
-    fun checkAndDownloadAsync(context: Context, force: Boolean = false) {
-        if (checking || (!force && System.currentTimeMillis() - lastCheck < TimeUnit.HOURS.toMillis(1))) return
+    private fun beginCheck(force: Boolean): Boolean = synchronized(this) {
+        val now = System.currentTimeMillis()
+        if (checking || (!force && now - lastCheck < TimeUnit.HOURS.toMillis(1))) return@synchronized false
         checking = true
-        lastCheck = System.currentTimeMillis()
+        lastCheck = now
+        true
+    }
+
+    private fun endCheck() = synchronized(this) { checking = false }
+
+    fun checkAndDownloadAsync(context: Context, force: Boolean = false) {
+        if (!beginCheck(force)) return
         val app = context.applicationContext
         Thread {
-            try {
-                val release = indicatedRelease() ?: run { setStatus(app, "Nenhuma versão autorizada para este pacote."); return@Thread }
-                if (release.versionCode <= BuildConfig.VERSION_CODE) {
-                    setStatus(app, "Aplicativo atualizado para a versão autorizada.")
-                    val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                    if (prefs.getLong("pending_code", 0) <= BuildConfig.VERSION_CODE) {
-                        val oldId = prefs.getLong("download_id", -1)
-                        if (oldId > 0) (app.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).remove(oldId)
-                        prefs.edit().remove("download_id").remove("pending_version").remove("pending_code").remove("sha256").apply()
-                    }
-                    return@Thread
-                }
-                val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                val manager = app.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-                val oldId = prefs.getLong("download_id", -1)
-                if (oldId > 0 && prefs.getLong("pending_code", 0) == release.versionCode && prefs.getString("sha256", "") == release.sha256) {
-                    manager.query(DownloadManager.Query().setFilterById(oldId))?.use { cursor ->
-                        if (cursor.moveToFirst() && cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)) != DownloadManager.STATUS_FAILED) return@Thread
-                    }
-                }
-                if (oldId > 0) manager.remove(oldId)
-                val request = DownloadManager.Request(Uri.parse(release.apkUrl))
-                    .setTitle("Casa Mobile ${release.version}")
-                    .setDescription("Versão autorizada em bin/versions.json")
-                    .setMimeType("application/vnd.android.package-archive")
-                    .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                    .setDestinationInExternalFilesDir(app, "updates", "CasaMobile-${release.versionCode}.apk")
-                    .setAllowedOverMetered(true).setAllowedOverRoaming(false)
-                val id = manager.enqueue(request)
-                prefs.edit().putLong("download_id", id).putLong("pending_code", release.versionCode)
-                    .putString("pending_version", release.version).putString("sha256", release.sha256).commit()
-                setStatus(app, "Baixando versão autorizada ${release.version}.")
-            } catch (e: Exception) {
-                setStatus(app, "Falha ao buscar atualização. Nova tentativa na próxima consulta.")
-            } finally { synchronized(this) { checking = false } }
+            try { performUpdateCheck(app) }
+            catch (e: Exception) { setStatus(app, "Falha ao buscar atualização. Nova tentativa na próxima consulta.") }
+            finally { endCheck() }
         }.start()
+    }
+
+    /** Versao sincrona para o JobScheduler, que so termina depois de consultar o GitHub. */
+    fun checkAndDownloadBlocking(context: Context) {
+        if (!beginCheck(false)) return
+        val app = context.applicationContext
+        try { performUpdateCheck(app) }
+        catch (e: Exception) { setStatus(app, "Falha ao buscar atualização. Nova tentativa na próxima consulta.") }
+        finally { endCheck() }
+    }
+
+    private fun performUpdateCheck(app: Context) {
+        val release = indicatedRelease() ?: run {
+            setStatus(app, "Nenhuma versão autorizada para este pacote.")
+            return
+        }
+        if (release.versionCode <= BuildConfig.VERSION_CODE) {
+            setStatus(app, "Aplicativo atualizado para a versão autorizada.")
+            val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            if (prefs.getLong("pending_code", 0) <= BuildConfig.VERSION_CODE) {
+                val oldId = prefs.getLong("download_id", -1)
+                if (oldId > 0) (app.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).remove(oldId)
+                prefs.edit().remove("download_id").remove("pending_version")
+                    .remove("pending_code").remove("sha256").apply()
+            }
+            return
+        }
+        val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val manager = app.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        val oldId = prefs.getLong("download_id", -1)
+        if (oldId > 0 && prefs.getLong("pending_code", 0) == release.versionCode &&
+                prefs.getString("sha256", "") == release.sha256) {
+            manager.query(DownloadManager.Query().setFilterById(oldId))?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    when (cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))) {
+                        DownloadManager.STATUS_SUCCESSFUL -> {
+                            setStatus(app, "Versão ${release.version} baixada. Toque em Instalar atualização baixada.")
+                            return
+                        }
+                        DownloadManager.STATUS_RUNNING, DownloadManager.STATUS_PENDING, DownloadManager.STATUS_PAUSED -> {
+                            setStatus(app, "Baixando versão autorizada ${release.version}.")
+                            return
+                        }
+                    }
+                }
+            }
+        }
+        if (oldId > 0) manager.remove(oldId)
+        val request = DownloadManager.Request(Uri.parse(release.apkUrl))
+            .setTitle("Casa Mobile ${release.version}")
+            .setDescription("Versão autorizada em bin/versions.json")
+            .setMimeType("application/vnd.android.package-archive")
+            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            .setDestinationInExternalFilesDir(app, "updates", "CasaMobile-${release.versionCode}.apk")
+            .setAllowedOverMetered(true).setAllowedOverRoaming(false)
+        val id = manager.enqueue(request)
+        prefs.edit().putLong("download_id", id).putLong("pending_code", release.versionCode)
+            .putString("pending_version", release.version).putString("sha256", release.sha256).commit()
+        setStatus(app, "Baixando versão autorizada ${release.version}.")
     }
 
     private fun indicatedRelease(): MobileReleaseManifest.Release? {

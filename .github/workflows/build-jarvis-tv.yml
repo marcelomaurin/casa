@@ -5,6 +5,10 @@ on:
     paths:
       - 'android/JarvisTV/**'
       - '.github/workflows/build-jarvis-tv.yml'
+  pull_request:
+    paths:
+      - 'android/JarvisTV/**'
+      - '.github/workflows/build-jarvis-tv.yml'
   workflow_dispatch:
 
 permissions:
@@ -33,15 +37,22 @@ jobs:
           gradle-version: '8.10.2'
 
       - name: Build debug APK
-        run: gradle --no-daemon :app:assembleDebug
+        run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug
+
+      - name: Detect version from Gradle
+        id: version
+        run: |
+          VERSION=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n 1)
+          test -n "$VERSION"
+          echo "name=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Rename APK
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk ../../JarvisTV-v1.0.0-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk "../../JarvisTV-v${{ steps.version.outputs.name }}-debug.apk"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: JarvisTV-v1.0.0-debug-apk
-          path: JarvisTV-v1.0.0-debug.apk
+          name: JarvisTV-v${{ steps.version.outputs.name }}-debug-apk
+          path: JarvisTV-v${{ steps.version.outputs.name }}-debug.apk
           if-no-files-found: error

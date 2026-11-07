@@ -20,6 +20,7 @@ O canal `casa-mobile-debug` usa `br.com.maurinsoft.jarvismobile.debug`; o canal 
 
 - A cada criação da Activity principal (inclusive antes do login), consulta `https://raw.githubusercontent.com/marcelomaurin/casa/master/bin/versions.json` em segundo plano, sem bloquear a abertura.
 - Com o serviço de conexão ativo, consulta novamente no máximo uma vez por hora.
+- Um job periódico persistente do Android também consulta o JSON aproximadamente a cada hora com rede disponível, mesmo sem a tela aberta; o Android pode adiar a execução por bateria ou restrições do aparelho.
 - Usa exclusivamente a entrada autorizada do seu canal. Uma release ou um commit novo sem indicação no JSON não inicia atualização.
 - Compara o `version_code` indicado com o instalado. Igual ou menor: não instala. Maior e `enabled: true`: baixa o APK do endereço indicado, dentro das releases do próprio projeto.
 - Notifica quando o download termina. Sem permissão de notificações, o usuário pode acessar Ajustes > Instalar atualização baixada.
@@ -45,3 +46,13 @@ Atualizar por cima com a mesma assinatura preserva a configuração. Desinstalar
 7. Comandos de envio não confirmado ficam para revisão manual; a reconexão não deve executá-los sozinha. Só reenviar após revisar o risco de duplicação; comandos com mais de cinco minutos são descartados.
 
 A atualização do mobile não muda as regras dos integradores Linux/Raspberry.
+
+## Android TV (mesmo JSON, canal independente)
+
+- O aplicativo JARVIS TV utiliza `jarvis-tv-debug` / `jarvis-tv` no mesmo `bin/versions.json` da master.
+- Consulta ao iniciar, periodicamente com a tela aberta e por `JobScheduler` persistente quando fechado.
+- Se `enabled=true`, `version_code` é maior e URL/pacote/SHA-256 são autorizados, faz download automático pelo `DownloadManager`.
+- A TV apresenta status, botão de consulta e botão para instalar; também envia uma notificação após baixar.
+- O instalador do Android TV confirma a atualização. Não é possível garantir instalação silenciosa em TVs comuns sem privilégios de gerenciamento de dispositivo.
+- O workflow `publish-jarvis-tv-update.yml` cria a release e ativa a entrada da TV no JSON apenas após validar a versão preparada, e usa o mesmo grupo de concorrência que o workflow do Mobile.
+- APKs de debug do Mobile e da TV possuem identificadores distintos e não devem compartilhar assinatura nem sobrescrever o canal de outro aplicativo.
