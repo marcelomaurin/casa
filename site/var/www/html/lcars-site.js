@@ -1094,7 +1094,7 @@ async function renderNodes(){
     const all=j.nodes||[];
     const catalog=j.service_catalog||[];
     const p=paginate('nodes',all,12);
-    const states={online:'ONLINE',offline:'SEM CONTATO RECENTE',registered:'AGUARDANDO CONTATO',revoked:'REVOGADO'};
+    const states={online:uiT('ONLINE'),offline:uiT('SEM CONTATO RECENTE'),registered:uiT('AGUARDANDO CONTATO'),revoked:uiT('REVOGADO')};
     const summary='<p>'+esc(all.length)+' agente(s) registrado(s) • '+esc(all.filter(n=>n.online).length)+' online. Online: contato nos últimos 40 segundos (heartbeat a cada 20s). Para distribuir ou transferir serviços entre os nós, utilize a tela Orquestração de serviços.</p>';
 
 
@@ -1109,9 +1109,9 @@ async function renderNodes(){
             const ctrlBtns = s.protected
               ? '<span style="background:rgba(56,189,248,0.16);border:1px solid #38bdf8;color:#38bdf8;padding:2px 6px;border-radius:4px;font-size:0.68rem;font-weight:bold;">🔒 WEB PROTEGIDO</span>'
               : (isAct
-                  ? '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(s.id)+'" data-act="stop" data-dev="'+attr(n.device_id||'')+'" data-ip="'+attr(n.ip_address||'')+'" style="background:#ef4444;color:#fff;border:none;border-radius:4px;padding:2px 7px;font-size:0.68rem;font-weight:bold;cursor:pointer;">⏹ DESATIVAR</button>'+
+                  ? '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(s.id)+'" data-act="stop" data-dev="'+attr(n.device_id||'')+'" data-ip="'+attr(n.ip_address||'')+'" style="background:#ef4444;color:#fff;border:none;border-radius:4px;padding:2px 7px;font-size:0.68rem;font-weight:bold;cursor:pointer;">⏹ '+esc(uiT("DESATIVAR"))+'</button>'+
                     '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(s.id)+'" data-act="restart" data-dev="'+attr(n.device_id||'')+'" data-ip="'+attr(n.ip_address||'')+'" style="background:#334155;color:#fff;border:none;border-radius:4px;padding:2px 6px;font-size:0.68rem;cursor:pointer;" title="Reiniciar serviço">↻</button>'
-                  : '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(s.id)+'" data-act="start" data-dev="'+attr(n.device_id||'')+'" data-ip="'+attr(n.ip_address||'')+'" style="background:#22c55e;color:#000;border:none;border-radius:4px;padding:2px 7px;font-size:0.68rem;font-weight:bold;cursor:pointer;">▶ ATIVAR</button>');
+                  : '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(s.id)+'" data-act="start" data-dev="'+attr(n.device_id||'')+'" data-ip="'+attr(n.ip_address||'')+'" style="background:#22c55e;color:#000;border:none;border-radius:4px;padding:2px 7px;font-size:0.68rem;font-weight:bold;cursor:pointer;">▶ '+esc(uiT("ATIVAR"))+'</button>');
             return '<div style="display:flex;flex-direction:column;gap:4px;padding:6px 8px;background:rgba(2,7,12,0.75);border:1px solid #1e293b;border-radius:5px;">'+
               '<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">'+
                 '<div style="display:flex;align-items:center;gap:6px;min-width:0;">'+
@@ -1129,21 +1129,21 @@ async function renderNodes(){
 
       return '<article class="ja-native-card" style="position:relative;">'+
       '<div style="position:absolute;top:10px;right:10px;display:flex;gap:5px;z-index:2;flex-wrap:wrap;">'+
-        (n.online && (n.up_to_date === false) ? '<button type="button" class="ja-node-update-btn" data-node-idx="'+attr(String(i))+'" style="background:#eab308;color:#000;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(234,179,8,0.5);" title="Atualizar versão do nó diretamente do Git">⚡ ATUALIZAR (GIT)</button>' : '')+
-        '<button type="button" class="ja-node-svcs-btn" data-node-idx="'+attr(String(i))+'" style="background:#a855f7;color:#fff;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.5);" title="Definir quais serviços este nó executa">⚙ SERVIÇOS</button>'+
-        '<button type="button" class="ja-node-edit-btn" data-node-idx="'+attr(String(i))+'" style="background:#38bdf8;color:#000;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.5);" title="Editar informações do nó">EDITAR</button>'+
-        '<button type="button" class="ja-node-del-btn" data-node-idx="'+attr(String(i))+'" style="background:#ef4444;color:#fff;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.5);" title="Excluir nó do cluster">EXCLUIR</button>'+
+        (n.online && (n.up_to_date === false) ? '<button type="button" class="ja-node-update-btn" data-node-idx="'+attr(String(i))+'" style="background:#eab308;color:#000;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(234,179,8,0.5);" title="Atualizar versão do nó diretamente do Git">⚡ '+esc(uiT("ATUALIZAR (GIT)"))+'</button>' : '')+
+        '<button type="button" class="ja-node-svcs-btn" data-node-idx="'+attr(String(i))+'" style="background:#a855f7;color:#fff;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.5);" title="Definir quais serviços este nó executa">⚙ '+esc(uiT("SERVIÇOS"))+'</button>'+
+        '<button type="button" class="ja-node-edit-btn" data-node-idx="'+attr(String(i))+'" style="background:#38bdf8;color:#000;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.5);" title="Editar informações do nó">'+esc(uiT("EDITAR"))+'</button>'+
+        '<button type="button" class="ja-node-del-btn" data-node-idx="'+attr(String(i))+'" style="background:#ef4444;color:#fff;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.5);" title="Excluir nó do cluster">'+esc(uiT("EXCLUIR"))+'</button>'+
       '</div>'+
       '<h3>'+esc(n.nome)+'</h3><dl>'+
-      '<dt>Identificador</dt><dd>'+esc(n.device_id||'Legado sem identificador')+'</dd>'+
-      '<dt>Hostname</dt><dd>'+esc(n.hostname||'—')+'</dd>'+
-      '<dt>Programa / função</dt><dd><strong style="color:#f8fafc;">'+esc(n.papel||'—')+'</strong></dd>'+
-      '<dt>Plataforma</dt><dd>'+esc(n.platform||'—')+'</dd>'+
-      '<dt>IP</dt><dd>'+esc(n.ip_address||'—')+'</dd>'+
-      '<dt>Serviços Atribuídos ao Nó (Controle Direto)</dt><dd>'+svcsHtml+
-        '<div style="margin-top:6px;"><button type="button" class="ja-node-svcs-btn" data-node-idx="'+attr(String(i))+'" style="background:rgba(168,85,247,0.2);border:1px solid #a855f7;color:#e9d5ff;border-radius:4px;padding:4px 10px;font-size:0.74rem;font-weight:bold;cursor:pointer;">⚙ ESCOLHER SERVIÇOS QUE ESTE NÓ EXECUTA</button></div>'+
+      '<dt>'+esc(uiT("Identificador"))+'</dt><dd>'+esc(n.device_id||'Legado sem identificador')+'</dd>'+
+      '<dt>'+esc(uiT("Hostname"))+'</dt><dd>'+esc(n.hostname||'—')+'</dd>'+
+      '<dt>'+esc(uiT("Programa / função"))+'</dt><dd><strong style="color:#f8fafc;">'+esc(n.papel||'—')+'</strong></dd>'+
+      '<dt>'+esc(uiT("Plataforma"))+'</dt><dd>'+esc(n.platform||'—')+'</dd>'+
+      '<dt>'+esc(uiT("IP"))+'</dt><dd>'+esc(n.ip_address||'—')+'</dd>'+
+      '<dt>'+esc(uiT("Serviços Atribuídos ao Nó (Controle Direto)"))+'</dt><dd>'+svcsHtml+
+        '<div style="margin-top:6px;"><button type="button" class="ja-node-svcs-btn" data-node-idx="'+attr(String(i))+'" style="background:rgba(168,85,247,0.2);border:1px solid #a855f7;color:#e9d5ff;border-radius:4px;padding:4px 10px;font-size:0.74rem;font-weight:bold;cursor:pointer;">⚙ '+esc(uiT("ESCOLHER SERVIÇOS QUE ESTE NÓ EXECUTA"))+'</button></div>'+
       '</dd>'+
-      '<dt>Versão Git do Cluster</dt><dd>'+
+      '<dt>'+esc(uiT("Versão Git do Cluster"))+'</dt><dd>'+
         (n.version?'<strong style="color:#00e5ff;font-family:monospace;font-size:0.95rem;">'+esc(n.version)+'</strong>':'<span style="opacity:0.6;">Não informada</span>')+
         (n.online ? (
           n.up_to_date === true ?
@@ -1152,18 +1152,18 @@ async function renderNodes(){
               '<div style="margin-top:5px;padding:6px 8px;background:rgba(234,179,8,0.15);border:1px solid #eab308;border-radius:4px;">'+
                 '<strong style="color:#eab308;font-size:0.75rem;display:block;">⚠ ATUALIZAÇÃO DISPONÍVEL NO GIT</strong>'+
                 '<small style="display:block;color:#cbd5e1;font-size:0.72rem;margin-top:2px;">Remoto: <code style="color:#fde047;">#'+esc(n.remote_commit ? n.remote_commit.substring(0,7) : 'master')+'</code> ('+esc(n.branch||'master')+')</small>'+
-                '<button type="button" class="ja-node-update-btn" data-node-idx="'+attr(String(i))+'" style="margin-top:6px;background:#eab308;color:#000;border:none;border-radius:4px;padding:4px 10px;font-size:0.75rem;font-weight:900;cursor:pointer;display:inline-block;" title="Atualizar nó diretamente do Git">⚡ ATUALIZAR AGORA (GIT)</button>'+
+                '<button type="button" class="ja-node-update-btn" data-node-idx="'+attr(String(i))+'" style="margin-top:6px;background:#eab308;color:#000;border:none;border-radius:4px;padding:4px 10px;font-size:0.75rem;font-weight:900;cursor:pointer;display:inline-block;" title="Atualizar nó diretamente do Git">⚡ '+esc(uiT("ATUALIZAR AGORA (GIT)"))+'</button>'+
               '</div>' :
               '<small style="display:block;opacity:0.6;font-size:0.72rem;margin-top:2px;">Verificação em andamento...</small>')
         ) : '<div style="margin-top:4px;"><span style="color:#94a3b8;font-size:0.75rem;font-style:italic;">Status indisponível (nó offline)</span></div>')+
         (n.deployed_at?'<small style="display:block;opacity:0.8;font-size:0.75rem;margin-top:2px;">Atualizado: '+esc(n.deployed_at)+'</small>':'')+
       '</dd>'+
-      '<dt>CPU</dt><dd>'+esc(n.cpu||'Não informada')+'</dd>'+
-      '<dt>RAM</dt><dd>'+esc(n.ram||'Não informada')+'</dd>'+
-      '<dt>Capacidades</dt><dd>'+esc((n.capabilities||[]).join(', ')||'Não informadas')+'</dd>'+
-      '<dt>Último contato (servidor)</dt><dd>'+esc(n.last_seen||'Ainda não recebido')+'</dd>'+
-      '<dt>Acesso SSH</dt><dd><code style="background:#02070c;border:1px solid #24516b;padding:2px 7px;border-radius:4px;color:#00e5ff;font-family:monospace;font-size:0.85rem;user-select:all;">ssh mmm@'+esc(n.ip_address||'—')+'</code></dd>'+
-      '<dt>Site do Cluster</dt><dd>'+(n.ip_address?'<a href="http://'+esc(n.ip_address)+':8080/" target="_blank" style="display:inline-block;padding:3px 10px;background:#38bdf8;color:#000;border-radius:4px;text-decoration:none;font-weight:bold;font-size:0.8rem;">ABRIR PORTAL (:8080)</a>':'—')+'</dd>'+
+      '<dt>'+esc(uiT("CPU"))+'</dt><dd>'+esc(n.cpu||'Não informada')+'</dd>'+
+      '<dt>'+esc(uiT("RAM"))+'</dt><dd>'+esc(n.ram||'Não informada')+'</dd>'+
+      '<dt>'+esc(uiT("Capacidades"))+'</dt><dd>'+esc((n.capabilities||[]).join(', ')||'Não informadas')+'</dd>'+
+      '<dt>'+esc(uiT("Último contato (servidor)"))+'</dt><dd>'+esc(n.last_seen||'Ainda não recebido')+'</dd>'+
+      '<dt>'+esc(uiT("Acesso SSH"))+'</dt><dd><code style="background:#02070c;border:1px solid #24516b;padding:2px 7px;border-radius:4px;color:#00e5ff;font-family:monospace;font-size:0.85rem;user-select:all;">ssh mmm@'+esc(n.ip_address||'—')+'</code></dd>'+
+      '<dt>'+esc(uiT("Site do Cluster"))+'</dt><dd>'+(n.ip_address?'<a href="http://'+esc(n.ip_address)+':8080/" target="_blank" style="display:inline-block;padding:3px 10px;background:#38bdf8;color:#000;border-radius:4px;text-decoration:none;font-weight:bold;font-size:0.8rem;">ABRIR PORTAL (:8080)</a>':'—')+'</dd>'+
       '</dl><span class="ja-state '+(n.online?'ok':'')+'">'+esc(states[n.status]||n.status)+'</span></article>';
     })+pager('nodes',p):
       '<div class="ja-empty">Nenhum agente Linux ARM registrado. Clique em <b>+ NOVO NÓ</b> acima ou conecte agentes pela API de dispositivos.</div>';
@@ -1261,7 +1261,7 @@ function orchestrationMarkup(all,orch){
           orch.map(item => {
             const isAct = !!item.active;
             const stColor = isAct ? '#22c55e' : '#f87171';
-            const stText = isAct ? 'ATIVO' : 'INATIVO';
+            const stText = uiT(isAct ? 'ATIVO' : 'INATIVO');
             const optionsHtml = all.map(n => {
               const sel = (n.device_id && n.device_id === item.owner_device_id) || (n.ip_address && n.ip_address === item.owner_ip) ? 'selected' : '';
               return '<option value="'+attr(n.device_id||'')+'" data-ip="'+attr(n.ip_address||'')+'" '+sel+'>'+esc(n.nome||'Nó')+' ('+esc(n.ip_address||'sem IP')+')'+(n.online?' [ONLINE]':' [OFFLINE]')+'</option>';
@@ -1281,15 +1281,15 @@ function orchestrationMarkup(all,orch){
                 '<select class="ja-orch-select" data-svc="'+attr(item.id)+'" style="flex:1;min-width:160px;background:#02070c;color:#e2e8f0;border:1px solid #334155;border-radius:4px;padding:4px 6px;font-size:0.78rem;">'+
                   optionsHtml+
                 '</select>'+
-                '<button type="button" class="ja-orch-move-btn" data-svc="'+attr(item.id)+'" style="background:#38bdf8;color:#000;border:none;border-radius:4px;padding:4px 9px;font-size:0.73rem;font-weight:900;cursor:pointer;" title="Transferir e ativar este serviço no servidor selecionado">APLICAR NÓ</button>'+
+                '<button type="button" class="ja-orch-move-btn" data-svc="'+attr(item.id)+'" style="background:#38bdf8;color:#000;border:none;border-radius:4px;padding:4px 9px;font-size:0.73rem;font-weight:900;cursor:pointer;" title="Transferir e ativar este serviço no servidor selecionado">'+esc(uiT("APLICAR NÓ"))+'</button>'+
               '</div>'+
               '<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;padding-top:4px;border-top:1px solid rgba(51,65,85,0.4);">'+
                 '<small style="color:#cbd5e1;font-size:0.72rem;">Atual: <b>'+esc(item.owner_name||'—')+'</b> ('+esc(item.owner_ip||'—')+')</small>'+
                 '<div style="display:flex;gap:4px;">'+
                   (isAct
-                    ? '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(item.id)+'" data-act="stop" data-dev="'+attr(item.owner_device_id||'')+'" data-ip="'+attr(item.owner_ip||'')+'" style="background:#ef4444;color:#fff;border:none;border-radius:4px;padding:3px 8px;font-size:0.7rem;font-weight:bold;cursor:pointer;">⏹ PARAR</button>'+
-                      '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(item.id)+'" data-act="restart" data-dev="'+attr(item.owner_device_id||'')+'" data-ip="'+attr(item.owner_ip||'')+'" style="background:#334155;color:#e2e8f0;border:none;border-radius:4px;padding:3px 8px;font-size:0.7rem;font-weight:bold;cursor:pointer;">↻ REINICIAR</button>'
-                    : '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(item.id)+'" data-act="start" data-dev="'+attr(item.owner_device_id||'')+'" data-ip="'+attr(item.owner_ip||'')+'" style="background:#22c55e;color:#000;border:none;border-radius:4px;padding:3px 8px;font-size:0.7rem;font-weight:bold;cursor:pointer;">▶ ATIVAR</button>')+
+                    ? '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(item.id)+'" data-act="stop" data-dev="'+attr(item.owner_device_id||'')+'" data-ip="'+attr(item.owner_ip||'')+'" style="background:#ef4444;color:#fff;border:none;border-radius:4px;padding:3px 8px;font-size:0.7rem;font-weight:bold;cursor:pointer;">⏹ '+esc(uiT("PARAR"))+'</button>'+
+                      '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(item.id)+'" data-act="restart" data-dev="'+attr(item.owner_device_id||'')+'" data-ip="'+attr(item.owner_ip||'')+'" style="background:#334155;color:#e2e8f0;border:none;border-radius:4px;padding:3px 8px;font-size:0.7rem;font-weight:bold;cursor:pointer;">↻ '+esc(uiT("REINICIAR"))+'</button>'
+                    : '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(item.id)+'" data-act="start" data-dev="'+attr(item.owner_device_id||'')+'" data-ip="'+attr(item.owner_ip||'')+'" style="background:#22c55e;color:#000;border:none;border-radius:4px;padding:3px 8px;font-size:0.7rem;font-weight:bold;cursor:pointer;">▶ '+esc(uiT("ATIVAR"))+'</button>')+
                 '</div>'+
               '</div>'+
             '</div>';
