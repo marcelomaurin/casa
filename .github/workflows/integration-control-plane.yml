@@ -24,6 +24,7 @@ on:
       - 'site/var/www/html/lcars-i18n.js'
       - 'site/var/www/html/index.php'
       - '.github/tests/test_site_i18n.js'
+      - '.github/tests/test_language_admin_panel.js'
       - '.github/tests/test_arm_nodes_ui.js'
       - '.github/tests/test_orchestration_ui.js'
       - '.github/workflows/integration-control-plane.yml'
@@ -105,6 +106,7 @@ jobs:
           node .github/tests/test_arm_nodes_ui.js
           node .github/tests/test_orchestration_ui.js
           node .github/tests/test_site_i18n.js
+          node .github/tests/test_language_admin_panel.js
 
       - name: Test Command Bus and automation internals
         run: php .github/tests/test_control_plane.php
