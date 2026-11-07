@@ -217,6 +217,10 @@ function cti_selecionar_datas(array $tarefas, string $pergunta, int $limite = 20
         $t['_score'] = $score;
         $out[] = $t;
     }
+    if ($termos && $out) {
+        $melhor = max(array_column($out, '_score'));
+        $out = array_values(array_filter($out, static fn($t) => $t['_score'] === $melhor));
+    }
     usort($out, static function ($a, $b) use ($termos) {
         if ($termos && $a['_score'] !== $b['_score']) return $b['_score'] <=> $a['_score'];
         return strcmp((string)$b['solicitada_em'], (string)$a['solicitada_em']);
