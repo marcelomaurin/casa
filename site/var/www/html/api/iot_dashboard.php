@@ -4,6 +4,7 @@ header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 header('X-Content-Type-Options: nosniff');
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/presenca_dispositivos.php';
 if (empty($_SESSION['auth_user'])) {
     verify_api_auth();
 }
@@ -55,7 +56,7 @@ if ($method === 'GET') {
     try {
         $rows = [];
         try {
-            $sql = "SELECT d.device_id, d.nome, d.tipo, d.model, d.localizacao, d.status, d.ip_address, d.mac_address, d.sinal_rssi, d.ultimo_heartbeat, d.capabilities, d.metadata, s.desired_state, s.updated_at AS desired_updated
+            $sql = "SELECT d.device_id, d.nome, d.tipo, d.model, d.localizacao, d.status, d.ip_address, d.mac_address, d.sinal_rssi, d.ultimo_heartbeat, d.credential_revoked_at, d.capabilities, d.metadata, TIMESTAMPDIFF(SECOND,d.ultimo_heartbeat,NOW()) AS heartbeat_age_seconds, s.desired_state, s.updated_at AS desired_updated
                     FROM dispositivos_cluster d
                     LEFT JOIN device_desired_state s ON s.device_id=d.device_id
                     WHERE d.tipo NOT IN ('linux-arm', 'cluster', 'server')
@@ -65,7 +66,7 @@ if ($method === 'GET') {
             $rows = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
         } catch (Throwable $e) {
             // Fallback caso a tabela device_desired_state ainda não tenha sido ligada
-            $sql = "SELECT d.device_id, d.nome, d.tipo, d.model, d.localizacao, d.status, d.ip_address, d.mac_address, d.sinal_rssi, d.ultimo_heartbeat, d.capabilities, d.metadata, NULL AS desired_state, NULL AS desired_updated
+            $sql = "SELECT d.device_id, d.nome, d.tipo, d.model, d.localizacao, d.status, d.ip_address, d.mac_address, d.sinal_rssi, d.ultimo_heartbeat, d.credential_revoked_at, d.capabilities, d.metadata, TIMESTAMPDIFF(SECOND,d.ultimo_heartbeat,NOW()) AS heartbeat_age_seconds, NULL AS desired_state, NULL AS desired_updated
                     FROM dispositivos_cluster d
                     WHERE d.tipo NOT IN ('linux-arm', 'cluster', 'server')
                       AND d.device_id NOT LIKE 'raspberry%'
@@ -108,9 +109,11 @@ if ($method === 'GET') {
             $relayActual = array_key_exists('relay_on', $meta) ? (bool)$meta['relay_on'] : null;
             $relayDesired = array_key_exists('relay_on', $desired) ? (bool)$desired['relay_on'] : null;
 
+            $presence = pd_avaliar($r);
             if ($isRelay) {
                 $relaysCount++;
-                if ($relayActual === true || $relayDesired === true) $relaysOn++;
+                // Estado solicitado nao confirma atuacao; so contar hardware online.
+                if ($presence['online'] && $relayActual === true) $relaysOn++;
             }
             if ($isEnv) {
                 $sensorsCount++;
@@ -119,9 +122,7 @@ if ($method === 'GET') {
                     $bestHum = $env['humidity_pct'] !== null ? (float)$env['humidity_pct'] : null;
                 }
             }
-            if (strtolower((string)$r['status']) === 'online') {
-                $onlineDevices++;
-            }
+            if ($presence['online']) $onlineDevices++;
 
             $devices[] = [
                 'device_id' => $r['device_id'],
@@ -129,7 +130,12 @@ if ($method === 'GET') {
                 'tipo' => $r['tipo'],
                 'model' => $r['model'],
                 'localizacao' => $r['localizacao'],
-                'status' => $r['status'],
+                'status' => $presence['status'],
+                'status_registry' => $r['status'],
+                'online' => $presence['online'],
+                'presence_reason' => $presence['reason'],
+                'heartbeat_age_seconds' => $presence['age_seconds'],
+                'heartbeat_timeout_seconds' => $presence['max_age_seconds'],
                 'ip_address' => $r['ip_address'],
                 'sinal_rssi' => $r['sinal_rssi'],
                 'ultimo_heartbeat' => $r['ultimo_heartbeat'],
@@ -170,6 +176,8 @@ if ($method === 'GET') {
         $summary = [
             'total_devices' => count($devices),
             'online_devices' => $onlineDevices,
+            'offline_devices' => count($devices)-$onlineDevices,
+            'presence_source' => 'ultimo_heartbeat',
             'relays_count' => $relaysCount,
             'relays_on' => $relaysOn,
             'sensors_count' => $sensorsCount,
@@ -179,19 +187,20 @@ if ($method === 'GET') {
             'watch_online' => $watchOnline,
             'watch_telemetry' => $latestWatch,
             'mobile_telemetry' => $latestMobile,
-            'system_status' => 'ONLINE'
+            'system_status' => 'UNKNOWN'
         ];
 
         out(200, ['status' => 'ok', 'summary' => $summary, 'devices' => $devices]);
     } catch (Throwable $e) {
         error_log('iot_dashboard GET err: ' . $e->getMessage());
         out(200, [
-            'status' => 'ok',
+            'status' => 'erro',
+            'mensagem' => 'Nao foi possivel consultar a presenca dos dispositivos.',
             'summary' => [
                 'total_devices' => 0, 'online_devices' => 0, 'relays_count' => 0,
                 'relays_on' => 0, 'sensors_count' => 0, 'temperature_c' => null,
                 'humidity_pct' => null, 'mobiles_online' => 0, 'watch_online' => 0,
-                'system_status' => 'ONLINE'
+                'system_status' => 'UNKNOWN'
             ],
             'devices' => []
         ]);
