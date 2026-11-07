@@ -27,7 +27,7 @@ O objetivo é permitir que o JARVIS receba comandos em linguagem natural, consul
 | Planejador | Perguntas rastreáveis, subtarefas imediatas/agendadas/condicionais | Experimental |
 | Web Agent | Pesquisa e coleta de conteúdo web com task_context | Experimental |
 | TTS | Serviço Python/FastAPI | Experimental |
-| Casa Mobile | Android Kotlin / Jetpack Compose, versão 2.8.3 | Experimental |
+| Casa Mobile | Android Kotlin / Jetpack Compose, versão 2.8.4 | Experimental |
 | JARVIS TV | Android TV, versão 1.0.0 | Experimental |
 | LILYGO Watch | Firmware + BLE de provisionamento + Wi-Fi/HTTPS em operação | Experimental |
 | ESP32-CAM | Captura e envio de imagens | Experimental |
@@ -117,7 +117,7 @@ A API utiliza autenticação e foi estruturada para suportar tokens individuais,
 
 ### Casa Mobile
 
-A versão atual na `master` é **2.8.3** (`versionCode 283`). O aplicativo Android está em:
+A versão atual na `master` é **2.8.4** (`versionCode 284`). O aplicativo Android está em:
 
 ```text
 android/JarvisMobile/

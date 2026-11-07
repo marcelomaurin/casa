@@ -14,7 +14,8 @@ object JarvisApi {
     private val jsonType = "application/json; charset=utf-8".toMediaType()
     private val client = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
-        .readTimeout(45, TimeUnit.SECONDS)
+        .readTimeout(120, TimeUnit.SECONDS)
+        .callTimeout(130, TimeUnit.SECONDS)
         .writeTimeout(20, TimeUnit.SECONDS)
         .retryOnConnectionFailure(false)
         .build()
@@ -23,7 +24,9 @@ object JarvisApi {
     private const val LEGACY_BASE_URL = "https://casa.maurinsoft.com.br"
     private const val PREFS = "jarvis"
     private const val MAX_PENDING_AGE_MS = 5 * 60 * 1000L
-    class HttpFailure(val statusCode: Int) : IllegalStateException("HTTP $statusCode")
+    class HttpFailure(val statusCode: Int, detail: String? = null) :
+        IllegalStateException(detail?.take(240)?.takeIf { it.isNotBlank() } ?: "HTTP $statusCode")
+    class ResponseFailure(message: String) : IllegalStateException(message)
     private const val PENDING_KEY = "pending_commands"
 
     data class Config(val baseUrl: String, val token: String)
@@ -93,7 +96,13 @@ object JarvisApi {
         if (body != null) b.post(body.toString().toRequestBody(jsonType)) else b.get()
         client.newCall(b.build()).execute().use { response ->
             val raw = response.body?.string().orEmpty()
-            if (!response.isSuccessful) throw HttpFailure(response.code)
+            if (!response.isSuccessful) {
+                val detail = runCatching {
+                    val j = JSONObject(raw)
+                    j.optString("mensagem").ifBlank { j.optString("resposta") }
+                }.getOrDefault("")
+                throw HttpFailure(response.code, detail)
+            }
             return raw
         }
     }
@@ -105,6 +114,30 @@ object JarvisApi {
 
     fun isOnline(context: Context): Boolean = runCatching { testConnection(context) }.isSuccess
 
+    // HTTP 200 nao garante sucesso do modelo; validar o estado interno do gateway.
+    internal fun parseCommandResponse(raw: String): JarvisAnswer {
+        val j = try { JSONObject(raw) } catch (e: Exception) {
+            throw ResponseFailure("A API retornou JSON inválido. Consulte a telemetria do servidor.")
+        }
+        val status = j.optString("status").lowercase()
+        val jarvisStatus = j.optString("status_jarvis").lowercase()
+        val responseText = j.optString("resposta").trim()
+        if (status == "erro" || jarvisStatus == "erro") {
+            val explanation = j.optString("mensagem").ifBlank { responseText }
+            throw ResponseFailure(explanation.ifBlank { "O servidor informou falha da IA." }.take(240))
+        }
+        if (responseText.isBlank()) {
+            throw ResponseFailure("O servidor respondeu sem texto da IA. Verifique o JARVIS e os registros de telemetria.")
+        }
+        val audio = j.optString("audio_url").takeIf { it.isNotBlank() && it != "null" }
+        return JarvisAnswer(
+            text = responseText,
+            audioUrl = audio,
+            action = j.optString("acao_executada").ifBlank { j.optString("acao") }
+                .takeIf { it.isNotBlank() && it != "null" }
+        )
+    }
+
     fun askJarvis(context: Context, text: String): JarvisAnswer {
         val language = LanguageManager.currentLanguage(context)
         val raw = request(context, "/api/v1/comando", JSONObject()
@@ -113,14 +146,9 @@ object JarvisApi {
             .put("origem", "ANDROID_APP")
             .put("idioma", language)
             .put("locale", language))
-        val j = JSONObject(raw)
-        val audio = j.optString("audio_url").takeIf { it.isNotBlank() && it != "null" }
-        lastAudioUrl = audio
-        return JarvisAnswer(
-            text = j.optString("resposta", j.optString("mensagem", "JARVIS")),
-            audioUrl = audio,
-            action = j.optString("acao_executada").takeIf { it.isNotBlank() && it != "null" }
-        )
+        val answer = parseCommandResponse(raw)
+        lastAudioUrl = answer.audioUrl
+        return answer
     }
 
     @Synchronized
@@ -149,10 +177,12 @@ object JarvisApi {
         val message = when (e.statusCode) {
             401, 403 -> "Acesso recusado. Verifique a autorização do celular no servidor; o vínculo local foi preservado."
             429 -> "Muitas solicitações. Aguarde antes de tentar novamente."
-            in 500..599 -> "Falha no servidor. O comando não foi colocado na fila."
-            else -> "Solicitação recusada (HTTP ${e.statusCode})."
+            in 500..599 -> "Falha no servidor (HTTP ${e.statusCode}): ${e.message.orEmpty()}. Confira a telemetria; a execução não está confirmada."
+            else -> "Solicitação recusada (HTTP ${e.statusCode}): ${e.message.orEmpty()}"
         }
         SendResult(false, false, null, message)
+    } catch (e: ResponseFailure) {
+        SendResult(false, false, null, e.message ?: "Resposta inválida do JARVIS.")
     } catch (e: Exception) {
         SendResult(false, false, null, "Não foi possível enviar: ${e.message ?: "resposta inválida"}")
     }
