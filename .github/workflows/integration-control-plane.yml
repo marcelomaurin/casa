@@ -118,6 +118,9 @@ jobs:
       - name: Test task queue (planner -> daemons)
         run: php .github/tests/test_fila_tarefas.php
 
+      - name: Test AI task diagnostics and worker heartbeat
+        run: php .github/tests/test_diagnostico_tarefas_ia.php
+
       - name: Test Google Home queue and Cast agent
         run: |
           php .github/tests/test_google_home.php
