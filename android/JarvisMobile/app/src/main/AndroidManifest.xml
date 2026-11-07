@@ -17,6 +17,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <!-- Necessaria apenas para encaminhar APK de atualizacao ao instalador do Android. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <uses-permission
         android:name="android.permission.NEARBY_WIFI_DEVICES"
@@ -51,6 +52,7 @@
         </activity>
 
         <activity android:name=".UpdateInstallActivity" android:exported="false" />
+        <service android:name=".MobileUpdateJobService" android:exported="true" android:permission="android.permission.BIND_JOB_SERVICE" />
         <activity
             android:name=".QrCaptureActivity"
             android:screenOrientation="fullSensor"
