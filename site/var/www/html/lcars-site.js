@@ -1088,14 +1088,14 @@ function openNodeServicesModal(node, catalog){
 }
 
 async function renderNodes(){
-  loading('Clusters e agentes Linux ARM');
+  loading(uiT('Clusters e agentes Linux ARM'));
   try{
     const j=await getJson('/casa/api/arm_nodes.php');
     const all=j.nodes||[];
     const catalog=j.service_catalog||[];
     const p=paginate('nodes',all,12);
     const states={online:uiT('ONLINE'),offline:uiT('SEM CONTATO RECENTE'),registered:uiT('AGUARDANDO CONTATO'),revoked:uiT('REVOGADO')};
-    const summary='<p>'+esc(all.length)+' agente(s) registrado(s) • '+esc(all.filter(n=>n.online).length)+' online. Online: contato nos últimos 40 segundos (heartbeat a cada 20s). Para distribuir ou transferir serviços entre os nós, utilize a tela Orquestração de serviços.</p>';
+    const summary='<p>'+esc(all.length)+' '+esc(uiT('agente(s) registrado(s)'))+' • '+esc(all.filter(n=>n.online).length)+' '+esc(uiT('online'))+'. '+esc(uiT('Online: contato nos últimos 40 segundos (heartbeat a cada 20s). Para distribuir ou transferir serviços entre os nós, utilize a tela Orquestração de serviços.'))+'</p>';
 
 
 
@@ -1158,16 +1158,16 @@ async function renderNodes(){
         ) : '<div style="margin-top:4px;"><span style="color:#94a3b8;font-size:0.75rem;font-style:italic;">Status indisponível (nó offline)</span></div>')+
         (n.deployed_at?'<small style="display:block;opacity:0.8;font-size:0.75rem;margin-top:2px;">Atualizado: '+esc(n.deployed_at)+'</small>':'')+
       '</dd>'+
-      '<dt>'+esc(uiT("CPU"))+'</dt><dd>'+esc(n.cpu||'Não informada')+'</dd>'+
-      '<dt>'+esc(uiT("RAM"))+'</dt><dd>'+esc(n.ram||'Não informada')+'</dd>'+
-      '<dt>'+esc(uiT("Capacidades"))+'</dt><dd>'+esc((n.capabilities||[]).join(', ')||'Não informadas')+'</dd>'+
-      '<dt>'+esc(uiT("Último contato (servidor)"))+'</dt><dd>'+esc(n.last_seen||'Ainda não recebido')+'</dd>'+
+      '<dt>'+esc(uiT("CPU"))+'</dt><dd>'+esc(n.cpu||uiT('Não informada'))+'</dd>'+
+      '<dt>'+esc(uiT("RAM"))+'</dt><dd>'+esc(n.ram||uiT('Não informada'))+'</dd>'+
+      '<dt>'+esc(uiT("Capacidades"))+'</dt><dd>'+esc((n.capabilities||[]).join(', ')||uiT('Não informadas'))+'</dd>'+
+      '<dt>'+esc(uiT("Último contato (servidor)"))+'</dt><dd>'+esc(n.last_seen||uiT('Ainda não recebido'))+'</dd>'+
       '<dt>'+esc(uiT("Acesso SSH"))+'</dt><dd><code style="background:#02070c;border:1px solid #24516b;padding:2px 7px;border-radius:4px;color:#00e5ff;font-family:monospace;font-size:0.85rem;user-select:all;">ssh mmm@'+esc(n.ip_address||'—')+'</code></dd>'+
       '<dt>'+esc(uiT("Site do Cluster"))+'</dt><dd>'+(n.ip_address?'<a href="http://'+esc(n.ip_address)+':8080/" target="_blank" style="display:inline-block;padding:3px 10px;background:#38bdf8;color:#000;border-radius:4px;text-decoration:none;font-weight:bold;font-size:0.8rem;">'+esc(uiT("ABRIR PORTAL (:8080)"))+'</a>':'—')+'</dd>'+
       '</dl><span class="ja-state '+(n.online?'ok':'')+'">'+esc(states[n.status]||n.status)+'</span></article>';
     })+pager('nodes',p):
       '<div class="ja-empty">Nenhum agente Linux ARM registrado. Clique em <b>+ NOVO NÓ</b> acima ou conecte agentes pela API de dispositivos.</div>';
-    moduleShell('Cluster ARM — nós e equipamentos',summary+body,'<a class="ja-mini primary" href="/casa/index.php?grupo=SISTEMA&amp;item=orchestration-sys">Orquestração de serviços</a> <button id="nodes-add" class="ja-mini primary" style="margin-right:8px;">+ NOVO NÓ</button><button id="nodes-refresh" class="ja-mini">Atualizar lista</button>');
+    moduleShell(uiT('Cluster ARM — nós e equipamentos'),summary+body,'<a class="ja-mini primary" href="/casa/index.php?grupo=SISTEMA&amp;item=orchestration-sys">'+esc(uiT("Orquestração de serviços"))+'</a> <button id="nodes-add" class="ja-mini primary" style="margin-right:8px;">'+esc(uiT("+ NOVO NÓ"))+'</button><button id="nodes-refresh" class="ja-mini">'+esc(uiT("Atualizar lista"))+'</button>');
     bindPager('nodes',p,renderNodes);
     document.getElementById('nodes-add').onclick=openNewNodeModal;
     document.getElementById('nodes-refresh').onclick=renderNodes;
@@ -1244,7 +1244,7 @@ async function renderNodes(){
       };
     });
   }catch(e){
-    moduleShell('Clusters e agentes Linux ARM','<div class="ja-empty">'+esc(e.message||'Falha ao carregar agentes.')+'</div>','<button id="nodes-retry" class="ja-mini">Tentar novamente</button>');
+    moduleShell(uiT('Clusters e agentes Linux ARM'),'<div class="ja-empty">'+esc(e.message||uiT('Falha ao carregar agentes.'))+'</div>','<button id="nodes-retry" class="ja-mini">'+esc(uiT("Tentar novamente"))+'</button>');
     document.getElementById('nodes-retry').onclick=renderNodes;
   }
 }
@@ -1302,7 +1302,7 @@ function orchestrationMarkup(all,orch){
 
 /** Orquestração é uma tela própria: sem a grade do inventário abaixo. */
 async function renderOrchestration(){
-  loading('Orquestração de serviços do cluster');
+  loading(uiT('Orquestração de serviços do cluster'));
   try{
     const data=await getJson('/casa/api/arm_nodes.php');
     const all=data.nodes||[];
@@ -1310,24 +1310,24 @@ async function renderOrchestration(){
     const active=orch.filter(s=>s.active).length;
     const redundant=orch.filter(s=>s.redundant).length;
     const summary='<div class="ja-orch-summary">'+
-      '<strong>'+esc(orch.length)+' serviços catalogados</strong>'+
-      '<span>'+esc(active)+' ativos</span>'+
-      '<span>'+esc(all.filter(n=>n.online).length)+' de '+esc(all.length)+' nós online</span>'+
-      (redundant?'<span class="warning">'+esc(redundant)+' serviço(s) com redundância</span>':'')+
+      '<strong>'+esc(orch.length)+' '+esc(uiT('serviços catalogados'))+'</strong>'+
+      '<span>'+esc(active)+' '+esc(uiT('ativos'))+'</span>'+
+      '<span>'+esc(all.filter(n=>n.online).length)+' '+esc(uiT('de'))+' '+esc(all.length)+' '+esc(uiT('nós online'))+'</span>'+
+      (redundant?'<span class="warning">'+esc(redundant)+' '+esc(uiT('serviço(s) com redundância'))+'</span>':'')+
       '</div>'+
       '<p class="ja-orch-intro">'+esc(uiT("Defina em qual nó cada serviço deve funcionar. A transferência segue as regras de exclusividade e proteção existentes no servidor; confira o estado do nó antes de aplicar."))+'</p>';
-    moduleShell('Orquestração de serviços do cluster',
+    moduleShell(uiT('Orquestração de serviços do cluster'),
       '<div class="ja-orch-layout">'+summary+orchestrationMarkup(all,orch)+'</div>',
-      '<a class="ja-mini" href="/casa/index.php?grupo=SISTEMA&amp;item=nodes-sys">Ver Cluster ARM</a> '+
-      '<button id="orch-refresh" class="ja-mini primary">Atualizar serviços</button>');
+      '<a class="ja-mini" href="/casa/index.php?grupo=SISTEMA&amp;item=nodes-sys">'+esc(uiT("Ver Cluster ARM"))+'</a> '+
+      '<button id="orch-refresh" class="ja-mini primary">'+esc(uiT("Atualizar serviços"))+'</button>');
     document.getElementById('orch-refresh').onclick=renderOrchestration;
     bindOrchestrationActions(renderOrchestration);
     bindServiceControls(renderOrchestration);
   }catch(e){
-    moduleShell('Orquestração de serviços do cluster',
-      '<div class="ja-empty">'+esc(e.message||'Falha ao carregar orquestração.')+'</div>',
-      '<a class="ja-mini" href="/casa/index.php?grupo=SISTEMA&amp;item=nodes-sys">Ver Cluster ARM</a> '+
-      '<button id="orch-retry" class="ja-mini">Tentar novamente</button>');
+    moduleShell(uiT('Orquestração de serviços do cluster'),
+      '<div class="ja-empty">'+esc(e.message||uiT('Falha ao carregar orquestração.'))+'</div>',
+      '<a class="ja-mini" href="/casa/index.php?grupo=SISTEMA&amp;item=nodes-sys">'+esc(uiT("Ver Cluster ARM"))+'</a> '+
+      '<button id="orch-retry" class="ja-mini">'+esc(uiT("Tentar novamente"))+'</button>');
     document.getElementById('orch-retry').onclick=renderOrchestration;
   }
 }
