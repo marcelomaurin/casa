@@ -7,6 +7,7 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:allowBackup="false"
@@ -25,6 +26,7 @@
             </intent-filter>
         </activity>
         <activity android:name=".TvUpdateInstallActivity" android:exported="false" />
+        <service android:name=".TvUpdateJobService" android:exported="true" android:permission="android.permission.BIND_JOB_SERVICE" />
         <receiver android:name=".TvUpdateManager$Receiver" android:exported="false">
             <intent-filter><action android:name="android.intent.action.DOWNLOAD_COMPLETE" /></intent-filter>
         </receiver>
