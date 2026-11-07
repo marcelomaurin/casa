@@ -2024,6 +2024,10 @@ button.md-tile:hover,button.md-tile:focus-visible{border-color:#f2a000;backgroun
 .casa-language-picker select:focus-visible{outline:2px solid #38bdf8;outline-offset:2px}
 /* Preserve the LCARS grid while allowing Arabic text to flow right-to-left. */
 html[dir="rtl"] #app{direction:ltr}
+html[dir="rtl"] .ja-card,
+html[dir="rtl"] .ja-panel-head,
+html[dir="rtl"] .ja-status-card,
+html[dir="rtl"] .ja-menu-title,
 html[dir="rtl"] .ja-native-module,
 html[dir="rtl"] .ja-menu-section,
 html[dir="rtl"] .ja-rail,
