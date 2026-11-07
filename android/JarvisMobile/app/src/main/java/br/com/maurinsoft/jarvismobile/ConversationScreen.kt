@@ -46,6 +46,7 @@ fun ConversationScreen(online: Boolean, speech: SpeechInputController, audio: Ja
     fun send(value: String) {
         if (value.isBlank() || busy) return
         busy = true
+        status = "Consultando o JARVIS…"
         add("Você", value)
         scope.launch {
             try {
@@ -53,9 +54,11 @@ fun ConversationScreen(online: Boolean, speech: SpeechInputController, audio: Ja
                 add("JARVIS", result.text?.takeIf { it.isNotBlank() } ?: result.message)
                 if (result.delivered) runCatching { audio.play(result.audioUrl) }
                 pending = JarvisApi.pendingCount(context)
+                status = ""
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                status = ""
                 add("JARVIS", "Falha ao processar a resposta: ${e.message ?: "erro desconhecido"}")
             } finally { busy = false }
         }
