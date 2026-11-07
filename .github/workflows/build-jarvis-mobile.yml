@@ -7,6 +7,10 @@ on:
       - 'android/JarvisMobile/**'
       - '.github/workflows/build-jarvis-mobile.yml'
       - '.gitignore'
+  pull_request:
+    paths:
+      - 'android/JarvisMobile/**'
+      - '.github/workflows/build-jarvis-mobile.yml'
   workflow_dispatch:
 
 permissions:
