@@ -5,6 +5,10 @@ on:
     paths:
       - 'android/JarvisTV/**'
       - '.github/workflows/build-jarvis-tv.yml'
+  pull_request:
+    paths:
+      - 'android/JarvisTV/**'
+      - '.github/workflows/build-jarvis-tv.yml'
   workflow_dispatch:
 
 permissions:
