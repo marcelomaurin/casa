@@ -31,7 +31,7 @@ import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
-VERSAO = "1.1.0"
+VERSAO = "1.2.0"
 LOG = logging.getLogger("casa-tarefas")
 NOME_VALIDO = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.:\-]{0,79}$")
 
@@ -59,7 +59,7 @@ class Config:
         self.base_url = os.getenv("CASA_BASE_URL", "https://maurinsoft.com.br/casa").rstrip("/")
         self.chave = os.getenv("CASA_TAREFAS_CHAVE", "").strip()
         self.nome = os.getenv("CASA_TAREFAS_NOME", socket.gethostname().split(".")[0] or "casa-tarefas").strip()
-        self.executores = lista(os.getenv("CASA_TAREFAS_EXECUTORES", "jarvis,web,fala"))
+        self.executores = lista(os.getenv("CASA_TAREFAS_EXECUTORES", "jarvis,agente,web,fala"))
         self.filas = lista(os.getenv("CASA_TAREFAS_FILAS", ""))
         self.paralelo = max(1, min(16, int(os.getenv("CASA_TAREFAS_PARALELO", "2"))))
         # A API v1 bloqueia por 5 min a chave que passar de 60 pedidos/min (o IP da casa é isento):
@@ -75,8 +75,8 @@ class Config:
         # Ciclo do mordomo (/api/v1/mordomo.php): segundos entre ciclos; 0 desliga.
         valor = float(os.getenv("CASA_MORDOMO_INTERVALO", "60"))
         self.mordomo_intervalo = 0.0 if valor <= 0 else max(20.0, valor)
-        self.agente_enabled = os.getenv("CASA_TAREFAS_AGENTE_ENABLED", "0") == "1"
-        self.jarvis_modo = os.getenv("CASA_TAREFAS_JARVIS_MODO", "central").strip().lower()
+        self.agente_enabled = os.getenv("CASA_TAREFAS_AGENTE_ENABLED", "1") == "1"
+        self.jarvis_modo = os.getenv("CASA_TAREFAS_JARVIS_MODO", "agente").strip().lower()
         self.agente_workspace = os.getenv("CASA_TAREFAS_AGENTE_WORKSPACE", "/var/lib/casa-tarefas/workspaces")
         self.agente_passos = max(2, min(20, int(os.getenv("CASA_TAREFAS_AGENTE_PASSOS", "10"))))
         self.agente_servicos = lista(os.getenv("CASA_TAREFAS_AGENTE_SERVICOS", "casa-tarefas.service,casa-node-agent.service,jarvis-web-agent.service"))
@@ -312,12 +312,17 @@ def executor_agente(tarefa, ctx):
         r = http_json(f"{ctx.cfg.base_url}/api/v1/comando", {
             "comando": prompt, "origem": "DAEMON_TAREFAS", "skip_planner": True,
             "correlation_id": tarefa.get("correlation_id"), "task_context": tarefa.get("task_context"),
+            "sem_acoes": True,
         }, ctx.cfg.chave, max(ctx.cfg.tempo_http, 90))
         if r.get("status_jarvis") == "erro" or r.get("status") not in (None, "sucesso", "ok"):
             raise RuntimeError("Modelo do agente indisponivel: " + str(r.get("mensagem") or r.get("resposta") or "erro")[:300])
         return r.get("resposta")
 
-    return mod.AgenteLocal(tarefa, ctx, modelo, executor_comando, executor_web).rodar()
+    try:
+        return mod.AgenteLocal(tarefa, ctx, modelo, executor_comando, executor_web).rodar()
+    except mod.SubtarefasSolicitadas as exc:
+        # A API central cria as tarefas filhas numa transacao; o agente nao altera a fila local.
+        raise Dividir(exc.partes) from None
 
 
 EMBUTIDOS = {"jarvis": executor_jarvis, "agente": executor_agente, "web": executor_web, "fala": executor_fala, "comando": executor_comando}
@@ -530,7 +535,8 @@ def main(argv=None):
     if args.verificar:
         print(json.dumps({"versao": VERSAO, "nome": cfg.nome, "base_url": cfg.base_url, "executores": cfg.executores,
                           "filas": cfg.filas, "paralelo": cfg.paralelo, "prazo": cfg.prazo,
-                          "chave_configurada": bool(cfg.chave), "erros": erros}, ensure_ascii=False, indent=2))
+                          "chave_configurada": bool(cfg.chave), "agente_habilitado": cfg.agente_enabled,
+                          "jarvis_modo": cfg.jarvis_modo, "erros": erros}, ensure_ascii=False, indent=2))
         return 1 if erros else 0
     if erros:
         for e in erros:
