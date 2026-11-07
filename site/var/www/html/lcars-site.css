@@ -1987,41 +1987,75 @@ button.md-tile:hover,button.md-tile:focus-visible{border-color:#f2a000;backgroun
 .ja-native-actions a.ja-mini{display:inline-flex;align-items:center;justify-content:center;text-decoration:none;min-height:30px}
 
 
-/* Locale selection: stable header control, available on all Casa routes. */
+/* Seletor de idioma dentro da aba ADMINISTRAÇÃO, na lateral direita. */
 .casa-language-picker{
-  position:fixed;
-  z-index:120;
-  top:clamp(14px,6vh,66px);
-  right:clamp(260px,15vw,350px);
-  display:flex;
-  align-items:center;
-  gap:7px;
-  min-height:34px;
+  position:static;
+  z-index:auto;
+  display:grid;
+  grid-template-columns:minmax(0,1fr);
+  gap:5px;
+  width:100%;
+  min-width:0;
+  min-height:0;
   direction:ltr;
-  padding:3px 8px;
-  border:1px solid #613e46;
-  border-radius:9px;
-  background:rgba(30,25,35,.93);
-  box-shadow:0 2px 10px rgba(0,0,0,.25);
+  margin:0;
+  padding:8px;
+  border:1px solid #b889d6;
+  border-radius:10px;
+  background:rgba(9,13,27,.92);
+  box-shadow:none;
 }
 .casa-language-picker label{
-  color:#fff;
-  font-size:12px;
-  font-weight:700;
-  white-space:nowrap;
+  color:#e9c8ff;
+  font-size:clamp(10px,.8vw,12px);
+  font-weight:900;
+  white-space:normal;
+  text-align:left;
 }
 .casa-language-picker select{
-  max-width:180px;
-  min-width:140px;
-  min-height:30px;
-  border-radius:5px;
-  padding:4px 7px;
+  display:block;
+  width:100%;
+  max-width:100%;
+  min-width:0;
+  min-height:34px;
+  border-radius:6px;
+  padding:5px 6px;
+  border:1px solid #b889d6;
   background:#080f1d;
   color:#fff;
-  font:600 12px system-ui,sans-serif;
+  font:600 clamp(10px,.8vw,12px) system-ui,sans-serif;
   cursor:pointer;
+  direction:ltr;
 }
-.casa-language-picker select:focus-visible{outline:2px solid #38bdf8;outline-offset:2px}
+.casa-language-picker select:focus-visible{
+  outline:2px solid #38bdf8;
+  outline-offset:2px;
+}
+/* O painel tem altura limitada; rolagem garante acesso ao idioma e aos botões. */
+@media(min-width:761px){
+  .ja-status{overflow-y:auto!important;overflow-x:hidden!important;scrollbar-width:thin}
+  .ja-admin-tools{flex:0 0 auto;min-height:min-content}
+}
+/* Sem coluna direita no celular: manter seletor acessível no topo. */
+@media(max-width:760px){
+  .casa-language-picker:not(.in-admin-panel){
+    position:fixed;
+    z-index:120;
+    top:6px;
+    right:105px;
+    width:auto;
+    max-width:145px;
+    padding:2px 5px;
+  }
+  .casa-language-picker:not(.in-admin-panel) label{display:none}
+  .casa-language-picker:not(.in-admin-panel) select{
+    width:100%;
+    min-width:105px;
+    max-width:130px;
+    min-height:28px;
+    font-size:11px;
+  }
+}
 /* Preserve the LCARS grid while allowing Arabic text to flow right-to-left. */
 html[dir="rtl"] #app{direction:ltr}
 html[dir="rtl"] .ja-card,
@@ -2035,8 +2069,4 @@ html[dir="rtl"] .ja-orch-service,
 html[dir="rtl"] .ja-orch-intro{direction:rtl;text-align:right}
 html[dir="rtl"] .ja-orch-service code,
 html[dir="rtl"] .ja-orch-service select{direction:ltr;text-align:left}
-@media(max-width:900px){
-  .casa-language-picker{top:6px;right:105px;padding:2px 5px;gap:0}
-  .casa-language-picker label{display:none}
-  .casa-language-picker select{max-width:130px;min-width:105px;min-height:28px;font-size:11px}
-}
+
