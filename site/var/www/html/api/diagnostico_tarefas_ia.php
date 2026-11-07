@@ -33,11 +33,12 @@ function cti_compativel(array $t, array $w): bool {
 }
 
 function cti_palavras(string $pergunta): array {
-    $stop = array_fill_keys(explode(' ', 'quando porque qual quais como quem onde tarefa tarefas projeto projetos plano planos daemon daemons worker workers trabalhador trabalhadores executou executar executada executado execucao rodou rodar rodando iniciado iniciar iniciada iniciado status pendente pendentes parada parado data solicitacao solicitei solicitado solicitada fiz meu minha meus minhas ainda nunca nao foi foram para pelo pela que esta estão estao uma uns umas sobre quero saber poderia me diga diga mostre verifique verifica olhe veja motivo razao isso aquele aquela desta desse dessa existe historico'), true);
+    $stop = array_fill_keys(explode(' ', 'quando porque qual quais como quem onde tarefa tarefas projeto projetos plano planos daemon daemons worker workers trabalhador trabalhadores executou executar executada executado execucao rodou rodar rodando iniciado iniciar iniciada iniciado status pendente pendentes parada parado data datas datahora dia dias solicitacao solicitacoes solicitacoes solicitei solicitado solicitada solicitados solicitadas criacao criada criado criadas criados cadastrada cadastrado cadastradas cadastrados registrada registrado registradas registrados qual quais foi foram quaisdas tenho hoje ontem fiz meu minha meus minhas ainda nunca nao foi foram para pelo pela que esta estão estao uma uns umas sobre quero saber poderia me diga diga mostre verifique verifica olhe veja motivo razao isso aquele aquela desta desse dessa existe historico'), true);
     $terms = preg_split('/[^\p{L}\p{N}]+/u', mb_strtolower($pergunta, 'UTF-8'), -1, PREG_SPLIT_NO_EMPTY);
     $r = [];
     foreach ($terms as $word) {
-        if (mb_strlen($word, 'UTF-8') < 4 || isset($stop[$word])) continue;
+        $normal = strtr($word, ['á'=>'a','à'=>'a','ã'=>'a','â'=>'a','é'=>'e','ê'=>'e','í'=>'i','ó'=>'o','ô'=>'o','õ'=>'o','ú'=>'u','ç'=>'c']);
+        if (mb_strlen($word, 'UTF-8') < 4 || isset($stop[$normal])) continue;
         $r[$word] = true;
     }
     return array_slice(array_keys($r), 0, 6);
@@ -175,4 +176,103 @@ function cti_resumo_workers(array $workers): array {
             '; executores: ' . cc_txt(implode(',', cc_json($w['executores'])), 70);
     }
     return $l;
+}
+
+
+/** Perguntas factuais sobre datas nao devem ser replanejadas nem respondidas por adivinhacao. */
+function cti_pergunta_datas_tarefas(string $pergunta): bool {
+    $q = mb_strtolower(trim($pergunta), 'UTF-8');
+    $q = strtr($q, ['á'=>'a','à'=>'a','â'=>'a','ã'=>'a','é'=>'e','ê'=>'e','í'=>'i','ó'=>'o','ô'=>'o','õ'=>'o','ú'=>'u','ç'=>'c']);
+    if (!preg_match('/\b(tarefa(s)?|solicitacao|solicitacoes|projeto(s)?|plano(s)?)\b/', $q)) return false;
+    // Nao confundir data historica com pedido de agendamento futuro.
+    if (preg_match('/\b(agendar|agende|agendamento|marque|programar|programe|amanha|futur[ao])\b/', $q)) return false;
+    if (preg_match('/\b(data(s)?|dia(s)?)\b/', $q) &&
+        preg_match('/\b(qual|quais|quando|liste|list[ae]|mostre|me informe|me diga|informe)\b/', $q)) return true;
+    if (preg_match('/\bquando\b/', $q) &&
+        preg_match('/(solicit|criad|criei|cadastr|registr|pedid|pedi|abert|abri)/', $q)) return true;
+    return false;
+}
+
+/** Exibe o horario persistido pelo banco sem converter para um fuso nao confirmado. */
+function cti_formatar_data($valor): string {
+    $s = trim((string)$valor);
+    if (!preg_match('/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/', $s, $m))
+        return 'nao registrada';
+    return $m[3].'/'.$m[2].'/'.$m[1].' '.$m[4].':'.$m[5];
+}
+
+/** Filtra por ID ou palavras do titulo; sem filtro, lista as tarefas mais recentes. */
+function cti_selecionar_datas(array $tarefas, string $pergunta, int $limite = 20): array {
+    $termos = cti_palavras($pergunta);
+    $id = null;
+    if (preg_match('/(?:tarefa\s*#?|#)(\d{1,12})/ui', $pergunta, $m)) $id = (int)$m[1];
+    $out = [];
+    foreach ($tarefas as $t) {
+        if ($id !== null && $id !== (int)($t['id_tarefa'] ?? 0) &&
+            $id !== (int)($t['id_fila'] ?? 0)) continue;
+        $txt = mb_strtolower((string)($t['titulo'] ?? '') . ' ' . (string)($t['projeto'] ?? ''), 'UTF-8');
+        $score = 0;
+        foreach ($termos as $p) if (mb_stripos($txt, $p, 0, 'UTF-8') !== false) $score++;
+        if ($termos && $score === 0 && $id === null) continue;
+        $t['_score'] = $score;
+        $out[] = $t;
+    }
+    usort($out, static function ($a, $b) use ($termos) {
+        if ($termos && $a['_score'] !== $b['_score']) return $b['_score'] <=> $a['_score'];
+        return strcmp((string)$b['solicitada_em'], (string)$a['solicitada_em']);
+    });
+    return array_slice($out, 0, max(1, min($limite, 50)));
+}
+
+/** Retorna as datas reais das solicitacoes, inclusive projetos ainda nao aprovados. */
+function cti_responder_datas_tarefas(PDO $pdo, string $pergunta): array {
+    $tarefas = []; $consultasOk = 0; $fontesComErro = [];
+    try {
+        $sql = "SELECT t.id AS id_tarefa,t.titulo,p.nome AS projeto,
+                   t.criado_em AS solicitada_em,p.criado_em AS projeto_criado_em,
+                   j.criado_em AS enfileirada_em,j.id AS id_fila,
+                   COALESCE(j.status,t.status) AS status
+                FROM casa_projeto_tarefas t
+                JOIN casa_projetos p ON p.id=t.projeto_id
+                LEFT JOIN jarvis_tarefas j ON j.id=t.jarvis_tarefa_id
+                ORDER BY t.criado_em DESC,t.id DESC LIMIT 250";
+        $tarefas = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC); $consultasOk++;
+    } catch (Throwable $e) { $fontesComErro[] = 'projetos'; }
+    try {
+        $sql = "SELECT j.id AS id_tarefa,j.titulo,p.demanda_original AS projeto,
+                   p.criado_em AS solicitada_em,p.criado_em AS projeto_criado_em,
+                   j.criado_em AS enfileirada_em,j.id AS id_fila,
+                   j.status
+                FROM jarvis_tarefas j JOIN jarvis_planos p ON p.id=j.id_plano
+                WHERE j.fila IS NOT NULL AND NOT EXISTS
+                   (SELECT 1 FROM casa_projeto_tarefas t WHERE t.jarvis_tarefa_id=j.id)
+                ORDER BY j.criado_em DESC,j.id DESC LIMIT 250";
+        $tarefas = array_merge($tarefas,$pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC)); $consultasOk++;
+    } catch (Throwable $e) { $fontesComErro[] = 'fila de tarefas'; }
+    if ($consultasOk === 0) return ['ok'=>false,'resposta'=>'Nao consegui consultar as datas das tarefas no banco do Casa. Verifique a conexao e as migracoes.','tarefas'=>[]];
+    $selecionadas = cti_selecionar_datas($tarefas, $pergunta);
+    if (!$selecionadas) {
+        return ['ok'=>true,'resposta'=>'Nao encontrei tarefas correspondentes nos registros consultados. Informe o titulo ou ID para uma busca mais precisa.','tarefas'=>[]];
+    }
+    $linhas = ['Datas de solicitacao registradas no banco do Casa (hora informada pelo banco):'];
+    $dados = [];
+    foreach ($selecionadas as $t) {
+        $id=(int)$t['id_tarefa'];
+        $titulo=cc_txt($t['titulo'],90);
+        $projeto=cc_txt($t['projeto'] ?? '',75);
+        $data=cti_formatar_data($t['solicitada_em'] ?? '');
+        $status=(string)($t['status'] ?? 'nao informado');
+        $linha="- Tarefa #$id, $titulo: solicitada em $data; status $status";
+        if ($projeto !== '') $linha.='; projeto: '.$projeto;
+        if (!empty($t['enfileirada_em'])) $linha.='; entrou na fila em '.cti_formatar_data($t['enfileirada_em']);
+        $linhas[]=$linha.'.';
+        $dados[]=['id'=>$id,'titulo'=>$titulo,'projeto'=>$projeto,
+            'solicitada_em'=>$t['solicitada_em'] ?? null,
+            'projeto_criado_em'=>$t['projeto_criado_em'] ?? null,
+            'enfileirada_em'=>$t['enfileirada_em'] ?? null,'status'=>$status];
+    }
+    if (count($tarefas) > count($selecionadas) && !cti_palavras($pergunta))
+        $linhas[]='Mostrando as '.count($selecionadas).' tarefas mais recentes dentre os registros consultados; outras podem existir.';
+    if ($fontesComErro) $linhas[]='Aviso: consulta parcial; fonte indisponivel: '.implode(', ',$fontesComErro).'.';
+    return ['ok'=>true,'resposta'=>implode("\n",$linhas),'tarefas'=>$dados];
 }
