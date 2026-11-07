@@ -12,6 +12,11 @@ on:
 permissions:
   contents: write
 
+# Mobile e TV publicam no mesmo JSON: evitar pushes simultaneos.
+concurrency:
+  group: ${{ github.ref == 'refs/heads/master' && 'casa-android-manifest-master' || format('casa-mobile-{0}', github.ref) }}
+  cancel-in-progress: false
+
 jobs:
   repository-hygiene:
     if: github.ref == 'refs/heads/master'
