@@ -248,6 +248,7 @@ function jarvis_tts($texto, $speaker='padrao', $reproduzir=true) {
 }
 
 function jarvis_deve_planejar($cmd) {
+    if (cti_pergunta_sobre_tarefa((string)$cmd)) return false; // Consulta ao historico nao cria novo plano.
     $c = mb_strtolower($cmd, 'UTF-8');
     if (preg_match('/^\s*\/planejar\b/u', $c)) return true;
     if (preg_match('/\b(amanh[aã]|depois de amanh[aã]|daqui a|[àa]s \d{1,2}(:\d{2})?|todo dia|toda semana|todo m[eê]s|semanalmente|diariamente)\b/u', $c)) return true;
@@ -813,7 +814,7 @@ $ragFontes=$rag['sources']??[];
 $contextoCasa=['prompt'=>'','secoes'=>[],'chars'=>0];
 if(strtolower(trim((string)($configs['jarvis_contexto_casa'] ?? 'sempre')))!=='nunca'){
     $maxCtx=max(800,min(12000,(int)($configs['jarvis_contexto_max_chars'] ?? 3500)));
-    try{ $contextoCasa=casa_contexto_prompt($pdo,$maxCtx); }catch(Throwable $e){ error_log('contexto_casa: '.$e->getMessage()); }
+    try{ $contextoCasa=casa_contexto_prompt($pdo,$maxCtx,$comando); }catch(Throwable $e){ error_log('contexto_casa: '.$e->getMessage()); }
 }
 
 if($taskInterpret>0) te_complete($pdo,$taskInterpret,['roteamento'=>'ia']);
