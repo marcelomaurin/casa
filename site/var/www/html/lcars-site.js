@@ -116,6 +116,7 @@ const GROUPS={
     sections:[
       {title:'INFRAESTRUTURA',items:[
         {id:'nodes-sys',label:'Cluster ARM',module:'nodes'},
+        {id:'orchestration-sys',label:'Orquestração de serviços',module:'orchestration'},
         {id:'sensors-sys',label:'Telemetria operacional',module:'telemetryOps'},
         {id:'iot-sys',label:'ESP32 / Arduino / IoT',module:'iot'},
         {id:'bin-sys',label:'Central de Binários & APKs (/bin)',url:'/casa/bin/'}
@@ -414,6 +415,7 @@ async function mountNativeModule(item){
     if(m==='sensors') return renderSensors();
     if(m==='telemetryOps') return renderOperationalTelemetry();
     if(m==='nodes') return renderNodes();
+    if(m==='orchestration') return renderOrchestration();
     if(m==='schedules') return renderSchedules();
     if(m==='automation') return renderAutomation();
     if(m==='updates') return renderUpdates(false);
@@ -1084,57 +1086,11 @@ async function renderNodes(){
     const j=await getJson('/casa/api/arm_nodes.php');
     const all=j.nodes||[];
     const catalog=j.service_catalog||[];
-    const orch=j.orchestration||[];
     const p=paginate('nodes',all,12);
     const states={online:'ONLINE',offline:'SEM CONTATO RECENTE',registered:'AGUARDANDO CONTATO',revoked:'REVOGADO'};
-    const summary='<p>'+esc(all.length)+' agente(s) registrado(s) • '+esc(all.filter(n=>n.online).length)+' online. Online: contato nos últimos 40 segundos (heartbeat a cada 20s). Gerencie abaixo quem executa cada serviço da casa (sem redundância) e ative/desative serviços remotamente.</p>';
+    const summary='<p>'+esc(all.length)+' agente(s) registrado(s) • '+esc(all.filter(n=>n.online).length)+' online. Online: contato nos últimos 40 segundos (heartbeat a cada 20s). Para distribuir ou transferir serviços entre os nós, utilize a tela Orquestração de serviços.</p>';
 
-    const orchHtml = orch.length ? (
-      '<section class="ja-native-card" style="margin-bottom:18px;border:1px solid #24516b;background:rgba(2,12,24,0.85);">'+
-        '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px;">'+
-          '<h3 style="margin:0;color:#38bdf8;">⚡ ORQUESTRAÇÃO DE SERVIÇOS DO CLUSTER (QUEM EXECUTA O QUÊ · SEM REDUNDÂNCIA)</h3>'+
-          '<span style="font-size:0.75rem;color:#94a3b8;">Ao transferir ou ativar um serviço em um servidor, ele é desativado automaticamente nos demais</span>'+
-        '</div>'+
-        '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:10px;">'+
-          orch.map(item => {
-            const isAct = !!item.active;
-            const stColor = isAct ? '#22c55e' : '#f87171';
-            const stText = isAct ? 'ATIVO' : 'INATIVO';
-            const optionsHtml = all.map(n => {
-              const sel = (n.device_id && n.device_id === item.owner_device_id) || (n.ip_address && n.ip_address === item.owner_ip) ? 'selected' : '';
-              return '<option value="'+attr(n.device_id||'')+'" data-ip="'+attr(n.ip_address||'')+'" '+sel+'>'+esc(n.nome||'Nó')+' ('+esc(n.ip_address||'sem IP')+')'+(n.online?' [ONLINE]':' [OFFLINE]')+'</option>';
-            }).join('');
-            return '<div style="padding:10px 12px;border-radius:8px;background:rgba(15,23,42,0.85);border:1px solid '+(item.redundant?'#eab308':'#1e293b')+';display:flex;flex-direction:column;gap:8px;">'+
-              '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">'+
-                '<div>'+
-                  '<strong style="color:#f8fafc;font-size:0.86rem;display:block;">'+esc(item.label)+'</strong>'+
-                  '<code style="color:#38bdf8;font-size:0.73rem;">'+esc(item.id)+'</code>'+
-                  (item.entrypoint ? ' <small style="color:#64748b;font-family:monospace;font-size:0.69rem;">· '+esc(item.entrypoint)+'</small>' : '')+
-                '</div>'+
-                '<span style="background:rgba(0,0,0,0.4);border:1px solid '+stColor+';color:'+stColor+';padding:2px 8px;border-radius:999px;font-size:0.7rem;font-weight:bold;white-space:nowrap;">'+stText+'</span>'+
-              '</div>'+
-              (item.purpose ? '<div style="font-size:0.75rem;color:#cbd5e1;line-height:1.38;background:rgba(2,7,12,0.55);padding:6px 8px;border-radius:5px;border-left:2px solid #38bdf8;"><b>Propósito do Daemon:</b> '+esc(item.purpose)+(item.impact_when_stopped ? '<div style="color:#fbbf24;margin-top:3px;font-size:0.71rem;"><b>Se desativado:</b> '+esc(item.impact_when_stopped)+'</div>' : '')+'</div>' : '')+
-              '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">'+
-                '<small style="color:#94a3b8;font-size:0.74rem;">Servidor executor:</small>'+
-                '<select class="ja-orch-select" data-svc="'+attr(item.id)+'" style="flex:1;min-width:160px;background:#02070c;color:#e2e8f0;border:1px solid #334155;border-radius:4px;padding:4px 6px;font-size:0.78rem;">'+
-                  optionsHtml+
-                '</select>'+
-                '<button type="button" class="ja-orch-move-btn" data-svc="'+attr(item.id)+'" style="background:#38bdf8;color:#000;border:none;border-radius:4px;padding:4px 9px;font-size:0.73rem;font-weight:900;cursor:pointer;" title="Transferir e ativar este serviço no servidor selecionado">APLICAR NÓ</button>'+
-              '</div>'+
-              '<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;padding-top:4px;border-top:1px solid rgba(51,65,85,0.4);">'+
-                '<small style="color:#cbd5e1;font-size:0.72rem;">Atual: <b>'+esc(item.owner_name||'—')+'</b> ('+esc(item.owner_ip||'—')+')</small>'+
-                '<div style="display:flex;gap:4px;">'+
-                  (isAct
-                    ? '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(item.id)+'" data-act="stop" data-dev="'+attr(item.owner_device_id||'')+'" data-ip="'+attr(item.owner_ip||'')+'" style="background:#ef4444;color:#fff;border:none;border-radius:4px;padding:3px 8px;font-size:0.7rem;font-weight:bold;cursor:pointer;">⏹ PARAR</button>'+
-                      '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(item.id)+'" data-act="restart" data-dev="'+attr(item.owner_device_id||'')+'" data-ip="'+attr(item.owner_ip||'')+'" style="background:#334155;color:#e2e8f0;border:none;border-radius:4px;padding:3px 8px;font-size:0.7rem;font-weight:bold;cursor:pointer;">↻ REINICIAR</button>'
-                    : '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(item.id)+'" data-act="start" data-dev="'+attr(item.owner_device_id||'')+'" data-ip="'+attr(item.owner_ip||'')+'" style="background:#22c55e;color:#000;border:none;border-radius:4px;padding:3px 8px;font-size:0.7rem;font-weight:bold;cursor:pointer;">▶ ATIVAR</button>')+
-                '</div>'+
-              '</div>'+
-            '</div>';
-          }).join('')+
-        '</div>'+
-      '</section>'
-    ) : '';
+
 
     const body=all.length?cards(p.slice,(n,i)=>{
       const svcs = n.services_detail || [];
@@ -1204,7 +1160,7 @@ async function renderNodes(){
       '</dl><span class="ja-state '+(n.online?'ok':'')+'">'+esc(states[n.status]||n.status)+'</span></article>';
     })+pager('nodes',p):
       '<div class="ja-empty">Nenhum agente Linux ARM registrado. Clique em <b>+ NOVO NÓ</b> acima ou conecte agentes pela API de dispositivos.</div>';
-    moduleShell('Clusters e agentes Linux ARM',summary+orchHtml+body,'<button id="nodes-add" class="ja-mini primary" style="margin-right:8px;">+ NOVO NÓ</button><button id="nodes-refresh" class="ja-mini">Atualizar lista</button>');
+    moduleShell('Cluster ARM — nós e equipamentos',summary+body,'<a class="ja-mini primary" href="/casa/index.php?grupo=SISTEMA&amp;item=orchestration-sys">Orquestração de serviços</a> <button id="nodes-add" class="ja-mini primary" style="margin-right:8px;">+ NOVO NÓ</button><button id="nodes-refresh" class="ja-mini">Atualizar lista</button>');
     bindPager('nodes',p,renderNodes);
     document.getElementById('nodes-add').onclick=openNewNodeModal;
     document.getElementById('nodes-refresh').onclick=renderNodes;
@@ -1222,72 +1178,7 @@ async function renderNodes(){
         if(p.slice[idx]) openNodeServicesModal(p.slice[idx], catalog);
       };
     });
-    document.querySelectorAll('.ja-orch-move-btn').forEach(btn=>{
-      btn.onclick=async(e)=>{
-        e.stopPropagation();
-        const svc=btn.getAttribute('data-svc');
-        const sel=document.querySelector('.ja-orch-select[data-svc="'+svc+'"]');
-        if(!sel) return;
-        const targetDev=sel.value;
-        const opt=sel.options[sel.selectedIndex];
-        const targetIp=opt ? opt.getAttribute('data-ip') : '';
-        btn.disabled=true;
-        const oldTxt=btn.textContent;
-        btn.textContent='MOVENDO...';
-        try{
-          const res=await postJson('/casa/api/arm_nodes.php', {
-            acao: 'mover_servico',
-            service: svc,
-            device_id: targetDev,
-            ip_address: targetIp,
-            update_assignment: true
-          });
-          if(res && res.status==='ok'){
-            renderNodes();
-          }else{
-            throw new Error(res?.mensagem||'Falha ao transferir serviço.');
-          }
-        }catch(err){
-          alert('❌ ' + (err.message||String(err)));
-          btn.disabled=false;
-          btn.textContent=oldTxt;
-        }
-      };
-    });
-    document.querySelectorAll('.ja-svc-ctrl-btn').forEach(btn=>{
-      btn.onclick=async(e)=>{
-        e.stopPropagation();
-        const svc=btn.getAttribute('data-svc');
-        const act=btn.getAttribute('data-act');
-        const dev=btn.getAttribute('data-dev');
-        const ip=btn.getAttribute('data-ip');
-        if(svc==='casa-cluster-site' && act==='stop'){
-          alert('O serviço web (casa-cluster-site :8080) é protegido e não pode ser desativado.');
-          return;
-        }
-        btn.disabled=true;
-        const oldTxt=btn.textContent;
-        btn.textContent='...';
-        try{
-          const res=await postJson('/casa/api/arm_nodes.php', {
-            acao: 'controlar_servico',
-            service: svc,
-            service_action: act,
-            device_id: dev,
-            ip_address: ip
-          });
-          if(res && res.status==='ok'){
-            renderNodes();
-          }else{
-            throw new Error(res?.mensagem||'Falha ao controlar serviço.');
-          }
-        }catch(err){
-          alert('❌ ' + (err.message||String(err)));
-          btn.disabled=false;
-          btn.textContent=oldTxt;
-        }
-      };
-    });
+    bindServiceControls(renderNodes);
     document.querySelectorAll('.ja-node-update-btn').forEach(btn=>{
       btn.onclick=async(e)=>{
         e.stopPropagation();
@@ -1349,6 +1240,163 @@ async function renderNodes(){
     moduleShell('Clusters e agentes Linux ARM','<div class="ja-empty">'+esc(e.message||'Falha ao carregar agentes.')+'</div>','<button id="nodes-retry" class="ja-mini">Tentar novamente</button>');
     document.getElementById('nodes-retry').onclick=renderNodes;
   }
+}
+
+
+function orchestrationMarkup(all,orch){
+    const orchHtml = orch.length ? (
+      '<section class="ja-native-card ja-orch-panel">'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px;">'+
+          '<h3 style="margin:0;color:#38bdf8;">⚡ ORQUESTRAÇÃO DE SERVIÇOS DO CLUSTER (QUEM EXECUTA O QUÊ · SEM REDUNDÂNCIA)</h3>'+
+          '<span style="font-size:0.75rem;color:#94a3b8;">Ao transferir ou ativar um serviço em um servidor, ele é desativado automaticamente nos demais</span>'+
+        '</div>'+
+        '<div class="ja-orch-grid">'+
+          orch.map(item => {
+            const isAct = !!item.active;
+            const stColor = isAct ? '#22c55e' : '#f87171';
+            const stText = isAct ? 'ATIVO' : 'INATIVO';
+            const optionsHtml = all.map(n => {
+              const sel = (n.device_id && n.device_id === item.owner_device_id) || (n.ip_address && n.ip_address === item.owner_ip) ? 'selected' : '';
+              return '<option value="'+attr(n.device_id||'')+'" data-ip="'+attr(n.ip_address||'')+'" '+sel+'>'+esc(n.nome||'Nó')+' ('+esc(n.ip_address||'sem IP')+')'+(n.online?' [ONLINE]':' [OFFLINE]')+'</option>';
+            }).join('');
+            return '<div class="ja-orch-service" style="padding:10px 12px;border-radius:8px;background:rgba(15,23,42,0.85);border:1px solid '+(item.redundant?'#eab308':'#1e293b')+';display:flex;flex-direction:column;gap:8px;">'+
+              '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">'+
+                '<div>'+
+                  '<strong style="color:#f8fafc;font-size:0.86rem;display:block;">'+esc(item.label)+'</strong>'+
+                  '<code style="color:#38bdf8;font-size:0.73rem;">'+esc(item.id)+'</code>'+
+                  (item.entrypoint ? ' <small style="color:#64748b;font-family:monospace;font-size:0.69rem;">· '+esc(item.entrypoint)+'</small>' : '')+
+                '</div>'+
+                '<span style="background:rgba(0,0,0,0.4);border:1px solid '+stColor+';color:'+stColor+';padding:2px 8px;border-radius:999px;font-size:0.7rem;font-weight:bold;white-space:nowrap;">'+stText+'</span>'+
+              '</div>'+
+              (item.purpose ? '<div style="font-size:0.75rem;color:#cbd5e1;line-height:1.38;background:rgba(2,7,12,0.55);padding:6px 8px;border-radius:5px;border-left:2px solid #38bdf8;"><b>Propósito do Daemon:</b> '+esc(item.purpose)+(item.impact_when_stopped ? '<div style="color:#fbbf24;margin-top:3px;font-size:0.71rem;"><b>Se desativado:</b> '+esc(item.impact_when_stopped)+'</div>' : '')+'</div>' : '')+
+              '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">'+
+                '<small style="color:#94a3b8;font-size:0.74rem;">Servidor executor:</small>'+
+                '<select class="ja-orch-select" data-svc="'+attr(item.id)+'" style="flex:1;min-width:160px;background:#02070c;color:#e2e8f0;border:1px solid #334155;border-radius:4px;padding:4px 6px;font-size:0.78rem;">'+
+                  optionsHtml+
+                '</select>'+
+                '<button type="button" class="ja-orch-move-btn" data-svc="'+attr(item.id)+'" style="background:#38bdf8;color:#000;border:none;border-radius:4px;padding:4px 9px;font-size:0.73rem;font-weight:900;cursor:pointer;" title="Transferir e ativar este serviço no servidor selecionado">APLICAR NÓ</button>'+
+              '</div>'+
+              '<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;padding-top:4px;border-top:1px solid rgba(51,65,85,0.4);">'+
+                '<small style="color:#cbd5e1;font-size:0.72rem;">Atual: <b>'+esc(item.owner_name||'—')+'</b> ('+esc(item.owner_ip||'—')+')</small>'+
+                '<div style="display:flex;gap:4px;">'+
+                  (isAct
+                    ? '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(item.id)+'" data-act="stop" data-dev="'+attr(item.owner_device_id||'')+'" data-ip="'+attr(item.owner_ip||'')+'" style="background:#ef4444;color:#fff;border:none;border-radius:4px;padding:3px 8px;font-size:0.7rem;font-weight:bold;cursor:pointer;">⏹ PARAR</button>'+
+                      '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(item.id)+'" data-act="restart" data-dev="'+attr(item.owner_device_id||'')+'" data-ip="'+attr(item.owner_ip||'')+'" style="background:#334155;color:#e2e8f0;border:none;border-radius:4px;padding:3px 8px;font-size:0.7rem;font-weight:bold;cursor:pointer;">↻ REINICIAR</button>'
+                    : '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(item.id)+'" data-act="start" data-dev="'+attr(item.owner_device_id||'')+'" data-ip="'+attr(item.owner_ip||'')+'" style="background:#22c55e;color:#000;border:none;border-radius:4px;padding:3px 8px;font-size:0.7rem;font-weight:bold;cursor:pointer;">▶ ATIVAR</button>')+
+                '</div>'+
+              '</div>'+
+            '</div>';
+          }).join('')+
+        '</div>'+
+      '</section>'
+    ) : '';
+  return orchHtml || '<div class="ja-empty">Nenhum serviço disponível para orquestração nesta instalação.</div>';
+}
+
+/** Orquestração é uma tela própria: sem a grade do inventário abaixo. */
+async function renderOrchestration(){
+  loading('Orquestração de serviços do cluster');
+  try{
+    const data=await getJson('/casa/api/arm_nodes.php');
+    const all=data.nodes||[];
+    const orch=data.orchestration||[];
+    const active=orch.filter(s=>s.active).length;
+    const redundant=orch.filter(s=>s.redundant).length;
+    const summary='<div class="ja-orch-summary">'+
+      '<strong>'+esc(orch.length)+' serviços catalogados</strong>'+
+      '<span>'+esc(active)+' ativos</span>'+
+      '<span>'+esc(all.filter(n=>n.online).length)+' de '+esc(all.length)+' nós online</span>'+
+      (redundant?'<span class="warning">'+esc(redundant)+' serviço(s) com redundância</span>':'')+
+      '</div>'+
+      '<p class="ja-orch-intro">Defina em qual nó cada serviço deve funcionar. A transferência segue as regras de exclusividade e proteção existentes no servidor; confira o estado do nó antes de aplicar.</p>';
+    moduleShell('Orquestração de serviços do cluster',
+      '<div class="ja-orch-layout">'+summary+orchestrationMarkup(all,orch)+'</div>',
+      '<a class="ja-mini" href="/casa/index.php?grupo=SISTEMA&amp;item=nodes-sys">Ver Cluster ARM</a> '+
+      '<button id="orch-refresh" class="ja-mini primary">Atualizar serviços</button>');
+    document.getElementById('orch-refresh').onclick=renderOrchestration;
+    bindOrchestrationActions(renderOrchestration);
+    bindServiceControls(renderOrchestration);
+  }catch(e){
+    moduleShell('Orquestração de serviços do cluster',
+      '<div class="ja-empty">'+esc(e.message||'Falha ao carregar orquestração.')+'</div>',
+      '<a class="ja-mini" href="/casa/index.php?grupo=SISTEMA&amp;item=nodes-sys">Ver Cluster ARM</a> '+
+      '<button id="orch-retry" class="ja-mini">Tentar novamente</button>');
+    document.getElementById('orch-retry').onclick=renderOrchestration;
+  }
+}
+
+function bindOrchestrationActions(refresh){
+    document.querySelectorAll('.ja-orch-move-btn').forEach(btn=>{
+      btn.onclick=async(e)=>{
+        e.stopPropagation();
+        const svc=btn.getAttribute('data-svc');
+        const sel=document.querySelector('.ja-orch-select[data-svc="'+svc+'"]');
+        if(!sel) return;
+        const targetDev=sel.value;
+        const opt=sel.options[sel.selectedIndex];
+        const targetIp=opt ? opt.getAttribute('data-ip') : '';
+        btn.disabled=true;
+        const oldTxt=btn.textContent;
+        btn.textContent='MOVENDO...';
+        try{
+          const res=await postJson('/casa/api/arm_nodes.php', {
+            acao: 'mover_servico',
+            service: svc,
+            device_id: targetDev,
+            ip_address: targetIp,
+            update_assignment: true
+          });
+          if(res && res.status==='ok'){
+            refresh();
+          }else{
+            throw new Error(res?.mensagem||'Falha ao transferir serviço.');
+          }
+        }catch(err){
+          alert('❌ ' + (err.message||String(err)));
+          btn.disabled=false;
+          btn.textContent=oldTxt;
+        }
+      };
+    });
+
+}
+
+function bindServiceControls(refresh){
+    document.querySelectorAll('.ja-svc-ctrl-btn').forEach(btn=>{
+      btn.onclick=async(e)=>{
+        e.stopPropagation();
+        const svc=btn.getAttribute('data-svc');
+        const act=btn.getAttribute('data-act');
+        const dev=btn.getAttribute('data-dev');
+        const ip=btn.getAttribute('data-ip');
+        if(svc==='casa-cluster-site' && act==='stop'){
+          alert('O serviço web (casa-cluster-site :8080) é protegido e não pode ser desativado.');
+          return;
+        }
+        btn.disabled=true;
+        const oldTxt=btn.textContent;
+        btn.textContent='...';
+        try{
+          const res=await postJson('/casa/api/arm_nodes.php', {
+            acao: 'controlar_servico',
+            service: svc,
+            service_action: act,
+            device_id: dev,
+            ip_address: ip
+          });
+          if(res && res.status==='ok'){
+            refresh();
+          }else{
+            throw new Error(res?.mensagem||'Falha ao controlar serviço.');
+          }
+        }catch(err){
+          alert('❌ ' + (err.message||String(err)));
+          btn.disabled=false;
+          btn.textContent=oldTxt;
+        }
+      };
+    });
+
 }
 
 function scheduleExecutorLabel(t){
