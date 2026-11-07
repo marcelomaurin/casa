@@ -83,7 +83,10 @@ if ($subpath === 'comando') {
             'correlation_id'=>$correlationId,
             'task_context'=>$input['task_context'] ?? null,
             // Daemons de tarefas executam partes de um plano já feito: não replanejar.
-            'skip_planner'=>!empty($input['skip_planner'])
+            'skip_planner'=>!empty($input['skip_planner']),
+            // A IA do daemon toma decisoes estruturadas. Ela nunca pode acionar comandos
+            // fisicos por marcadores do texto; somente as ferramentas locais autorizadas.
+            'sem_acoes'=>!empty($input['sem_acoes'])
         ],JSON_UNESCAPED_UNICODE),
         CURLOPT_HTTPHEADER=>['Content-Type: application/json','X-API-Key: '.$internalToken],
         CURLOPT_TIMEOUT=>45
