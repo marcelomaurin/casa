@@ -37,6 +37,7 @@ require_once(__DIR__ . '/agente_externo.php');
 require_once(__DIR__ . '/task_engine.php');
 require_once(__DIR__ . '/rag.php');
 require_once(__DIR__ . '/contexto_casa.php');
+require_once(__DIR__ . '/fala_texto.php');
 
 // A interface web usa cookie de sessao + token aleatorio da propria sessao.
 // Integracoes externas continuam autenticando por Bearer/X-API-Key em verify_api_auth().
@@ -229,7 +230,9 @@ function jarvis_post_local($url, $payload, $timeout=50) {
 }
 
 function jarvis_tts($texto, $speaker='padrao', $reproduzir=true) {
-    if (trim($texto) === '') return null;
+    // Nunca enviar markdown bruto ao motor neural: ele literalmente le # e **.
+    $texto = casa_texto_para_fala((string)$texto);
+    if ($texto === '') return null;
     $ch = curl_init('http://127.0.0.1:8097/falar');
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_POST, true);
@@ -694,12 +697,14 @@ $instrucoesAcoes = " Para automação e controle de hardware, use as marcas abai
 
 $systemLocal = "Você é o Computador de Bordo do sistema residencial CASA/JARVIS, operando estritamente nos padrões de inteligência e interface LCARS da Frota Estelar (Star Trek: The Next Generation). " .
     "Seja formal, objetivo, técnico e conciso como a voz clássica do Computador da Enterprise. " .
+    "Responda sempre em frases naturais, próprias para leitura em voz alta, sem Markdown, #, **, tabelas ou listas com marcadores. Em vez de Plano #153, diga Plano número 153. " .
     "Use confirmações padronizadas quando pertinente: 'Afirmativo.', 'Trabalhando...', 'Comando executado.', 'Impossível atender à solicitação: [motivo]'." .
     $instrucoesAcoes;
 
 $systemCloud = "Você é o Computador Central de Bordo do sistema CASA/JARVIS operando em alta capacidade (Núcleo LCARS Star Trek). " .
     "Responda em português com precisão técnica absoluta nos padrões do computador de Jornada nas Estrelas: A Nova Geração. " .
     "Gerencie subsistemas de bordo, rede de sensores de telemetria, relés e regras determinísticas com máxima eficiência e clareza." .
+    "Responda em frases naturais para fala, sem Markdown, #, **, tabelas ou marcadores. Diga Plano número 153, não Plano #153." .
     $instrucoesAcoes;
 
 $resposta = false;
@@ -1083,7 +1088,7 @@ computer_telemetry_finish(
     $telemetryStarted
 );
 echo json_encode(te_attach_context([
-    'status'=>'sucesso','comando'=>$comando,'resposta'=>$respostaLimpa,'data_hora'=>date('Y-m-d H:i:s'),
+    'status'=>'sucesso','comando'=>$comando,'resposta'=>$respostaLimpa,'resposta_fala'=>casa_texto_para_fala($respostaLimpa),'data_hora'=>date('Y-m-d H:i:s'),
     'historico_chars'=>strlen($historicoTexto),'historico_mensagens'=>count($historicoConversa),
     'rag_fontes'=>$ragFontes,'rag_matches'=>count($ragFontes),
     'contexto_casa'=>['secoes'=>$contextoCasa['secoes'],'chars'=>$contextoCasa['chars']],
