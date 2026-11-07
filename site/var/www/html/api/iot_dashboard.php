@@ -23,6 +23,16 @@ function json_array($v) {
     return is_array($a) ? $a : [];
 }
 
+// Heartbeat de firmwares ESP01: 15s; ESP8266 piscina: 30s.
+// Tolerancia de 90s para atraso de rede, sem depender de status persistido.
+const IOT_ONLINE_WINDOW_SECONDS = 90;
+function iot_heartbeat_online($idadeSegundos, $revogada = false): bool {
+    return !$revogada && $idadeSegundos !== null
+        && is_numeric($idadeSegundos)
+        && (int)$idadeSegundos >= 0
+        && (int)$idadeSegundos <= IOT_ONLINE_WINDOW_SECONDS;
+}
+
 function ensure_iot_dashboard_tables(PDO $pdo): void {
     static $done = false;
     if ($done) return;
@@ -55,7 +65,7 @@ if ($method === 'GET') {
     try {
         $rows = [];
         try {
-            $sql = "SELECT d.device_id, d.nome, d.tipo, d.model, d.localizacao, d.status, d.ip_address, d.mac_address, d.sinal_rssi, d.ultimo_heartbeat, d.capabilities, d.metadata, s.desired_state, s.updated_at AS desired_updated
+            $sql = "SELECT d.device_id, d.nome, d.tipo, d.model, d.localizacao, d.status, d.ip_address, d.mac_address, d.sinal_rssi, d.ultimo_heartbeat, d.credential_revoked_at, TIMESTAMPDIFF(SECOND,d.ultimo_heartbeat,NOW()) AS heartbeat_age_seconds, d.capabilities, d.metadata, s.desired_state, s.updated_at AS desired_updated
                     FROM dispositivos_cluster d
                     LEFT JOIN device_desired_state s ON s.device_id=d.device_id
                     WHERE d.tipo NOT IN ('linux-arm', 'cluster', 'server')
@@ -110,7 +120,9 @@ if ($method === 'GET') {
 
             if ($isRelay) {
                 $relaysCount++;
-                if ($relayActual === true || $relayDesired === true) $relaysOn++;
+                // Contar somente relés realmente confirmados por hardware online.
+                // O estado desejado e o ultimo estado fisico sao apenas informacoes historicas.
+                // $relaysOn atualizado apos avaliar o heartbeat.
             }
             if ($isEnv) {
                 $sensorsCount++;
@@ -119,8 +131,15 @@ if ($method === 'GET') {
                     $bestHum = $env['humidity_pct'] !== null ? (float)$env['humidity_pct'] : null;
                 }
             }
-            if (strtolower((string)$r['status']) === 'online') {
+            $revoked = !empty($r['credential_revoked_at']) || strtolower((string)$r['status']) === 'revoked';
+            $online = iot_heartbeat_online($r['heartbeat_age_seconds'] ?? null, $revoked);
+            $connectionStatus = $revoked ? 'revoked' : ($online ? 'online' : 'offline');
+            $presenceReason = $revoked ? 'credential_revoked'
+                : (empty($r['ultimo_heartbeat']) ? 'missing_heartbeat'
+                : ($online ? 'heartbeat_recent' : 'heartbeat_expired'));
+            if ($online) {
                 $onlineDevices++;
+                if ($isRelay && $relayActual === true) $relaysOn++;
             }
 
             $devices[] = [
@@ -129,7 +148,12 @@ if ($method === 'GET') {
                 'tipo' => $r['tipo'],
                 'model' => $r['model'],
                 'localizacao' => $r['localizacao'],
-                'status' => $r['status'],
+                'status' => $connectionStatus,
+                'status_registry' => $r['status'],
+                'online' => $online,
+                'presence_reason' => $presenceReason,
+                'heartbeat_age_seconds' => isset($r['heartbeat_age_seconds']) ? (int)$r['heartbeat_age_seconds'] : null,
+                'heartbeat_timeout_seconds' => IOT_ONLINE_WINDOW_SECONDS,
                 'ip_address' => $r['ip_address'],
                 'sinal_rssi' => $r['sinal_rssi'],
                 'ultimo_heartbeat' => $r['ultimo_heartbeat'],
@@ -170,6 +194,8 @@ if ($method === 'GET') {
         $summary = [
             'total_devices' => count($devices),
             'online_devices' => $onlineDevices,
+            'offline_devices' => count($devices) - $onlineDevices,
+            'heartbeat_timeout_seconds' => IOT_ONLINE_WINDOW_SECONDS,
             'relays_count' => $relaysCount,
             'relays_on' => $relaysOn,
             'sensors_count' => $sensorsCount,
@@ -191,7 +217,7 @@ if ($method === 'GET') {
                 'total_devices' => 0, 'online_devices' => 0, 'relays_count' => 0,
                 'relays_on' => 0, 'sensors_count' => 0, 'temperature_c' => null,
                 'humidity_pct' => null, 'mobiles_online' => 0, 'watch_online' => 0,
-                'system_status' => 'ONLINE'
+                'system_status' => 'UNKNOWN'
             ],
             'devices' => []
         ]);
