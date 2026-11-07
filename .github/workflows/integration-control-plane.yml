@@ -33,6 +33,11 @@ on:
       - '.github/tests/test_arm_nodes_ui.js'
       - '.github/tests/test_orchestration_ui.js'
       - '.github/workflows/integration-control-plane.yml'
+      - 'clusters/comunicacao/arm-agent/**'
+      - 'site/var/www/html/api/diagnostico_daemons.php'
+      - 'site/var/www/html/api/jarvis.php'
+      - '.github/tests/test_computer_daemon_diagnostics.php'
+      - '.github/tests/test_node_daemon_telemetry.py'
   workflow_dispatch:
 
 jobs:
@@ -81,6 +86,11 @@ jobs:
         run: |
           php .github/tests/test_speech_text.php
           node .github/tests/test_speech_text.js
+
+      - name: Validate daemon inventory and COMPUTER diagnostics
+        run: |
+          python3 .github/tests/test_node_daemon_telemetry.py
+          php .github/tests/test_computer_daemon_diagnostics.php
 
       - name: Validate cluster organization
         run: python3 .github/tests/test_clusters_layout.py
