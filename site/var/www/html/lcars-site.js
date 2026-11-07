@@ -445,55 +445,76 @@ async function mountNativeModule(item){
 // "relay"/"switch" (dispositivos_cluster) e permite ligar/desligar gravando o
 // estado desejado via /casa/api/iot_dashboard.php. O firmware (ex.: ESP01 Relay)
 // consulta /api/v1/device_desired_state.php e aplica o estado.
-function relayStateLabel(v){return v===true?'LIGADO':v===false?'DESLIGADO':'—';}
+// O estado online depende do ultimo heartbeat validado pela API, nao do ultimo estado do rele.
+function relayStateLabel(v,online=true){
+  const nome=v===true?'LIGADO':v===false?'DESLIGADO':'SEM LEITURA';
+  return online?nome:(v===null?'SEM LEITURA':nome+' (último registro)');
+}
+let devicesRefreshTimer=null;
 async function renderDevices(){
+  if(devicesRefreshTimer){clearTimeout(devicesRefreshTimer);devicesRefreshTimer=null;}
   loading('Dispositivos & relés');
-  let relays=[];
+  let relays=[],timeLimit=90;
   try{
     const j=await getJson('/casa/api/iot_dashboard.php');
     relays=(j.devices||[]).filter(d=>d.is_relay);
+    timeLimit=Number(j.summary?.heartbeat_timeout_seconds||90);
   }catch(e){
     moduleShell('Dispositivos & relés','<div class="ja-empty">'+esc(e.message||'Falha ao carregar relés.')+'</div>','<button id="relay-retry" class="ja-mini">Tentar novamente</button>');
-    const r=document.getElementById('relay-retry'); if(r) r.onclick=renderDevices;
+    const retry=document.getElementById('relay-retry');if(retry)retry.onclick=renderDevices;
     return;
   }
-  const p=paginate('devices',relays,6);
-  const online=relays.filter(d=>String(d.status||'').toLowerCase()==='online').length;
-  const summary='<p>'+esc(relays.length)+' equipamento(s) de acionamento · '+esc(online)+' online. O comando grava o estado desejado; o equipamento aplica na próxima consulta (≈3 s).</p>';
-  const body=relays.length?cards(p.slice,d=>{
-    const isOn=String(d.status||'').toLowerCase()==='online';
-    const pending=d.relay_desired!==null&&d.relay_actual!==null&&d.relay_desired!==d.relay_actual;
-    return '<article class="ja-native-card ja-iot-card is-relay">'+
+  const p=paginate('devices',relays,12);
+  const online=relays.filter(d=>d.online===true).length;
+  const summary='<div class="ja-devices-summary">'+
+    '<span><strong>'+esc(relays.length)+'</strong> dispositivos</span>'+
+    '<span class="ja-devices-online"><strong>'+esc(online)+'</strong> online</span>'+
+    '<span class="ja-devices-offline"><strong>'+esc(relays.length-online)+'</strong> offline</span>'+
+    '<small>Conexão pelo heartbeat (até '+esc(timeLimit)+' s). ON/OFF altera o estado desejado, confirmado depois pelo equipamento.</small>'+
+    '</div>';
+  const body=relays.length ? cards(p.slice,d=>{
+    const connected=d.online===true;
+    const pending=connected&&d.relay_desired!==null&&d.relay_actual!==null&&d.relay_desired!==d.relay_actual;
+    const unavailable=connected?'':' disabled title="Dispositivo sem heartbeat recente"';
+    const status=connected?'ONLINE':d.status==='revoked'?'REVOGADO':'OFFLINE';
+    const age=d.heartbeat_age_seconds;
+    const seen=age===null||age===undefined?'Sem heartbeat':('Último heartbeat: há '+Math.max(0,Number(age)||0)+' s');
+    return '<article class="ja-native-card ja-iot-card ja-device-card is-relay'+(connected?' is-connected':' is-disconnected')+'">'+
       '<header class="ja-iot-card-head"><div><small>'+esc(String(d.tipo||'IoT').toUpperCase())+'</small><h3>'+esc(d.nome||d.model||d.device_id)+'</h3></div>'+
-      '<span class="ja-state '+(isOn?'ok':'off')+'">'+esc(String(d.status||'offline').toUpperCase())+'</span></header>'+
+        '<span class="ja-state '+(connected?'ok':'off')+'">'+esc(status)+'</span></header>'+
       '<section class="ja-iot-relay">'+
-        '<div class="ja-iot-readout"><span>ESTADO FÍSICO</span><strong>'+relayStateLabel(d.relay_actual)+'</strong></div>'+
-        '<div class="ja-iot-readout"><span>ESTADO DESEJADO</span><strong>'+relayStateLabel(d.relay_desired)+(pending?' ⏳':'')+'</strong></div>'+
+        '<div class="ja-iot-readout"><span>ESTADO FÍSICO</span><strong>'+relayStateLabel(d.relay_actual,connected)+'</strong></div>'+
+        '<div class="ja-iot-readout"><span>ESTADO DESEJADO</span><strong>'+relayStateLabel(d.relay_desired,true)+(pending?' ⏳':'')+'</strong></div>'+
         '<div class="ja-row-actions">'+
-          '<button class="ja-mini primary" data-relay="1" data-device="'+attr(d.device_id)+'"'+(d.relay_actual===true&&!pending?' disabled':'')+'>LIGAR</button>'+
-          '<button class="ja-mini" data-relay="0" data-device="'+attr(d.device_id)+'"'+(d.relay_actual===false&&!pending?' disabled':'')+'>DESLIGAR</button>'+
+          '<button class="ja-mini primary" data-casa-sound="on" data-relay="1" data-device="'+attr(d.device_id)+'"'+(connected&&d.relay_actual===true&&!pending?' disabled':unavailable)+'>LIGAR</button>'+
+          '<button class="ja-mini" data-casa-sound="off" data-relay="0" data-device="'+attr(d.device_id)+'"'+(connected&&d.relay_actual===false&&!pending?' disabled':unavailable)+'>DESLIGAR</button>'+
         '</div>'+
       '</section>'+
       '<dl class="ja-iot-meta"><dt>Local</dt><dd>'+esc(d.localizacao||'—')+'</dd><dt>Modelo</dt><dd>'+esc(d.model||'—')+'</dd><dt>IP</dt><dd>'+esc(d.ip_address||'—')+'</dd></dl>'+
-      '<footer>Heartbeat: '+esc(d.ultimo_heartbeat||'—')+(d.desired_updated?' · Comando: '+esc(d.desired_updated):'')+'</footer>'+
+      '<footer>'+esc(seen)+(d.ultimo_heartbeat?' · '+esc(d.ultimo_heartbeat):'')+
+        (d.desired_updated?' · Comando: '+esc(d.desired_updated):'')+'</footer>'+
     '</article>';
-  })+pager('devices',p):
-  '<div class="ja-empty">Nenhum equipamento com relé registrado. Dispositivos que anunciam a capacidade "relay" ou "switch" no heartbeat aparecem aqui automaticamente.</div>';
-  moduleShell('Dispositivos & relés',summary+body,'<button id="relay-refresh" class="ja-mini">Atualizar</button>');
+  }).replace('class="ja-native-grid"','class="ja-native-grid ja-devices-grid"')+pager('devices',p) :
+  '<div class="ja-empty ja-devices-empty">Nenhum equipamento com relé registrado. Dispositivos que anunciam "relay" ou "switch" no heartbeat aparecem aqui automaticamente.</div>';
+  moduleShell('Dispositivos & relés','<div class="ja-devices-layout">'+summary+body+'</div>','<button id="relay-refresh" class="ja-mini">Atualizar</button>');
   bindPager('devices',p,renderDevices);
-  const rf=document.getElementById('relay-refresh'); if(rf) rf.onclick=renderDevices;
-  document.querySelectorAll('#app .ja-content [data-relay]').forEach(b=>b.onclick=async()=>{
-    const all=document.querySelectorAll('#app .ja-content [data-device="'+CSS.escape(b.dataset.device)+'"]');
+  const rf=document.getElementById('relay-refresh');if(rf)rf.onclick=renderDevices;
+  document.querySelectorAll('#app .ja-content [data-relay]').forEach(btn=>btn.onclick=async()=>{
+    if(btn.disabled)return;
+    const all=document.querySelectorAll('#app .ja-content [data-device="'+CSS.escape(btn.dataset.device)+'"]');
     all.forEach(x=>x.disabled=true);
     try{
-      await postJson('/casa/api/iot_dashboard.php',{acao:'relay_state',device_id:b.dataset.device,relay_on:b.dataset.relay==='1'});
+      await postJson('/casa/api/iot_dashboard.php',{
+        acao:'relay_state',device_id:btn.dataset.device,relay_on:btn.dataset.relay==='1'
+      });
       await renderDevices();
-      setTimeout(()=>{ if(document.getElementById('relay-refresh')) renderDevices(); },4000);
+      devicesRefreshTimer=setTimeout(()=>{if(currentItem==='devices')renderDevices();},4000);
     }catch(e){
       alert(e.message||'Falha ao acionar o relé.');
       all.forEach(x=>x.disabled=false);
     }
   });
+  devicesRefreshTimer=setTimeout(()=>{if(currentItem==='devices')renderDevices();},20000);
 }
 
 async function renderSensors(){
@@ -3508,6 +3529,31 @@ function stopComputerBargeIn(){
   state.stream?.getTracks().forEach(t=>t.stop());
   state.ctx?.close?.().catch?.(()=>{});
 }
+function prepareComputerSpeech(text) {
+  let raw=String(text||'').replace(/\r\n?/g,'\n').trim();
+  if(!raw)return '';
+  raw=raw.replace(/```[^\n]*\n[\s\S]*?```/g,'\nHá um trecho de código na resposta escrita.\n')
+    .replace(/^[ \t]*[-*_]{3,}[ \t]*$/gm,'')
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g,'$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g,'$1')
+    .replace(/^[ \t]{0,3}#{1,6}[ \t]+/gm,'')
+    .replace(/^[ \t]{0,3}>[ \t]?/gm,'')
+    .replace(/^[ \t]*[-*+][ \t]+/gm,'')
+    .replace(/^[ \t]*(\d{1,3})[.)][ \t]+/gm,'Item $1: ')
+    .replace(/(?<![\p{L}\p{N}])#[ \t]*(\d+)\b/gu,'número $1')
+    .replace(/\*\*([^\n]*?)\*\*/g,'$1')
+    .replace(/__([^\n]*?)__/g,'$1')
+    .replace(/~~([^\n]*?)~~/g,'$1')
+    .replace(/(?<!\w)\*([^*\n]+)\*(?!\w)/g,'$1')
+    .replace(/(?<!\w)_([^_\n]+)_(?!\w)/g,'$1')
+    .replace(/`([^`\n]+)`/g,'$1')
+    .replace(/[ \t]*\|[ \t]*/g,', ')
+    .replace(/[ \t]+/g,' ');
+  return raw.split(/\n+/).map(line=>{
+    line=line.trim().replace(/^,+|,+$/g,'').trim();
+    return line ? /[.!?;:]$/.test(line)?line:line+'.' : '';
+  }).filter(Boolean).join(' ');
+}
 function splitComputerSpeech(text,maxChars=140){
   const clean=String(text||'').replace(/\s+/g,' ').trim();
   if(!clean)return [];
@@ -3542,7 +3588,7 @@ function setComputerSpeaking(active){
   updateMobileVoiceBarUI(false);
 }
 function speakComputer(text){
-  const speech=String(text||'').trim();
+  const speech=prepareComputerSpeech(text);
   if(!speech || !('speechSynthesis' in window)) return false;
   const synth=window.speechSynthesis;
   const chunks=splitComputerSpeech(speech);
@@ -3657,7 +3703,7 @@ async function renderJarvis(){
       appendChat('COMPUTER',resposta,'ai',true,botTime);
       conversationHistory.push({role:'user',content:cmd},{role:'assistant',content:String(resposta)});
       conversationHistory=trimComputerHistory(conversationHistory);
-      if(!speakComputer(resposta)){
+      if(!speakComputer(r.resposta_fala || resposta)){
         appendChat('Sistema','Voz pt-BR não disponível neste navegador.','error');
       }
     }catch(e){
