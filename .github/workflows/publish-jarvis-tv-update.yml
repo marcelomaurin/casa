@@ -33,7 +33,7 @@ jobs:
           key: jarvis-tv-debug-keystore-v1
       - name: Build and validate APK
         working-directory: android/JarvisTV
-        run: gradle --no-daemon :app:assembleDebug
+        run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug
       - name: Extract version and publish
         env:
           GH_TOKEN: ${{ github.token }}
@@ -70,6 +70,11 @@ jobs:
           data=json.loads(p.read_text())
           version=os.environ['VERSION']; code=int(os.environ['CODE'])
           apk=Path(f'JarvisTV-v{version}-debug.apk')
+          existing=data.get('components',{}).get('jarvis-tv-debug',{})
+          if existing.get('version') != version or int(existing.get('version_code',-1)) != code:
+              raise SystemExit(f'Manifest version changed; refusing to overwrite: {existing.get("version")}')
+          if existing.get('enabled'):
+              raise SystemExit('Version already enabled; do not overwrite published SHA-256')
           data['components']['jarvis-tv-debug']={
               'enabled':True,
               'version':version,
