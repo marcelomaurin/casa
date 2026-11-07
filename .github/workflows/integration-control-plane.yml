@@ -93,6 +93,7 @@ jobs:
         run: |
           php .github/tests/test_arm_nodes.php
           node .github/tests/test_arm_nodes_ui.js
+          node .github/tests/test_orchestration_ui.js
 
       - name: Test Command Bus and automation internals
         run: php .github/tests/test_control_plane.php
