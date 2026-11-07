@@ -1,6 +1,13 @@
 (function(){
 'use strict';
 
+// Never translate route keys, IDs or API values: only visible labels.
+function uiT(label){
+  return (typeof window!=='undefined' && window.CASAI18n) ? window.CASAI18n.t(label) : label;
+}
+function uiSections(sections){return sections.map(section=>({...section,title:uiT(section.title),items:section.items.map(item=>({...item,label:uiT(item.label)}))}));}
+function uiStatuses(){return STATUS.map(s=>({...s,label:uiT(s.label),value:uiT(s.value)}));}
+
 const GROUP_ICONS={
   'SEGURANÇA':'◆',
   'OPERAÇÕES':'◈',
@@ -145,7 +152,7 @@ function setRoute(group,item){
 }
 
 function topGroupCards(){
-  return Object.keys(GROUPS).map(name=>({title:name,description:GROUPS[name].subtitle,id:name,icon:GROUP_ICONS[name]||'•'}));
+  return Object.keys(GROUPS).map(name=>({title:uiT(name),description:uiT(GROUPS[name].subtitle),id:name,icon:GROUP_ICONS[name]||'•'}));
 }
 
 let dashboardMetrics = null;
@@ -172,22 +179,22 @@ function updateDashboardCardsInDOM(summary){
     const metric = card.querySelector('.metric');
     const sub = card.querySelector('.sub');
     if (!metric) return;
-    if (title.includes('DISPOSITIVOS & IOT')) {
+    if ((title.includes(uiT('DISPOSITIVOS & IOT')) || title.includes('DISPOSITIVOS & IOT'))) {
       const on = summary.online_devices ?? 0;
       const tot = summary.total_devices ?? 0;
       const relOn = summary.relays_on ?? 0;
       metric.textContent = on + ' / ' + tot + ' ONLINE';
       if (sub) sub.textContent = (summary.relays_count || 0) + ' relés (' + relOn + ' ligados) · Sensores ativos';
-    } else if (title.includes('TEMPERATURA & CLIMA')) {
+    } else if ((title.includes(uiT('TEMPERATURA & CLIMA')) || title.includes('TEMPERATURA & CLIMA'))) {
       if (summary.temperature_c != null) {
         metric.textContent = summary.temperature_c + ' °C';
         if (sub) sub.textContent = 'Umidade: ' + (summary.humidity_pct != null ? summary.humidity_pct + '%' : '—') + ' · Conforto térmico';
       }
-    } else if (title.includes('CELULAR & PRESENÇA')) {
+    } else if ((title.includes(uiT('CELULAR & PRESENÇA')) || title.includes('CELULAR & PRESENÇA'))) {
       const mobOn = summary.mobiles_online ?? 0;
       metric.textContent = mobOn > 0 ? (mobOn + ' ONLINE') : 'MONITORANDO';
       if (sub) sub.textContent = 'Casa Mobile · ' + (mobOn > 0 ? 'Dispositivo conectado' : 'Aguardando ping');
-    } else if (title.includes('JARVIS WATCH')) {
+    } else if ((title.includes(uiT('JARVIS WATCH')) || title.includes('JARVIS WATCH'))) {
       const wOn = summary.watch_online ?? 0;
       metric.textContent = wOn > 0 ? 'CONECTADO' : 'AGUARDANDO';
       if (sub) sub.textContent = wOn > 0 ? 'LilyGo T-Watch ativo · Telemetria OK' : 'Aguardando telemetria do relógio';
@@ -288,10 +295,10 @@ function home(updateRoute=true){
   ];
 
   CASALcars.render('#app',{
-    layout:'dashboard',group:'DASHBOARD',title:'CASA / COMPUTER · DASHBOARD',subtitle:'Painel de controle operacional e monitoramento residencial em tempo real.',
-    breadcrumb:['CASA','DASHBOARD'],groups:homeRail,status:STATUS,columns:3,
-    items:dashboardCards,
-    footer:{hint:'Interface operacional central: use os cartões para ação rápida ou os grupos à esquerda.'}
+    layout:'dashboard',group:'DASHBOARD',title:uiT('CASA / COMPUTER · DASHBOARD'),subtitle:uiT('Painel de controle operacional e monitoramento residencial em tempo real.'),
+    breadcrumb:[uiT('CASA'),uiT('DASHBOARD')],groups:homeRail.map(g=>({...g,label:uiT(g.label)})),status:uiStatuses(),columns:3,
+    items:dashboardCards.map(c=>({...c,title:uiT(c.title),description:uiT(c.description),value:uiT(c.value),status:uiT(c.status),actions:c.actions?.map(a=>({...a,label:uiT(a.label)}))})),
+    footer:{hint:uiT('Interface operacional central: use os cartões para ação rápida ou os grupos à esquerda.')}
   });
 
   if(updateRoute) setRoute(null,null);
@@ -301,9 +308,9 @@ function home(updateRoute=true){
 function renderGroupsMenu(){
   currentGroup='GRUPOS'; currentItem=null;
   CASALcars.render('#app',{
-    layout:'dashboard',group:'GRUPOS',title:'CASA / COMPUTER · MÓDULOS',subtitle:'Escolha um grupo. A interface adapta o miolo conforme a tarefa.',
-    breadcrumb:['CASA','GRUPOS'],groups:[{label:'DASHBOARD',action:'home',level:0,levelNav:true},{label:'GRUPOS',action:'open-groups-overview',level:1,levelNav:true,active:true}],status:STATUS,columns:3,
-    items:topGroupCards().map(g=>({title:g.title,description:g.description,icon:g.icon,actions:[{label:'ACESSAR',action:'open-group:'+g.id,variant:'primary'}]})),
+    layout:'dashboard',group:'GRUPOS',title:uiT('CASA / COMPUTER · MÓDULOS'),subtitle:uiT('Escolha um grupo. A interface adapta o miolo conforme a tarefa.'),
+    breadcrumb:[uiT('CASA'),uiT('GRUPOS')],groups:[{label:uiT('DASHBOARD'),action:'home',level:0,levelNav:true},{label:uiT('GRUPOS'),action:'open-groups-overview',level:1,levelNav:true,active:true}],status:uiStatuses(),columns:3,
+    items:topGroupCards().map(g=>({title:g.title,description:g.description,icon:g.icon,actions:[{label:uiT('ACESSAR'),action:'open-group:'+g.id,variant:'primary'}]})),
     footer:{hint:'Interface em tela cheia: use grupos e paginação, sem rolagem.'}
   });
   setRoute('GRUPOS',null);
@@ -314,14 +321,14 @@ function groupRail(group){
   GROUPS[group].sections.forEach(s=>s.items.forEach(it=>flat.push(it)));
   const nav=[
     {label:'CASA',action:'home',level:0,levelNav:true},
-    {label:group,action:'open-current-group',level:1,levelNav:true,active:!currentItem}
+    {label:uiT(group),action:'open-current-group',level:1,levelNav:true,active:!currentItem}
   ];
   if(currentItem){
     const selected=findItem(group,currentItem);
-    if(selected) nav.push({label:selected.label,id:selected.id,action:'open-item',level:2,levelNav:true,active:true});
+    if(selected) nav.push({label:uiT(selected.label),id:selected.id,action:'open-item',level:2,levelNav:true,active:true});
   }
   const choices=flat.filter(it=>!currentItem || it.id!==currentItem).slice(0,Math.max(0,8-nav.length)).map(it=>({
-    label:it.label,id:it.id,action:'open-item',level:2,active:false
+    label:uiT(it.label),id:it.id,action:'open-item',level:2,active:false
   }));
   return nav.concat(choices);
 }
@@ -330,8 +337,8 @@ function openGroup(group,updateRoute=true){
   if(!GROUPS[group]) return home(updateRoute);
   currentGroup=group; currentItem=null;
   CASALcars.render('#app',{
-    layout:'menu-grid',kind:'menu',group,title:group,subtitle:GROUPS[group].subtitle,
-    breadcrumb:[],groups:groupRail(group),status:STATUS,sections:GROUPS[group].sections,
+    layout:'menu-grid',kind:'menu',group,title:uiT(group),subtitle:uiT(GROUPS[group].subtitle),
+    breadcrumb:[],groups:groupRail(group),status:uiStatuses(),sections:uiSections(GROUPS[group].sections),
     footer:{hint:'Escolha uma opção. O painel usa toda a tela e não rola.'}
   });
   if(updateRoute) setRoute(group,null);
@@ -352,8 +359,8 @@ function openItem(item,updateRoute=true){
   if(!item || !currentGroup) return;
   currentItem=item.id;
   CASALcars.render('#app',{
-    layout:'focus',group:currentGroup,title:item.label,subtitle:GROUPS[currentGroup].subtitle,
-    breadcrumb:[],groups:groupRail(currentGroup),status:STATUS,
+    layout:'focus',group:currentGroup,title:uiT(item.label),subtitle:uiT(GROUPS[currentGroup].subtitle),
+    breadcrumb:[],groups:groupRail(currentGroup),status:uiStatuses(),
     items:[{title:item.label,description:'Módulo funcional do CASA no layout atual.'}],
     footer:{hint:'Use os controles do módulo; dados extensos são paginados para evitar rolagem.'}
   });
@@ -385,10 +392,10 @@ function crud(table,action='listar',extra=''){
 
 function moduleShell(title,body,actions=''){
   const c=contentNode(); if(!c) return;
-  c.innerHTML='<section class="ja-native-module"><header class="ja-native-head"><strong>'+esc(title)+'</strong><div class="ja-native-actions">'+actions+'</div></header><div class="ja-native-body">'+body+'</div></section>';
+  c.innerHTML='<section class="ja-native-module"><header class="ja-native-head"><strong>'+esc(uiT(title))+'</strong><div class="ja-native-actions">'+actions+'</div></header><div class="ja-native-body">'+body+'</div></section>';
 }
 function showModuleError(msg){ moduleShell('Módulo','<div class="ja-empty">'+esc(msg)+'</div>'); }
-function loading(title){ moduleShell(title,'<div class="ja-empty">Carregando...</div>'); }
+function loading(title){ moduleShell(title,'<div class="ja-empty">'+esc(uiT('Carregando...'))+'</div>'); }
 
 function paginate(name,items,pageSize=6){
   const st=moduleState[name]||(moduleState[name]={page:0});
@@ -406,7 +413,7 @@ function bindPager(name,p,rerender){
 function cards(items,render){
   return '<div class="ja-native-grid">'+items.map(render).join('')+'</div>';
 }
-function actionBtn(label,act,variant=''){return '<button class="ja-mini '+variant+'" data-act="'+attr(act)+'">'+esc(label)+'</button>';}
+function actionBtn(label,act,variant=''){return '<button class="ja-mini '+variant+'" data-act="'+attr(act)+'">'+esc(uiT(label))+'</button>';}
 
 async function mountNativeModule(item){
   const m=item.module;
@@ -1081,14 +1088,14 @@ function openNodeServicesModal(node, catalog){
 }
 
 async function renderNodes(){
-  loading('Clusters e agentes Linux ARM');
+  loading(uiT('Clusters e agentes Linux ARM'));
   try{
     const j=await getJson('/casa/api/arm_nodes.php');
     const all=j.nodes||[];
     const catalog=j.service_catalog||[];
     const p=paginate('nodes',all,12);
-    const states={online:'ONLINE',offline:'SEM CONTATO RECENTE',registered:'AGUARDANDO CONTATO',revoked:'REVOGADO'};
-    const summary='<p>'+esc(all.length)+' agente(s) registrado(s) • '+esc(all.filter(n=>n.online).length)+' online. Online: contato nos últimos 40 segundos (heartbeat a cada 20s). Para distribuir ou transferir serviços entre os nós, utilize a tela Orquestração de serviços.</p>';
+    const states={online:uiT('ONLINE'),offline:uiT('SEM CONTATO RECENTE'),registered:uiT('AGUARDANDO CONTATO'),revoked:uiT('REVOGADO')};
+    const summary='<p>'+esc(all.length)+' '+esc(uiT('agente(s) registrado(s)'))+' • '+esc(all.filter(n=>n.online).length)+' '+esc(uiT('online'))+'. '+esc(uiT('Online: contato nos últimos 40 segundos (heartbeat a cada 20s). Para distribuir ou transferir serviços entre os nós, utilize a tela Orquestração de serviços.'))+'</p>';
 
 
 
@@ -1102,9 +1109,9 @@ async function renderNodes(){
             const ctrlBtns = s.protected
               ? '<span style="background:rgba(56,189,248,0.16);border:1px solid #38bdf8;color:#38bdf8;padding:2px 6px;border-radius:4px;font-size:0.68rem;font-weight:bold;">🔒 WEB PROTEGIDO</span>'
               : (isAct
-                  ? '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(s.id)+'" data-act="stop" data-dev="'+attr(n.device_id||'')+'" data-ip="'+attr(n.ip_address||'')+'" style="background:#ef4444;color:#fff;border:none;border-radius:4px;padding:2px 7px;font-size:0.68rem;font-weight:bold;cursor:pointer;">⏹ DESATIVAR</button>'+
+                  ? '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(s.id)+'" data-act="stop" data-dev="'+attr(n.device_id||'')+'" data-ip="'+attr(n.ip_address||'')+'" style="background:#ef4444;color:#fff;border:none;border-radius:4px;padding:2px 7px;font-size:0.68rem;font-weight:bold;cursor:pointer;">⏹ '+esc(uiT("DESATIVAR"))+'</button>'+
                     '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(s.id)+'" data-act="restart" data-dev="'+attr(n.device_id||'')+'" data-ip="'+attr(n.ip_address||'')+'" style="background:#334155;color:#fff;border:none;border-radius:4px;padding:2px 6px;font-size:0.68rem;cursor:pointer;" title="Reiniciar serviço">↻</button>'
-                  : '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(s.id)+'" data-act="start" data-dev="'+attr(n.device_id||'')+'" data-ip="'+attr(n.ip_address||'')+'" style="background:#22c55e;color:#000;border:none;border-radius:4px;padding:2px 7px;font-size:0.68rem;font-weight:bold;cursor:pointer;">▶ ATIVAR</button>');
+                  : '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(s.id)+'" data-act="start" data-dev="'+attr(n.device_id||'')+'" data-ip="'+attr(n.ip_address||'')+'" style="background:#22c55e;color:#000;border:none;border-radius:4px;padding:2px 7px;font-size:0.68rem;font-weight:bold;cursor:pointer;">▶ '+esc(uiT("ATIVAR"))+'</button>');
             return '<div style="display:flex;flex-direction:column;gap:4px;padding:6px 8px;background:rgba(2,7,12,0.75);border:1px solid #1e293b;border-radius:5px;">'+
               '<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">'+
                 '<div style="display:flex;align-items:center;gap:6px;min-width:0;">'+
@@ -1118,25 +1125,25 @@ async function renderNodes(){
             '</div>';
           }).join('')+
         '</div>'
-      ) : '<span style="opacity:0.6;">Nenhum serviço listado</span>';
+      ) : '<span style="opacity:0.6;">'+esc(uiT("Nenhum serviço listado"))+'</span>';
 
       return '<article class="ja-native-card" style="position:relative;">'+
       '<div style="position:absolute;top:10px;right:10px;display:flex;gap:5px;z-index:2;flex-wrap:wrap;">'+
-        (n.online && (n.up_to_date === false) ? '<button type="button" class="ja-node-update-btn" data-node-idx="'+attr(String(i))+'" style="background:#eab308;color:#000;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(234,179,8,0.5);" title="Atualizar versão do nó diretamente do Git">⚡ ATUALIZAR (GIT)</button>' : '')+
-        '<button type="button" class="ja-node-svcs-btn" data-node-idx="'+attr(String(i))+'" style="background:#a855f7;color:#fff;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.5);" title="Definir quais serviços este nó executa">⚙ SERVIÇOS</button>'+
-        '<button type="button" class="ja-node-edit-btn" data-node-idx="'+attr(String(i))+'" style="background:#38bdf8;color:#000;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.5);" title="Editar informações do nó">EDITAR</button>'+
-        '<button type="button" class="ja-node-del-btn" data-node-idx="'+attr(String(i))+'" style="background:#ef4444;color:#fff;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.5);" title="Excluir nó do cluster">EXCLUIR</button>'+
+        (n.online && (n.up_to_date === false) ? '<button type="button" class="ja-node-update-btn" data-node-idx="'+attr(String(i))+'" style="background:#eab308;color:#000;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(234,179,8,0.5);" title="Atualizar versão do nó diretamente do Git">⚡ '+esc(uiT("ATUALIZAR (GIT)"))+'</button>' : '')+
+        '<button type="button" class="ja-node-svcs-btn" data-node-idx="'+attr(String(i))+'" style="background:#a855f7;color:#fff;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.5);" title="Definir quais serviços este nó executa">⚙ '+esc(uiT("SERVIÇOS"))+'</button>'+
+        '<button type="button" class="ja-node-edit-btn" data-node-idx="'+attr(String(i))+'" style="background:#38bdf8;color:#000;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.5);" title="Editar informações do nó">'+esc(uiT("EDITAR"))+'</button>'+
+        '<button type="button" class="ja-node-del-btn" data-node-idx="'+attr(String(i))+'" style="background:#ef4444;color:#fff;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.5);" title="Excluir nó do cluster">'+esc(uiT("EXCLUIR"))+'</button>'+
       '</div>'+
       '<h3>'+esc(n.nome)+'</h3><dl>'+
-      '<dt>Identificador</dt><dd>'+esc(n.device_id||'Legado sem identificador')+'</dd>'+
-      '<dt>Hostname</dt><dd>'+esc(n.hostname||'—')+'</dd>'+
-      '<dt>Programa / função</dt><dd><strong style="color:#f8fafc;">'+esc(n.papel||'—')+'</strong></dd>'+
-      '<dt>Plataforma</dt><dd>'+esc(n.platform||'—')+'</dd>'+
-      '<dt>IP</dt><dd>'+esc(n.ip_address||'—')+'</dd>'+
-      '<dt>Serviços Atribuídos ao Nó (Controle Direto)</dt><dd>'+svcsHtml+
-        '<div style="margin-top:6px;"><button type="button" class="ja-node-svcs-btn" data-node-idx="'+attr(String(i))+'" style="background:rgba(168,85,247,0.2);border:1px solid #a855f7;color:#e9d5ff;border-radius:4px;padding:4px 10px;font-size:0.74rem;font-weight:bold;cursor:pointer;">⚙ ESCOLHER SERVIÇOS QUE ESTE NÓ EXECUTA</button></div>'+
+      '<dt>'+esc(uiT("Identificador"))+'</dt><dd>'+esc(n.device_id||'Legado sem identificador')+'</dd>'+
+      '<dt>'+esc(uiT("Hostname"))+'</dt><dd>'+esc(n.hostname||'—')+'</dd>'+
+      '<dt>'+esc(uiT("Programa / função"))+'</dt><dd><strong style="color:#f8fafc;">'+esc(n.papel||'—')+'</strong></dd>'+
+      '<dt>'+esc(uiT("Plataforma"))+'</dt><dd>'+esc(n.platform||'—')+'</dd>'+
+      '<dt>'+esc(uiT("IP"))+'</dt><dd>'+esc(n.ip_address||'—')+'</dd>'+
+      '<dt>'+esc(uiT("Serviços Atribuídos ao Nó (Controle Direto)"))+'</dt><dd>'+svcsHtml+
+        '<div style="margin-top:6px;"><button type="button" class="ja-node-svcs-btn" data-node-idx="'+attr(String(i))+'" style="background:rgba(168,85,247,0.2);border:1px solid #a855f7;color:#e9d5ff;border-radius:4px;padding:4px 10px;font-size:0.74rem;font-weight:bold;cursor:pointer;">⚙ '+esc(uiT("ESCOLHER SERVIÇOS QUE ESTE NÓ EXECUTA"))+'</button></div>'+
       '</dd>'+
-      '<dt>Versão Git do Cluster</dt><dd>'+
+      '<dt>'+esc(uiT("Versão Git do Cluster"))+'</dt><dd>'+
         (n.version?'<strong style="color:#00e5ff;font-family:monospace;font-size:0.95rem;">'+esc(n.version)+'</strong>':'<span style="opacity:0.6;">Não informada</span>')+
         (n.online ? (
           n.up_to_date === true ?
@@ -1145,22 +1152,22 @@ async function renderNodes(){
               '<div style="margin-top:5px;padding:6px 8px;background:rgba(234,179,8,0.15);border:1px solid #eab308;border-radius:4px;">'+
                 '<strong style="color:#eab308;font-size:0.75rem;display:block;">⚠ ATUALIZAÇÃO DISPONÍVEL NO GIT</strong>'+
                 '<small style="display:block;color:#cbd5e1;font-size:0.72rem;margin-top:2px;">Remoto: <code style="color:#fde047;">#'+esc(n.remote_commit ? n.remote_commit.substring(0,7) : 'master')+'</code> ('+esc(n.branch||'master')+')</small>'+
-                '<button type="button" class="ja-node-update-btn" data-node-idx="'+attr(String(i))+'" style="margin-top:6px;background:#eab308;color:#000;border:none;border-radius:4px;padding:4px 10px;font-size:0.75rem;font-weight:900;cursor:pointer;display:inline-block;" title="Atualizar nó diretamente do Git">⚡ ATUALIZAR AGORA (GIT)</button>'+
+                '<button type="button" class="ja-node-update-btn" data-node-idx="'+attr(String(i))+'" style="margin-top:6px;background:#eab308;color:#000;border:none;border-radius:4px;padding:4px 10px;font-size:0.75rem;font-weight:900;cursor:pointer;display:inline-block;" title="Atualizar nó diretamente do Git">⚡ '+esc(uiT("ATUALIZAR AGORA (GIT)"))+'</button>'+
               '</div>' :
               '<small style="display:block;opacity:0.6;font-size:0.72rem;margin-top:2px;">Verificação em andamento...</small>')
         ) : '<div style="margin-top:4px;"><span style="color:#94a3b8;font-size:0.75rem;font-style:italic;">Status indisponível (nó offline)</span></div>')+
         (n.deployed_at?'<small style="display:block;opacity:0.8;font-size:0.75rem;margin-top:2px;">Atualizado: '+esc(n.deployed_at)+'</small>':'')+
       '</dd>'+
-      '<dt>CPU</dt><dd>'+esc(n.cpu||'Não informada')+'</dd>'+
-      '<dt>RAM</dt><dd>'+esc(n.ram||'Não informada')+'</dd>'+
-      '<dt>Capacidades</dt><dd>'+esc((n.capabilities||[]).join(', ')||'Não informadas')+'</dd>'+
-      '<dt>Último contato (servidor)</dt><dd>'+esc(n.last_seen||'Ainda não recebido')+'</dd>'+
-      '<dt>Acesso SSH</dt><dd><code style="background:#02070c;border:1px solid #24516b;padding:2px 7px;border-radius:4px;color:#00e5ff;font-family:monospace;font-size:0.85rem;user-select:all;">ssh mmm@'+esc(n.ip_address||'—')+'</code></dd>'+
-      '<dt>Site do Cluster</dt><dd>'+(n.ip_address?'<a href="http://'+esc(n.ip_address)+':8080/" target="_blank" style="display:inline-block;padding:3px 10px;background:#38bdf8;color:#000;border-radius:4px;text-decoration:none;font-weight:bold;font-size:0.8rem;">ABRIR PORTAL (:8080)</a>':'—')+'</dd>'+
+      '<dt>'+esc(uiT("CPU"))+'</dt><dd>'+esc(n.cpu||uiT('Não informada'))+'</dd>'+
+      '<dt>'+esc(uiT("RAM"))+'</dt><dd>'+esc(n.ram||uiT('Não informada'))+'</dd>'+
+      '<dt>'+esc(uiT("Capacidades"))+'</dt><dd>'+esc((n.capabilities||[]).join(', ')||uiT('Não informadas'))+'</dd>'+
+      '<dt>'+esc(uiT("Último contato (servidor)"))+'</dt><dd>'+esc(n.last_seen||uiT('Ainda não recebido'))+'</dd>'+
+      '<dt>'+esc(uiT("Acesso SSH"))+'</dt><dd><code style="background:#02070c;border:1px solid #24516b;padding:2px 7px;border-radius:4px;color:#00e5ff;font-family:monospace;font-size:0.85rem;user-select:all;">ssh mmm@'+esc(n.ip_address||'—')+'</code></dd>'+
+      '<dt>'+esc(uiT("Site do Cluster"))+'</dt><dd>'+(n.ip_address?'<a href="http://'+esc(n.ip_address)+':8080/" target="_blank" style="display:inline-block;padding:3px 10px;background:#38bdf8;color:#000;border-radius:4px;text-decoration:none;font-weight:bold;font-size:0.8rem;">'+esc(uiT("ABRIR PORTAL (:8080)"))+'</a>':'—')+'</dd>'+
       '</dl><span class="ja-state '+(n.online?'ok':'')+'">'+esc(states[n.status]||n.status)+'</span></article>';
     })+pager('nodes',p):
       '<div class="ja-empty">Nenhum agente Linux ARM registrado. Clique em <b>+ NOVO NÓ</b> acima ou conecte agentes pela API de dispositivos.</div>';
-    moduleShell('Cluster ARM — nós e equipamentos',summary+body,'<a class="ja-mini primary" href="/casa/index.php?grupo=SISTEMA&amp;item=orchestration-sys">Orquestração de serviços</a> <button id="nodes-add" class="ja-mini primary" style="margin-right:8px;">+ NOVO NÓ</button><button id="nodes-refresh" class="ja-mini">Atualizar lista</button>');
+    moduleShell(uiT('Cluster ARM — nós e equipamentos'),summary+body,'<a class="ja-mini primary" href="/casa/index.php?grupo=SISTEMA&amp;item=orchestration-sys">'+esc(uiT("Orquestração de serviços"))+'</a> <button id="nodes-add" class="ja-mini primary" style="margin-right:8px;">'+esc(uiT("+ NOVO NÓ"))+'</button><button id="nodes-refresh" class="ja-mini">'+esc(uiT("Atualizar lista"))+'</button>');
     bindPager('nodes',p,renderNodes);
     document.getElementById('nodes-add').onclick=openNewNodeModal;
     document.getElementById('nodes-refresh').onclick=renderNodes;
@@ -1237,7 +1244,7 @@ async function renderNodes(){
       };
     });
   }catch(e){
-    moduleShell('Clusters e agentes Linux ARM','<div class="ja-empty">'+esc(e.message||'Falha ao carregar agentes.')+'</div>','<button id="nodes-retry" class="ja-mini">Tentar novamente</button>');
+    moduleShell(uiT('Clusters e agentes Linux ARM'),'<div class="ja-empty">'+esc(e.message||uiT('Falha ao carregar agentes.'))+'</div>','<button id="nodes-retry" class="ja-mini">'+esc(uiT("Tentar novamente"))+'</button>');
     document.getElementById('nodes-retry').onclick=renderNodes;
   }
 }
@@ -1247,14 +1254,14 @@ function orchestrationMarkup(all,orch){
     const orchHtml = orch.length ? (
       '<section class="ja-native-card ja-orch-panel">'+
         '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px;">'+
-          '<h3 style="margin:0;color:#38bdf8;">⚡ ORQUESTRAÇÃO DE SERVIÇOS DO CLUSTER (QUEM EXECUTA O QUÊ · SEM REDUNDÂNCIA)</h3>'+
-          '<span style="font-size:0.75rem;color:#94a3b8;">Ao transferir ou ativar um serviço em um servidor, ele é desativado automaticamente nos demais</span>'+
+          '<h3 style="margin:0;color:#38bdf8;">⚡ '+esc(uiT("ORQUESTRAÇÃO DE SERVIÇOS DO CLUSTER (QUEM EXECUTA O QUÊ · SEM REDUNDÂNCIA)"))+'</h3>'+
+          '<span style="font-size:0.75rem;color:#94a3b8;">'+esc(uiT("Ao transferir ou ativar um serviço em um servidor, ele é desativado automaticamente nos demais"))+'</span>'+
         '</div>'+
         '<div class="ja-orch-grid">'+
           orch.map(item => {
             const isAct = !!item.active;
             const stColor = isAct ? '#22c55e' : '#f87171';
-            const stText = isAct ? 'ATIVO' : 'INATIVO';
+            const stText = uiT(isAct ? 'ATIVO' : 'INATIVO');
             const optionsHtml = all.map(n => {
               const sel = (n.device_id && n.device_id === item.owner_device_id) || (n.ip_address && n.ip_address === item.owner_ip) ? 'selected' : '';
               return '<option value="'+attr(n.device_id||'')+'" data-ip="'+attr(n.ip_address||'')+'" '+sel+'>'+esc(n.nome||'Nó')+' ('+esc(n.ip_address||'sem IP')+')'+(n.online?' [ONLINE]':' [OFFLINE]')+'</option>';
@@ -1268,21 +1275,21 @@ function orchestrationMarkup(all,orch){
                 '</div>'+
                 '<span style="background:rgba(0,0,0,0.4);border:1px solid '+stColor+';color:'+stColor+';padding:2px 8px;border-radius:999px;font-size:0.7rem;font-weight:bold;white-space:nowrap;">'+stText+'</span>'+
               '</div>'+
-              (item.purpose ? '<div style="font-size:0.75rem;color:#cbd5e1;line-height:1.38;background:rgba(2,7,12,0.55);padding:6px 8px;border-radius:5px;border-left:2px solid #38bdf8;"><b>Propósito do Daemon:</b> '+esc(item.purpose)+(item.impact_when_stopped ? '<div style="color:#fbbf24;margin-top:3px;font-size:0.71rem;"><b>Se desativado:</b> '+esc(item.impact_when_stopped)+'</div>' : '')+'</div>' : '')+
+              (item.purpose ? '<div style="font-size:0.75rem;color:#cbd5e1;line-height:1.38;background:rgba(2,7,12,0.55);padding:6px 8px;border-radius:5px;border-left:2px solid #38bdf8;"><b>'+esc(uiT("Propósito do Daemon:"))+'</b> '+esc(item.purpose)+(item.impact_when_stopped ? '<div style="color:#fbbf24;margin-top:3px;font-size:0.71rem;"><b>'+esc(uiT("Se desativado:"))+'</b> '+esc(item.impact_when_stopped)+'</div>' : '')+'</div>' : '')+
               '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">'+
-                '<small style="color:#94a3b8;font-size:0.74rem;">Servidor executor:</small>'+
+                '<small style="color:#94a3b8;font-size:0.74rem;">'+esc(uiT("Servidor executor:"))+'</small>'+
                 '<select class="ja-orch-select" data-svc="'+attr(item.id)+'" style="flex:1;min-width:160px;background:#02070c;color:#e2e8f0;border:1px solid #334155;border-radius:4px;padding:4px 6px;font-size:0.78rem;">'+
                   optionsHtml+
                 '</select>'+
-                '<button type="button" class="ja-orch-move-btn" data-svc="'+attr(item.id)+'" style="background:#38bdf8;color:#000;border:none;border-radius:4px;padding:4px 9px;font-size:0.73rem;font-weight:900;cursor:pointer;" title="Transferir e ativar este serviço no servidor selecionado">APLICAR NÓ</button>'+
+                '<button type="button" class="ja-orch-move-btn" data-svc="'+attr(item.id)+'" style="background:#38bdf8;color:#000;border:none;border-radius:4px;padding:4px 9px;font-size:0.73rem;font-weight:900;cursor:pointer;" title="Transferir e ativar este serviço no servidor selecionado">'+esc(uiT("APLICAR NÓ"))+'</button>'+
               '</div>'+
               '<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;padding-top:4px;border-top:1px solid rgba(51,65,85,0.4);">'+
-                '<small style="color:#cbd5e1;font-size:0.72rem;">Atual: <b>'+esc(item.owner_name||'—')+'</b> ('+esc(item.owner_ip||'—')+')</small>'+
+                '<small style="color:#cbd5e1;font-size:0.72rem;">'+esc(uiT("Atual:"))+' <b>'+esc(item.owner_name||'—')+'</b> ('+esc(item.owner_ip||'—')+')</small>'+
                 '<div style="display:flex;gap:4px;">'+
                   (isAct
-                    ? '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(item.id)+'" data-act="stop" data-dev="'+attr(item.owner_device_id||'')+'" data-ip="'+attr(item.owner_ip||'')+'" style="background:#ef4444;color:#fff;border:none;border-radius:4px;padding:3px 8px;font-size:0.7rem;font-weight:bold;cursor:pointer;">⏹ PARAR</button>'+
-                      '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(item.id)+'" data-act="restart" data-dev="'+attr(item.owner_device_id||'')+'" data-ip="'+attr(item.owner_ip||'')+'" style="background:#334155;color:#e2e8f0;border:none;border-radius:4px;padding:3px 8px;font-size:0.7rem;font-weight:bold;cursor:pointer;">↻ REINICIAR</button>'
-                    : '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(item.id)+'" data-act="start" data-dev="'+attr(item.owner_device_id||'')+'" data-ip="'+attr(item.owner_ip||'')+'" style="background:#22c55e;color:#000;border:none;border-radius:4px;padding:3px 8px;font-size:0.7rem;font-weight:bold;cursor:pointer;">▶ ATIVAR</button>')+
+                    ? '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(item.id)+'" data-act="stop" data-dev="'+attr(item.owner_device_id||'')+'" data-ip="'+attr(item.owner_ip||'')+'" style="background:#ef4444;color:#fff;border:none;border-radius:4px;padding:3px 8px;font-size:0.7rem;font-weight:bold;cursor:pointer;">⏹ '+esc(uiT("PARAR"))+'</button>'+
+                      '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(item.id)+'" data-act="restart" data-dev="'+attr(item.owner_device_id||'')+'" data-ip="'+attr(item.owner_ip||'')+'" style="background:#334155;color:#e2e8f0;border:none;border-radius:4px;padding:3px 8px;font-size:0.7rem;font-weight:bold;cursor:pointer;">↻ '+esc(uiT("REINICIAR"))+'</button>'
+                    : '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(item.id)+'" data-act="start" data-dev="'+attr(item.owner_device_id||'')+'" data-ip="'+attr(item.owner_ip||'')+'" style="background:#22c55e;color:#000;border:none;border-radius:4px;padding:3px 8px;font-size:0.7rem;font-weight:bold;cursor:pointer;">▶ '+esc(uiT("ATIVAR"))+'</button>')+
                 '</div>'+
               '</div>'+
             '</div>';
@@ -1290,12 +1297,12 @@ function orchestrationMarkup(all,orch){
         '</div>'+
       '</section>'
     ) : '';
-  return orchHtml || '<div class="ja-empty">Nenhum serviço disponível para orquestração nesta instalação.</div>';
+  return orchHtml || '<div class="ja-empty">'+esc(uiT("Nenhum serviço disponível para orquestração nesta instalação."))+'</div>';
 }
 
 /** Orquestração é uma tela própria: sem a grade do inventário abaixo. */
 async function renderOrchestration(){
-  loading('Orquestração de serviços do cluster');
+  loading(uiT('Orquestração de serviços do cluster'));
   try{
     const data=await getJson('/casa/api/arm_nodes.php');
     const all=data.nodes||[];
@@ -1303,24 +1310,24 @@ async function renderOrchestration(){
     const active=orch.filter(s=>s.active).length;
     const redundant=orch.filter(s=>s.redundant).length;
     const summary='<div class="ja-orch-summary">'+
-      '<strong>'+esc(orch.length)+' serviços catalogados</strong>'+
-      '<span>'+esc(active)+' ativos</span>'+
-      '<span>'+esc(all.filter(n=>n.online).length)+' de '+esc(all.length)+' nós online</span>'+
-      (redundant?'<span class="warning">'+esc(redundant)+' serviço(s) com redundância</span>':'')+
+      '<strong>'+esc(orch.length)+' '+esc(uiT('serviços catalogados'))+'</strong>'+
+      '<span>'+esc(active)+' '+esc(uiT('ativos'))+'</span>'+
+      '<span>'+esc(all.filter(n=>n.online).length)+' '+esc(uiT('de'))+' '+esc(all.length)+' '+esc(uiT('nós online'))+'</span>'+
+      (redundant?'<span class="warning">'+esc(redundant)+' '+esc(uiT('serviço(s) com redundância'))+'</span>':'')+
       '</div>'+
-      '<p class="ja-orch-intro">Defina em qual nó cada serviço deve funcionar. A transferência segue as regras de exclusividade e proteção existentes no servidor; confira o estado do nó antes de aplicar.</p>';
-    moduleShell('Orquestração de serviços do cluster',
+      '<p class="ja-orch-intro">'+esc(uiT("Defina em qual nó cada serviço deve funcionar. A transferência segue as regras de exclusividade e proteção existentes no servidor; confira o estado do nó antes de aplicar."))+'</p>';
+    moduleShell(uiT('Orquestração de serviços do cluster'),
       '<div class="ja-orch-layout">'+summary+orchestrationMarkup(all,orch)+'</div>',
-      '<a class="ja-mini" href="/casa/index.php?grupo=SISTEMA&amp;item=nodes-sys">Ver Cluster ARM</a> '+
-      '<button id="orch-refresh" class="ja-mini primary">Atualizar serviços</button>');
+      '<a class="ja-mini" href="/casa/index.php?grupo=SISTEMA&amp;item=nodes-sys">'+esc(uiT("Ver Cluster ARM"))+'</a> '+
+      '<button id="orch-refresh" class="ja-mini primary">'+esc(uiT("Atualizar serviços"))+'</button>');
     document.getElementById('orch-refresh').onclick=renderOrchestration;
     bindOrchestrationActions(renderOrchestration);
     bindServiceControls(renderOrchestration);
   }catch(e){
-    moduleShell('Orquestração de serviços do cluster',
-      '<div class="ja-empty">'+esc(e.message||'Falha ao carregar orquestração.')+'</div>',
-      '<a class="ja-mini" href="/casa/index.php?grupo=SISTEMA&amp;item=nodes-sys">Ver Cluster ARM</a> '+
-      '<button id="orch-retry" class="ja-mini">Tentar novamente</button>');
+    moduleShell(uiT('Orquestração de serviços do cluster'),
+      '<div class="ja-empty">'+esc(e.message||uiT('Falha ao carregar orquestração.'))+'</div>',
+      '<a class="ja-mini" href="/casa/index.php?grupo=SISTEMA&amp;item=nodes-sys">'+esc(uiT("Ver Cluster ARM"))+'</a> '+
+      '<button id="orch-retry" class="ja-mini">'+esc(uiT("Tentar novamente"))+'</button>');
     document.getElementById('orch-retry').onclick=renderOrchestration;
   }
 }

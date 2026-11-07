@@ -44,6 +44,7 @@ const dom={
   }
 };
 const context={
+  uiT:v=>String(v),
   loading(){},document:dom,alert(msg){throw new Error('Unexpected alert '+msg);},confirm:()=>false,
   getJson:async url=>{
     assert.equal(url,'/casa/api/arm_nodes.php');

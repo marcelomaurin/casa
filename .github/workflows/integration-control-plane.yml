@@ -17,6 +17,16 @@ on:
       - 'arduino/**'
       - '.github/tests/**'
       - '.github/workflows/integration-control-plane.yml'
+  pull_request:
+    paths:
+      - 'site/var/www/html/lcars-site.js'
+      - 'site/var/www/html/lcars-site.css'
+      - 'site/var/www/html/lcars-i18n.js'
+      - 'site/var/www/html/index.php'
+      - '.github/tests/test_site_i18n.js'
+      - '.github/tests/test_arm_nodes_ui.js'
+      - '.github/tests/test_orchestration_ui.js'
+      - '.github/workflows/integration-control-plane.yml'
   workflow_dispatch:
 
 jobs:
@@ -94,6 +104,7 @@ jobs:
           php .github/tests/test_arm_nodes.php
           node .github/tests/test_arm_nodes_ui.js
           node .github/tests/test_orchestration_ui.js
+          node .github/tests/test_site_i18n.js
 
       - name: Test Command Bus and automation internals
         run: php .github/tests/test_control_plane.php

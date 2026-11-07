@@ -7,6 +7,7 @@ const render=src.slice(src.indexOf('async function renderNodes(){'),src.indexOf(
 let body='', actions='', requested='';
 let rows=Array.from({length:151},(_,i)=>({device_id:'agent-'+i,nome:i===0?'<script>bad</script>':'Agent '+i,capabilities:['arm-agent'],status:'online',online:true}));
 const context={
+  uiT:v=>String(v),
   loading(){}, getJson:async url=>{requested=url;return {nodes:rows};},
   esc:v=>String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'),
   // Mesmos auxiliares do lcars-site.js usados por renderNodes.
