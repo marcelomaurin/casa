@@ -67,7 +67,7 @@ AGENT_PORT = int(os.environ.get("AGENT_PORT", 8098))
 HEARTBEAT_INTERVAL = int(os.environ.get("HEARTBEAT_INTERVAL", 20))
 COMMAND_POLL_INTERVAL = float(os.environ.get("COMMAND_POLL_INTERVAL", 2.5))
 PROTOCOL_VERSION = "CASA/1.0"
-AGENT_VERSION = "1.1.0"
+AGENT_VERSION = "1.2.0"
 
 
 def get_ip():
