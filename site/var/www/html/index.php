@@ -14,7 +14,7 @@ $authName = !empty($_SESSION['auth_name']) ? $_SESSION['auth_name'] : ($_SESSION
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
   <title>CASA / COMPUTER</title>
   <link rel="stylesheet" href="/casa/lcars-framework.css?v=1.2.0">
-  <link rel="stylesheet" href="/casa/lcars-site.css?v=1.6.0">
+  <link rel="stylesheet" href="/casa/lcars-site.css?v=1.6.1">
   <link rel="stylesheet" href="/casa/lcars-iot.css?v=1.0.0">
 </head>
 <body>
@@ -25,10 +25,15 @@ $authName = !empty($_SESSION['auth_name']) ? $_SESSION['auth_name'] : ($_SESSION
   </div>
   <script>window.CASA_SESSION_TOKEN = <?= json_encode($jarvisSessionToken, JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT) ?>;</script>
   <div id="app"></div>
+  <div class="casa-language-picker" dir="ltr">
+    <label id="casa-language-label" for="casa-language-select">Idioma</label>
+    <select id="casa-language-select" aria-label="Idioma da interface"></select>
+  </div>
   <noscript>O CASA/COMPUTER precisa de JavaScript habilitado para a interface adaptativa.</noscript>
   <script src="/casa/lcars-framework.js?v=1.3.0"></script>
   <script src="/casa/qrcode.min.js"></script>
-  <script src="/casa/lcars-site.js?v=1.6.1"></script>
+  <script src="/casa/lcars-i18n.js?v=1.0.0"></script>
+  <script src="/casa/lcars-site.js?v=1.6.2"></script>
   <script src="/casa/lcars-iot.js?v=1.1.0"></script>
 </body>
 </html>
