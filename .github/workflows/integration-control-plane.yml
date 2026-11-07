@@ -11,6 +11,11 @@ on:
       - 'mysql/**'
       - 'site/var/www/html/automacao.php'
       - 'site/var/www/html/lcars-site.js'
+      - 'site/var/www/html/api/jarvis.php'
+      - 'site/var/www/html/api/fala_texto.php'
+      - 'site/var/www/html/api/google_home_hardware.php'
+      - '.github/tests/test_speech_text.php'
+      - '.github/tests/test_speech_text.js'
       - 'servicos/device_simulator.py'
       - 'clusters/**'
       - 'android/**'
@@ -71,6 +76,11 @@ jobs:
           find site/var/www/html/api -name '*.php' -print0 | xargs -0 -n1 php -l
           find .github/tests -name '*.php' -print0 | xargs -0 -n1 php -l
           php -l site/var/www/html/automacao.php
+
+      - name: Validate natural speech without Markdown markers
+        run: |
+          php .github/tests/test_speech_text.php
+          node .github/tests/test_speech_text.js
 
       - name: Validate cluster organization
         run: python3 .github/tests/test_clusters_layout.py
