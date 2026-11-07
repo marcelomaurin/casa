@@ -32,19 +32,6 @@ function cti_compativel(array $t, array $w): bool {
         && ($fila === 'geral' || $fila === strtolower((string)$w['nome']) || in_array($fila, $filas, true));
 }
 
-function cti_resumo_trabalhadores(PDO $pdo): array {
-    $ws = cti_trabalhadores($pdo);
-    $l = ['DAEMON DE TAREFAS / TELEMETRIA (contato valido ate 300 s):'];
-    if (!$ws) return array_merge($l, ['- Nenhum worker registrado. Sem comprovacao de executor ativo.']);
-    foreach (array_slice($ws, 0, 8) as $w) {
-        $status = cti_ativo($w) ? 'COM CONTATO RECENTE' : 'SEM CONTATO RECENTE';
-        $l[] = '- ' . cc_txt($w['nome'], 50) . ': ' . $status .
-            '; ultimo contato ' . cc_tempo($w['ultimo_contato']) .
-            '; executores: ' . cc_txt(implode(',', cc_json($w['executores'])), 90);
-    }
-    return $l;
-}
-
 function cti_palavras(string $pergunta): array {
     $stop = array_fill_keys(explode(' ', 'quando porque qual quais como quem onde tarefa tarefas projeto projetos plano planos daemon daemons worker workers trabalhador trabalhadores executou executar executada executado execucao rodou rodar rodando iniciado iniciar iniciada iniciado status pendente pendentes parada parado data solicitacao solicitei solicitado solicitada fiz meu minha meus minhas ainda nunca nao foi foram para pelo pela que esta estão estao uma uns umas sobre quero saber poderia me diga diga mostre verifique verifica olhe veja motivo razao isso aquele aquela desta desse dessa existe historico'), true);
     $terms = preg_split('/[^\p{L}\p{N}]+/u', mb_strtolower($pergunta, 'UTF-8'), -1, PREG_SPLIT_NO_EMPTY);
@@ -56,7 +43,7 @@ function cti_palavras(string $pergunta): array {
     return array_slice(array_keys($r), 0, 6);
 }
 
-function cti_motivo(array $t, array $workers): string {
+function cti_motivo(array $t, array $workers, bool $telemetriaOk = true): string {
     $pid = (string)($t['projeto_status'] ?? '');
     if (empty($t['fila_id'])) {
         if ($pid === 'planejamento') return 'NAO DESPACHADA: projeto em planejamento; depende de aprovacao para entrar na fila';
@@ -77,8 +64,7 @@ function cti_motivo(array $t, array $workers): string {
     if (!empty($t['executar_em']) && strtotime($t['executar_em']) > time()) {
         return 'AGENDADA: horario previsto ainda nao chegou (' . $t['executar_em'] . ')';
     }
-    $resultado = cc_json($t['resultado'] ?? null);
-    if (($resultado['etapa'] ?? '') === 'acompanhar') {
+    if (($t['etapa_github'] ?? '') === 'acompanhar') {
         return 'Em acompanhamento GitHub: aguardando validacoes CI ou revisao/merge humano; verificar PR e checks';
     }
     if ($status === 'AGUARDANDO' || $status === 'AGUARDANDO_PARTES') {
@@ -86,6 +72,7 @@ function cti_motivo(array $t, array $workers): string {
     }
     $fila = (string)($t['fila'] ?? '');
     if ($fila === '') return 'Sem fila de worker: verificar fluxo de execucao direta/agendada pelo site';
+    if (!$telemetriaOk) return 'Telemetria dos workers indisponivel: nao e possivel determinar se ha executor ativo';
     $compativeis = array_values(array_filter($workers, fn($w) => cti_compativel($t, $w)));
     $ativos = array_values(array_filter($compativeis, 'cti_ativo'));
     if (!$ativos) {
@@ -100,11 +87,13 @@ function cti_motivo(array $t, array $workers): string {
 function cti_contexto_tarefas(PDO $pdo, string $pergunta): string {
     if (!cti_pergunta_sobre_tarefa($pergunta)) return '';
     $saida = ['DIAGNOSTICO AO VIVO DE TAREFAS. Use somente os registros apresentados; nao invente datas ou causas.'];
+    $telemetriaOk = true;
     try {
         $workers = cti_trabalhadores($pdo);
         $saida = array_merge($saida, cti_resumo_workers($workers));
     } catch (Throwable $e) {
         $workers = [];
+        $telemetriaOk = false;
         $saida[] = 'Telemetria dos workers INDISPONIVEL: nao e possivel afirmar se o daemon esta ativo.';
     }
     $terms = cti_palavras($pergunta);
@@ -117,7 +106,7 @@ function cti_contexto_tarefas(PDO $pdo, string $pergunta): string {
                    j.id AS fila_id,j.executor,j.fila,j.status AS status_execucao,
                    j.criado_em AS enfileirada_em,j.executar_em,j.iniciado_em,j.concluido_em,
                    j.tentativas,j.max_tentativas,j.reservado_por,j.reservado_ate,
-                   j.depende_de,d.status AS dependencia_status,j.erro,j.resultado
+                   j.depende_de,d.status AS dependencia_status,j.erro,JSON_UNQUOTE(JSON_EXTRACT(j.resultado, '$.etapa')) AS etapa_github
                 FROM casa_projeto_tarefas pt
                 JOIN casa_projetos p ON p.id=pt.projeto_id
                 LEFT JOIN jarvis_tarefas j ON j.id=pt.jarvis_tarefa_id
@@ -133,7 +122,7 @@ function cti_contexto_tarefas(PDO $pdo, string $pergunta): string {
                    j.id AS fila_id,j.executor,j.fila,j.status AS status_execucao,
                    j.criado_em AS enfileirada_em,j.executar_em,j.iniciado_em,j.concluido_em,
                    j.tentativas,j.max_tentativas,j.reservado_por,j.reservado_ate,
-                   j.depende_de,d.status AS dependencia_status,j.erro,j.resultado
+                   j.depende_de,d.status AS dependencia_status,j.erro,JSON_UNQUOTE(JSON_EXTRACT(j.resultado, '$.etapa')) AS etapa_github
                 FROM jarvis_tarefas j JOIN jarvis_planos p ON p.id=j.id_plano
                 LEFT JOIN jarvis_tarefas d ON d.id=j.depende_de
                 WHERE j.fila IS NOT NULL
@@ -164,7 +153,7 @@ function cti_contexto_tarefas(PDO $pdo, string $pergunta): string {
             '; tentativas: ' . ($t['tentativas'] ?? 0) . '/' . ($t['max_tentativas'] ?? '-') .
             '; inicio: ' . ($t['iniciado_em'] ?: 'nao iniciado') .
             '; termino: ' . ($t['concluido_em'] ?: 'nao concluido') .
-            '; diagnostico: ' . cti_motivo($t, $workers);
+            '; diagnostico: ' . cti_motivo($t, $workers, $telemetriaOk);
     }
     $saida[] = 'Se nao houver trabalhador com heartbeat nos ultimos 300 segundos, relatar SEM CONTATO, nao afirmar com certeza que o processo systemd foi desligado. Informar o que precisa ser verificado.';
     return mb_substr(implode("\n", $saida), 0, 6500, 'UTF-8');
