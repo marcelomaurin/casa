@@ -2,8 +2,8 @@
 
 ## Versão atual
 
-- `versionName`: `2.8.3`
-- `versionCode`: `283`
+- `versionName`: `2.8.4`
+- `versionCode`: `284`
 - pacote de desenvolvimento: `br.com.maurinsoft.jarvismobile.debug`
 - pacote de produção: `br.com.maurinsoft.jarvismobile`
 
@@ -108,3 +108,11 @@ Toda nova versão deve atualizar também `bin/versions.json`. Consulte [MOBILE_A
 - Detecção e envio de rede (Wi-Fi SSID, RSSI dBm, IP local e conectividade celular).
 - Identificação do fabricante e modelo do aparelho para exibição no painel da residência e cluster.
 - Monitoramento e transmissão da contagem de relógios JARVIS Watch conectados via BLE.
+
+## Histórico — 2.8.4
+
+- Ajuste de tempo limite HTTP para respostas demoradas da IA (cliente 120 s; deadline total 130 s).
+- Validação do status interno `status_jarvis` e detecção de respostas vazias ou JSON inválido.
+- Exibição do motivo de erro no chat, evitando silêncio quando o transporte HTTP responde mas a IA falha.
+- Testes de resposta válida, falha interna, resposta vazia, HTML inesperado e ausência de áudio.
+- Entrada do manifesto de atualização preparada como desabilitada até o APK ser publicado, validado e ter hash registrado.
