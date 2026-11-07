@@ -25,6 +25,21 @@ if [ ! -f "$CONF" ]; then
     install -m 0640 -o root -g casa-tarefas "$DIR/casa-tarefas.env.exemplo" "$CONF"
     echo "Configuração criada em $CONF — preencha CASA_TAREFAS_CHAVE antes de iniciar."
 fi
+# Hardware opcional por grupos do Linux. Nunca concede root ao agente.
+# A lista privada nao e executada como shell, e apenas nomes simples de grupos sao aceitos.
+GRUPOS=$(sed -n 's/^CASA_TAREFAS_GRUPOS_HARDWARE=//p' "$CONF" | tail -n 1 | tr -d '\r"\047')
+IFS=',' read -ra GRUPOS_PEDIDOS <<< "$GRUPOS"
+for grp in "${GRUPOS_PEDIDOS[@]}"; do
+    grp="${grp//[[:space:]]/}"
+    [ -n "$grp" ] || continue
+    if [[ "$grp" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] && getent group "$grp" >/dev/null; then
+        usermod -aG "$grp" casa-tarefas
+        echo "Grupo de hardware permitido para casa-tarefas: $grp"
+    else
+        echo "Ignorando grupo de hardware inexistente ou invalido: $grp"
+    fi
+done
+
 # Scripts de exemplo ficam desativados (sem permissão de execução) até você liberar.
 for f in "$DIR"/comandos.d/*; do
     [ -e "$f" ] || continue
