@@ -42,6 +42,90 @@ class TestAgente(unittest.TestCase):
             return json.dumps(next(it))
         return ag.AgenteLocal(self.task, self.ctx, model, lambda t, c: {"executado": True}, lambda t, c: {"resultados": []})
 
+
+    def test_dividir_tarefa_em_partes_dependentes(self):
+        self.cfg.executores = ["jarvis", "agente", "web", "fala"]
+        agent = self.agent([{"tipo": "dividir", "partes": [
+            {"titulo": "Pesquisar equipamentos", "executor": "agente", "descricao": "Levantar componentes"},
+            {"titulo": "Gerar relatorio", "executor": "agente", "descricao": "Consolidar pesquisa",
+             "depende_da_parte": 1}
+        ]}])
+        with self.assertRaises(ag.SubtarefasSolicitadas) as error:
+            agent.rodar()
+        partes = error.exception.partes
+        self.assertEqual(len(partes), 2)
+        self.assertEqual(partes[1]["depende_da_parte"], 1)
+        self.assertEqual(partes[0]["payload"]["_agente_nivel"], 1)
+        self.assertEqual(partes[0]["fila"], "geral")
+
+    def test_divisao_exige_executor_fila_validos_e_limite_profundidade(self):
+        agent = self.agent([])
+        partes = [
+            {"titulo": "Etapa um", "executor": "agente"},
+            {"titulo": "Etapa dois", "executor": "agente", "depende_da_parte": 1},
+        ]
+        self.assertEqual(len(agent.validar_subtarefas(partes)), 2)
+        for ruim in (
+            [dict(partes[0], executor="shell"), partes[1]],
+            [dict(partes[0], fila="admin"), partes[1]],
+            [dict(partes[0], payload={"_agente_nivel": 0}), partes[1]],
+            [dict(partes[0], depende_da_parte=2), partes[1]],
+            [partes[0]],
+        ):
+            with self.subTest(partes=ruim), self.assertRaises(ValueError):
+                agent.validar_subtarefas(ruim)
+        self.task["payload"]["_agente_nivel"] = 3
+        with self.assertRaisesRegex(ValueError, "profundidade"):
+            self.agent([]).validar_subtarefas(partes)
+
+    def test_hardware_apenas_inventario_sem_comandos_livres(self):
+        agent = self.agent([])
+        estado = agent.executar_ferramenta("hardware_estado", {})
+        self.assertEqual(estado["node"], "no-teste")
+        for nome in ("gpio", "i2c", "serial", "temperatura"):
+            self.assertIn(nome, estado["hardware"])
+        self.assertNotIn("executar_comando", agent.ferramentas)
+
+    def test_pesquisa_na_ia_do_site_com_evidencia(self):
+        decisoes = iter([
+            {"tipo": "ferramenta", "nome": "consultar_ia", "args": {"pergunta": "Como funciona API?"}},
+            {"tipo": "concluir", "resposta": "Pesquisa documentada", "evidencias": [1]},
+        ])
+        chamadas = []
+        def model(prompt):
+            chamadas.append(prompt)
+            if "CONSULTA DE PESQUISA" in prompt:
+                return "O Casa usa HTTPS na API v1."
+            return json.dumps(next(decisoes))
+        agent = ag.AgenteLocal(self.task, self.ctx, model,
+                              lambda t,c: {"ok": True}, lambda t,c: {"resultados": []})
+        result = agent.rodar()
+        self.assertEqual(result["evidencias"][0]["resultado"]["resposta"], "O Casa usa HTTPS na API v1.")
+        self.assertTrue(any("CONSULTA DE PESQUISA" in p for p in chamadas))
+
+    def test_jarvis_agente_encaminha_divisao_pela_api(self):
+        self.cfg.agente_enabled = True
+        self.cfg.jarvis_modo = "agente"
+        self.cfg.base_url = "https://casa.example"
+        self.cfg.tempo_http = 30
+        self.cfg.executores = ["jarvis", "agente", "web"]
+        self.cfg.filas = []
+        self.task.update(executor="jarvis", fila="geral", task_context={"id_plano": 5, "current_task_id": 17})
+        resp = {"tipo": "dividir", "partes": [
+            {"titulo": "Pesquisa de dados", "executor": "agente"},
+            {"titulo": "Validacao local", "executor": "agente", "depende_da_parte": 1},
+        ]}
+        def api(url, body, key, timeout):
+            self.assertEqual(url, "https://casa.example/api/v1/comando")
+            self.assertTrue(body["skip_planner"])
+            self.assertTrue(body["sem_acoes"])
+            self.assertEqual(key, self.cfg.chave)
+            return {"status": "sucesso", "resposta": json.dumps(resp)}
+        with patch.object(ct, "http_json", side_effect=api):
+            with self.assertRaises(ct.Dividir) as out:
+                ct.executor_jarvis(self.task, self.ctx)
+        self.assertEqual(len(out.exception.partes), 2)
+
     def test_executa_grava_confere_e_conclui(self):
         a = self.agent([
             {"tipo": "ferramenta", "nome": "gravar_arquivo", "args": {"path": "resultado.json", "content": '{"ok":true}'}},
