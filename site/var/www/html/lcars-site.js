@@ -3508,6 +3508,31 @@ function stopComputerBargeIn(){
   state.stream?.getTracks().forEach(t=>t.stop());
   state.ctx?.close?.().catch?.(()=>{});
 }
+function prepareComputerSpeech(text) {
+  let raw=String(text||'').replace(/\r\n?/g,'\n').trim();
+  if(!raw)return '';
+  raw=raw.replace(/```[^\n]*\n[\s\S]*?```/g,'\nHá um trecho de código na resposta escrita.\n')
+    .replace(/^[ \t]*[-*_]{3,}[ \t]*$/gm,'')
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g,'$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g,'$1')
+    .replace(/^[ \t]{0,3}#{1,6}[ \t]+/gm,'')
+    .replace(/^[ \t]{0,3}>[ \t]?/gm,'')
+    .replace(/^[ \t]*[-*+][ \t]+/gm,'')
+    .replace(/^[ \t]*(\d{1,3})[.)][ \t]+/gm,'Item $1: ')
+    .replace(/(?<![\p{L}\p{N}])#[ \t]*(\d+)\b/gu,'número $1')
+    .replace(/\*\*([^\n]*?)\*\*/g,'$1')
+    .replace(/__([^\n]*?)__/g,'$1')
+    .replace(/~~([^\n]*?)~~/g,'$1')
+    .replace(/(?<!\w)\*([^*\n]+)\*(?!\w)/g,'$1')
+    .replace(/(?<!\w)_([^_\n]+)_(?!\w)/g,'$1')
+    .replace(/`([^`\n]+)`/g,'$1')
+    .replace(/[ \t]*\|[ \t]*/g,', ')
+    .replace(/[ \t]+/g,' ');
+  return raw.split(/\n+/).map(line=>{
+    line=line.trim().replace(/^,+|,+$/g,'').trim();
+    return line ? /[.!?;:]$/.test(line)?line:line+'.' : '';
+  }).filter(Boolean).join(' ');
+}
 function splitComputerSpeech(text,maxChars=140){
   const clean=String(text||'').replace(/\s+/g,' ').trim();
   if(!clean)return [];
@@ -3542,7 +3567,7 @@ function setComputerSpeaking(active){
   updateMobileVoiceBarUI(false);
 }
 function speakComputer(text){
-  const speech=String(text||'').trim();
+  const speech=prepareComputerSpeech(text);
   if(!speech || !('speechSynthesis' in window)) return false;
   const synth=window.speechSynthesis;
   const chunks=splitComputerSpeech(speech);
@@ -3657,7 +3682,7 @@ async function renderJarvis(){
       appendChat('COMPUTER',resposta,'ai',true,botTime);
       conversationHistory.push({role:'user',content:cmd},{role:'assistant',content:String(resposta)});
       conversationHistory=trimComputerHistory(conversationHistory);
-      if(!speakComputer(resposta)){
+      if(!speakComputer(r.resposta_fala || resposta)){
         appendChat('Sistema','Voz pt-BR não disponível neste navegador.','error');
       }
     }catch(e){
