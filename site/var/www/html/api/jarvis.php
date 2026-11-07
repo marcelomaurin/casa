@@ -38,6 +38,7 @@ require_once(__DIR__ . '/task_engine.php');
 require_once(__DIR__ . '/rag.php');
 require_once(__DIR__ . '/contexto_casa.php');
 require_once(__DIR__ . '/fala_texto.php');
+require_once(__DIR__ . '/diagnostico_daemons.php');
 
 // A interface web usa cookie de sessao + token aleatorio da propria sessao.
 // Integracoes externas continuam autenticando por Bearer/X-API-Key em verify_api_auth().
@@ -263,6 +264,45 @@ function jarvis_deve_planejar($cmd) {
 function jarvis_pedido_web($cmd) {
     $c = mb_strtolower($cmd, 'UTF-8');
     return preg_match('/(^\s*\/web\b|pesquis(e|ar).*internet|procure.*internet|busque.*internet|busca.*internet|[uú]ltimas not[ií]cias|not[ií]cias de hoje|na internet)/u', $c);
+}
+
+// Consultas diagnosticas nunca devem virar um "plano pendente" sem medir os nos.
+// Leitura autenticada das tabelas de heartbeat e do journal publicado pelo agente.
+$intencaoDiagnostico=dd_intencao($comando);
+if($intencaoDiagnostico!==null && !$forcarPlanejamento){
+    try{
+        $diag=dd_consultar($pdo,$intencaoDiagnostico);
+        $resp=trim((string)$diag['resposta']);
+        if($taskInterpret>0)te_complete($pdo,$taskInterpret,['roteamento'=>'diagnostico_daemons']);
+        te_finish($pdo,$taskContext,$resp,['origem'=>'telemetria_autenticada','tipo'=>$intencaoDiagnostico['tipo']]);
+        $audio=($chamadaInterna && !$reproduzirNaCasa)?null:
+            jarvis_tts($resp,$configs['jarvis_voice']??'padrao',$reproduzirNaCasa);
+        computer_telemetry_finish($pdo,$telemetryId,'SUCESSO',$resp,'DIAGNOSTICO DE DAEMONS','TELEMETRIA',$telemetryStarted);
+        echo json_encode(te_attach_context([
+            'status'=>'sucesso',
+            'comando'=>$comando,
+            'resposta'=>$resp,
+            'resposta_fala'=>casa_texto_para_fala($resp),
+            'tipo_tarefa'=>'consulta_diagnostico',
+            'dados_diagnostico'=>$diag,
+            'audio_url'=>$audio,
+        ],$taskContext,$pdo),JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+        exit;
+    }catch(Throwable $e){
+        // Nunca perguntar ao modelo para inventar o estado do systemd quando o banco falhou.
+        error_log('diagnostico_daemons: '.$e->getMessage());
+        $resp='Não consegui consultar a telemetria dos daemons no banco neste momento. A condição real dos serviços não foi verificada.';
+        if($taskInterpret>0)te_complete($pdo,$taskInterpret,['roteamento'=>'diagnostico_daemons','erro'=>'consulta indisponivel']);
+        te_finish_error($pdo,$taskContext,$resp);
+        computer_telemetry_finish($pdo,$telemetryId,'FALHA',$resp,'DIAGNOSTICO DE DAEMONS','TELEMETRIA',$telemetryStarted);
+        http_response_code(503);
+        echo json_encode(te_attach_context([
+            'status'=>'erro','resposta'=>$resp,'mensagem'=>$resp,
+            'resposta_fala'=>casa_texto_para_fala($resp),
+            'tipo_tarefa'=>'consulta_diagnostico'
+        ],$taskContext,$pdo),JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+        exit;
+    }
 }
 
 // 0. Planejamento antes da execucao quando a demanda pede varias etapas, futuro ou condicao.

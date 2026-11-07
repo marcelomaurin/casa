@@ -67,7 +67,7 @@ AGENT_PORT = int(os.environ.get("AGENT_PORT", 8098))
 HEARTBEAT_INTERVAL = int(os.environ.get("HEARTBEAT_INTERVAL", 20))
 COMMAND_POLL_INTERVAL = float(os.environ.get("COMMAND_POLL_INTERVAL", 2.5))
 PROTOCOL_VERSION = "CASA/1.0"
-AGENT_VERSION = "1.1.0"
+AGENT_VERSION = "1.2.0"
 
 
 def get_ip():
@@ -295,6 +295,98 @@ def run_cluster_update():
     }
 
 
+
+# Diagnostico somente de leitura. Dados de systemd sao enviados pelo heartbeat
+# autenticado, sem expor uma API de shell remota para a IA.
+DIAGNOSTIC_UNITS = (
+    "casa-tarefas.service",
+    "casa-node-agent.service",
+    "jarvis-web-agent.service",
+)
+_DIAGNOSTIC_CACHE = {"at": 0, "value": None}
+
+def _safe_journal_line(line):
+    """Reduz a chance de vazar segredos presentes em logs de terceiros."""
+    import re
+    line = str(line).strip()[:500]
+    line = re.sub(r"(?i)\b(authorization|password|senha|token|api[_-]?key|secret)"
+                  r"\s*[:=]\s*['\"]?\S+", r"\1=[OCULTO]", line)
+    line = re.sub(r"(?i)\bbearer\s+\S+", "Bearer [OCULTO]", line)
+    line = re.sub(r"https?://\S+", "[URL OCULTA]", line, flags=re.I)
+    return line[:240]
+
+def collect_daemon_diagnostics():
+    """Coleta apenas estados reais do systemd; sem root, shell ou mudanças locais.
+
+    Falha/ausencia de systemctl retorna 'indisponivel', nunca uma lista vazia
+    anunciada como todos os daemons desligados.
+    """
+    import re
+    now = int(time.time())
+    if _DIAGNOSTIC_CACHE["value"] is not None and now - _DIAGNOSTIC_CACHE["at"] < 45:
+        return _DIAGNOSTIC_CACHE["value"]
+    checked_at = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now))
+    result = {
+        "checked_at": checked_at, "source": "systemd",
+        "running_status": "indisponivel", "running_services": [],
+        "running_count": None, "running_truncated": False,
+        "critical_services": {},
+    }
+    rc, output, error = run_cmd([
+        "systemctl", "list-units", "--type=service", "--state=running",
+        "--no-pager", "--no-legend"
+    ], timeout=7)
+    if rc == 0:
+        names = []
+        for line in output.splitlines():
+            fields = line.strip().lstrip("● ").split()
+            if len(fields) >= 4 and fields[0].endswith(".service") and \
+                    re.match(r"^[A-Za-z0-9@_.-]{1,120}\.service$", fields[0]) and \
+                    fields[2] == "active" and fields[3] == "running":
+                names.append(fields[0])
+        names = sorted(set(names))
+        result["running_count"] = len(names)
+        result["running_truncated"] = len(names) > 100
+        result["running_services"] = names[:100]
+        result["running_status"] = "ok"
+    # Estado detalhado das unidades de diagnostico, inclusive se inativas.
+    if rc == 0:
+        for unit in DIAGNOSTIC_UNITS:
+            sr, sout, serr = run_cmd([
+                "systemctl", "show", unit, "--no-pager",
+                "--property=LoadState,ActiveState,SubState,MainPID,Result,NRestarts,ExecMainStatus"
+            ], timeout=5)
+            if sr != 0:
+                result["critical_services"][unit] = {"state": "indisponivel"}
+                continue
+            data = {}
+            allow = {"LoadState", "ActiveState", "SubState", "MainPID",
+                     "Result", "NRestarts", "ExecMainStatus"}
+            for item in sout.splitlines():
+                if "=" in item:
+                    key, value = item.split("=", 1)
+                    if key in allow:
+                        data[key] = value.strip()[:100]
+            if not data or data.get("LoadState") == "not-found":
+                result["critical_services"][unit] = {"state": "nao_instalado"}
+            else:
+                result["critical_services"][unit] = data
+        # So as linhas de nivel ERROR do executor de tarefas, nunca logs inteiros.
+        jr, jout, jerr = run_cmd([
+            "journalctl", "-u", "casa-tarefas.service", "-p", "err",
+            "--since=-30min", "-n", "5", "--no-pager", "-o", "cat"
+        ], timeout=6)
+        worker = result["critical_services"].setdefault("casa-tarefas.service", {})
+        if jr == 0 and not re.search(r"permission|not seeing messages", jerr or "", re.I):
+            worker["log_errors"] = [_safe_journal_line(x) for x in jout.splitlines()
+                                    if x.strip() and not x.startswith("-- ")][-5:]
+            worker["logs_status"] = "consultados"
+        else:
+            worker["logs_status"] = "sem_acesso"
+    _DIAGNOSTIC_CACHE["at"] = now
+    _DIAGNOSTIC_CACHE["value"] = result
+    return result
+
 def get_local_cluster_services():
     """Consulta o portal local (:8080) para obter servicos ativos e atribuidos ao no."""
     try:
@@ -353,6 +445,7 @@ def send_heartbeat():
     version_str, commit_hash, deployed_at = get_deployed_version()
     up_info = get_update_info(refresh=False)
     svc_info = get_local_cluster_services()
+    daemon_info = collect_daemon_diagnostics()
     payload = {
         "device_id": DEVICE_ID,
         "transport": "https",
@@ -379,6 +472,7 @@ def send_heartbeat():
             "services_detail": svc_info.get("services_detail") or [],
             "assigned_services": svc_info.get("assigned_services") or [],
             "node_role": svc_info.get("node_role") or "",
+            "daemon_diagnostics": daemon_info,
         },
     }
     return api_request("heartbeat", "POST", payload, timeout=10)
