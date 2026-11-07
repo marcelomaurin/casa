@@ -1983,3 +1983,5 @@ button.md-tile:hover,button.md-tile:focus-visible{border-color:#f2a000;backgroun
   .ja-orch-service{padding:12px!important}
   .ja-orch-layout{padding:8px}
 }
+
+.ja-native-actions a.ja-mini{display:inline-flex;align-items:center;justify-content:center;text-decoration:none;min-height:30px}
