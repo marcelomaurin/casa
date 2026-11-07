@@ -53,10 +53,16 @@ function cti_motivo(array $t, array $workers, bool $telemetriaOk = true): string
     if ($status === 'CONCLUIDA') return 'Concluida; consultar resultado e comprovantes';
     if ($status === 'ERRO' || $status === 'FALHOU') return 'Falhou: ' . cc_txt($t['erro'] ?? 'sem descricao', 180);
     if ($status === 'EXECUTANDO') {
+        $nome = (string)($t['reservado_por'] ?? '');
+        if (!$telemetriaOk) return 'EXECUTANDO no banco, mas telemetria indisponivel; confirmar trabalhador ' . $nome;
+        $worker = null;
+        foreach ($workers as $w) if ($nome !== '' && strcasecmp($nome, (string)$w['nome']) === 0) { $worker = $w; break; }
+        if ($worker === null) return 'EXECUTANDO no banco, mas sem heartbeat identificado do trabalhador ' . ($nome ?: 'nao informado');
+        if (!cti_ativo($worker)) return 'EXECUTANDO no banco, mas worker ' . $nome . ' SEM CONTATO RECENTE (ultimo ' . cc_tempo($worker['ultimo_contato']) . '); possivel execucao interrompida';
         if (!empty($t['reservado_ate']) && strtotime($t['reservado_ate']) < time()) {
-            return 'Reserva vencida; a recuperacao depende de nova consulta de um worker a fila';
+            return 'Worker com heartbeat recente, mas reserva vencida; verificar renovacao da tarefa';
         }
-        return 'Reservada/em execucao por ' . cc_txt($t['reservado_por'] ?? 'executor nao informado', 80);
+        return 'Executando com worker ' . $nome . ' com heartbeat recente';
     }
     if (!empty($t['depende_de']) && ($t['dependencia_status'] ?? '') !== 'CONCLUIDA') {
         return 'BLOQUEADA: depende da tarefa #' . $t['depende_de'] . ' (status ' . ($t['dependencia_status'] ?: 'indisponivel') . ')';
