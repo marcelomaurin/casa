@@ -263,6 +263,35 @@ function jarvis_pedido_web($cmd) {
     return preg_match('/(^\s*\/web\b|pesquis(e|ar).*internet|procure.*internet|busque.*internet|busca.*internet|[uú]ltimas not[ií]cias|not[ií]cias de hoje|na internet)/u', $c);
 }
 
+// Historico de datas: responder com dados do banco, sem inferencia do modelo.
+// Esta consulta nao inicia tarefas nem planeja novas solicitacoes.
+if (!$forcarPlanejamento && !$somenteDireto && cti_pergunta_datas_tarefas($comando)) {
+    $datas = cti_responder_datas_tarefas($pdo, $comando);
+    $respostaDatas = (string)$datas['resposta'];
+    if ($taskInterpret > 0) {
+        if ($datas['ok']) te_complete($pdo, $taskInterpret, ['roteamento'=>'consulta_datas_tarefas']);
+        else te_fail($pdo, $taskInterpret, 'Consulta de datas indisponivel');
+    }
+    if ($datas['ok']) te_finish($pdo, $taskContext, $respostaDatas, ['consulta'=>'datas_tarefas']);
+    else te_finish_error($pdo, $taskContext, $respostaDatas);
+    $audio = ($chamadaInterna && !$reproduzirNaCasa)
+        ? null : jarvis_tts($respostaDatas, $configs['jarvis_voice'] ?? 'padrao', $reproduzirNaCasa);
+    computer_telemetry_finish($pdo, $telemetryId, $datas['ok']?'SUCESSO':'FALHA',
+        $respostaDatas, 'CONSULTA_DATAS_TAREFAS', 'BANCO_CASA', $telemetryStarted);
+    echo json_encode(te_attach_context([
+        'status'=>$datas['ok']?'sucesso':'erro',
+        'comando'=>$comando,
+        'resposta'=>$respostaDatas,
+        'tipo_tarefa'=>'consulta_datas_tarefas',
+        'tarefas_datas'=>$datas['tarefas'],
+        'provedor'=>'Banco de dados Casa',
+        'target_ia'=>'consulta_deterministica',
+        'audio_url'=>$audio,
+        'tarefas_execucao'=>te_list_tasks($pdo,$taskContext)
+    ], $taskContext, $pdo), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
 // 0. Planejamento antes da execucao quando a demanda pede varias etapas, futuro ou condicao.
 if (!$skipPlanner && ($forcarPlanejamento || jarvis_deve_planejar($comando))) {
     $demanda = preg_replace('/^\s*\/planejar\s*/iu', '', $comando);
