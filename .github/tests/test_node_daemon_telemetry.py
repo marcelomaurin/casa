@@ -4,7 +4,7 @@ import importlib.util
 import pathlib
 import unittest
 
-ROOT=pathlib.Path(__file__).resolve().parents[3]
+ROOT=pathlib.Path(__file__).resolve().parents[2]
 SOURCE=ROOT / "clusters/comunicacao/arm-agent/casa-node-agent.py"
 spec=importlib.util.spec_from_file_location("casa_node_agent_diagnostics", SOURCE)
 module=importlib.util.module_from_spec(spec)
