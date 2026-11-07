@@ -360,7 +360,7 @@ function openItem(item,updateRoute=true){
   currentItem=item.id;
   CASALcars.render('#app',{
     layout:'focus',group:currentGroup,title:uiT(item.label),subtitle:uiT(GROUPS[currentGroup].subtitle),
-    breadcrumb:[],groups:groupRail(currentGroup),status:STATUS,
+    breadcrumb:[],groups:groupRail(currentGroup),status:uiStatuses(),
     items:[{title:item.label,description:'Módulo funcional do CASA no layout atual.'}],
     footer:{hint:'Use os controles do módulo; dados extensos são paginados para evitar rolagem.'}
   });
@@ -392,10 +392,10 @@ function crud(table,action='listar',extra=''){
 
 function moduleShell(title,body,actions=''){
   const c=contentNode(); if(!c) return;
-  c.innerHTML='<section class="ja-native-module"><header class="ja-native-head"><strong>'+esc(title)+'</strong><div class="ja-native-actions">'+actions+'</div></header><div class="ja-native-body">'+body+'</div></section>';
+  c.innerHTML='<section class="ja-native-module"><header class="ja-native-head"><strong>'+esc(uiT(title))+'</strong><div class="ja-native-actions">'+actions+'</div></header><div class="ja-native-body">'+body+'</div></section>';
 }
 function showModuleError(msg){ moduleShell('Módulo','<div class="ja-empty">'+esc(msg)+'</div>'); }
-function loading(title){ moduleShell(title,'<div class="ja-empty">Carregando...</div>'); }
+function loading(title){ moduleShell(title,'<div class="ja-empty">'+esc(uiT('Carregando...'))+'</div>'); }
 
 function paginate(name,items,pageSize=6){
   const st=moduleState[name]||(moduleState[name]={page:0});
@@ -413,7 +413,7 @@ function bindPager(name,p,rerender){
 function cards(items,render){
   return '<div class="ja-native-grid">'+items.map(render).join('')+'</div>';
 }
-function actionBtn(label,act,variant=''){return '<button class="ja-mini '+variant+'" data-act="'+attr(act)+'">'+esc(label)+'</button>';}
+function actionBtn(label,act,variant=''){return '<button class="ja-mini '+variant+'" data-act="'+attr(act)+'">'+esc(uiT(label))+'</button>';}
 
 async function mountNativeModule(item){
   const m=item.module;
