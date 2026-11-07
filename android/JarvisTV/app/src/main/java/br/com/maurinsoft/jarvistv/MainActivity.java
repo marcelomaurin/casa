@@ -42,7 +42,7 @@ public class MainActivity extends Activity {
 
     private static class CameraItem { final String name,location,captureUrl,status; CameraItem(String n,String l,String u,String s){name=n;location=l;captureUrl=u;status=s;} }
 
-    @Override protected void onCreate(Bundle b){ super.onCreate(b); provisioning=new TvProvisioningClient(this); control=new TvControlPlaneClient(this); buildUi(); TvUpdateManager.check(this); }
+    @Override protected void onCreate(Bundle b){ super.onCreate(b); provisioning=new TvProvisioningClient(this); control=new TvControlPlaneClient(this); buildUi(); TvUpdateJobService.schedule(this); TvUpdateManager.check(this); }
     private final Runnable updateCheck = new Runnable() { @Override public void run() { if (active) { TvUpdateManager.check(MainActivity.this); handler.postDelayed(this, 3600000L); } } };
     private final Runnable updateStatusRefresh = new Runnable() { @Override public void run() {
         if (active) { if (updateText != null) updateText.setText(TvUpdateManager.status(MainActivity.this)); handler.postDelayed(this, 15000L); }
