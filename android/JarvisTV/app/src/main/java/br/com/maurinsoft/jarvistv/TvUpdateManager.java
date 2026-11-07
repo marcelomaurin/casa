@@ -65,6 +65,19 @@ public final class TvUpdateManager {
         });
     }
 
+    /** Executa em thread do JobScheduler e conclui a verificacao antes de encerrar o job. */
+    public static void checkBlocking(Context context) {
+        if (!CHECKING.compareAndSet(false, true)) return;
+        lastCheck = System.currentTimeMillis();
+        try {
+            checkNow(context.getApplicationContext());
+        } catch (Exception e) {
+            setStatus(context, "Falha ao consultar atualizacoes. Nova tentativa na proxima verificacao.");
+        } finally {
+            CHECKING.set(false);
+        }
+    }
+
     private static void clearDownload(Context app, SharedPreferences prefs, DownloadManager dm) {
         long old = prefs.getLong("download_id", -1);
         if (old > 0) dm.remove(old);
