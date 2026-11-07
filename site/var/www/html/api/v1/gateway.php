@@ -86,12 +86,30 @@ if ($subpath === 'comando') {
             'skip_planner'=>!empty($input['skip_planner'])
         ],JSON_UNESCAPED_UNICODE),
         CURLOPT_HTTPHEADER=>['Content-Type: application/json','X-API-Key: '.$internalToken],
-        CURLOPT_TIMEOUT=>45
+        CURLOPT_CONNECTTIMEOUT=>5,
+        CURLOPT_TIMEOUT=>100
     ]);
     $res=curl_exec($ch); $http=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE); $err=curl_error($ch); curl_close($ch);
-    if ($res===false || $http>=500) api_v1_json_response(502,['status'=>'erro','mensagem'=>'Falha no núcleo JARVIS','detalhe'=>$err ?: null]);
+    if ($res===false || $http<200 || $http>=300) {
+        $detail=is_string($res) ? json_decode($res,true) : null;
+        $explanation=is_array($detail) ? trim((string)($detail['mensagem']??'')) : '';
+        api_v1_json_response(502,[
+            'status'=>'erro',
+            'mensagem'=>$explanation !== '' ? mb_substr($explanation,0,240,'UTF-8') : 'O núcleo JARVIS não respondeu corretamente',
+            'http_nucleo'=>$http,
+            'motivo'=>$err !== '' ? 'falha de comunicacao ou timeout' : 'resposta recusada'
+        ]);
+    }
     $data=json_decode((string)$res,true);
-    if (!is_array($data)) $data=['resposta'=>(string)$res];
+    if (!is_array($data) || !in_array($data['status']??'', ['sucesso','ok'],true) ||
+        trim((string)($data['resposta']??''))==='') {
+        api_v1_json_response(502,[
+            'status'=>'erro',
+            'mensagem'=>is_array($data) && !empty($data['mensagem'])
+                ? mb_substr((string)$data['mensagem'],0,240,'UTF-8')
+                : 'O JARVIS não devolveu uma resposta válida da IA'
+        ]);
+    }
     api_v1_json_response(200,[
         'status'=>'sucesso',
         'comando'=>$cmd,
