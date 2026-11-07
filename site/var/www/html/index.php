@@ -33,7 +33,7 @@ $authName = !empty($_SESSION['auth_name']) ? $_SESSION['auth_name'] : ($_SESSION
   <script src="/casa/lcars-framework.js?v=1.3.0"></script>
   <script src="/casa/qrcode.min.js"></script>
   <script src="/casa/lcars-i18n.js?v=1.0.0"></script>
-  <script src="/casa/lcars-site.js?v=1.6.2"></script>
+  <script src="/casa/lcars-site.js?v=1.6.3"></script>
   <script src="/casa/lcars-iot.js?v=1.1.0"></script>
 </body>
 </html>

@@ -67,6 +67,28 @@ vm.runInContext(code,context);
   assert.ok(!body.includes('ja-orch-service'),'cluster must not show orchestration cards');
   assert.match(actions,/item=orchestration-sys/);
 
+  // Validação das duas etapas do Cluster ARM:
+  // Etapa 1: Lista e seleção de cluster (resumo + botão de abrir)
+  assert.ok(body.includes('SELECIONAR CLUSTER (ETAPA 1 DE 2)'));
+  assert.ok(body.includes('ja-node-open-btn'));
+  assert.ok(!body.includes('SERVIÇOS EM EXECUÇÃO NO CLUSTER'));
+
+  // Etapa 2: Ao abrir o cluster, exibe os serviços em execução nele e botão de retorno
+  nodes[0].services_detail = [{
+    id: 'casa-tts', label: 'Síntese de Voz', active: true, protected: false, purpose: 'TTS neural'
+  }];
+  context.renderNodes.selectedNodeId = 'rpi-1';
+  await context.renderNodes();
+  assert.match(title,/Cluster ARM — Raspberry Sala/);
+  assert.ok(body.includes('SERVIÇOS EM EXECUÇÃO NO CLUSTER'));
+  assert.ok(body.includes('Síntese de Voz'));
+  assert.ok(actions.includes('nodes-back-btn-top'));
+
+  // Retorno para a Etapa 1 ao desmarcar o nó
+  context.renderNodes.selectedNodeId = null;
+  await context.renderNodes();
+  assert.ok(body.includes('SELECIONAR CLUSTER (ETAPA 1 DE 2)'));
+
   await context.renderOrchestration();
   assert.match(title,/Orquestração de serviços/);
   assert.match(body,/ja-orch-layout/);

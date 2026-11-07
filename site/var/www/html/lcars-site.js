@@ -1088,89 +1088,314 @@ function openNodeServicesModal(node, catalog){
 }
 
 async function renderNodes(){
-  loading(uiT('Clusters e agentes Linux ARM'));
+  loading(typeof uiT==='function'?uiT('Clusters e agentes Linux ARM'):'Clusters e agentes Linux ARM');
   try{
     const j=await getJson('/casa/api/arm_nodes.php');
     const all=j.nodes||[];
     const catalog=j.service_catalog||[];
+    const states={
+      online:typeof uiT==='function'?uiT('ONLINE'):'ONLINE',
+      offline:typeof uiT==='function'?uiT('SEM CONTATO RECENTE'):'SEM CONTATO RECENTE',
+      registered:typeof uiT==='function'?uiT('AGUARDANDO CONTATO'):'AGUARDANDO CONTATO',
+      revoked:typeof uiT==='function'?uiT('REVOGADO'):'REVOGADO'
+    };
+
+    // Se houver parâmetro ?node= na URL e nenhum nó selecionado ainda, seleciona-o
+    if(!renderNodes.selectedNodeId && typeof window !== 'undefined' && window.location && typeof URLSearchParams !== 'undefined'){
+      try{
+        const uParams=new URLSearchParams(window.location.search);
+        const pNode=uParams.get('node');
+        if(pNode) renderNodes.selectedNodeId = pNode;
+      }catch(_e){}
+    }
+
+    const selectedId = renderNodes.selectedNodeId || null;
+    let selectedNode = null;
+    let selectedIdx = -1;
+    if(selectedId){
+      selectedIdx = all.findIndex(n => (n.device_id && n.device_id === selectedId) || String(n.id) === String(selectedId));
+      if(selectedIdx >= 0) selectedNode = all[selectedIdx];
+      else renderNodes.selectedNodeId = null;
+    }
+
+    // =========================================================================
+    // ETAPA 2 DE 2: CLUSTER ABERTO / SERVIÇOS EM EXECUÇÃO NO NÓ SELECIONADO
+    // =========================================================================
+    if(selectedNode){
+      const svcs = selectedNode.services_detail || [];
+      const activeCount = svcs.filter(s => s.active).length;
+
+      const navHeader =
+        '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px;padding:10px 14px;background:rgba(2,12,24,0.88);border:1px solid #24516b;border-radius:8px;">'+
+          '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'+
+            '<button type="button" id="nodes-back-btn" class="ja-mini" style="font-weight:bold;background:#1e293b;color:#f8fafc;border:1px solid #475569;cursor:pointer;padding:6px 14px;border-radius:5px;">← '+esc(typeof uiT==='function'?uiT('VOLTAR PARA LISTA DE CLUSTERS'):'VOLTAR PARA LISTA DE CLUSTERS')+'</button>'+
+            '<span style="color:#64748b;">|</span>'+
+            '<label style="font-size:0.8rem;color:#94a3b8;">'+esc(typeof uiT==='function'?uiT('Alternar cluster:'):'Alternar cluster:')+'</label>'+
+            '<select id="cluster-switch-select" style="background:#02070c;color:#f8fafc;border:1px solid #334155;border-radius:4px;padding:4px 8px;font-size:0.8rem;">'+
+              all.map(n => {
+                const sid = n.device_id || String(n.id);
+                const sel = (sid === (selectedNode.device_id||String(selectedNode.id))) ? 'selected' : '';
+                return '<option value="'+attr(sid)+'" '+sel+'>'+esc(n.nome)+' ('+esc(n.ip_address||'sem IP')+') ['+(n.online?'ONLINE':'OFFLINE')+']</option>';
+              }).join('')+
+            '</select>'+
+          '</div>'+
+          '<div style="display:flex;gap:6px;flex-wrap:wrap;">'+
+            '<button type="button" class="ja-node-svcs-btn" data-node-idx="'+attr(String(selectedIdx))+'" style="background:#a855f7;color:#fff;border:none;border-radius:4px;padding:5px 12px;font-size:0.75rem;font-weight:bold;cursor:pointer;" title="Definir quais serviços este nó executa">⚙ '+esc(typeof uiT==='function'?uiT('ESCOLHER SERVIÇOS ATRIBUÍDOS'):'ESCOLHER SERVIÇOS ATRIBUÍDOS')+'</button>'+
+            '<button type="button" class="ja-node-edit-btn" data-node-idx="'+attr(String(selectedIdx))+'" style="background:#38bdf8;color:#000;border:none;border-radius:4px;padding:5px 12px;font-size:0.75rem;font-weight:bold;cursor:pointer;" title="Editar informações do nó">'+esc(typeof uiT==='function'?uiT('EDITAR NÓ'):'EDITAR NÓ')+'</button>'+
+            (selectedNode.online && (selectedNode.up_to_date === false) ? '<button type="button" class="ja-node-update-btn" data-node-idx="'+attr(String(selectedIdx))+'" style="background:#eab308;color:#000;border:none;border-radius:4px;padding:5px 12px;font-size:0.75rem;font-weight:900;cursor:pointer;" title="Atualizar versão do nó diretamente do Git">⚡ '+esc(typeof uiT==='function'?uiT('ATUALIZAR (GIT)'):'ATUALIZAR (GIT)')+'</button>' : '')+
+          '</div>'+
+        '</div>';
+
+      const nodeSummaryCard =
+        '<article class="ja-native-card" style="margin-bottom:16px;border:1px solid #24516b;background:rgba(15,23,42,0.85);position:relative;">'+
+          '<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:10px;">'+
+            '<div>'+
+              '<h3 style="margin:0;font-size:1.15rem;color:#f8fafc;">'+esc(selectedNode.nome)+'</h3>'+
+              '<small style="color:#38bdf8;font-family:monospace;font-size:0.8rem;">ID: '+esc(selectedNode.device_id||'—')+' · Hostname: '+esc(selectedNode.hostname||'—')+'</small>'+
+            '</div>'+
+            '<span class="ja-state '+(selectedNode.online?'ok':'')+'">'+esc(states[selectedNode.status]||selectedNode.status)+'</span>'+
+          '</div>'+
+          '<dl>'+
+            '<dt>'+esc(typeof uiT==='function'?uiT('Programa / função'):'Programa / função')+'</dt><dd><strong style="color:#f8fafc;">'+esc(selectedNode.papel||'—')+'</strong></dd>'+
+            '<dt>'+esc(typeof uiT==='function'?uiT('Plataforma'):'Plataforma')+'</dt><dd>'+esc(selectedNode.platform||'—')+'</dd>'+
+            '<dt>'+esc(typeof uiT==='function'?uiT('IP'):'IP')+'</dt><dd>'+esc(selectedNode.ip_address||'—')+'</dd>'+
+            '<dt>'+esc(typeof uiT==='function'?uiT('CPU'):'CPU')+'</dt><dd>'+esc(selectedNode.cpu||'Não informada')+'</dd>'+
+            '<dt>'+esc(typeof uiT==='function'?uiT('RAM'):'RAM')+'</dt><dd>'+esc(selectedNode.ram||'Não informada')+'</dd>'+
+            '<dt>'+esc(typeof uiT==='function'?uiT('Versão Git do Cluster'):'Versão Git do Cluster')+'</dt><dd>'+
+              (selectedNode.version?'<strong style="color:#00e5ff;font-family:monospace;">'+esc(selectedNode.version)+'</strong>':'Não informada')+
+              (selectedNode.online ? (selectedNode.up_to_date ? ' <span style="color:#22c55e;font-size:0.75rem;font-weight:bold;">(✓ Cluster atualizado)</span>' : ' <span style="color:#eab308;font-size:0.75rem;font-weight:bold;">(⚠ Atualização disponível)</span>') : '')+
+            '</dd>'+
+            '<dt>'+esc(typeof uiT==='function'?uiT('Acesso SSH'):'Acesso SSH')+'</dt><dd><code style="background:#02070c;border:1px solid #24516b;padding:2px 7px;border-radius:4px;color:#00e5ff;font-family:monospace;font-size:0.85rem;user-select:all;">ssh mmm@'+esc(selectedNode.ip_address||'—')+'</code></dd>'+
+            '<dt>'+esc(typeof uiT==='function'?uiT('Site do Cluster'):'Site do Cluster')+'</dt><dd>'+(selectedNode.ip_address?'<a href="http://'+esc(selectedNode.ip_address)+':8080/" target="_blank" style="display:inline-block;padding:3px 10px;background:#38bdf8;color:#000;border-radius:4px;text-decoration:none;font-weight:bold;font-size:0.8rem;">'+esc(typeof uiT==='function'?uiT('ABRIR PORTAL (:8080)'):'ABRIR PORTAL (:8080)')+'</a>':'—')+'</dd>'+
+          '</dl>'+
+        '</article>';
+
+      const servicesSection =
+        '<section class="ja-native-card" style="border:1px solid #24516b;background:rgba(2,12,24,0.92);padding:16px;">'+
+          '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:14px;border-bottom:1px solid #1e293b;padding-bottom:10px;">'+
+            '<div>'+
+              '<h3 style="margin:0;color:#38bdf8;font-size:1.02rem;">⚡ SERVIÇOS EM EXECUÇÃO NO CLUSTER: '+esc(selectedNode.nome)+'</h3>'+
+              '<small style="color:#94a3b8;font-size:0.76rem;">Daemons e serviços atribuídos a este nó ('+esc(selectedNode.ip_address||'sem IP')+'). Controle o ciclo de vida individualmente.</small>'+
+            '</div>'+
+            '<div style="display:flex;align-items:center;gap:8px;">'+
+              '<span style="background:rgba(34,197,94,0.15);border:1px solid #22c55e;color:#22c55e;padding:3px 10px;border-radius:999px;font-size:0.75rem;font-weight:bold;">'+esc(activeCount)+' ATIVO(S) DE '+esc(svcs.length)+' ATRIBUÍDO(S)</span>'+
+            '</div>'+
+          '</div>'+
+          (svcs.length ? (
+            '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:12px;">'+
+              svcs.map(s => {
+                const isAct = !!s.active;
+                const stColor = isAct ? '#22c55e' : '#f87171';
+                const stText = isAct ? (typeof uiT==='function'?uiT('ATIVO'):'ATIVO') : (typeof uiT==='function'?uiT('INATIVO'):'INATIVO');
+                const ctrlBtns = s.protected
+                  ? '<span style="background:rgba(56,189,248,0.16);border:1px solid #38bdf8;color:#38bdf8;padding:3px 8px;border-radius:4px;font-size:0.72rem;font-weight:bold;">🔒 WEB PROTEGIDO (:8080)</span>'
+                  : (isAct
+                      ? '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(s.id)+'" data-act="stop" data-dev="'+attr(selectedNode.device_id||'')+'" data-ip="'+attr(selectedNode.ip_address||'')+'" style="background:#ef4444;color:#fff;border:none;border-radius:4px;padding:3px 10px;font-size:0.72rem;font-weight:bold;cursor:pointer;">⏹ '+esc(typeof uiT==='function'?uiT('DESATIVAR'):'DESATIVAR')+'</button>'+
+                        '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(s.id)+'" data-act="restart" data-dev="'+attr(selectedNode.device_id||'')+'" data-ip="'+attr(selectedNode.ip_address||'')+'" style="background:#334155;color:#f8fafc;border:none;border-radius:4px;padding:3px 9px;font-size:0.72rem;font-weight:bold;cursor:pointer;" title="Reiniciar serviço">↻ '+esc(typeof uiT==='function'?uiT('REINICIAR'):'REINICIAR')+'</button>'
+                      : '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(s.id)+'" data-act="start" data-dev="'+attr(selectedNode.device_id||'')+'" data-ip="'+attr(selectedNode.ip_address||'')+'" style="background:#22c55e;color:#000;border:none;border-radius:4px;padding:3px 10px;font-size:0.72rem;font-weight:bold;cursor:pointer;">▶ '+esc(typeof uiT==='function'?uiT('ATIVAR'):'ATIVAR')+'</button>');
+                return '<div style="padding:12px;border-radius:8px;background:rgba(15,23,42,0.9);border:1px solid '+(isAct?'#1e3a5f':'#2d1b22')+';display:flex;flex-direction:column;gap:8px;">'+
+                  '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">'+
+                    '<div>'+
+                      '<strong style="color:#f8fafc;font-size:0.88rem;display:block;">'+esc(s.label)+'</strong>'+
+                      '<code style="color:#38bdf8;font-size:0.74rem;">'+esc(s.id)+'</code>'+
+                      (s.entrypoint ? ' <small style="color:#64748b;font-family:monospace;font-size:0.68rem;">· '+esc(s.entrypoint)+'</small>' : '')+
+                    '</div>'+
+                    '<span style="background:rgba(0,0,0,0.4);border:1px solid '+stColor+';color:'+stColor+';padding:2px 8px;border-radius:999px;font-size:0.7rem;font-weight:bold;white-space:nowrap;">'+stText+'</span>'+
+                  '</div>'+
+                  (s.purpose ? '<div style="font-size:0.75rem;color:#cbd5e1;line-height:1.4;background:rgba(2,7,12,0.6);padding:6px 8px;border-radius:5px;border-left:2px solid #38bdf8;">'+esc(s.purpose)+(s.impact_when_stopped ? '<div style="color:#fbbf24;margin-top:3px;font-size:0.71rem;"><b>Se desativado:</b> '+esc(s.impact_when_stopped)+'</div>' : '')+'</div>' : '')+
+                  '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:auto;padding-top:6px;border-top:1px solid rgba(51,65,85,0.4);">'+
+                    '<small style="color:#64748b;font-size:0.72rem;">Porta: '+(s.port?esc(s.port):'—')+'</small>'+
+                    '<div style="display:flex;gap:6px;">'+ctrlBtns+'</div>'+
+                  '</div>'+
+                '</div>';
+              }).join('')+
+            '</div>'
+          ) : (
+            '<div class="ja-empty" style="padding:20px;">Nenhum serviço atribuído a este nó no momento.<br><br><button type="button" class="ja-node-svcs-btn" data-node-idx="'+attr(String(selectedIdx))+'" style="background:#a855f7;color:#fff;border:none;border-radius:4px;padding:6px 14px;font-weight:bold;cursor:pointer;">Atribuir Serviços a Este Nó</button></div>'
+          ))+
+        '</section>';
+
+      moduleShell('Cluster ARM — ' + selectedNode.nome + ' (Serviços e Operação)',
+        navHeader + nodeSummaryCard + servicesSection,
+        '<button id="nodes-back-btn-top" class="ja-mini">← '+esc(typeof uiT==='function'?uiT('Voltar à lista de clusters'):'Voltar à lista de clusters')+'</button> <a class="ja-mini primary" href="/casa/index.php?grupo=SISTEMA&amp;item=orchestration-sys">'+esc(typeof uiT==='function'?uiT('Orquestração de serviços'):'Orquestração de serviços')+'</a> <button id="nodes-refresh" class="ja-mini primary">'+esc(typeof uiT==='function'?uiT('Atualizar serviços'):'Atualizar serviços')+'</button>');
+
+      const bBack = document.getElementById('nodes-back-btn');
+      if(bBack) bBack.onclick = () => { renderNodes.selectedNodeId = null; renderNodes(); };
+      const bBackTop = document.getElementById('nodes-back-btn-top');
+      if(bBackTop) bBackTop.onclick = () => { renderNodes.selectedNodeId = null; renderNodes(); };
+
+      const bSwitch = document.getElementById('cluster-switch-select');
+      if(bSwitch) bSwitch.onchange = () => {
+        if(bSwitch.value) {
+          renderNodes.selectedNodeId = bSwitch.value;
+          renderNodes();
+        }
+      };
+
+      const bRefresh = document.getElementById('nodes-refresh');
+      if(bRefresh) bRefresh.onclick = renderNodes;
+
+      document.querySelectorAll('.ja-node-svcs-btn').forEach(btn => {
+        btn.onclick = (e) => {
+          e.stopPropagation();
+          openNodeServicesModal(selectedNode, catalog);
+        };
+      });
+
+      document.querySelectorAll('.ja-node-edit-btn').forEach(btn => {
+        btn.onclick = (e) => {
+          e.stopPropagation();
+          openNodeEditor(selectedNode);
+        };
+      });
+
+      document.querySelectorAll('.ja-node-update-btn').forEach(btn => {
+        btn.onclick = async (e) => {
+          e.stopPropagation();
+          if(!selectedNode.online){
+            alert('Este nó está offline. A atualização só pode ser realizada com o equipamento online.');
+            return;
+          }
+          const confirmMsg = 'Deseja atualizar o nó "' + (selectedNode.nome||selectedNode.device_id) + '" para a versão mais recente do Git?\n\n' +
+            '• Repositório: GitHub (branch ' + (selectedNode.branch||'master') + ')\n' +
+            '• Commit remoto: ' + (selectedNode.remote_commit ? selectedNode.remote_commit.substring(0,7) : 'HEAD') + '\n' +
+            '• A atualização executará o casa-cluster-update diretamente no nó e reiniciará os serviços.\n\n' +
+            'Confirmar atualização agora?';
+          if(!confirm(confirmMsg)) return;
+
+          btn.disabled=true;
+          const oldText = btn.textContent;
+          btn.textContent='ATUALIZANDO (GIT)...';
+          try{
+            const res = await postJson('/casa/api/arm_nodes.php', {
+              acao: 'atualizar',
+              device_id: selectedNode.device_id||'',
+              id: selectedNode.id||'',
+              ip_address: selectedNode.ip_address||''
+            });
+            alert('✓ ' + (res.mensagem || 'Nó atualizado com sucesso!') + '\n\n' + (res.metodo ? 'Método: ' + res.metodo + '\n' : '') + (res.detalhes ? '\n' + res.detalhes.substring(0, 500) : ''));
+            renderNodes();
+          }catch(err){
+            alert('❌ Falha na atualização: ' + (err.message||String(err)));
+            btn.disabled=false;
+            btn.textContent=oldText;
+          }
+        };
+      });
+
+      bindServiceControls(renderNodes);
+      return;
+    }
+
+    // =========================================================================
+    // ETAPA 1 DE 2: LISTA E SELEÇÃO DE CLUSTERS (VISÃO GERAL DO INVENTÁRIO)
+    // =========================================================================
     const p=paginate('nodes',all,12);
-    const states={online:uiT('ONLINE'),offline:uiT('SEM CONTATO RECENTE'),registered:uiT('AGUARDANDO CONTATO'),revoked:uiT('REVOGADO')};
-    const summary='<p>'+esc(all.length)+' '+esc(uiT('agente(s) registrado(s)'))+' • '+esc(all.filter(n=>n.online).length)+' '+esc(uiT('online'))+'. '+esc(uiT('Online: contato nos últimos 40 segundos (heartbeat a cada 20s). Para distribuir ou transferir serviços entre os nós, utilize a tela Orquestração de serviços.'))+'</p>';
+    const summary='<p>'+esc(all.length)+' '+esc(typeof uiT==='function'?uiT('agente(s) registrado(s)'):'agente(s) registrado(s)')+' • '+esc(all.filter(n=>n.online).length)+' '+esc(typeof uiT==='function'?uiT('online'):'online')+'. '+esc(typeof uiT==='function'?uiT('Online: contato nos últimos 40 segundos (heartbeat a cada 20s). Para distribuir ou transferir serviços entre os nós, utilize a tela Orquestração de serviços.'):'Online: contato nos últimos 40 segundos (heartbeat a cada 20s). Para distribuir ou transferir serviços entre os nós, utilize a tela Orquestração de serviços.')+'</p>';
 
-
-
-    const body=all.length?cards(p.slice,(n,i)=>{
-      const svcs = n.services_detail || [];
-      const svcsHtml = svcs.length ? (
-        '<div style="display:flex;flex-direction:column;gap:6px;margin-top:4px;">'+
-          svcs.map(s => {
-            const isAct = !!s.active;
-            const badgeColor = isAct ? '#22c55e' : '#f87171';
-            const ctrlBtns = s.protected
-              ? '<span style="background:rgba(56,189,248,0.16);border:1px solid #38bdf8;color:#38bdf8;padding:2px 6px;border-radius:4px;font-size:0.68rem;font-weight:bold;">🔒 WEB PROTEGIDO</span>'
-              : (isAct
-                  ? '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(s.id)+'" data-act="stop" data-dev="'+attr(n.device_id||'')+'" data-ip="'+attr(n.ip_address||'')+'" style="background:#ef4444;color:#fff;border:none;border-radius:4px;padding:2px 7px;font-size:0.68rem;font-weight:bold;cursor:pointer;">⏹ '+esc(uiT("DESATIVAR"))+'</button>'+
-                    '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(s.id)+'" data-act="restart" data-dev="'+attr(n.device_id||'')+'" data-ip="'+attr(n.ip_address||'')+'" style="background:#334155;color:#fff;border:none;border-radius:4px;padding:2px 6px;font-size:0.68rem;cursor:pointer;" title="Reiniciar serviço">↻</button>'
-                  : '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(s.id)+'" data-act="start" data-dev="'+attr(n.device_id||'')+'" data-ip="'+attr(n.ip_address||'')+'" style="background:#22c55e;color:#000;border:none;border-radius:4px;padding:2px 7px;font-size:0.68rem;font-weight:bold;cursor:pointer;">▶ '+esc(uiT("ATIVAR"))+'</button>');
-            return '<div style="display:flex;flex-direction:column;gap:4px;padding:6px 8px;background:rgba(2,7,12,0.75);border:1px solid #1e293b;border-radius:5px;">'+
-              '<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">'+
-                '<div style="display:flex;align-items:center;gap:6px;min-width:0;">'+
-                  '<span style="width:8px;height:8px;border-radius:50%;background:'+badgeColor+';display:inline-block;flex-shrink:0;"></span>'+
-                  '<strong style="font-size:0.77rem;color:#f8fafc;">'+esc(s.label)+'</strong>'+
-                  '<code style="font-size:0.7rem;color:#38bdf8;">('+esc(s.id)+')</code>'+
-                '</div>'+
-                '<div style="display:flex;align-items:center;gap:4px;flex-shrink:0;">'+ctrlBtns+'</div>'+
-              '</div>'+
-              (s.purpose ? '<div style="font-size:0.72rem;color:#94a3b8;line-height:1.35;padding-left:14px;">'+esc(s.purpose)+'</div>' : '')+
-            '</div>';
+    const clusterSelectBar = all.length ? (
+      '<div class="ja-cluster-select-bar" style="display:flex;align-items:center;gap:10px;margin-bottom:14px;background:rgba(2,12,24,0.85);padding:10px 14px;border:1px solid #24516b;border-radius:8px;flex-wrap:wrap;">'+
+        '<strong style="color:#38bdf8;font-size:0.84rem;">'+esc(typeof uiT==='function'?uiT('SELECIONAR CLUSTER (ETAPA 1 DE 2):'):'SELECIONAR CLUSTER (ETAPA 1 DE 2):')+'</strong>'+
+        '<select id="cluster-quick-select" style="flex:1;min-width:220px;background:#02070c;color:#f8fafc;border:1px solid #334155;border-radius:4px;padding:6px 10px;font-size:0.82rem;">'+
+          '<option value="">-- '+esc(typeof uiT==='function'?uiT('Selecione um cluster / nó para abrir e ver serviços'):'Selecione um cluster / nó para abrir e ver serviços')+' --</option>'+
+          all.map(n => {
+            const sid = n.device_id || String(n.id);
+            const svCount = (n.services_detail||[]).length;
+            const actCount = (n.services_detail||[]).filter(s=>s.active).length;
+            return '<option value="'+attr(sid)+'">'+esc(n.nome)+' ('+esc(n.ip_address||'sem IP')+') — '+actCount+'/'+svCount+' ativos ['+(n.online?'ONLINE':'OFFLINE')+']</option>';
           }).join('')+
-        '</div>'
-      ) : '<span style="opacity:0.6;">'+esc(uiT("Nenhum serviço listado"))+'</span>';
+        '</select>'+
+        '<button type="button" id="cluster-quick-open-btn" class="ja-mini primary" style="font-weight:900;">'+esc(typeof uiT==='function'?uiT('ABRIR CLUSTER →'):'ABRIR CLUSTER →')+'</button>'+
+      '</div>'
+    ) : '';
+
+    const body=all.length?clusterSelectBar+cards(p.slice,(n,i)=>{
+      const svcs = n.services_detail || [];
+      const activeCount = svcs.filter(s => s.active).length;
+      const sid = n.device_id || String(n.id);
 
       return '<article class="ja-native-card" style="position:relative;">'+
       '<div style="position:absolute;top:10px;right:10px;display:flex;gap:5px;z-index:2;flex-wrap:wrap;">'+
-        (n.online && (n.up_to_date === false) ? '<button type="button" class="ja-node-update-btn" data-node-idx="'+attr(String(i))+'" style="background:#eab308;color:#000;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(234,179,8,0.5);" title="Atualizar versão do nó diretamente do Git">⚡ '+esc(uiT("ATUALIZAR (GIT)"))+'</button>' : '')+
-        '<button type="button" class="ja-node-svcs-btn" data-node-idx="'+attr(String(i))+'" style="background:#a855f7;color:#fff;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.5);" title="Definir quais serviços este nó executa">⚙ '+esc(uiT("SERVIÇOS"))+'</button>'+
-        '<button type="button" class="ja-node-edit-btn" data-node-idx="'+attr(String(i))+'" style="background:#38bdf8;color:#000;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.5);" title="Editar informações do nó">'+esc(uiT("EDITAR"))+'</button>'+
-        '<button type="button" class="ja-node-del-btn" data-node-idx="'+attr(String(i))+'" style="background:#ef4444;color:#fff;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.5);" title="Excluir nó do cluster">'+esc(uiT("EXCLUIR"))+'</button>'+
+        (n.online && (n.up_to_date === false) ? '<button type="button" class="ja-node-update-btn" data-node-idx="'+attr(String(i))+'" style="background:#eab308;color:#000;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(234,179,8,0.5);" title="Atualizar versão do nó diretamente do Git">⚡ '+esc(typeof uiT==='function'?uiT('ATUALIZAR (GIT)'):'ATUALIZAR (GIT)')+'</button>' : '')+
+        '<button type="button" class="ja-node-edit-btn" data-node-idx="'+attr(String(i))+'" style="background:#38bdf8;color:#000;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.5);" title="Editar informações do nó">'+esc(typeof uiT==='function'?uiT('EDITAR'):'EDITAR')+'</button>'+
+        '<button type="button" class="ja-node-del-btn" data-node-idx="'+attr(String(i))+'" style="background:#ef4444;color:#fff;border:none;border-radius:4px;padding:3px 9px;font-size:0.75rem;font-weight:900;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.5);" title="Excluir nó do cluster">'+esc(typeof uiT==='function'?uiT('EXCLUIR'):'EXCLUIR')+'</button>'+
       '</div>'+
       '<h3>'+esc(n.nome)+'</h3><dl>'+
-      '<dt>'+esc(uiT("Identificador"))+'</dt><dd>'+esc(n.device_id||'Legado sem identificador')+'</dd>'+
-      '<dt>'+esc(uiT("Hostname"))+'</dt><dd>'+esc(n.hostname||'—')+'</dd>'+
-      '<dt>'+esc(uiT("Programa / função"))+'</dt><dd><strong style="color:#f8fafc;">'+esc(n.papel||'—')+'</strong></dd>'+
-      '<dt>'+esc(uiT("Plataforma"))+'</dt><dd>'+esc(n.platform||'—')+'</dd>'+
-      '<dt>'+esc(uiT("IP"))+'</dt><dd>'+esc(n.ip_address||'—')+'</dd>'+
-      '<dt>'+esc(uiT("Serviços Atribuídos ao Nó (Controle Direto)"))+'</dt><dd>'+svcsHtml+
-        '<div style="margin-top:6px;"><button type="button" class="ja-node-svcs-btn" data-node-idx="'+attr(String(i))+'" style="background:rgba(168,85,247,0.2);border:1px solid #a855f7;color:#e9d5ff;border-radius:4px;padding:4px 10px;font-size:0.74rem;font-weight:bold;cursor:pointer;">⚙ '+esc(uiT("ESCOLHER SERVIÇOS QUE ESTE NÓ EXECUTA"))+'</button></div>'+
+      '<dt>'+esc(typeof uiT==='function'?uiT('Identificador'):'Identificador')+'</dt><dd>'+esc(n.device_id||'Legado sem identificador')+'</dd>'+
+      '<dt>'+esc(typeof uiT==='function'?uiT('Hostname'):'Hostname')+'</dt><dd>'+esc(n.hostname||'—')+'</dd>'+
+      '<dt>'+esc(typeof uiT==='function'?uiT('Programa / função'):'Programa / função')+'</dt><dd><strong style="color:#f8fafc;">'+esc(n.papel||'—')+'</strong></dd>'+
+      '<dt>'+esc(typeof uiT==='function'?uiT('Plataforma'):'Plataforma')+'</dt><dd>'+esc(n.platform||'—')+'</dd>'+
+      '<dt>'+esc(typeof uiT==='function'?uiT('IP'):'IP')+'</dt><dd>'+esc(n.ip_address||'—')+'</dd>'+
+      '<dt>'+esc(typeof uiT==='function'?uiT('Serviços Atribuídos ao Nó (Controle Direto)'):'Serviços Atribuídos ao Nó (Controle Direto)')+'</dt><dd>'+
+        '<span style="color:#22c55e;font-weight:bold;">'+esc(activeCount)+' '+esc(typeof uiT==='function'?uiT('ativos'):'ativos')+'</span> '+esc(typeof uiT==='function'?uiT('de'):'de')+' '+esc(svcs.length)+' '+esc(typeof uiT==='function'?uiT('atribuído(s)'):'atribuído(s)')+
       '</dd>'+
-      '<dt>'+esc(uiT("Versão Git do Cluster"))+'</dt><dd>'+
-        (n.version?'<strong style="color:#00e5ff;font-family:monospace;font-size:0.95rem;">'+esc(n.version)+'</strong>':'<span style="opacity:0.6;">Não informada</span>')+
+      '<dt>'+esc(typeof uiT==='function'?uiT('Versão Git do Cluster'):'Versão Git do Cluster')+'</dt><dd>'+
+        (n.version?'<strong style="color:#00e5ff;font-family:monospace;font-size:0.95rem;">'+esc(n.version)+'</strong>':'<span style="opacity:0.6;">'+esc(typeof uiT==='function'?uiT('Não informada'):'Não informada')+'</span>')+
         (n.online ? (
           n.up_to_date === true ?
             '<div style="margin-top:4px;"><span style="display:inline-block;background:rgba(34,197,94,0.15);border:1px solid #22c55e;color:#22c55e;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:bold;">✓ CLUSTER ATUALIZADO</span></div>' :
             (n.up_to_date === false ?
               '<div style="margin-top:5px;padding:6px 8px;background:rgba(234,179,8,0.15);border:1px solid #eab308;border-radius:4px;">'+
-                '<strong style="color:#eab308;font-size:0.75rem;display:block;">⚠ ATUALIZAÇÃO DISPONÍVEL NO GIT</strong>'+
+                '<strong style="color:#eab308;font-size:0.75rem;display:block;">⚠ '+esc(typeof uiT==='function'?uiT('ATUALIZAÇÃO DISPONÍVEL NO GIT'):'ATUALIZAÇÃO DISPONÍVEL NO GIT')+'</strong>'+
                 '<small style="display:block;color:#cbd5e1;font-size:0.72rem;margin-top:2px;">Remoto: <code style="color:#fde047;">#'+esc(n.remote_commit ? n.remote_commit.substring(0,7) : 'master')+'</code> ('+esc(n.branch||'master')+')</small>'+
-                '<button type="button" class="ja-node-update-btn" data-node-idx="'+attr(String(i))+'" style="margin-top:6px;background:#eab308;color:#000;border:none;border-radius:4px;padding:4px 10px;font-size:0.75rem;font-weight:900;cursor:pointer;display:inline-block;" title="Atualizar nó diretamente do Git">⚡ '+esc(uiT("ATUALIZAR AGORA (GIT)"))+'</button>'+
+                '<button type="button" class="ja-node-update-btn" data-node-idx="'+attr(String(i))+'" style="margin-top:6px;background:#eab308;color:#000;border:none;border-radius:4px;padding:4px 10px;font-size:0.75rem;font-weight:900;cursor:pointer;display:inline-block;" title="Atualizar nó diretamente do Git">⚡ '+esc(typeof uiT==='function'?uiT('ATUALIZAR AGORA (GIT)'):'ATUALIZAR AGORA (GIT)')+'</button>'+
               '</div>' :
               '<small style="display:block;opacity:0.6;font-size:0.72rem;margin-top:2px;">Verificação em andamento...</small>')
         ) : '<div style="margin-top:4px;"><span style="color:#94a3b8;font-size:0.75rem;font-style:italic;">Status indisponível (nó offline)</span></div>')+
         (n.deployed_at?'<small style="display:block;opacity:0.8;font-size:0.75rem;margin-top:2px;">Atualizado: '+esc(n.deployed_at)+'</small>':'')+
       '</dd>'+
-      '<dt>'+esc(uiT("CPU"))+'</dt><dd>'+esc(n.cpu||uiT('Não informada'))+'</dd>'+
-      '<dt>'+esc(uiT("RAM"))+'</dt><dd>'+esc(n.ram||uiT('Não informada'))+'</dd>'+
-      '<dt>'+esc(uiT("Capacidades"))+'</dt><dd>'+esc((n.capabilities||[]).join(', ')||uiT('Não informadas'))+'</dd>'+
-      '<dt>'+esc(uiT("Último contato (servidor)"))+'</dt><dd>'+esc(n.last_seen||uiT('Ainda não recebido'))+'</dd>'+
-      '<dt>'+esc(uiT("Acesso SSH"))+'</dt><dd><code style="background:#02070c;border:1px solid #24516b;padding:2px 7px;border-radius:4px;color:#00e5ff;font-family:monospace;font-size:0.85rem;user-select:all;">ssh mmm@'+esc(n.ip_address||'—')+'</code></dd>'+
-      '<dt>'+esc(uiT("Site do Cluster"))+'</dt><dd>'+(n.ip_address?'<a href="http://'+esc(n.ip_address)+':8080/" target="_blank" style="display:inline-block;padding:3px 10px;background:#38bdf8;color:#000;border-radius:4px;text-decoration:none;font-weight:bold;font-size:0.8rem;">'+esc(uiT("ABRIR PORTAL (:8080)"))+'</a>':'—')+'</dd>'+
-      '</dl><span class="ja-state '+(n.online?'ok':'')+'">'+esc(states[n.status]||n.status)+'</span></article>';
+      '<dt>'+esc(typeof uiT==='function'?uiT('CPU'):'CPU')+'</dt><dd>'+esc(n.cpu||(typeof uiT==='function'?uiT('Não informada'):'Não informada'))+'</dd>'+
+      '<dt>'+esc(typeof uiT==='function'?uiT('RAM'):'RAM')+'</dt><dd>'+esc(n.ram||(typeof uiT==='function'?uiT('Não informada'):'Não informada'))+'</dd>'+
+      '<dt>'+esc(typeof uiT==='function'?uiT('Capacidades'):'Capacidades')+'</dt><dd>'+esc((n.capabilities||[]).join(', ')||(typeof uiT==='function'?uiT('Não informadas'):'Não informadas'))+'</dd>'+
+      '<dt>'+esc(typeof uiT==='function'?uiT('Último contato (servidor)'):'Último contato (servidor)')+'</dt><dd>'+esc(n.last_seen||(typeof uiT==='function'?uiT('Ainda não recebido'):'Ainda não recebido'))+'</dd>'+
+      '<dt>'+esc(typeof uiT==='function'?uiT('Acesso SSH'):'Acesso SSH')+'</dt><dd><code style="background:#02070c;border:1px solid #24516b;padding:2px 7px;border-radius:4px;color:#00e5ff;font-family:monospace;font-size:0.85rem;user-select:all;">ssh mmm@'+esc(n.ip_address||'—')+'</code></dd>'+
+      '<dt>'+esc(typeof uiT==='function'?uiT('Site do Cluster'):'Site do Cluster')+'</dt><dd>'+(n.ip_address?'<a href="http://'+esc(n.ip_address)+':8080/" target="_blank" style="display:inline-block;padding:3px 10px;background:#38bdf8;color:#000;border-radius:4px;text-decoration:none;font-weight:bold;font-size:0.8rem;">'+esc(typeof uiT==='function'?uiT('ABRIR PORTAL (:8080)'):'ABRIR PORTAL (:8080)')+'</a>':'—')+'</dd>'+
+      '</dl>'+
+      '<button type="button" class="ja-node-open-btn" data-node-id="'+attr(sid)+'" style="margin-top:12px;width:100%;background:#38bdf8;color:#000;border:none;border-radius:5px;padding:9px 12px;font-weight:900;font-size:0.84rem;cursor:pointer;letter-spacing:0.5px;box-shadow:0 2px 4px rgba(56,189,248,0.3);" title="Abrir cluster e ver os serviços que estão rodando nele">📂 ABRIR CLUSTER &amp; VER SERVIÇOS →</button>'+
+      '<span class="ja-state '+(n.online?'ok':'')+'">'+esc(states[n.status]||n.status)+'</span></article>';
     })+pager('nodes',p):
-      '<div class="ja-empty">Nenhum agente Linux ARM registrado. Clique em <b>+ NOVO NÓ</b> acima ou conecte agentes pela API de dispositivos.</div>';
-    moduleShell(uiT('Cluster ARM — nós e equipamentos'),summary+body,'<a class="ja-mini primary" href="/casa/index.php?grupo=SISTEMA&amp;item=orchestration-sys">'+esc(uiT("Orquestração de serviços"))+'</a> <button id="nodes-add" class="ja-mini primary" style="margin-right:8px;">'+esc(uiT("+ NOVO NÓ"))+'</button><button id="nodes-refresh" class="ja-mini">'+esc(uiT("Atualizar lista"))+'</button>');
+      '<div class="ja-empty">'+esc(typeof uiT==='function'?uiT('Nenhum agente Linux ARM registrado. Clique em <b>+ NOVO NÓ</b> acima ou conecte agentes pela API de dispositivos.'):'Nenhum agente Linux ARM registrado. Clique em <b>+ NOVO NÓ</b> acima ou conecte agentes pela API de dispositivos.')+'</div>';
+
+    moduleShell(typeof uiT==='function'?uiT('Cluster ARM — nós e equipamentos'):'Cluster ARM — nós e equipamentos',summary+body,'<a class="ja-mini primary" href="/casa/index.php?grupo=SISTEMA&amp;item=orchestration-sys">'+esc(typeof uiT==='function'?uiT('Orquestração de serviços'):'Orquestração de serviços')+'</a> <button id="nodes-add" class="ja-mini primary" style="margin-right:8px;">'+esc(typeof uiT==='function'?uiT('+ NOVO NÓ'):'+ NOVO NÓ')+'</button><button id="nodes-refresh" class="ja-mini">'+esc(typeof uiT==='function'?uiT('Atualizar lista'):'Atualizar lista')+'</button>');
     bindPager('nodes',p,renderNodes);
-    document.getElementById('nodes-add').onclick=openNewNodeModal;
-    document.getElementById('nodes-refresh').onclick=renderNodes;
+
+    const elAdd = document.getElementById('nodes-add');
+    if(elAdd) elAdd.onclick=openNewNodeModal;
+    const elRef = document.getElementById('nodes-refresh');
+    if(elRef) elRef.onclick=renderNodes;
+
+    const elQOpen = document.getElementById('cluster-quick-open-btn');
+    if(elQOpen){
+      elQOpen.onclick=()=>{
+        const sel=document.getElementById('cluster-quick-select');
+        if(sel && sel.value){
+          renderNodes.selectedNodeId = sel.value;
+          renderNodes();
+        }
+      };
+    }
+
+    const elQSel = document.getElementById('cluster-quick-select');
+    if(elQSel){
+      elQSel.onchange=()=>{
+        if(elQSel.value){
+          renderNodes.selectedNodeId = elQSel.value;
+          renderNodes();
+        }
+      };
+    }
+
+    document.querySelectorAll('.ja-node-open-btn').forEach(btn=>{
+      btn.onclick=(e)=>{
+        e.stopPropagation();
+        const sid=btn.getAttribute('data-node-id');
+        if(sid){
+          renderNodes.selectedNodeId = sid;
+          renderNodes();
+        }
+      };
+    });
+
     document.querySelectorAll('.ja-node-edit-btn').forEach(btn=>{
       btn.onclick=(e)=>{
         e.stopPropagation();
@@ -1178,14 +1403,7 @@ async function renderNodes(){
         if(p.slice[idx]) openNodeEditor(p.slice[idx]);
       };
     });
-    document.querySelectorAll('.ja-node-svcs-btn').forEach(btn=>{
-      btn.onclick=(e)=>{
-        e.stopPropagation();
-        const idx=parseInt(btn.getAttribute('data-node-idx'),10);
-        if(p.slice[idx]) openNodeServicesModal(p.slice[idx], catalog);
-      };
-    });
-    bindServiceControls(renderNodes);
+
     document.querySelectorAll('.ja-node-update-btn').forEach(btn=>{
       btn.onclick=async(e)=>{
         e.stopPropagation();
@@ -1222,6 +1440,7 @@ async function renderNodes(){
         }
       };
     });
+
     document.querySelectorAll('.ja-node-del-btn').forEach(btn=>{
       btn.onclick=async(e)=>{
         e.stopPropagation();
@@ -1244,11 +1463,11 @@ async function renderNodes(){
       };
     });
   }catch(e){
-    moduleShell(uiT('Clusters e agentes Linux ARM'),'<div class="ja-empty">'+esc(e.message||uiT('Falha ao carregar agentes.'))+'</div>','<button id="nodes-retry" class="ja-mini">'+esc(uiT("Tentar novamente"))+'</button>');
-    document.getElementById('nodes-retry').onclick=renderNodes;
+    moduleShell(typeof uiT==='function'?uiT('Clusters e agentes Linux ARM'):'Clusters e agentes Linux ARM','<div class="ja-empty">'+esc(e.message||(typeof uiT==='function'?uiT('Falha ao carregar agentes.'):'Falha ao carregar agentes.'))+'</div>','<button id="nodes-retry" class="ja-mini">'+esc(typeof uiT==='function'?uiT("Tentar novamente"):'Tentar novamente')+'</button>');
+    const elRetry = document.getElementById('nodes-retry');
+    if(elRetry) elRetry.onclick=renderNodes;
   }
 }
-
 
 function orchestrationMarkup(all,orch){
     const orchHtml = orch.length ? (
