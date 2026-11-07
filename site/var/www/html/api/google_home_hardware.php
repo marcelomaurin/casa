@@ -4,6 +4,7 @@ header('Cache-Control: no-store');
 require_once(__DIR__.'/db.php');
 require_once(__DIR__.'/seguranca.php');
 require_once(__DIR__.'/google_home_bridge.php');
+require_once(__DIR__.'/fala_texto.php');
 
 function ghw_out($d,$c=200){http_response_code($c);echo json_encode($d,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);exit;}
 function ghw_input(){ $j=json_decode(file_get_contents('php://input'),true); return is_array($j)?$j:[]; }
@@ -17,7 +18,7 @@ function ghw_computer($command){
     return ['ok'=>false,'erro'=>$err?:($j['mensagem']??('HTTP '.$http))];
 }
 function ghw_speak($text,$device=''){
-    $r=gh_enqueue_speech(get_db_pdo(),$text,$device);unset($r['context']);return $r;
+    $r=gh_enqueue_speech(get_db_pdo(),casa_texto_para_fala((string)$text),$device);unset($r['context']);return $r;
 }
 
 $in=ghw_input();
