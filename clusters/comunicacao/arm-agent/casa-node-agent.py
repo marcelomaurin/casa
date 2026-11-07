@@ -315,11 +315,25 @@ def _safe_journal_line(line):
     line = re.sub(r"https?://\S+", "[URL OCULTA]", line, flags=re.I)
     return line[:240]
 
-def collect_daemon_diagnostics():
-    """Coleta apenas estados reais do systemd; sem root, shell ou mudanças locais.
+def _classify_systemd_service(active, sub):
+    """Separa processo rodando de unit 'active (exited)' sem processo persistente."""
+    a = str(active).strip().lower()
+    b = str(sub).strip().lower()
+    if a == "failed":
+        return "failed"
+    if a == "active":
+        return "running" if b == "running" else "active_exited"
+    if a in ("inactive", "activating", "deactivating", "reloading"):
+        return a
+    return "unknown"
 
-    Falha/ausencia de systemctl retorna 'indisponivel', nunca uma lista vazia
-    anunciada como todos os daemons desligados.
+
+def collect_daemon_diagnostics():
+    """Inventario read-only dos serviços systemd em estados reais.
+
+    list-units --all informa o estado das unidades carregadas.
+    list-unit-files adiciona serviços instalados porém não carregados,
+    sem confundir 'enabled' com 'rodando'. Não há acesso remoto ou shell.
     """
     import re
     now = int(time.time())
@@ -330,27 +344,75 @@ def collect_daemon_diagnostics():
         "checked_at": checked_at, "source": "systemd",
         "running_status": "indisponivel", "running_services": [],
         "running_count": None, "running_truncated": False,
+        "inventory_status": "indisponivel", "inventory_count": None,
+        "inventory_truncated": False, "inventory_limit": 350,
+        "service_states": [], "state_counts": {},
         "critical_services": {},
     }
+    valid_unit = re.compile(r"^[A-Za-z0-9@_.\\-]{1,120}\.service$")
     rc, output, error = run_cmd([
-        "systemctl", "list-units", "--type=service", "--state=running",
+        "systemctl", "list-units", "--type=service", "--all",
         "--no-pager", "--no-legend"
-    ], timeout=7)
+    ], timeout=9)
     if rc == 0:
-        names = []
+        entries = {}
         for line in output.splitlines():
-            fields = line.strip().lstrip("● ").split()
-            if len(fields) >= 4 and fields[0].endswith(".service") and \
-                    re.match(r"^[A-Za-z0-9@_.-]{1,120}\.service$", fields[0]) and \
-                    fields[2] == "active" and fields[3] == "running":
-                names.append(fields[0])
-        names = sorted(set(names))
-        result["running_count"] = len(names)
-        result["running_truncated"] = len(names) > 100
-        result["running_services"] = names[:100]
+            parts = line.strip().lstrip("● ").split()
+            if len(parts) < 4 or not valid_unit.fullmatch(parts[0]):
+                continue
+            if parts[1] not in ("loaded", "not-found", "masked", "error", "bad-setting"):
+                continue
+            active = parts[2].lower()
+            sub = parts[3].lower()
+            entries[parts[0]] = {
+                "name": parts[0], "state": _classify_systemd_service(active, sub),
+                "sub_state": sub[:32],
+            }
+
+        fr, unit_files, ferr = run_cmd([
+            "systemctl", "list-unit-files", "--type=service",
+            "--no-pager", "--no-legend"
+        ], timeout=9)
+        if fr == 0:
+            for line in unit_files.splitlines():
+                fields = line.split()
+                if len(fields) < 2:
+                    continue
+                name, unit_file = fields[0], fields[1]
+                if not valid_unit.fullmatch(name) or name.endswith("@.service"):
+                    continue  # Template sem instancia nao e um daemon.
+                if unit_file == "alias":
+                    continue  # Evitar contabilizar alias de outro servico.
+                if name not in entries:
+                    entries[name] = {
+                        "name": name, "state": "not_loaded",
+                        "sub_state": "not-loaded",
+                    }
+                entries[name]["unit_file_state"] = unit_file[:35]
+            result["inventory_status"] = "ok"
+        else:
+            # Sem list-unit-files: não fingir que todas as unidades foram inspecionadas.
+            result["inventory_status"] = "parcial"
+
+        order = ("failed", "running", "active_exited", "activating",
+                 "deactivating", "reloading", "inactive", "unknown", "not_loaded")
+        counts = {key: 0 for key in order}
+        for entry in entries.values():
+            counts[entry["state"]] = counts.get(entry["state"], 0) + 1
+        running = sorted(name for name, entry in entries.items()
+                         if entry["state"] == "running")
+        result["running_count"] = len(running)
+        result["running_truncated"] = len(running) > 100
+        result["running_services"] = running[:100]
         result["running_status"] = "ok"
-    # Estado detalhado das unidades de diagnostico, inclusive se inativas.
-    if rc == 0:
+        result["state_counts"] = counts
+        result["inventory_count"] = len(entries)
+        sorted_entries = sorted(entries.values(), key=lambda e: (
+            order.index(e["state"]) if e["state"] in order else 99, e["name"]))
+        result["inventory_truncated"] = len(sorted_entries) > result["inventory_limit"]
+        result["service_states"] = sorted_entries[:result["inventory_limit"]]
+
+        # Servicos essenciais sao acompanhados mesmo quando estao parados.
         for unit in DIAGNOSTIC_UNITS:
             sr, sout, serr = run_cmd([
                 "systemctl", "show", unit, "--no-pager",
@@ -371,7 +433,7 @@ def collect_daemon_diagnostics():
                 result["critical_services"][unit] = {"state": "nao_instalado"}
             else:
                 result["critical_services"][unit] = data
-        # So as linhas de nivel ERROR do executor de tarefas, nunca logs inteiros.
+
         jr, jout, jerr = run_cmd([
             "journalctl", "-u", "casa-tarefas.service", "-p", "err",
             "--since=-30min", "-n", "5", "--no-pager", "-o", "cat"
