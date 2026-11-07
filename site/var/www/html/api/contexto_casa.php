@@ -33,6 +33,8 @@ function cc_txt($v, int $max = 60): string {
     return mb_strlen($v, 'UTF-8') > $max ? mb_substr($v, 0, $max - 1, 'UTF-8') . '…' : $v;
 }
 
+require_once __DIR__ . '/diagnostico_tarefas_ia.php';
+
 function cc_ligado($v): ?string {
     if ($v === null || $v === '') return null;
     if (is_bool($v)) return $v ? 'ligado' : 'desligado';
@@ -247,11 +249,12 @@ function casa_contexto(PDO $pdo, int $max = 3500): array {
         'sensores' => cc_secao(fn() => cc_sensores($pdo)),
         'nos' => cc_secao(fn() => cc_nos($pdo)),
         'tarefas' => cc_secao(fn() => cc_tarefas($pdo)),
+        'daemon_tarefas' => cc_secao(fn() => cti_resumo_workers(cti_trabalhadores($pdo))),
         'familia' => cc_secao(fn() => cc_familia($pdo)),
         'comandos' => cc_secao(fn() => cc_comandos($pdo)),
     ];
     // Prioridade para cortar quando passar do teto (cortadas primeiro).
-    $corte = ['comandos', 'familia', 'nos', 'tarefas', 'mordomo', 'equipamentos', 'sensores'];
+    $corte = ['comandos', 'familia', 'nos', 'tarefas', 'mordomo', 'equipamentos', 'sensores', 'daemon_tarefas'];
     $montar = function () use (&$secoes) {
         $blocos = [];
         foreach ($secoes as $s) if ($s) $blocos[] = implode("\n", $s);
@@ -272,7 +275,7 @@ function casa_contexto(PDO $pdo, int $max = 3500): array {
 }
 
 /** Bloco pronto para o pedido à IA. */
-function casa_contexto_prompt(PDO $pdo, int $max = 3500): array {
+function casa_contexto_prompt(PDO $pdo, int $max = 3500, string $pergunta = ''): array {
     $c = casa_contexto($pdo, $max);
     $c['prompt'] = "\n\n=== ESTADO ATUAL DA CASA (dados ao vivo do banco, lidos agora) ===\n" . $c['texto'] .
         "\n=== FIM DO ESTADO ATUAL ===\n" .
@@ -280,5 +283,11 @@ function casa_contexto_prompt(PDO $pdo, int $max = 3500): array {
         "responda com base no ESTADO ATUAL acima, citando nomes e valores. Você já tem esses dados: nunca diga que é preciso " .
         "consultar uma API ou um endpoint. Se algo não estiver no estado atual, diga que não há informação disponível sobre isso. " .
         "A documentação do projeto (quando aparecer) é referência técnica, não o estado da casa.";
+    if (cti_pergunta_sobre_tarefa($pergunta)) {
+        $diagnostico = cti_contexto_tarefas($pdo, $pergunta);
+        $c['prompt'] .= "\n\n=== CONSULTA REAL DE TAREFAS E DAEMONS ===\n" . $diagnostico . "\n=== FIM DA CONSULTA ===\n";
+        $c['secoes'][] = 'diagnostico_tarefas';
+        $c['chars'] += mb_strlen($diagnostico, 'UTF-8');
+    }
     return $c;
 }
