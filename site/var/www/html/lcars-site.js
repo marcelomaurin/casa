@@ -179,22 +179,22 @@ function updateDashboardCardsInDOM(summary){
     const metric = card.querySelector('.metric');
     const sub = card.querySelector('.sub');
     if (!metric) return;
-    if (title.includes('DISPOSITIVOS & IOT')) {
+    if ((title.includes(uiT('DISPOSITIVOS & IOT')) || title.includes('DISPOSITIVOS & IOT'))) {
       const on = summary.online_devices ?? 0;
       const tot = summary.total_devices ?? 0;
       const relOn = summary.relays_on ?? 0;
       metric.textContent = on + ' / ' + tot + ' ONLINE';
       if (sub) sub.textContent = (summary.relays_count || 0) + ' relés (' + relOn + ' ligados) · Sensores ativos';
-    } else if (title.includes('TEMPERATURA & CLIMA')) {
+    } else if ((title.includes(uiT('TEMPERATURA & CLIMA')) || title.includes('TEMPERATURA & CLIMA'))) {
       if (summary.temperature_c != null) {
         metric.textContent = summary.temperature_c + ' °C';
         if (sub) sub.textContent = 'Umidade: ' + (summary.humidity_pct != null ? summary.humidity_pct + '%' : '—') + ' · Conforto térmico';
       }
-    } else if (title.includes('CELULAR & PRESENÇA')) {
+    } else if ((title.includes(uiT('CELULAR & PRESENÇA')) || title.includes('CELULAR & PRESENÇA'))) {
       const mobOn = summary.mobiles_online ?? 0;
       metric.textContent = mobOn > 0 ? (mobOn + ' ONLINE') : 'MONITORANDO';
       if (sub) sub.textContent = 'Casa Mobile · ' + (mobOn > 0 ? 'Dispositivo conectado' : 'Aguardando ping');
-    } else if (title.includes('JARVIS WATCH')) {
+    } else if ((title.includes(uiT('JARVIS WATCH')) || title.includes('JARVIS WATCH'))) {
       const wOn = summary.watch_online ?? 0;
       metric.textContent = wOn > 0 ? 'CONECTADO' : 'AGUARDANDO';
       if (sub) sub.textContent = wOn > 0 ? 'LilyGo T-Watch ativo · Telemetria OK' : 'Aguardando telemetria do relógio';
@@ -295,10 +295,10 @@ function home(updateRoute=true){
   ];
 
   CASALcars.render('#app',{
-    layout:'dashboard',group:'DASHBOARD',title:'CASA / COMPUTER · DASHBOARD',subtitle:'Painel de controle operacional e monitoramento residencial em tempo real.',
+    layout:'dashboard',group:'DASHBOARD',title:uiT('CASA / COMPUTER · DASHBOARD'),subtitle:uiT('Painel de controle operacional e monitoramento residencial em tempo real.'),
     breadcrumb:[uiT('CASA'),uiT('DASHBOARD')],groups:homeRail.map(g=>({...g,label:uiT(g.label)})),status:uiStatuses(),columns:3,
-    items:dashboardCards.map(c=>({...c,title:uiT(c.title),description:uiT(c.description),status:uiT(c.status),actions:c.actions?.map(a=>({...a,label:uiT(a.label)}))})),
-    footer:{hint:'Interface operacional central: use os cartões para ação rápida ou os grupos à esquerda.'}
+    items:dashboardCards.map(c=>({...c,title:uiT(c.title),description:uiT(c.description),value:uiT(c.value),status:uiT(c.status),actions:c.actions?.map(a=>({...a,label:uiT(a.label)}))})),
+    footer:{hint:uiT('Interface operacional central: use os cartões para ação rápida ou os grupos à esquerda.')}
   });
 
   if(updateRoute) setRoute(null,null);
@@ -308,7 +308,7 @@ function home(updateRoute=true){
 function renderGroupsMenu(){
   currentGroup='GRUPOS'; currentItem=null;
   CASALcars.render('#app',{
-    layout:'dashboard',group:'GRUPOS',title:uiT('CASA / COMPUTER · MÓDULOS'),subtitle:'Escolha um grupo. A interface adapta o miolo conforme a tarefa.',
+    layout:'dashboard',group:'GRUPOS',title:uiT('CASA / COMPUTER · MÓDULOS'),subtitle:uiT('Escolha um grupo. A interface adapta o miolo conforme a tarefa.'),
     breadcrumb:[uiT('CASA'),uiT('GRUPOS')],groups:[{label:uiT('DASHBOARD'),action:'home',level:0,levelNav:true},{label:uiT('GRUPOS'),action:'open-groups-overview',level:1,levelNav:true,active:true}],status:uiStatuses(),columns:3,
     items:topGroupCards().map(g=>({title:g.title,description:g.description,icon:g.icon,actions:[{label:uiT('ACESSAR'),action:'open-group:'+g.id,variant:'primary'}]})),
     footer:{hint:'Interface em tela cheia: use grupos e paginação, sem rolagem.'}
