@@ -1916,3 +1916,70 @@ button.md-tile:hover,button.md-tile:focus-visible{border-color:#f2a000;backgroun
   .md-salvar span{white-space:normal}
 }
 .md-ciclo.warn{color:#f2c14e}
+
+
+/* Cluster ARM e Orquestração agora são módulos independentes.
+   Os cartões de serviços precisam de rolagem própria, sem esmagar o inventário. */
+.ja-native-body>.ja-orch-layout{
+  height:100%;
+  min-height:0;
+  overflow-y:auto;
+  overflow-x:hidden;
+  padding:clamp(8px,1.1vw,18px);
+  display:block;
+  scrollbar-width:thin;
+  scrollbar-color:#3f82ad #081521;
+}
+.ja-orch-layout .ja-orch-panel{
+  display:block;
+  height:auto;
+  min-height:0;
+  overflow:visible;
+  margin:0;
+  background:rgba(2,12,24,.92);
+  border-color:#24516b;
+}
+.ja-orch-summary{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:8px 12px;
+  margin:0 0 12px;
+}
+.ja-orch-summary strong,.ja-orch-summary span{
+  padding:7px 12px;
+  border:1px solid #24516b;
+  border-radius:8px;
+  color:#c7dff1;
+  background:rgba(2,12,24,.82);
+  font-size:clamp(11px,.9vw,14px);
+}
+.ja-orch-summary strong{color:#7dd3fc}
+.ja-orch-summary .warning{border-color:#eab308;color:#fde047}
+.ja-orch-intro{
+  margin:0 0 14px;
+  line-height:1.5;
+  color:#b8cddd;
+  font-size:clamp(12px,.95vw,14px);
+}
+.ja-orch-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));
+  gap:clamp(12px,1.2vw,20px);
+  align-items:stretch;
+}
+.ja-orch-service{
+  min-width:0;
+  padding:clamp(14px,1.4vw,20px)!important;
+  gap:12px!important;
+  overflow-wrap:anywhere;
+  justify-content:space-between;
+}
+.ja-orch-service select{min-width:0!important;min-height:38px;font-size:13px!important}
+.ja-orch-service button{min-height:32px}
+.ja-orch-layout .ja-native-card h3{font-size:clamp(15px,1.2vw,19px)}
+@media(max-width:700px){
+  .ja-orch-grid{grid-template-columns:minmax(0,1fr)}
+  .ja-orch-service{padding:12px!important}
+  .ja-orch-layout{padding:8px}
+}
