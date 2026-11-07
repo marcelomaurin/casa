@@ -1,6 +1,13 @@
 (function(){
 'use strict';
 
+// Never translate route keys, IDs or API values: only visible labels.
+function uiT(label){
+  return (typeof window!=='undefined' && window.CASAI18n) ? window.CASAI18n.t(label) : label;
+}
+function uiSections(sections){return sections.map(section=>({...section,title:uiT(section.title),items:section.items.map(item=>({...item,label:uiT(item.label)}))}));}
+function uiStatuses(){return STATUS.map(s=>({...s,label:uiT(s.label),value:uiT(s.value)}));}
+
 const GROUP_ICONS={
   'SEGURANÇA':'◆',
   'OPERAÇÕES':'◈',
@@ -145,7 +152,7 @@ function setRoute(group,item){
 }
 
 function topGroupCards(){
-  return Object.keys(GROUPS).map(name=>({title:name,description:GROUPS[name].subtitle,id:name,icon:GROUP_ICONS[name]||'•'}));
+  return Object.keys(GROUPS).map(name=>({title:uiT(name),description:uiT(GROUPS[name].subtitle),id:name,icon:GROUP_ICONS[name]||'•'}));
 }
 
 let dashboardMetrics = null;
@@ -289,8 +296,8 @@ function home(updateRoute=true){
 
   CASALcars.render('#app',{
     layout:'dashboard',group:'DASHBOARD',title:'CASA / COMPUTER · DASHBOARD',subtitle:'Painel de controle operacional e monitoramento residencial em tempo real.',
-    breadcrumb:['CASA','DASHBOARD'],groups:homeRail,status:STATUS,columns:3,
-    items:dashboardCards,
+    breadcrumb:[uiT('CASA'),uiT('DASHBOARD')],groups:homeRail.map(g=>({...g,label:uiT(g.label)})),status:uiStatuses(),columns:3,
+    items:dashboardCards.map(c=>({...c,title:uiT(c.title),description:uiT(c.description),status:uiT(c.status),actions:c.actions?.map(a=>({...a,label:uiT(a.label)}))})),
     footer:{hint:'Interface operacional central: use os cartões para ação rápida ou os grupos à esquerda.'}
   });
 
@@ -301,9 +308,9 @@ function home(updateRoute=true){
 function renderGroupsMenu(){
   currentGroup='GRUPOS'; currentItem=null;
   CASALcars.render('#app',{
-    layout:'dashboard',group:'GRUPOS',title:'CASA / COMPUTER · MÓDULOS',subtitle:'Escolha um grupo. A interface adapta o miolo conforme a tarefa.',
-    breadcrumb:['CASA','GRUPOS'],groups:[{label:'DASHBOARD',action:'home',level:0,levelNav:true},{label:'GRUPOS',action:'open-groups-overview',level:1,levelNav:true,active:true}],status:STATUS,columns:3,
-    items:topGroupCards().map(g=>({title:g.title,description:g.description,icon:g.icon,actions:[{label:'ACESSAR',action:'open-group:'+g.id,variant:'primary'}]})),
+    layout:'dashboard',group:'GRUPOS',title:uiT('CASA / COMPUTER · MÓDULOS'),subtitle:'Escolha um grupo. A interface adapta o miolo conforme a tarefa.',
+    breadcrumb:[uiT('CASA'),uiT('GRUPOS')],groups:[{label:uiT('DASHBOARD'),action:'home',level:0,levelNav:true},{label:uiT('GRUPOS'),action:'open-groups-overview',level:1,levelNav:true,active:true}],status:uiStatuses(),columns:3,
+    items:topGroupCards().map(g=>({title:g.title,description:g.description,icon:g.icon,actions:[{label:uiT('ACESSAR'),action:'open-group:'+g.id,variant:'primary'}]})),
     footer:{hint:'Interface em tela cheia: use grupos e paginação, sem rolagem.'}
   });
   setRoute('GRUPOS',null);
@@ -314,14 +321,14 @@ function groupRail(group){
   GROUPS[group].sections.forEach(s=>s.items.forEach(it=>flat.push(it)));
   const nav=[
     {label:'CASA',action:'home',level:0,levelNav:true},
-    {label:group,action:'open-current-group',level:1,levelNav:true,active:!currentItem}
+    {label:uiT(group),action:'open-current-group',level:1,levelNav:true,active:!currentItem}
   ];
   if(currentItem){
     const selected=findItem(group,currentItem);
-    if(selected) nav.push({label:selected.label,id:selected.id,action:'open-item',level:2,levelNav:true,active:true});
+    if(selected) nav.push({label:uiT(selected.label),id:selected.id,action:'open-item',level:2,levelNav:true,active:true});
   }
   const choices=flat.filter(it=>!currentItem || it.id!==currentItem).slice(0,Math.max(0,8-nav.length)).map(it=>({
-    label:it.label,id:it.id,action:'open-item',level:2,active:false
+    label:uiT(it.label),id:it.id,action:'open-item',level:2,active:false
   }));
   return nav.concat(choices);
 }
@@ -330,8 +337,8 @@ function openGroup(group,updateRoute=true){
   if(!GROUPS[group]) return home(updateRoute);
   currentGroup=group; currentItem=null;
   CASALcars.render('#app',{
-    layout:'menu-grid',kind:'menu',group,title:group,subtitle:GROUPS[group].subtitle,
-    breadcrumb:[],groups:groupRail(group),status:STATUS,sections:GROUPS[group].sections,
+    layout:'menu-grid',kind:'menu',group,title:uiT(group),subtitle:uiT(GROUPS[group].subtitle),
+    breadcrumb:[],groups:groupRail(group),status:uiStatuses(),sections:uiSections(GROUPS[group].sections),
     footer:{hint:'Escolha uma opção. O painel usa toda a tela e não rola.'}
   });
   if(updateRoute) setRoute(group,null);
@@ -352,7 +359,7 @@ function openItem(item,updateRoute=true){
   if(!item || !currentGroup) return;
   currentItem=item.id;
   CASALcars.render('#app',{
-    layout:'focus',group:currentGroup,title:item.label,subtitle:GROUPS[currentGroup].subtitle,
+    layout:'focus',group:currentGroup,title:uiT(item.label),subtitle:uiT(GROUPS[currentGroup].subtitle),
     breadcrumb:[],groups:groupRail(currentGroup),status:STATUS,
     items:[{title:item.label,description:'Módulo funcional do CASA no layout atual.'}],
     footer:{hint:'Use os controles do módulo; dados extensos são paginados para evitar rolagem.'}
