@@ -133,11 +133,24 @@ android/JarvisTV/
 ## Versão
 
 ```text
-versionName = 1.0.0
-versionCode = 100
+versionName = 1.0.1
+versionCode = 101
 ```
 
 A build debug usa o sufixo de pacote `.debug` para evitar conflito com uma futura versão oficial assinada.
+
+## Atualização automática pelo GitHub
+
+A TV consulta `https://raw.githubusercontent.com/marcelomaurin/casa/master/bin/versions.json`, canal `jarvis-tv-debug` (ou `jarvis-tv` para release).
+
+- Na abertura e enquanto o painel estiver visível, reconsulta o JSON.
+- Um trabalho persistente do Android JobScheduler consulta o GitHub aproximadamente a cada hora com rede disponível, mesmo com o painel fechado (sujeito ao agendamento do sistema).
+- Se o `version_code` indicado for maior e `enabled=true`, baixa o APK pelo DownloadManager. Se o download falhar, tenta novamente numa próxima verificação.
+- A interface exibe o status da atualização e as ações **BUSCAR NO GITHUB** e **INSTALAR ATUALIZACAO**. Quando o APK termina, a TV também recebe uma notificação.
+- Antes de abrir o instalador Android, confere SHA-256, `package_id`, versão e assinatura. A instalação requer autorização/confirmação do Android TV; não há instalação silenciosa em aparelhos comuns.
+- O APK é publicado por GitHub Actions. A entrada no JSON permanece **desabilitada** até o arquivo existir e seu hash ter sido verificado. A publicação usa `jarvis-tv-vX.Y.Z-debug` no GitHub Releases.
+
+A versão 1.0.1 prepara o mecanismo sem alterar o token de pareamento, os dados locais ou a identidade do aplicativo. Atualize por cima; não desinstale para trocar a assinatura.
 
 ## Próximas evoluções
 
