@@ -9,6 +9,8 @@
 // Cada seção é independente: se uma tabela não existir nesta instalação, só ela some.
 // O texto tem teto de caracteres (configuracoes_sistema.jarvis_contexto_max_chars).
 
+require_once(__DIR__ . '/presenca_dispositivos.php');
+
 function cc_tempo(?string $quando): string {
     if (!$quando) return 'nunca';
     $t = strtotime($quando);
@@ -49,45 +51,49 @@ function cc_secao(callable $fn): array {
 
 /** Dispositivos do cluster com estado, presença e último contato. */
 function cc_dispositivos(PDO $pdo, int $limite): array {
-    $rows = $pdo->query("SELECT * FROM dispositivos_cluster ORDER BY (status='online') DESC, nome LIMIT " . (int)($limite + 1))->fetchAll(PDO::FETCH_ASSOC);
-    $desejado = [];
+    // O estado gravado no banco nao prova que o device esta conectado.
+    // A idade e calculada pelo proprio MySQL para evitar desvio de timezone PHP.
+    $rows=$pdo->query("SELECT d.*, TIMESTAMPDIFF(SECOND,d.ultimo_heartbeat,NOW()) AS heartbeat_age_seconds
+        FROM dispositivos_cluster d ORDER BY d.ultimo_heartbeat DESC, d.nome ASC")->fetchAll(PDO::FETCH_ASSOC);
+    $ativos=array_values(array_filter($rows,function($r) {
+        return empty($r['credential_revoked_at']) && (!array_key_exists('ativo',$r) || (int)$r['ativo']===1);
+    }));
+    $onlineRows=pd_apenas_online($ativos);
+    $total=count($ativos);
+    $online=count($onlineRows);
+    $linhas=["DISPOSITIVOS: {$total} cadastrado(s), {$online} com heartbeat recente, ".($total-$online)." sem conexao confirmada."];
+    $desejado=[];
     try {
-        foreach ($pdo->query("SELECT device_id, desired_state FROM device_desired_state")->fetchAll(PDO::FETCH_ASSOC) as $d) {
-            $desejado[$d['device_id']] = cc_json($d['desired_state']);
-        }
-    } catch (Throwable $e) {}
-
-    $ativos = array_values(array_filter($rows, fn($r) => empty($r['credential_revoked_at']) && (!array_key_exists('ativo', $r) || (int)$r['ativo'] === 1)));
-    $total = count($ativos);
-    $online = count(array_filter($ativos, fn($r) => strtolower((string)$r['status']) === 'online'));
-    $linhas = ["DISPOSITIVOS: {$total} cadastrado(s), {$online} online, " . ($total - $online) . " fora do ar."];
-    foreach (array_slice($ativos, 0, $limite) as $r) {
-        $meta = cc_json($r['metadata'] ?? null);
-        $des = $desejado[$r['device_id']] ?? [];
-        $estado = null;
-        foreach ([$meta['relay_on'] ?? null, $meta['power'] ?? null, $meta['estado'] ?? null, $des['relay_on'] ?? null] as $cand) {
-            if (($estado = cc_ligado($cand)) !== null) break;
-        }
-        $partes = [cc_txt($r['nome'] ?: $r['device_id'], 40) . ' (' . $r['device_id'] . (isset($r['tipo']) && $r['tipo'] !== '' ? ', ' . $r['tipo'] : '') . ')'];
-        $partes[] = strtolower((string)$r['status']) === 'online' ? 'online' : 'FORA DO AR';
-        if ($estado) $partes[] = $estado;
-        if (!empty($r['reles_status'])) {
-            $rel = cc_json($r['reles_status']);
-            if ($rel) {
-                $desc = [];
-                foreach ($rel as $k => $v) { $e = cc_ligado(is_array($v) ? ($v['state'] ?? $v['estado'] ?? null) : $v); $desc[] = 'relé ' . $k . ' ' . ($e ?? cc_txt(is_scalar($v) ? $v : json_encode($v), 10)); }
-                $partes[] = implode(', ', array_slice($desc, 0, 8));
-            } else {
-                $partes[] = 'relés: ' . cc_txt($r['reles_status'], 40);
+        foreach ($pdo->query("SELECT device_id, desired_state FROM device_desired_state")->fetchAll(PDO::FETCH_ASSOC) as $d)
+            $desejado[$d['device_id']]=cc_json($d['desired_state']);
+    } catch(Throwable $e) {}
+    // Mostra os ativos com heartbeat recente primeiro; offline nao herda
+    // relés no estado "ligado", pois o equipamento não confirma mais seu estado.
+    $ordered=array_merge($onlineRows,array_values(array_filter($ativos,function($r){
+        return !pd_avaliar($r)['online'];
+    })));
+    foreach(array_slice($ordered,0,$limite) as $r) {
+        $p=pd_avaliar($r);
+        $meta=cc_json($r['metadata']??null);
+        $des=$desejado[$r['device_id']]??[];
+        $partes=[cc_txt($r['nome']?:$r['device_id'],40).' ('.$r['device_id'].
+            (!empty($r['tipo'])?', '.cc_txt($r['tipo'],25):'').')'];
+        $partes[]=$p['online']?'online confirmado':'FORA DO AR';
+        if($p['online']) {
+            $estado=null;
+            foreach ([$meta['relay_on']??null,$meta['power']??null,$meta['estado']??null] as $v) {
+                if (($estado=cc_ligado($v))!==null) break;
             }
+            if($estado!==null)$partes[]='último estado físico: '.$estado;
+            if(isset($des['relay_on']))$partes[]='estado solicitado: '.(cc_ligado($des['relay_on'])??'não informado');
         }
-        if (!empty($r['localizacao'])) $partes[] = 'local: ' . cc_txt($r['localizacao'], 30);
-        if (isset($r['battery_pct']) && $r['battery_pct'] !== null) $partes[] = 'bateria ' . (int)$r['battery_pct'] . '%';
-        if (!empty($r['health']) && !in_array(strtolower((string)$r['health']), ['ok','online'], true)) $partes[] = 'saúde: ' . cc_txt($r['health'], 20);
-        $partes[] = 'último contato ' . cc_tempo($r['ultimo_heartbeat'] ?? null);
-        $linhas[] = '- ' . implode(' | ', $partes);
+        if (!empty($r['localizacao'])) $partes[]='local: '.cc_txt($r['localizacao'],25);
+        if (isset($r['battery_pct']) && $r['battery_pct']!==null) $partes[]='bateria '.(int)$r['battery_pct'].'%';
+        $partes[]='último heartbeat '.cc_tempo($r['ultimo_heartbeat']??null);
+        $partes[]='limite '.(int)$p['max_age_seconds'].' s';
+        $linhas[]='- '.implode(' | ',$partes);
     }
-    if (count($ativos) > $limite) $linhas[] = '- (lista resumida; há mais dispositivos)';
+    if(count($ordered)>$limite)$linhas[]='- (lista resumida; há mais dispositivos)';
     return $linhas;
 }
 
@@ -274,10 +280,11 @@ function casa_contexto(PDO $pdo, int $max = 3500): array {
 /** Bloco pronto para o pedido à IA. */
 function casa_contexto_prompt(PDO $pdo, int $max = 3500): array {
     $c = casa_contexto($pdo, $max);
-    $c['prompt'] = "\n\n=== ESTADO ATUAL DA CASA (dados ao vivo do banco, lidos agora) ===\n" . $c['texto'] .
+    $c['prompt'] = "\n\n=== ESTADO ATUAL DA CASA (dados do banco, avaliados agora por heartbeat) ===\n" . $c['texto'] .
         "\n=== FIM DO ESTADO ATUAL ===\n" .
         "Para perguntas sobre a casa (o que está ligado, dispositivos, sensores, temperatura, quem está online, alertas, status), " .
-        "responda com base no ESTADO ATUAL acima, citando nomes e valores. Você já tem esses dados: nunca diga que é preciso " .
+        "responda com base no ESTADO ATUAL acima. Somente o status 'online confirmado' significa contato recente; o estado gravado ou um relé ligado NÃO comprova presença. " .
+        "Não apresente como online equipamentos sem heartbeat válido. Você já tem esses dados: nunca diga que é preciso " .
         "consultar uma API ou um endpoint. Se algo não estiver no estado atual, diga que não há informação disponível sobre isso. " .
         "A documentação do projeto (quando aparecer) é referência técnica, não o estado da casa.";
     return $c;
