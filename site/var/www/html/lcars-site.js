@@ -1125,7 +1125,7 @@ async function renderNodes(){
             '</div>';
           }).join('')+
         '</div>'
-      ) : '<span style="opacity:0.6;">Nenhum serviço listado</span>';
+      ) : '<span style="opacity:0.6;">'+esc(uiT("Nenhum serviço listado"))+'</span>';
 
       return '<article class="ja-native-card" style="position:relative;">'+
       '<div style="position:absolute;top:10px;right:10px;display:flex;gap:5px;z-index:2;flex-wrap:wrap;">'+
@@ -1163,7 +1163,7 @@ async function renderNodes(){
       '<dt>'+esc(uiT("Capacidades"))+'</dt><dd>'+esc((n.capabilities||[]).join(', ')||'Não informadas')+'</dd>'+
       '<dt>'+esc(uiT("Último contato (servidor)"))+'</dt><dd>'+esc(n.last_seen||'Ainda não recebido')+'</dd>'+
       '<dt>'+esc(uiT("Acesso SSH"))+'</dt><dd><code style="background:#02070c;border:1px solid #24516b;padding:2px 7px;border-radius:4px;color:#00e5ff;font-family:monospace;font-size:0.85rem;user-select:all;">ssh mmm@'+esc(n.ip_address||'—')+'</code></dd>'+
-      '<dt>'+esc(uiT("Site do Cluster"))+'</dt><dd>'+(n.ip_address?'<a href="http://'+esc(n.ip_address)+':8080/" target="_blank" style="display:inline-block;padding:3px 10px;background:#38bdf8;color:#000;border-radius:4px;text-decoration:none;font-weight:bold;font-size:0.8rem;">ABRIR PORTAL (:8080)</a>':'—')+'</dd>'+
+      '<dt>'+esc(uiT("Site do Cluster"))+'</dt><dd>'+(n.ip_address?'<a href="http://'+esc(n.ip_address)+':8080/" target="_blank" style="display:inline-block;padding:3px 10px;background:#38bdf8;color:#000;border-radius:4px;text-decoration:none;font-weight:bold;font-size:0.8rem;">'+esc(uiT("ABRIR PORTAL (:8080)"))+'</a>':'—')+'</dd>'+
       '</dl><span class="ja-state '+(n.online?'ok':'')+'">'+esc(states[n.status]||n.status)+'</span></article>';
     })+pager('nodes',p):
       '<div class="ja-empty">Nenhum agente Linux ARM registrado. Clique em <b>+ NOVO NÓ</b> acima ou conecte agentes pela API de dispositivos.</div>';
@@ -1254,8 +1254,8 @@ function orchestrationMarkup(all,orch){
     const orchHtml = orch.length ? (
       '<section class="ja-native-card ja-orch-panel">'+
         '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px;">'+
-          '<h3 style="margin:0;color:#38bdf8;">⚡ ORQUESTRAÇÃO DE SERVIÇOS DO CLUSTER (QUEM EXECUTA O QUÊ · SEM REDUNDÂNCIA)</h3>'+
-          '<span style="font-size:0.75rem;color:#94a3b8;">Ao transferir ou ativar um serviço em um servidor, ele é desativado automaticamente nos demais</span>'+
+          '<h3 style="margin:0;color:#38bdf8;">⚡ '+esc(uiT("ORQUESTRAÇÃO DE SERVIÇOS DO CLUSTER (QUEM EXECUTA O QUÊ · SEM REDUNDÂNCIA)"))+'</h3>'+
+          '<span style="font-size:0.75rem;color:#94a3b8;">'+esc(uiT("Ao transferir ou ativar um serviço em um servidor, ele é desativado automaticamente nos demais"))+'</span>'+
         '</div>'+
         '<div class="ja-orch-grid">'+
           orch.map(item => {
@@ -1275,16 +1275,16 @@ function orchestrationMarkup(all,orch){
                 '</div>'+
                 '<span style="background:rgba(0,0,0,0.4);border:1px solid '+stColor+';color:'+stColor+';padding:2px 8px;border-radius:999px;font-size:0.7rem;font-weight:bold;white-space:nowrap;">'+stText+'</span>'+
               '</div>'+
-              (item.purpose ? '<div style="font-size:0.75rem;color:#cbd5e1;line-height:1.38;background:rgba(2,7,12,0.55);padding:6px 8px;border-radius:5px;border-left:2px solid #38bdf8;"><b>Propósito do Daemon:</b> '+esc(item.purpose)+(item.impact_when_stopped ? '<div style="color:#fbbf24;margin-top:3px;font-size:0.71rem;"><b>Se desativado:</b> '+esc(item.impact_when_stopped)+'</div>' : '')+'</div>' : '')+
+              (item.purpose ? '<div style="font-size:0.75rem;color:#cbd5e1;line-height:1.38;background:rgba(2,7,12,0.55);padding:6px 8px;border-radius:5px;border-left:2px solid #38bdf8;"><b>'+esc(uiT("Propósito do Daemon:"))+'</b> '+esc(item.purpose)+(item.impact_when_stopped ? '<div style="color:#fbbf24;margin-top:3px;font-size:0.71rem;"><b>'+esc(uiT("Se desativado:"))+'</b> '+esc(item.impact_when_stopped)+'</div>' : '')+'</div>' : '')+
               '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">'+
-                '<small style="color:#94a3b8;font-size:0.74rem;">Servidor executor:</small>'+
+                '<small style="color:#94a3b8;font-size:0.74rem;">'+esc(uiT("Servidor executor:"))+'</small>'+
                 '<select class="ja-orch-select" data-svc="'+attr(item.id)+'" style="flex:1;min-width:160px;background:#02070c;color:#e2e8f0;border:1px solid #334155;border-radius:4px;padding:4px 6px;font-size:0.78rem;">'+
                   optionsHtml+
                 '</select>'+
                 '<button type="button" class="ja-orch-move-btn" data-svc="'+attr(item.id)+'" style="background:#38bdf8;color:#000;border:none;border-radius:4px;padding:4px 9px;font-size:0.73rem;font-weight:900;cursor:pointer;" title="Transferir e ativar este serviço no servidor selecionado">'+esc(uiT("APLICAR NÓ"))+'</button>'+
               '</div>'+
               '<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;padding-top:4px;border-top:1px solid rgba(51,65,85,0.4);">'+
-                '<small style="color:#cbd5e1;font-size:0.72rem;">Atual: <b>'+esc(item.owner_name||'—')+'</b> ('+esc(item.owner_ip||'—')+')</small>'+
+                '<small style="color:#cbd5e1;font-size:0.72rem;">'+esc(uiT("Atual:"))+' <b>'+esc(item.owner_name||'—')+'</b> ('+esc(item.owner_ip||'—')+')</small>'+
                 '<div style="display:flex;gap:4px;">'+
                   (isAct
                     ? '<button type="button" class="ja-svc-ctrl-btn" data-svc="'+attr(item.id)+'" data-act="stop" data-dev="'+attr(item.owner_device_id||'')+'" data-ip="'+attr(item.owner_ip||'')+'" style="background:#ef4444;color:#fff;border:none;border-radius:4px;padding:3px 8px;font-size:0.7rem;font-weight:bold;cursor:pointer;">⏹ '+esc(uiT("PARAR"))+'</button>'+
@@ -1297,7 +1297,7 @@ function orchestrationMarkup(all,orch){
         '</div>'+
       '</section>'
     ) : '';
-  return orchHtml || '<div class="ja-empty">Nenhum serviço disponível para orquestração nesta instalação.</div>';
+  return orchHtml || '<div class="ja-empty">'+esc(uiT("Nenhum serviço disponível para orquestração nesta instalação."))+'</div>';
 }
 
 /** Orquestração é uma tela própria: sem a grade do inventário abaixo. */
@@ -1315,7 +1315,7 @@ async function renderOrchestration(){
       '<span>'+esc(all.filter(n=>n.online).length)+' de '+esc(all.length)+' nós online</span>'+
       (redundant?'<span class="warning">'+esc(redundant)+' serviço(s) com redundância</span>':'')+
       '</div>'+
-      '<p class="ja-orch-intro">Defina em qual nó cada serviço deve funcionar. A transferência segue as regras de exclusividade e proteção existentes no servidor; confira o estado do nó antes de aplicar.</p>';
+      '<p class="ja-orch-intro">'+esc(uiT("Defina em qual nó cada serviço deve funcionar. A transferência segue as regras de exclusividade e proteção existentes no servidor; confira o estado do nó antes de aplicar."))+'</p>';
     moduleShell('Orquestração de serviços do cluster',
       '<div class="ja-orch-layout">'+summary+orchestrationMarkup(all,orch)+'</div>',
       '<a class="ja-mini" href="/casa/index.php?grupo=SISTEMA&amp;item=nodes-sys">Ver Cluster ARM</a> '+
