@@ -19,6 +19,11 @@ function dd_intencao(string $comando): ?array {
         && preg_match('/\b(?:status|situacao|pendente|rodou|executad[ao]|parad[ao]|demor|motivo|por que|porque|quando|data|criad[ao]|solicitad[ao]|iniciad[ao]|terminad[ao])\b/u', $c)) {
         return ['tipo'=>'plano','id'=>(int)$m[1]];
     }
+    // Pedido de logs/estado tem prioridade sobre verbos como 'mostre'.
+    if (preg_match('/\b(?:logs?|erros?|status|estado)\b/u', $c)
+        && preg_match('/\b(?:daemons?|casa-tarefas|servico de tarefas)\b/u', $c)) {
+        return ['tipo'=>'trabalhador'];
+    }
     if (preg_match('/\b(?:daemons?|servic[oo]s?|processos?)\b/u', $c)
         && preg_match('/\b(?:list[ae]r?|liste|mostre|quais|quantos|exib[ae]|rodando|ativos|em execucao)\b/u', $c)) {
         return ['tipo'=>'lista'];
