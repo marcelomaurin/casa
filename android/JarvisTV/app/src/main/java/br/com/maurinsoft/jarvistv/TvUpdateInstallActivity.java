@@ -17,8 +17,8 @@ import java.security.MessageDigest;
 
 /** Validates downloaded APK and delegates installation to the Android package installer. */
 public final class TvUpdateInstallActivity extends Activity {
-    @Override public void onCreate(Bundle b) {
-        super.onCreate(b);
+    @Override public void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
         TextView status = new TextView(this); status.setPadding(30, 30, 30, 30);
         status.setText("Validando atualização Jarvis TV..."); setContentView(status);
         new Thread(() -> {
@@ -62,9 +62,9 @@ public final class TvUpdateInstallActivity extends Activity {
                     if (candidate == null || !getPackageName().equals(candidate.packageName)) throw new SecurityException("Pacote diferente");
                     long version = Build.VERSION.SDK_INT >= 28 ? candidate.getLongVersionCode() : candidate.versionCode;
                     if (version <= BuildConfig.VERSION_CODE || version != prefs.getLong("pending_code", -1)) throw new SecurityException("Versão não autorizada");
-                    android.content.pm.Signature[] a = Build.VERSION.SDK_INT >= 28 ? current.signingInfo.getApkContentsSigners() : current.signatures;
-                    android.content.pm.Signature[] b = Build.VERSION.SDK_INT >= 28 ? candidate.signingInfo.getApkContentsSigners() : candidate.signatures;
-                    if (a == null || b == null || !java.util.Arrays.equals(a, b)) throw new SecurityException("Assinatura diferente");
+                    android.content.pm.Signature[] sigA = Build.VERSION.SDK_INT >= 28 ? current.signingInfo.getApkContentsSigners() : current.signatures;
+                    android.content.pm.Signature[] sigB = Build.VERSION.SDK_INT >= 28 ? candidate.signingInfo.getApkContentsSigners() : candidate.signatures;
+                    if (sigA == null || sigB == null || !java.util.Arrays.equals(sigA, sigB)) throw new SecurityException("Assinatura diferente");
                 } finally { temp.delete(); }
                 runOnUiThread(() -> {
                     status.setText("Confirme a atualização no instalador Android.");
