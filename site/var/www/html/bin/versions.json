@@ -10,12 +10,12 @@
       "sha256": "8e3e11dd5ccf22d6f2808cfc7e7b1a61bdf5a40460957c0bba77ceca3a5e788c"
     },
     "jarvis-tv-debug": {
-      "enabled": false,
+      "enabled": true,
       "version": "1.1.0",
       "version_code": 110,
       "package_id": "br.com.maurinsoft.jarvistv.debug",
       "apk_url": "https://github.com/marcelomaurin/casa/releases/download/jarvis-tv-v1.1.0-debug/JarvisTV-v1.1.0-debug.apk",
-      "sha256": ""
+      "sha256": "1da3a4b6ba13f587a66c485dbbc05be69e51ac85899714680e2681e5f17fe11e"
     }
   }
 }
