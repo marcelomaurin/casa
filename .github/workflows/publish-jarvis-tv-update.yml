@@ -51,14 +51,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp android/JarvisTV/app/build/outputs/apk/debug/app-debug.apk "JarvisTV-v${VERSION}-debug.apk"
+          APK_FILE=$(find android/JarvisTV/app/build/outputs/apk -name "*.apk" | head -n 1)
+          echo "Found TV APK: $APK_FILE"
+          test -n "$APK_FILE"
+          cp "$APK_FILE" "JarvisTV-v${VERSION}-debug.apk"
           TAG="jarvis-tv-v${VERSION}-debug"
           ASSET="JarvisTV-v${VERSION}-debug.apk"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release already exists: $TAG; do not overwrite a signed artifact."
-            exit 1
+            gh release upload "$TAG" "$ASSET" --clobber
+          else
+            gh release create "$TAG" "$ASSET" --target "$GITHUB_SHA" --title "Jarvis TV v${VERSION} Debug" --notes "Atualização autorizada Jarvis TV" --prerelease
           fi
-          gh release create "$TAG" "$ASSET" --target "$GITHUB_SHA" --title "Jarvis TV v${VERSION} Debug" --notes "Atualização autorizada Jarvis TV" --prerelease
       - name: Authorize published version in manifest
         run: |
           git fetch origin master
