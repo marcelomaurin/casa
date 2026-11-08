@@ -80,7 +80,13 @@ jobs:
           }
           p.write_text(json.dumps(data,indent=2)+'\n')
           PY
+          mkdir -p bin/android-tv site/var/www/html/bin/android-tv
+          cp "JarvisTV-v${VERSION}-debug.apk" "bin/android-tv/JarvisTV-v${VERSION}-debug.apk"
+          cp "JarvisTV-v${VERSION}-debug.apk" "bin/android-tv/JarvisTV-debug.apk"
+          cp "JarvisTV-v${VERSION}-debug.apk" "site/var/www/html/bin/android-tv/JarvisTV-v${VERSION}-debug.apk"
+          cp "JarvisTV-v${VERSION}-debug.apk" "site/var/www/html/bin/android-tv/JarvisTV-debug.apk"
+          cp bin/versions.json site/var/www/html/bin/versions.json
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add bin/versions.json
+          git add bin/versions.json site/var/www/html/bin/versions.json bin/android-tv/ site/var/www/html/bin/android-tv/
           git diff --cached --quiet || (git commit -m 'Authorize published Jarvis TV APK [skip ci]' && git push origin HEAD:master)

@@ -139,6 +139,13 @@ versionCode = 110
 
 A build debug usa o sufixo de pacote `.debug` para evitar conflito com uma futura versão oficial assinada.
 
+## Histórico — 1.1.0
+
+- Verificação periódica de atualizações a cada hora com o aplicativo em uso.
+- Validação automática de SHA-256, pacote, versão e assinatura do APK.
+- Instalador integrado com suporte a permissões de fontes desconhecidas no Android TV.
+- Provisionamento e pareamento com o control plane de dispositivos da Casa Inteligente.
+
 ## Próximas evoluções
 
 - wake-word local dedicado;
