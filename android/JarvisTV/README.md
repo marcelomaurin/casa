@@ -133,8 +133,8 @@ android/JarvisTV/
 ## Versão
 
 ```text
-versionName = 1.0.0
-versionCode = 100
+versionName = 1.1.0
+versionCode = 110
 ```
 
 A build debug usa o sufixo de pacote `.debug` para evitar conflito com uma futura versão oficial assinada.

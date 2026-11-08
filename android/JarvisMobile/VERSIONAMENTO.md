@@ -2,8 +2,8 @@
 
 ## Versão atual
 
-- `versionName`: `2.8.3`
-- `versionCode`: `283`
+- `versionName`: `2.8.4`
+- `versionCode`: `284`
 - pacote de desenvolvimento: `br.com.maurinsoft.jarvismobile.debug`
 - pacote de produção: `br.com.maurinsoft.jarvismobile`
 
@@ -108,3 +108,9 @@ Toda nova versão deve atualizar também `bin/versions.json`. Consulte [MOBILE_A
 - Detecção e envio de rede (Wi-Fi SSID, RSSI dBm, IP local e conectividade celular).
 - Identificação do fabricante e modelo do aparelho para exibição no painel da residência e cluster.
 - Monitoramento e transmissão da contagem de relógios JARVIS Watch conectados via BLE.
+
+## Histórico — 2.8.4
+
+- Incremento de versão para distribuição do aplicativo Android Casa Mobile.
+- Verificação periódica de novas versões autorizadas enquanto o app estiver ativo.
+- Sincronização contínua de telemetria e estado de conectividade com a infraestrutura central.
