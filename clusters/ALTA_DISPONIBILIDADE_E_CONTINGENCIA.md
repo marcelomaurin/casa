@@ -106,3 +106,4 @@ Para evitar dependências de orquestradores pesados que consumiriam a RAM dos n�
 - [ ] **GitHub Secrets:** Cadastrar `HOSTINGER_SSH_PRIVATE_KEY` e `HOSTINGER_SSH_PASSWORD` nos Secrets do repositório GitHub para viabilizar o workflow automático `deploy-hostinger.yml`.
 - [ ] **Tabela de Leases:** Executar a migração DDL para criar a tabela `cluster_service_leases` no banco de dados central (`casadb`).
 - [ ] **API de Leases:** Implementar o endpoint `/api/v1/cluster_lease.php` para operações atômicas de acquire, renew e release.
+
