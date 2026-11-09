@@ -66,6 +66,7 @@ Aplicativos Android, firmware Arduino e código do site continuam em suas pastas
 
 ## Guias técnicos
 
+- [Alta disponibilidade e contingência](ALTA_DISPONIBILIDADE_E_CONTINGENCIA.md): arquitetura HA, matriz de failover de daemons e pendências dos nós.
 - [Operação e configuração](OPERACAO.md): instalação ARM, presença no site, atualização e diagnóstico.
 - [Inventário dos programas](INVENTARIO.md): funções, entradas, dependências, configuração e unidades.
 - [Migração dos caminhos](MIGRACAO.md): origem/destino e orientação para instalações existentes.

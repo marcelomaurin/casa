@@ -1,6 +1,6 @@
 # Operação dos clusters
 
-[Catálogo](README.md) · [Inventário](INVENTARIO.md) · [Migração](MIGRACAO.md)
+[Catálogo](README.md) · [Inventário](INVENTARIO.md) · [Migração](MIGRACAO.md) · [Alta Disponibilidade e Contingência](ALTA_DISPONIBILIDADE_E_CONTINGENCIA.md)
 
 ## Conceitos
 
