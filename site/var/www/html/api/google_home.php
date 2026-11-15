@@ -245,6 +245,176 @@ if($acao==='limpar_offline'){
     ]);
 }
 
+if($acao==='iniciar_busca'||$acao==='descobrir'){
+    $tipo=strtolower(trim((string)($in['tipo']??$_GET['tipo']??'bluetooth')));
+    if(!in_array($tipo,['bluetooth','wifi'],true))$tipo='bluetooth';
+    $subnet=trim((string)($in['subnet']??$_GET['subnet']??'192.168.2'));
+    $ipEsp=trim((string)($in['ip_especifico']??$_GET['ip_especifico']??''));
+    $id='busca_'.bin2hex(random_bytes(6));
+
+    $pdo=get_db_pdo();
+
+    // 1. Tenta acionamento local direto caso o daemon esteja na mesma maquina
+    $directRes=null;
+    try {
+        if($tipo==='bluetooth'){
+            $ch=curl_init('http://127.0.0.1:8094/api/v1/bluetooth/auto_parear');
+            curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_TIMEOUT=>10,CURLOPT_POST=>true,CURLOPT_POSTFIELDS=>json_encode(['timeout'=>8])]);
+            $raw=curl_exec($ch);curl_close($ch);
+            if($raw){$j=json_decode($raw,true);if(!empty($j['ok']))$directRes=$j;}
+        } else {
+            $ch=curl_init('http://127.0.0.1:8094/api/v1/wifi/escanear');
+            curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_TIMEOUT=>8,CURLOPT_POST=>true,CURLOPT_POSTFIELDS=>json_encode(['subnet'=>$subnet,'ip_especifico'=>$ipEsp])]);
+            $raw=curl_exec($ch);curl_close($ch);
+            if($raw){$j=json_decode($raw,true);if(!empty($j['ok']))$directRes=$j;}
+        }
+    } catch(Throwable $e){}
+
+    if($directRes){
+        $nome=$directRes['nome']??($directRes['primeiro']['nome']??'Google Home');
+        $mac=strtoupper(trim((string)($directRes['mac']??($directRes['primeiro']['mac']??''))));
+        $ip=trim((string)($directRes['ip']??($directRes['primeiro']['ip']??'')));
+        $deviceId='gh-'.($tipo==='bluetooth'?'bt':'wifi').'-'.bin2hex(random_bytes(4));
+        $token=bin2hex(random_bytes(16));
+        $caps=json_encode(['google-home',$tipo,'audio-sink','voice-bridge'],JSON_UNESCAPED_UNICODE);
+        $meta=json_encode(['tipo_conexao'=>$tipo,'auto_descoberto'=>true,'criado_em'=>date('c')],JSON_UNESCAPED_UNICODE);
+
+        $chk=$pdo->prepare("SELECT id FROM dispositivos_cluster WHERE (mac_address=:m AND :m!='') OR (ip_address=:ip AND :ip!='') LIMIT 1");
+        $chk->execute([':m'=>$mac?:'',':ip'=>$ip?:'']);
+        $existingId=$chk->fetchColumn();
+
+        if($existingId){
+            $pdo->prepare("UPDATE dispositivos_cluster SET nome=:n, ip_address=:ip, mac_address=:m, status='online', ultimo_heartbeat=NOW() WHERE id=:id")
+                ->execute([':n'=>$nome,':ip'=>$ip?:null,':m'=>$mac?:null,':id'=>$existingId]);
+            $newId=(int)$existingId;
+        } else {
+            $ins=$pdo->prepare("INSERT INTO dispositivos_cluster (device_id,nome,tipo,ip_address,mac_address,device_token,status,capabilities,metadata,localizacao,ultimo_heartbeat) VALUES (:did,:n,'google_home',:ip,:m,:t,'online',:c,:meta,'Residência',NOW())");
+            $ins->execute([':did'=>$deviceId,':n'=>$nome,':ip'=>$ip?:null,':m'=>$mac?:null,':t'=>$token,':c'=>$caps,':meta'=>$meta]);
+            $newId=(int)$pdo->lastInsertId();
+        }
+
+        gh_out([
+            'status'=>'concluido',
+            'id_busca'=>$id,
+            'tipo'=>$tipo,
+            'resultado'=>$directRes,
+            'device'=>[
+                'id'=>$newId,
+                'nome'=>$nome,
+                'mac_address'=>$mac,
+                'ip_address'=>$ip,
+                'tipo_conexao'=>$tipo,
+                'status'=>'online'
+            ]
+        ]);
+    }
+
+    // 2. Se nao conseguiu direto (ex: site em nuvem na Hostinger), publica solicitacao para o daemon na LAN
+    $cmdData=[
+        'id'=>$id,
+        'tipo'=>$tipo,
+        'subnet'=>$subnet,
+        'ip_especifico'=>$ipEsp,
+        'status'=>'pendente',
+        'timestamp'=>time()
+    ];
+    $st=$pdo->prepare("INSERT INTO configuracoes_sistema (chave, valor) VALUES ('gh_busca_cmd', :val) ON DUPLICATE KEY UPDATE valor = :val");
+    $st->execute([':val'=>json_encode($cmdData,JSON_UNESCAPED_UNICODE)]);
+
+    gh_out([
+        'status'=>'pendente',
+        'id_busca'=>$id,
+        'tipo'=>$tipo,
+        'mensagem'=>'Solicitação de busca enviada ao daemon local.'
+    ]);
+}
+
+if($acao==='solicitacoes_daemon'){
+    $pdo=get_db_pdo();
+    $st=$pdo->query("SELECT valor FROM configuracoes_sistema WHERE chave='gh_busca_cmd' LIMIT 1");
+    $raw=$st->fetchColumn();
+    $cmd=$raw?json_decode($raw,true):null;
+    if($cmd && !empty($cmd['id']) && ($cmd['status']??'')==='pendente' && ($cmd['timestamp']??0)>=(time()-45)){
+        gh_out(['status'=>'ok','solicitacao'=>$cmd]);
+    }
+    gh_out(['status'=>'ok','solicitacao'=>null]);
+}
+
+if($acao==='concluir_busca_daemon'){
+    $id=trim((string)($in['id']??''));
+    $resultado=$in['resultado']??[];
+    $pdo=get_db_pdo();
+    $devData=null;
+
+    if(!empty($resultado['ok'])){
+        $tipo=$resultado['tipo_conexao']??'bluetooth';
+        $nome=$resultado['nome']??($resultado['primeiro']['nome']??'Google Home');
+        $mac=strtoupper(trim((string)($resultado['mac']??($resultado['primeiro']['mac']??''))));
+        $ip=trim((string)($resultado['ip']??($resultado['primeiro']['ip']??'')));
+        $deviceId='gh-'.($tipo==='bluetooth'?'bt':'wifi').'-'.bin2hex(random_bytes(4));
+        $token=bin2hex(random_bytes(16));
+        $caps=json_encode(['google-home',$tipo,'audio-sink','voice-bridge'],JSON_UNESCAPED_UNICODE);
+        $meta=json_encode(['tipo_conexao'=>$tipo,'auto_descoberto'=>true,'criado_em'=>date('c')],JSON_UNESCAPED_UNICODE);
+
+        $chk=$pdo->prepare("SELECT id FROM dispositivos_cluster WHERE (mac_address=:m AND :m!='') OR (ip_address=:ip AND :ip!='') LIMIT 1");
+        $chk->execute([':m'=>$mac?:'',':ip'=>$ip?:'']);
+        $existingId=$chk->fetchColumn();
+
+        if($existingId){
+            $pdo->prepare("UPDATE dispositivos_cluster SET nome=:n, ip_address=:ip, mac_address=:m, status='online', ultimo_heartbeat=NOW() WHERE id=:id")
+                ->execute([':n'=>$nome,':ip'=>$ip?:null,':m'=>$mac?:null,':id'=>$existingId]);
+            $newId=(int)$existingId;
+        } else {
+            $ins=$pdo->prepare("INSERT INTO dispositivos_cluster (device_id,nome,tipo,ip_address,mac_address,device_token,status,capabilities,metadata,localizacao,ultimo_heartbeat) VALUES (:did,:n,'google_home',:ip,:m,:t,'online',:c,:meta,'Residência',NOW())");
+            $ins->execute([':did'=>$deviceId,':n'=>$nome,':ip'=>$ip?:null,':m'=>$mac?:null,':t'=>$token,':c'=>$caps,':meta'=>$meta]);
+            $newId=(int)$pdo->lastInsertId();
+        }
+
+        $devData=[
+            'id'=>$newId,
+            'nome'=>$nome,
+            'mac_address'=>$mac,
+            'ip_address'=>$ip,
+            'tipo_conexao'=>$tipo,
+            'status'=>'online'
+        ];
+    }
+
+    $resData=[
+        'id'=>$id,
+        'resultado'=>$resultado,
+        'device'=>$devData,
+        'timestamp'=>time()
+    ];
+    $st=$pdo->prepare("INSERT INTO configuracoes_sistema (chave, valor) VALUES ('gh_busca_res', :val) ON DUPLICATE KEY UPDATE valor = :val");
+    $st->execute([':val'=>json_encode($resData,JSON_UNESCAPED_UNICODE)]);
+
+    $pdo->exec("DELETE FROM configuracoes_sistema WHERE chave='gh_busca_cmd'");
+    gh_out(['status'=>'sucesso','mensagem'=>'Busca concluída e salva.','device'=>$devData]);
+}
+
+if($acao==='status_busca'){
+    $idBusca=trim((string)($in['id_busca']??$_GET['id_busca']??''));
+    $pdo=get_db_pdo();
+    $st=$pdo->query("SELECT valor FROM configuracoes_sistema WHERE chave='gh_busca_res' LIMIT 1");
+    $raw=$st->fetchColumn();
+    $res=$raw?json_decode($raw,true):null;
+
+    if($res && (!empty($res['id']) && $res['id']===$idBusca || empty($idBusca))){
+        gh_out([
+            'status'=>'concluido',
+            'id_busca'=>$res['id'],
+            'resultado'=>$res['resultado'],
+            'device'=>$res['device']
+        ]);
+    }
+
+    gh_out([
+        'status'=>'pendente',
+        'mensagem'=>'Busca ainda em andamento no daemon...'
+    ]);
+}
+
 if($acao==='excluir'||$acao==='remover'){
     $id=(int)($in['id']??$_GET['id']??0);
     $deviceId=trim((string)($in['device_id']??$_GET['device_id']??''));

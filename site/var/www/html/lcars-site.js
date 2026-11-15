@@ -2418,49 +2418,94 @@ function mdAjustes(){
 
 async function renderAddGoogleHome(){
   loading('Adicionar Google Home');
-  const body='<div class="ja-native-form" style="max-width:680px;margin:0 auto;padding:12px;">'+
-    '<p style="margin-bottom:16px;color:var(--lcars-orange,#f90);font-size:1.05rem;">'+
-      esc(uiT('Cadastre sua caixa Google Home, Nest Mini ou receptor de áudio para controle pelo CASA.'))+
+  const body='<div class="ja-native-form" style="max-width:760px;margin:0 auto;padding:12px;">'+
+    '<p style="margin-bottom:18px;color:var(--lcars-orange,#f90);font-size:1.05rem;">'+
+      esc(uiT('Cadastre sua caixa Google Home ou Nest Mini. O CASA realiza a busca, o pareamento e o registro de forma automática.'))+
     '</p>'+
-    '<label class="ja-google-home-field" style="display:block;margin-bottom:14px;">'+
-      '<span style="display:block;font-weight:bold;margin-bottom:4px;">'+esc(uiT('Nome do Dispositivo *'))+'</span>'+
-      '<input id="add-gh-nome" class="ja-input" placeholder="Ex.: Google Home Sala, Nest Mini Quarto" style="width:100%;box-sizing:border-box;">'+
-    '</label>'+
-    '<label class="ja-google-home-field" style="display:block;margin-bottom:14px;">'+
-      '<span style="display:block;font-weight:bold;margin-bottom:4px;">'+esc(uiT('Tipo de Conexão'))+'</span>'+
-      '<select id="add-gh-tipo" class="ja-select" style="width:100%;box-sizing:border-box;">'+
-        '<option value="bluetooth">'+esc(uiT('Bluetooth (Pareamento com Raspberry Pi)'))+'</option>'+
-        '<option value="wifi">'+esc(uiT('Wi-Fi / Google Cast (IP na rede local)'))+'</option>'+
-        '<option value="virtual">'+esc(uiT('Dispositivo Virtual / Fila de Fala'))+'</option>'+
-      '</select>'+
-    '</label>'+
-    '<div id="add-gh-wifi-box" style="display:none;margin-bottom:14px;">'+
-      '<label class="ja-google-home-field" style="display:block;">'+
-        '<span style="display:block;font-weight:bold;margin-bottom:4px;">'+esc(uiT('Endereço IP (Ex.: 192.168.2.45)'))+'</span>'+
-        '<input id="add-gh-ip" class="ja-input" placeholder="Ex.: 192.168.2.45" style="width:100%;box-sizing:border-box;">'+
-      '</label>'+
-      '<small style="color:var(--lcars-light-blue,#99ccff);display:block;margin-top:4px;">'+esc(uiT('Você pode consultar o IP da caixinha no aplicativo Google Home ou na tabela de DHCP do roteador.'))+'</small>'+
-    '</div>'+
-    '<div id="add-gh-bt-box" style="margin-bottom:14px;">'+
-      '<label class="ja-google-home-field" style="display:block;">'+
-        '<span style="display:block;font-weight:bold;margin-bottom:4px;">'+esc(uiT('Endereço MAC Bluetooth'))+'</span>'+
-        '<input id="add-gh-mac" class="ja-input" placeholder="Ex.: 48:D6:D5:12:34:56" style="width:100%;box-sizing:border-box;">'+
-      '</label>'+
-      '<div style="margin-top:8px;display:flex;gap:8px;align-items:center;">'+
-        '<button type="button" class="ja-mini" id="btn-scan-bt-form">'+esc(uiT('Buscar Dispositivos Bluetooth Próximos'))+'</button>'+
-        '<small style="color:var(--lcars-light-blue,#99ccff);">'+esc(uiT('Diga "Ok Google, ativar Bluetooth" para a caixinha.'))+'</small>'+
+
+    '<!-- MODO 1: BLUETOOTH AUTOMÁTICO -->'+
+    '<div style="background:#0a0e14;border:2px solid #35e66b;border-radius:14px;padding:14px;margin-bottom:16px;">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">'+
+        '<h3 style="margin:0;color:#35e66b;font-size:1rem;">1. PAREAMENTO AUTOMÁTICO VIA BLUETOOTH</h3>'+
+        '<span class="ja-state ok">RECOMENDADO</span>'+
       '</div>'+
+      '<p style="color:#c7d0d8;margin-bottom:12px;font-size:0.9rem;line-height:1.4;">'+
+        'Diga para a sua caixinha: <strong style="color:#fff;">"Ok Google, ativar Bluetooth"</strong> (ela dirá que está pronta para conectar). '+
+        'Em seguida, clique no botão abaixo. O daemon do CASA no Raspberry Pi localizará o sinal, fará o pareamento de áudio e registrará a caixa automaticamente.'+
+      '</p>'+
+      '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'+
+        '<button type="button" class="ja-mini primary" data-act="do-auto-bt" style="font-size:0.95rem;padding:9px 16px;">▶ INICIAR PAREAMENTO AUTOMÁTICO BLUETOOTH</button>'+
+        '<button type="button" class="ja-mini" id="btn-scan-bt-form">Ver Dispositivos Detectados</button>'+
+      '</div>'+
+      '<div id="add-gh-bt-result" class="ja-google-home-result" style="margin-top:10px;display:none;"></div>'+
       '<div id="add-gh-scanned-list" style="margin-top:10px;"></div>'+
     '</div>'+
-    '<label class="ja-google-home-field" style="display:block;margin-bottom:20px;">'+
-      '<span style="display:block;font-weight:bold;margin-bottom:4px;">'+esc(uiT('Cômodo / Localização'))+'</span>'+
-      '<input id="add-gh-loc" class="ja-input" placeholder="Ex.: Sala de Estar, Cozinha, Quarto Principal" value="Residência" style="width:100%;box-sizing:border-box;">'+
-    '</label>'+
-    '<div class="ja-row-actions" style="margin-top:20px;">'+
-      actionBtn('+ SALVAR DISPOSITIVO','do-add-gh','primary')+
+
+    '<!-- MODO 2: WI-FI / VARREDURA POR IP AUTOMÁTICA -->'+
+    '<div style="background:#0a0e14;border:2px solid #8fc7ef;border-radius:14px;padding:14px;margin-bottom:16px;">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">'+
+        '<h3 style="margin:0;color:#8fc7ef;font-size:1rem;">2. VARREDURA AUTOMÁTICA POR IP (WI-FI / GOOGLE CAST)</h3>'+
+        '<span class="ja-state" style="background:#8fc7ef;color:#111;">REDE WI-FI</span>'+
+      '</div>'+
+      '<p style="color:#c7d0d8;margin-bottom:12px;font-size:0.9rem;line-height:1.4;">'+
+        'O daemon do CASA varrerá a rede local (portas 8008/8009) em busca de caixas Google Home / Nest Mini conectadas no Wi-Fi, identificará o nome e modelo, e fará o registro.'+
+      '</p>'+
+      '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">'+
+        '<label style="display:flex;align-items:center;gap:6px;font-size:0.85rem;color:#8fc7ef;">'+
+          'Sub-rede: <input id="add-gh-wifi-sub" class="ja-input" value="192.168.2" style="width:110px;padding:5px 8px;">'+
+        '</label>'+
+        '<label style="display:flex;align-items:center;gap:6px;font-size:0.85rem;color:#8fc7ef;">'+
+          'IP específico (opcional): <input id="add-gh-wifi-ip-opt" class="ja-input" placeholder="Ex: 192.168.2.45" style="width:140px;padding:5px 8px;">'+
+        '</label>'+
+      '</div>'+
+      '<div>'+
+        '<button type="button" class="ja-mini primary" data-act="do-auto-wifi" style="font-size:0.95rem;padding:9px 16px;">▶ INICIAR VARREDURA POR IP NA REDE WI-FI</button>'+
+      '</div>'+
+      '<div id="add-gh-wifi-result" class="ja-google-home-result" style="margin-top:10px;display:none;"></div>'+
+    '</div>'+
+
+    '<!-- MODO 3: CADASTRO MANUAL -->'+
+    '<details style="background:#0a0e14;border:1px solid #3f82ad;border-radius:14px;padding:12px;">'+
+      '<summary style="color:#8fc7ef;font-weight:bold;cursor:pointer;outline:none;">3. CADASTRO MANUAL (AVANÇADO / PERSONALIZADO)</summary>'+
+      '<div style="margin-top:14px;">'+
+        '<label class="ja-google-home-field" style="display:block;margin-bottom:12px;">'+
+          '<span style="display:block;font-weight:bold;margin-bottom:4px;">Nome do Dispositivo *</span>'+
+          '<input id="add-gh-nome" class="ja-input" placeholder="Ex.: Google Home Sala, Nest Mini Quarto" style="width:100%;box-sizing:border-box;">'+
+        '</label>'+
+        '<label class="ja-google-home-field" style="display:block;margin-bottom:12px;">'+
+          '<span style="display:block;font-weight:bold;margin-bottom:4px;">Tipo de Conexão</span>'+
+          '<select id="add-gh-tipo" class="ja-select" style="width:100%;box-sizing:border-box;">'+
+            '<option value="bluetooth">Bluetooth (Pareamento com Raspberry Pi)</option>'+
+            '<option value="wifi">Wi-Fi / Google Cast (IP na rede local)</option>'+
+            '<option value="virtual">Dispositivo Virtual / Fila de Fala</option>'+
+          '</select>'+
+        '</label>'+
+        '<div id="add-gh-wifi-box" style="display:none;margin-bottom:12px;">'+
+          '<label class="ja-google-home-field" style="display:block;">'+
+            '<span style="display:block;font-weight:bold;margin-bottom:4px;">Endereço IP</span>'+
+            '<input id="add-gh-ip" class="ja-input" placeholder="Ex.: 192.168.2.45" style="width:100%;box-sizing:border-box;">'+
+          '</label>'+
+        '</div>'+
+        '<div id="add-gh-bt-box" style="margin-bottom:12px;">'+
+          '<label class="ja-google-home-field" style="display:block;">'+
+            '<span style="display:block;font-weight:bold;margin-bottom:4px;">Endereço MAC Bluetooth</span>'+
+            '<input id="add-gh-mac" class="ja-input" placeholder="Ex.: 48:D6:D5:12:34:56" style="width:100%;box-sizing:border-box;">'+
+          '</label>'+
+        '</div>'+
+        '<label class="ja-google-home-field" style="display:block;margin-bottom:16px;">'+
+          '<span style="display:block;font-weight:bold;margin-bottom:4px;">Cômodo / Localização</span>'+
+          '<input id="add-gh-loc" class="ja-input" placeholder="Ex.: Sala de Estar, Cozinha" value="Residência" style="width:100%;box-sizing:border-box;">'+
+        '</label>'+
+        '<div class="ja-row-actions">'+
+          actionBtn('+ SALVAR MANUALMENTE','do-add-gh','primary')+
+        '</div>'+
+        '<div id="add-gh-feedback" class="ja-google-home-result" style="margin-top:12px;"></div>'+
+      '</div>'+
+    '</details>'+
+
+    '<div class="ja-row-actions" style="margin-top:16px;">'+
       actionBtn('VOLTAR AOS DISPOSITIVOS','back-to-gh')+
     '</div>'+
-    '<div id="add-gh-feedback" class="ja-google-home-result" style="margin-top:16px;"></div>'+
   '</div>';
 
   moduleShell('Adicionar Google Home',body,actionBtn('VOLTAR','back-to-gh'));
@@ -2476,6 +2521,118 @@ async function renderAddGoogleHome(){
     };
   }
 
+  // 1. AÇÃO: PAREAMENTO BLUETOOTH AUTOMÁTICO
+  document.querySelector('[data-act="do-auto-bt"]')?.addEventListener('click', async()=>{
+    const fb=document.getElementById('add-gh-bt-result');
+    if(fb){
+      fb.style.display='block';
+      fb.className='ja-google-home-result pending';
+      fb.textContent='Buscando caixas de som em modo de pareamento... Diga "Ok Google, ativar Bluetooth" para a caixinha.';
+    }
+    try{
+      const init=await postJson('/casa/api/google_home.php',{acao:'iniciar_busca',tipo:'bluetooth'});
+      if(init.status==='concluido' && init.device){
+        if(fb){
+          fb.className='ja-google-home-result ok';
+          fb.textContent='🎉 Sucesso! Caixinha pareada: '+(init.device.nome||'Google Home')+' ('+(init.device.mac_address||'')+'). Equipamento registrado e online!';
+        }
+        setTimeout(()=>{ openItem({id:'agentes',label:'Google Home & Áudio',module:'agents'}); }, 1800);
+        return;
+      }
+
+      const idBusca=init.id_busca;
+      let tentativas=0;
+      const poll=setInterval(async()=>{
+        tentativas++;
+        if(tentativas>12){
+          clearInterval(poll);
+          if(fb){
+            fb.className='ja-google-home-result error';
+            fb.textContent='Tempo esgotado. Nenhuma caixinha em modo de pareamento detectada. Certifique-se de ativar o Bluetooth no Google Home e tente novamente.';
+          }
+          return;
+        }
+        try{
+          const s=await getJson('/casa/api/google_home.php?acao=status_busca&id_busca='+encodeURIComponent(idBusca));
+          if(s.status==='concluido'){
+            clearInterval(poll);
+            if(s.resultado?.ok){
+              if(fb){
+                fb.className='ja-google-home-result ok';
+                fb.textContent='🎉 Sucesso! Caixinha pareada: '+(s.device?.nome||s.resultado?.nome||'Google Home')+' ('+(s.device?.mac_address||s.resultado?.mac||'')+'). Registrada no sistema!';
+              }
+              setTimeout(()=>{ openItem({id:'agentes',label:'Google Home & Áudio',module:'agents'}); }, 1800);
+            } else {
+              if(fb){
+                fb.className='ja-google-home-result error';
+                fb.textContent=s.resultado?.erro||'Falha ao parear dispositivo Bluetooth.';
+              }
+            }
+          }
+        }catch(e){}
+      },2500);
+    }catch(e){
+      if(fb){fb.style.display='block';fb.className='ja-google-home-result error';fb.textContent=e.message||'Erro ao iniciar busca Bluetooth.';}
+    }
+  });
+
+  // 2. AÇÃO: VARREDURA WI-FI POR IP AUTOMÁTICA
+  document.querySelector('[data-act="do-auto-wifi"]')?.addEventListener('click', async()=>{
+    const fb=document.getElementById('add-gh-wifi-result');
+    const subnet=document.getElementById('add-gh-wifi-sub')?.value.trim()||'192.168.2';
+    const ipEsp=document.getElementById('add-gh-wifi-ip-opt')?.value.trim()||'';
+    if(fb){
+      fb.style.display='block';
+      fb.className='ja-google-home-result pending';
+      fb.textContent='Realizando varredura por IP na rede local buscando caixas Google Cast (8008/8009)...';
+    }
+    try{
+      const init=await postJson('/casa/api/google_home.php',{acao:'iniciar_busca',tipo:'wifi',subnet,ip_especifico:ipEsp});
+      if(init.status==='concluido' && init.device){
+        if(fb){
+          fb.className='ja-google-home-result ok';
+          fb.textContent='🎉 Sucesso! Caixinha detectada no IP '+(init.device.ip_address||'')+': '+(init.device.nome||'Google Home')+'. Equipamento registrado e online!';
+        }
+        setTimeout(()=>{ openItem({id:'agentes',label:'Google Home & Áudio',module:'agents'}); }, 1800);
+        return;
+      }
+
+      const idBusca=init.id_busca;
+      let tentativas=0;
+      const poll=setInterval(async()=>{
+        tentativas++;
+        if(tentativas>10){
+          clearInterval(poll);
+          if(fb){
+            fb.className='ja-google-home-result error';
+            fb.textContent='Tempo esgotado. Nenhuma caixinha Google Cast encontrada na rede Wi-Fi informada.';
+          }
+          return;
+        }
+        try{
+          const s=await getJson('/casa/api/google_home.php?acao=status_busca&id_busca='+encodeURIComponent(idBusca));
+          if(s.status==='concluido'){
+            clearInterval(poll);
+            if(s.resultado?.ok){
+              if(fb){
+                fb.className='ja-google-home-result ok';
+                fb.textContent='🎉 Sucesso! Caixinha detectada no IP '+(s.device?.ip_address||s.resultado?.ip||'')+': '+(s.device?.nome||s.resultado?.nome||'Google Home')+'. Registrada no sistema!';
+              }
+              setTimeout(()=>{ openItem({id:'agentes',label:'Google Home & Áudio',module:'agents'}); }, 1800);
+            } else {
+              if(fb){
+                fb.className='ja-google-home-result error';
+                fb.textContent=s.resultado?.erro||'Nenhuma caixa Google Cast encontrada no Wi-Fi.';
+              }
+            }
+          }
+        }catch(e){}
+      },2500);
+    }catch(e){
+      if(fb){fb.style.display='block';fb.className='ja-google-home-result error';fb.textContent=e.message||'Erro ao iniciar varredura Wi-Fi.';}
+    }
+  });
+
   const carregarBtDescobertos=async()=>{
     const box=document.getElementById('add-gh-scanned-list');
     if(!box) return;
@@ -2484,28 +2641,34 @@ async function renderAddGoogleHome(){
       const res=await getJson('/casa/api/google_home.php?acao=bluetooth_dispositivos');
       const list=Array.isArray(res.dispositivos)?res.dispositivos:[];
       if(!list.length){
-        box.innerHTML='<span style="color:#aaa;font-size:0.9rem;">Nenhum dispositivo Bluetooth detectado na varredura. Clique em Buscar para escanear novamente.</span>';
+        box.innerHTML='<span style="color:#aaa;font-size:0.9rem;">Nenhum dispositivo Bluetooth detectado no momento. Clique em Iniciar Pareamento acima.</span>';
         return;
       }
-      box.innerHTML='<div style="font-weight:bold;color:#8fc7ef;margin-bottom:6px;font-size:0.85rem;">DISPOSITIVOS BLUETOOTH DETECTADOS:</div>'+
+      box.innerHTML='<div style="font-weight:bold;color:#8fc7ef;margin-bottom:6px;font-size:0.85rem;">DISPOSITIVOS BLUETOOTH DETECTADOS PELO DAEMON:</div>'+
         '<div style="display:grid;gap:6px;">'+
         list.map(d=>'<div style="background:#111;border:1px solid #3f82ad;border-radius:8px;padding:6px 10px;display:flex;justify-content:space-between;align-items:center;">'+
           '<div><strong style="color:#fff;">'+esc(d.nome||'Dispositivo Bluetooth')+'</strong> <small style="color:#8fc7ef;">('+esc(d.mac)+')</small>'+
           (d.google_home_provavel?' <span class="ja-state ok" style="font-size:9px;">GOOGLE HOME</span>':'')+
           '</div>'+
-          '<button type="button" class="ja-mini primary" data-use-bt-mac="'+attr(d.mac)+'" data-use-bt-name="'+attr(d.nome||'Google Home')+'">USAR ESTE</button>'+
+          '<button type="button" class="ja-mini primary" data-use-bt-mac="'+attr(d.mac)+'" data-use-bt-name="'+attr(d.nome||'Google Home')+'">PAREAR E USAR</button>'+
         '</div>').join('')+
         '</div>';
 
       box.querySelectorAll('[data-use-bt-mac]').forEach(btn=>{
-        btn.onclick=()=>{
+        btn.onclick=async()=>{
           const m=btn.getAttribute('data-use-bt-mac');
           const n=btn.getAttribute('data-use-bt-name');
           const macInput=document.getElementById('add-gh-mac');
           const nomeInput=document.getElementById('add-gh-nome');
           if(macInput) macInput.value=m;
-          if(nomeInput && !nomeInput.value) nomeInput.value=n;
+          if(nomeInput) nomeInput.value=n;
           if(tipoSelect){tipoSelect.value='bluetooth';tipoSelect.onchange();}
+          btn.textContent='Pareando...';
+          try{
+            await postJson('/casa/api/google_home.php',{acao:'cadastrar',nome:n,tipo_conexao:'bluetooth',mac_address:m,localizacao:'Residência'});
+            alert('Caixa '+n+' cadastrada e pareada com sucesso!');
+            openItem({id:'agentes',label:'Google Home & Áudio',module:'agents'});
+          }catch(e){alert(e.message||'Falha ao parear.');btn.textContent='PAREAR E USAR';}
         };
       });
     }catch(e){
@@ -2514,7 +2677,6 @@ async function renderAddGoogleHome(){
   };
 
   document.getElementById('btn-scan-bt-form')?.addEventListener('click',carregarBtDescobertos);
-  carregarBtDescobertos();
 
   document.querySelectorAll('[data-act="back-to-gh"]').forEach(b=>b.addEventListener('click',()=>{
     openItem({id:'agentes',label:'Google Home & Áudio',module:'agents'});

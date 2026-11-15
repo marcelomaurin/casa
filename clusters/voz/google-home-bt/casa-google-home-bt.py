@@ -13,6 +13,7 @@ Objetivos:
 
 import argparse
 import base64
+import concurrent.futures
 import http.server
 import json
 import logging
@@ -245,6 +246,237 @@ class BluetoothGoogleHomeBridge:
                     if len(partes) >= 2:
                         self.source_ativo = partes[1]
                         LOG.info("PulseAudio Source Bluetooth detectado: %s", self.source_ativo)
+
+    def _sincronizar_registro_central(self, mac=None, nome=None, tipo="bluetooth", ip=None, modelo=None):
+        """Envia cadastro imediato do dispositivo descoberto para o servidor central CASA."""
+        if not self.cfg.base_url or not self.cfg.device_token:
+            return False
+        try:
+            url = f"{self.cfg.base_url}/api/google_home.php"
+            payload = json.dumps({
+                "acao": "cadastrar",
+                "nome": nome or "Google Home",
+                "tipo_conexao": tipo,
+                "ip_address": ip or "",
+                "mac_address": mac or "",
+                "localizacao": "Residência",
+                "modelo": modelo or "Google Home"
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                url,
+                data=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Device-Token": self.cfg.device_token
+                },
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                LOG.info("Dispositivo %s registrado no servidor central (HTTP %s)", nome, resp.status)
+                return True
+        except Exception as exc:
+            LOG.warning("Falha ao registrar %s no servidor central: %s", nome, exc)
+            return False
+
+    def parear_dispositivo_automatico(self, timeout=8):
+        """Varre o ambiente e conecta automaticamente à primeira caixa Google Home em modo de pareamento."""
+        LOG.info("Iniciando busca ativa para pareamento automático Bluetooth (timeout=%ds)...", timeout)
+        encontrados = self.escanear_dispositivos(timeout=timeout)
+
+        # 1. Filtra candidatos prováveis Google Home / Nest
+        candidato = None
+        for d in encontrados:
+            if d.get("google_home_provavel"):
+                candidato = d
+                break
+
+        # 2. Se não achou com nome explícito, busca outros dispositivos de áudio recém-anunciados
+        if not candidato and encontrados:
+            for d in encontrados:
+                nome = d.get("nome", "").lower()
+                if not any(x in nome for x in ["peso", "keyboard", "mouse", "tag", "ibeacon"]):
+                    candidato = d
+                    break
+            if not candidato:
+                candidato = encontrados[0]
+
+        if not candidato:
+            return {
+                "ok": False,
+                "erro": "Nenhum dispositivo Bluetooth detectado. Diga 'Ok Google, ativar Bluetooth' para o Google Home e tente novamente."
+            }
+
+        mac = candidato.get("mac")
+        nome = candidato.get("nome") or "Google Home"
+        LOG.info("Dispositivo candidato selecionado para pareamento automático: %s (%s)", nome, mac)
+
+        res_conn = self.conectar(mac)
+        if not res_conn.get("ok"):
+            return {
+                "ok": False,
+                "mac": mac,
+                "nome": nome,
+                "erro": f"Dispositivo detectado ({nome}), mas o pareamento falhou: {res_conn.get('erro')}"
+            }
+
+        # Sincroniza e registra no servidor central CASA
+        self._sincronizar_registro_central(mac=mac, nome=nome, tipo="bluetooth")
+
+        return {
+            "ok": True,
+            "mac": mac,
+            "nome": nome,
+            "tipo_conexao": "bluetooth",
+            "status": "online",
+            "mensagem": f"Google Home '{nome}' ({mac}) pareado e conectado com sucesso via Bluetooth!"
+        }
+
+    def varrer_wifi_google_cast(self, subnet="192.168.2", ip_especifico=None, timeout=0.35):
+        """Varre a sub-rede Wi-Fi em busca de portas e serviços Google Cast (8008/8009)."""
+        LOG.info("Iniciando varredura Wi-Fi para serviços Google Cast na rede %s...", ip_especifico or subnet)
+        encontrados = []
+
+        def test_ip(ip):
+            # 1. Testa porta 8008 (eureka_info HTTP)
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.settimeout(timeout)
+                    if s.connect_ex((ip, 8008)) == 0:
+                        try:
+                            url = f"http://{ip}:8008/setup/eureka_info"
+                            req = urllib.request.Request(url, headers={"User-Agent": "curl/7.68.0"})
+                            with urllib.request.urlopen(req, timeout=1.5) as resp:
+                                data = json.loads(resp.read().decode("utf-8"))
+                                nome = data.get("name") or data.get("setup", {}).get("device_name") or f"Google Cast ({ip})"
+                                info = data.get("device_info", {})
+                                mac = info.get("mac_address")
+                                model = info.get("model_name") or "Google Cast / Nest"
+                                return {
+                                    "ip": ip,
+                                    "nome": nome,
+                                    "mac": mac,
+                                    "modelo": model,
+                                    "porta": 8008,
+                                    "tipo_conexao": "wifi"
+                                }
+                        except Exception:
+                            return {
+                                "ip": ip,
+                                "nome": f"Google Cast ({ip})",
+                                "mac": None,
+                                "modelo": "Google Cast Device",
+                                "porta": 8008,
+                                "tipo_conexao": "wifi"
+                            }
+            except Exception:
+                pass
+
+            # 2. Testa porta 8009 (Cast V2 TLS)
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.settimeout(timeout)
+                    if s.connect_ex((ip, 8009)) == 0:
+                        return {
+                            "ip": ip,
+                            "nome": f"Google Cast ({ip})",
+                            "mac": None,
+                            "modelo": "Google Cast / Nest Mini",
+                            "porta": 8009,
+                            "tipo_conexao": "wifi"
+                        }
+            except Exception:
+                pass
+
+            return None
+
+        if ip_especifico and ip_especifico.strip():
+            item = test_ip(ip_especifico.strip())
+            if item:
+                encontrados.append(item)
+        else:
+            sub = subnet.strip().rstrip(".")
+            ips = [f"{sub}.{i}" for i in range(1, 255)]
+            with concurrent.futures.ThreadPoolExecutor(max_workers=60) as executor:
+                res = list(filter(None, executor.map(test_ip, ips)))
+                encontrados.extend(res)
+
+        if not encontrados:
+            return {
+                "ok": False,
+                "erro": f"Nenhuma caixa Google Cast encontrada na rede ({ip_especifico or subnet}). Verifique se a caixinha está ligada ao Wi-Fi."
+            }
+
+        # Registra cada dispositivo encontrado no servidor central
+        for dev in encontrados:
+            self._sincronizar_registro_central(
+                mac=dev.get("mac"),
+                nome=dev.get("nome"),
+                tipo="wifi",
+                ip=dev.get("ip"),
+                modelo=dev.get("modelo")
+            )
+
+        primeiro = encontrados[0]
+        return {
+            "ok": True,
+            "dispositivos": encontrados,
+            "primeiro": primeiro,
+            "ip": primeiro.get("ip"),
+            "nome": primeiro.get("nome"),
+            "mac": primeiro.get("mac"),
+            "modelo": primeiro.get("modelo"),
+            "tipo_conexao": "wifi",
+            "mensagem": f"Google Home '{primeiro.get('nome')}' detectado com sucesso no IP {primeiro.get('ip')}!"
+        }
+
+    def loop_verificar_comandos_central(self, parar_evento: threading.Event):
+        """Consulta periodicamente se há comandos de busca/pareamento disparados pelo site."""
+        if not self.cfg.base_url or not self.cfg.device_token:
+            return
+        LOG.info("Iniciando monitoramento de comandos de busca do site em %s...", self.cfg.base_url)
+        while not parar_evento.is_set():
+            try:
+                url = f"{self.cfg.base_url}/api/google_home.php?acao=solicitacoes_daemon"
+                req = urllib.request.Request(url, headers={"X-Device-Token": self.cfg.device_token})
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    sol = data.get("solicitacao")
+
+                if sol and sol.get("id"):
+                    sol_id = sol.get("id")
+                    tipo_busca = sol.get("tipo", "bluetooth")
+                    LOG.info("Solicitação de busca recebida do site: ID=%s (tipo=%s)", sol_id, tipo_busca)
+
+                    if tipo_busca == "bluetooth":
+                        resultado = self.parear_dispositivo_automatico(timeout=8)
+                    elif tipo_busca == "wifi":
+                        subnet = sol.get("subnet") or "192.168.2"
+                        ip_esp = sol.get("ip_especifico")
+                        resultado = self.varrer_wifi_google_cast(subnet=subnet, ip_especifico=ip_esp)
+                    else:
+                        resultado = {"ok": False, "erro": f"Tipo de busca desconhecido: {tipo_busca}"}
+
+                    # Devolve o resultado da busca para o site
+                    url_conc = f"{self.cfg.base_url}/api/google_home.php"
+                    payload_conc = json.dumps({
+                        "acao": "concluir_busca_daemon",
+                        "id": sol_id,
+                        "resultado": resultado
+                    }).encode("utf-8")
+                    req_conc = urllib.request.Request(
+                        url_conc,
+                        data=payload_conc,
+                        headers={
+                            "Content-Type": "application/json",
+                            "X-Device-Token": self.cfg.device_token
+                        },
+                        method="POST"
+                    )
+                    with urllib.request.urlopen(req_conc, timeout=8) as resp_c:
+                        LOG.info("Resultado da busca #%s enviado ao site: HTTP %s", sol_id, resp_c.status)
+            except Exception:
+                pass
+            parar_evento.wait(2.0)
 
     def falar_com_google(self, texto_comando, prefixar_wake_word=True):
         """Gera comando de voz sintetizado (Pocket-TTS) e reproduz no canal Bluetooth do Google Home."""
@@ -566,11 +798,9 @@ class GoogleHomeBTRequestHandler(http.server.BaseHTTPRequestHandler):
         if length > 0:
             try:
                 body = self.rfile.read(length)
-                data = json.loads(body.decode("utf-8"))
+                data = json.loads(body.decode("utf-8")) if body.strip() else {}
             except Exception:
-                self._set_headers(400)
-                self.wfile.write(json.dumps({"ok": False, "erro": "JSON malformado"}).encode("utf-8"))
-                return
+                data = {}
 
         # 1. Conexão Bluetooth
         if path in ("/api/v1/bluetooth/conectar", "/api/bluetooth/conectar"):
@@ -584,6 +814,21 @@ class GoogleHomeBTRequestHandler(http.server.BaseHTTPRequestHandler):
             mac = data.get("mac")
             res = self.bridge.desconectar(mac=mac)
             self._set_headers(200)
+            self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
+            return
+
+        if path in ("/api/v1/bluetooth/auto_parear", "/api/bluetooth/auto_parear"):
+            timeout = int(data.get("timeout", 8))
+            res = self.bridge.parear_dispositivo_automatico(timeout=timeout)
+            self._set_headers(200 if res.get("ok") else 400)
+            self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
+            return
+
+        if path in ("/api/v1/wifi/escanear", "/api/wifi/escanear"):
+            subnet = data.get("subnet") or "192.168.2"
+            ip_esp = data.get("ip_especifico")
+            res = self.bridge.varrer_wifi_google_cast(subnet=subnet, ip_especifico=ip_esp)
+            self._set_headers(200 if res.get("ok") else 400)
             self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
             return
 
@@ -652,6 +897,10 @@ def main():
     # Thread periódica para escanear e detectar dispositivos Bluetooth
     t_scan = threading.Thread(target=bridge.loop_escanear_bluetooth_periodico, args=(parar_evento,), daemon=True)
     t_scan.start()
+
+    # Thread para atender solicitações imediatas de busca do site central CASA
+    t_central = threading.Thread(target=bridge.loop_verificar_comandos_central, args=(parar_evento,), daemon=True)
+    t_central.start()
 
     # Tenta conexão inicial se houver MAC configurado
     if cfg.target_mac and cfg.auto_reconectar:
