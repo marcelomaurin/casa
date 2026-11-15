@@ -39,3 +39,4 @@ try {
 } catch (Throwable $e) {
     echo json_encode(['status' => 'erro', 'mensagem' => $e->getMessage()]);
 }
+
