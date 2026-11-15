@@ -7,6 +7,43 @@ require_once(__DIR__.'/google_home_bridge.php');
 verify_api_auth();
 
 function gh_out($data,$code=200){http_response_code($code);echo json_encode($data,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);exit;}
+
+function gh_set_sys_config(PDO $pdo, string $key, string $val): void {
+    $st = $pdo->prepare("SELECT chave FROM configuracoes_sistema WHERE chave = :k LIMIT 1");
+    $st->execute([':k' => $key]);
+    if ($st->fetchColumn() !== false) {
+        $up = $pdo->prepare("UPDATE configuracoes_sistema SET valor = :v WHERE chave = :k");
+        $up->execute([':v' => $val, ':k' => $key]);
+    } else {
+        $ins = $pdo->prepare("INSERT INTO configuracoes_sistema (chave, valor) VALUES (:k, :v)");
+        $ins->execute([':k' => $key, ':v' => $val]);
+    }
+}
+
+function gh_find_existing_device(PDO $pdo, string $mac, string $ip): ?int {
+    $mac = trim($mac);
+    $ip = trim($ip);
+    if ($mac !== '' && $ip !== '') {
+        $st = $pdo->prepare("SELECT id FROM dispositivos_cluster WHERE mac_address = :m OR ip_address = :ip LIMIT 1");
+        $st->execute([':m' => $mac, ':ip' => $ip]);
+        $val = $st->fetchColumn();
+        return $val ? (int)$val : null;
+    }
+    if ($mac !== '') {
+        $st = $pdo->prepare("SELECT id FROM dispositivos_cluster WHERE mac_address = :m LIMIT 1");
+        $st->execute([':m' => $mac]);
+        $val = $st->fetchColumn();
+        return $val ? (int)$val : null;
+    }
+    if ($ip !== '') {
+        $st = $pdo->prepare("SELECT id FROM dispositivos_cluster WHERE ip_address = :ip LIMIT 1");
+        $st->execute([':ip' => $ip]);
+        $val = $st->fetchColumn();
+        return $val ? (int)$val : null;
+    }
+    return null;
+}
+
 function gh_call($payload,$timeout=55){
     $url=casa_url_interna('api/jarvis.php');
     $ch=curl_init($url);
@@ -24,6 +61,7 @@ $in=json_decode(file_get_contents('php://input'),true);
 if(!is_array($in))$in=[];
 $acao=strtolower(trim((string)($in['acao']??($_GET['acao']??'status'))));
 
+try {
 if($acao==='status'){
     gh_out(gh_bridge_status(get_db_pdo()));
 }
@@ -77,8 +115,7 @@ if($acao==='heartbeat'||$acao==='agent_status'){
         'version'=>$in['versao']??'1.0.0',
         'trabalhador'=>$in['trabalhador']??'google-home-bt'
     ];
-    $st=$pdo->prepare("INSERT INTO configuracoes_sistema (chave, valor) VALUES ('google_home_agent_status', :val) ON DUPLICATE KEY UPDATE valor = :val");
-    $st->execute([':val'=>json_encode($snapshot,JSON_UNESCAPED_UNICODE)]);
+    gh_set_sys_config($pdo, 'google_home_agent_status', json_encode($snapshot,JSON_UNESCAPED_UNICODE));
 
     // 2. Quando um dispositivo existir no bluetooth o mesmo deve ser adicionado
     $adicionados=[];
@@ -108,8 +145,23 @@ if($acao==='heartbeat'||$acao==='agent_status'){
         }
     }
 
+    // 2.1 Atualiza heartbeat de dispositivos Wi-Fi se reportados pelo daemon
+    $dispsWifi=$in['dispositivos_wifi']??[];
+    if(is_array($dispsWifi)){
+        foreach($dispsWifi as $dw){
+            $ipDw=trim((string)($dw['ip']??''));
+            $macDw=strtoupper(trim((string)($dw['mac']??'')));
+            if(!$ipDw && !$macDw) continue;
+            $existDw=gh_find_existing_device($pdo, $macDw, $ipDw);
+            if($existDw){
+                $pdo->prepare("UPDATE dispositivos_cluster SET status='online', ultimo_heartbeat=NOW() WHERE id=:id")
+                    ->execute([':id'=>$existDw]);
+            }
+        }
+    }
+
     // 3. REGRA: Dispositivos offline devem ser deletados
-    $del=$pdo->exec("DELETE FROM dispositivos_cluster WHERE tipo='google_home' AND (ultimo_heartbeat IS NULL OR ultimo_heartbeat < (NOW() - INTERVAL 120 SECOND))");
+    $del=$pdo->exec("DELETE FROM dispositivos_cluster WHERE tipo='google_home' AND (ultimo_heartbeat IS NULL OR ultimo_heartbeat < (NOW() - INTERVAL 300 SECOND))");
 
     gh_out([
         'status'=>'sucesso',
@@ -253,6 +305,8 @@ if($acao==='iniciar_busca'||$acao==='descobrir'){
     $id='busca_'.bin2hex(random_bytes(6));
 
     $pdo=get_db_pdo();
+    // Limpa resultado anterior para nova busca
+    $pdo->exec("DELETE FROM configuracoes_sistema WHERE chave='gh_busca_res'");
 
     // 1. Tenta acionamento local direto caso o daemon esteja na mesma maquina
     $directRes=null;
@@ -279,9 +333,7 @@ if($acao==='iniciar_busca'||$acao==='descobrir'){
         $caps=json_encode(['google-home',$tipo,'audio-sink','voice-bridge'],JSON_UNESCAPED_UNICODE);
         $meta=json_encode(['tipo_conexao'=>$tipo,'auto_descoberto'=>true,'criado_em'=>date('c')],JSON_UNESCAPED_UNICODE);
 
-        $chk=$pdo->prepare("SELECT id FROM dispositivos_cluster WHERE (mac_address=:m AND :m!='') OR (ip_address=:ip AND :ip!='') LIMIT 1");
-        $chk->execute([':m'=>$mac?:'',':ip'=>$ip?:'']);
-        $existingId=$chk->fetchColumn();
+        $existingId = gh_find_existing_device($pdo, $mac, $ip);
 
         if($existingId){
             $pdo->prepare("UPDATE dispositivos_cluster SET nome=:n, ip_address=:ip, mac_address=:m, status='online', ultimo_heartbeat=NOW() WHERE id=:id")
@@ -318,8 +370,7 @@ if($acao==='iniciar_busca'||$acao==='descobrir'){
         'status'=>'pendente',
         'timestamp'=>time()
     ];
-    $st=$pdo->prepare("INSERT INTO configuracoes_sistema (chave, valor) VALUES ('gh_busca_cmd', :val) ON DUPLICATE KEY UPDATE valor = :val");
-    $st->execute([':val'=>json_encode($cmdData,JSON_UNESCAPED_UNICODE)]);
+    gh_set_sys_config($pdo, 'gh_busca_cmd', json_encode($cmdData,JSON_UNESCAPED_UNICODE));
 
     gh_out([
         'status'=>'pendente',
@@ -356,9 +407,7 @@ if($acao==='concluir_busca_daemon'){
         $caps=json_encode(['google-home',$tipo,'audio-sink','voice-bridge'],JSON_UNESCAPED_UNICODE);
         $meta=json_encode(['tipo_conexao'=>$tipo,'auto_descoberto'=>true,'criado_em'=>date('c')],JSON_UNESCAPED_UNICODE);
 
-        $chk=$pdo->prepare("SELECT id FROM dispositivos_cluster WHERE (mac_address=:m AND :m!='') OR (ip_address=:ip AND :ip!='') LIMIT 1");
-        $chk->execute([':m'=>$mac?:'',':ip'=>$ip?:'']);
-        $existingId=$chk->fetchColumn();
+        $existingId = gh_find_existing_device($pdo, $mac, $ip);
 
         if($existingId){
             $pdo->prepare("UPDATE dispositivos_cluster SET nome=:n, ip_address=:ip, mac_address=:m, status='online', ultimo_heartbeat=NOW() WHERE id=:id")
@@ -386,8 +435,7 @@ if($acao==='concluir_busca_daemon'){
         'device'=>$devData,
         'timestamp'=>time()
     ];
-    $st=$pdo->prepare("INSERT INTO configuracoes_sistema (chave, valor) VALUES ('gh_busca_res', :val) ON DUPLICATE KEY UPDATE valor = :val");
-    $st->execute([':val'=>json_encode($resData,JSON_UNESCAPED_UNICODE)]);
+    gh_set_sys_config($pdo, 'gh_busca_res', json_encode($resData,JSON_UNESCAPED_UNICODE));
 
     $pdo->exec("DELETE FROM configuracoes_sistema WHERE chave='gh_busca_cmd'");
     gh_out(['status'=>'sucesso','mensagem'=>'Busca concluída e salva.','device'=>$devData]);
@@ -432,3 +480,7 @@ if($acao==='excluir'||$acao==='remover'){
 }
 
 gh_out(['status'=>'erro','mensagem'=>'Ação desconhecida.'],400);
+
+} catch (Throwable $e) {
+    gh_out(['status'=>'erro','mensagem'=>$e->getMessage()], 500);
+}

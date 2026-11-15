@@ -98,6 +98,7 @@ class BluetoothGoogleHomeBridge:
         self.source_ativo = None
         self.historico_dialogos = []
         self.dispositivos_descobertos = []
+        self.wifi_descobertos = []
 
         self.stats = {
             "total_falas_enviadas": 0,
@@ -165,7 +166,8 @@ class BluetoothGoogleHomeBridge:
                             "versao": VERSAO,
                             "conectado": self.conectado,
                             "mac_alvo": self.mac_ativo,
-                            "dispositivos": self.dispositivos_descobertos
+                            "dispositivos": self.dispositivos_descobertos,
+                            "dispositivos_wifi": self.wifi_descobertos
                         }).encode("utf-8")
                         req_hb = urllib.request.Request(
                             url_hb,
@@ -406,6 +408,7 @@ class BluetoothGoogleHomeBridge:
                 "erro": f"Nenhuma caixa Google Cast encontrada na rede ({ip_especifico or subnet}). Verifique se a caixinha está ligada ao Wi-Fi."
             }
 
+        self.wifi_descobertos = encontrados
         # Registra cada dispositivo encontrado no servidor central
         for dev in encontrados:
             self._sincronizar_registro_central(
