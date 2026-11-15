@@ -101,7 +101,7 @@ class ClusterSSHController:
                             "host": ip,
                             "lan_ip": ip,
                             "port": int(n.get("porta") or 22),
-                            "user": n.get("ssh_user") or ("linaro" if "cubie" in str(node_id).lower() or "cubie" in str(n.get("nome", "")).lower() else default_user),
+                            "user": n.get("ssh_user") or default_user,
                             "password": default_pass,
                             "arch": n.get("arch", "aarch64"),
                             "role": n.get("papel", "no"),
@@ -141,8 +141,8 @@ class ClusterSSHController:
     def _apply_custom_and_passwords(self):
         default_pass = self.env_map.get("CASA_SSH_DEFAULT_PASSWORD", "PASSWORD_PLACEHOLDER")
         default_user = self.env_map.get("CASA_SSH_DEFAULT_USER", "mmm")
-        cubie_user = self.env_map.get("CASA_SSH_CUBIE_USER", "linaro")
-        cubie_pass = self.env_map.get("CASA_SSH_CUBIE_PASSWORD", "linaro")
+        cubie_user = self.env_map.get("CASA_SSH_CUBIE_USER", "mmm")
+        cubie_pass = self.env_map.get("CASA_SSH_CUBIE_PASSWORD", "226468")
         for node_id, info in self.nodes.items():
             is_cubie = "cubie" in str(node_id).lower() or "cubie" in str(info.get("name", "")).lower()
             if is_cubie:

@@ -1,0 +1,4 @@
+# Requisitos do Orquestrador Residencial com IA (casa-orquestrador)
+# Utiliza exclusivamente a biblioteca padrao do Python 3 (urllib, json, threading, http.server)
+# para maxima portabilidade, seguranca e baixa sobrecarga no cluster.
+

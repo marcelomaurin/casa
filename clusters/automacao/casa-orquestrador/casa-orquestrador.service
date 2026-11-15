@@ -1,0 +1,25 @@
+[Unit]
+Description=CASA / JARVIS - Daemon Orquestrador Residencial Inteligente com IA
+After=network.target casa-timestral.service casa-parakeet-stt.service casa-pocket-tts.service
+Wants=casa-timestral.service casa-parakeet-stt.service casa-pocket-tts.service
+
+[Service]
+Type=simple
+User=mmm
+Group=mmm
+WorkingDirectory=/opt/casa/servicos/orquestrador
+EnvironmentFile=-/etc/casa-orquestrador.env
+ExecStart=/usr/bin/python3 /opt/casa/servicos/orquestrador/casa-orquestrador.py
+Restart=on-failure
+RestartSec=5s
+LimitNOFILE=65535
+
+# Diretivas de Seguranca
+ProtectSystem=full
+ProtectHome=read-only
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+

@@ -1,0 +1,26 @@
+[Unit]
+Description=CASA / JARVIS - Daemon de Sintese de Voz Pocket-TTS
+After=network.target sound.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=mmm
+Group=mmm
+WorkingDirectory=/opt/casa/servicos/pocket-tts
+EnvironmentFile=-/etc/casa/pocket-tts.env
+EnvironmentFile=-/etc/casa-pocket-tts.env
+ExecStart=/usr/bin/python3 /opt/casa/servicos/pocket-tts/casa-pocket-tts.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=casa-pocket-tts
+
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/var/lib/casa-pocket-tts /tmp
+
+[Install]
+WantedBy=multi-user.target

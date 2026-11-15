@@ -1,0 +1,4 @@
+# Dependencias opcionais para o daemon Timestral-5M
+# O daemon executa nativamente com a biblioteca padrao do Python (http.server, math, etc.)
+# Para aceleracao e manipulacao avancada de matrizes:
+numpy>=1.20.0

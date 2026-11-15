@@ -9,8 +9,13 @@ Os destinos abaixo são os declarados nas unidades do repositório, não uma con
 | [Comunicação / ARM](comunicacao/arm-agent/) | Heartbeat, comandos e resultados | casa-node-agent.py | casa-node-agent.service; /opt/casa-node-agent |
 | [Automação / scheduler](automacao/casa-scheduler/) | Tarefas recorrentes e únicas | casa-scheduler.py | casa-scheduler.service; /opt/casa-scheduler |
 | [Automação / tarefas](automacao/casa-tarefas/) | Executor da fila do planejador (daemon ou agente externo) | casa-tarefas.py | casa-tarefas.service; /opt/casa-tarefas; /etc/casa-tarefas.env |
-| [Voz / Google Home](voz/google-home-agent/README.md) | Descoberta Cast e reprodução de respostas | google_home_agent.py | casa-google-home.service; /home/mmm/servicos/google-home-agent |
+| [Automação / Orquestrador IA](automacao/casa-orquestrador/) | Orquestrador inteligente com IA (:8090) | casa-orquestrador.py | casa-orquestrador.service; /opt/casa/servicos/orquestrador |
+| [Automação / Timestral](automacao/timestral-series/) | Análise de séries temporais Timestral-5M | casa-timestral.py | casa-timestral.service; /opt/casa/servicos/timestral |
+| [Voz / Google Home Cast](voz/google-home-agent/README.md) | Descoberta Cast e reprodução de respostas | google_home_agent.py | casa-google-home.service; /home/mmm/servicos/google-home-agent |
+| [Voz / Google Home BT](voz/google-home-bt/) | Ponte Bluetooth bidirecional Google Home (:8094) | casa-google-home-bt.py | casa-google-home-bt.service; /opt/casa/servicos/google-home-bt |
 | [Voz / TTS](voz/tts/) | Síntese e clonagem de voz | server_tts.py | casa-tts.service; /home/mmm/servicos/tts |
+| [Voz / Parakeet STT](voz/parakeet-stt/) | Reconhecimento de voz local Parakeet | casa-parakeet-stt.py | casa-parakeet-stt.service; /opt/casa/servicos/parakeet-stt |
+| [Voz / Pocket-TTS](voz/pocket-tts/) | Síntese de voz leve Pocket-TTS | casa-pocket-tts.py | casa-pocket-tts.service; /opt/casa/servicos/pocket-tts |
 | [Visão / ESPCam](visao/espcam/) | Processamento e análise de imagens | processa_imagem.py; analisa_cena_ia.py | Sem unidade própria |
 | [Visão / Avatar](visao/raspberrypi-avatar-agent/README.md) | Terminal Raspberry Pi/Kinect | casa_avatar.py na receita Yocto | casa-avatar.service; instalado pela imagem Yocto |
 | [Pesquisa / Web](pesquisa/web-agent/) | Pesquisa e extração de páginas | web_agent.py | jarvis-web-agent.service; /opt/jarvis-web-agent |
@@ -27,8 +32,11 @@ Os destinos abaixo são os declarados nas unidades do repositório, não uma con
 |---|---|
 | ARM | Python 3; instalador apt/systemd com curl, certificados e ALSA. Configuração privada em /etc/casa-node-agent.env; veja Operação. |
 | Scheduler | Python, psycopg2 e PostgreSQL. Variáveis JARVIS_DB_HOST, JARVIS_DB_NAME, JARVIS_DB_USER, JARVIS_DB_PASS e JARVIS_SYSTEM_API_TOKEN. |
+| Timestral-5M | Python 3, biblioteca padrão (math/http.server). Porta 8091, configurável em /etc/casa/timestral.env. |
 | Google Home | Bibliotecas de requirements.txt, acesso aos dispositivos Cast e arquivo /etc/casa/google-home-agent.env. Siga o README próprio. |
 | TTS | Python, servidor ASGI, psycopg2 e dependências de áudio/modelos presentes no fonte. Revise o ambiente existente; a pasta não contém instalador completo nem requirements.txt. |
+| Parakeet STT | Python 3, ALSA arecord/sox para microfone, modelo ASR Parakeet. Porta 8092, configurável em /etc/casa/parakeet-stt.env. |
+| Pocket-TTS | Python 3, biblioteca padrão (http.server/wave) e aplay/paplay para áudio local. Porta 8093, configurável em /etc/casa/pocket-tts.env. |
 | ESPCam | Dependências de imagem dos scripts; JARVIS_VISION_* controla limites e provedor de IA. Confira os argumentos dos scripts antes da integração. |
 | Avatar | Build Yocto, Raspberry Pi, Kinect, ALSA e libfreenect. Configuração /etc/casa-avatar.env; siga o README específico. |
 | Web | Ambiente Python com requirements.txt. BRAVE_SEARCH_API_KEY, JARVIS_WEB_TIMEOUT, JARVIS_WEB_MAX_PAGE_CHARS e JARVIS_WEB_USER_AGENT. |

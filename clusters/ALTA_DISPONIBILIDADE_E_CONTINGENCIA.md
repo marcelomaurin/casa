@@ -10,9 +10,9 @@ Este documento estabelece a arquitetura de alta disponibilidade, a matriz de dis
 
 | Dispositivo / Hostname | IP Local | Hardware / Arquitetura | Papel no Cluster | Status Operacional |
 |---|---|---|---|---|
-| **Raspberry Pi 4B** (`raspberrypi`) | `192.168.2.13` | Quad-core ARMv8 64-bit, 4 GB RAM, 117 GB SSD/SD | Primário de IA, Mídia, Visão e Voz Neural | **Online** (`mmm`), modo texto, daemons atualizados. |
-| **Raspberry Pi 3B+** (`raspberrypi`) | `192.168.2.16` | Quad-core ARMv8 64-bit, 1 GB RAM, 59 GB SD | Primário de Automação/Scheduler e Reserva de Mídia | **Online** (`mmm`), modo texto, daemons atualizados. |
-| **Cubieboard 2** (`cubieboard`) | `192.168.2.14` | Dual-core Cortex-A7 ARMv7l 32-bit, 1 GB RAM, NAND 4GB + MicroSD 32GB (`/mnt/dados`) | Banco MySQL Local, Árbitro de Quorum e Reserva Leve | **Online** (`linaro`), `sata_power_en=1`, 27GB livres em `/mnt/dados`. |
+| **Raspberry Pi 4B** (`jarvis`) | `192.168.2.13` | Quad-core ARMv8 64-bit, 4 GB RAM, 117 GB SSD/SD | Primário de IA, Orquestrador, Voz Neural (Pocket/Parakeet/Piper), Google Home BT | **Online** (`mmm`), modo texto, nó de maior capacidade. |
+| **Raspberry Pi 3B** (`raspberrypi`) | `192.168.2.16` | Quad-core ARMv8 64-bit, 1 GB RAM, 59 GB SD | Nó Leve: Automação/Scheduler, Túnel Nuvem e RunPod GPU | **Online** (`mmm`), modo texto, daemons atualizados. |
+| **Cubieboard 2** (`cubieboard`) | `192.168.2.14` | Dual-core Cortex-A7 ARMv7l 32-bit, 1 GB RAM, NAND 4GB + MicroSD 32GB (`/mnt/dados`) | Banco MySQL Local, Árbitro de Quorum e Reserva Leve | **Online** (`mmm`), `sata_power_en=1`, 27GB livres em `/mnt/dados`. |
 | **Cubieboard 2** (`cubier`) | `192.168.2.15` | Dual-core Cortex-A7 ARMv7l 32-bit, 1 GB RAM, MAC `02:01:08:82:c5:d8` | Nó de Banco MySQL / Contingência | **Kernel ativo (ping OK), portas 22/3306 recusadas** (pendente intervenção física). |
 
 ---
@@ -32,9 +32,14 @@ Estes serviços **não podem rodar concorrentemente** sob risco de duplicidade d
 |---|---|---|---|---|
 | **`casa-scheduler`** | Agendador de tarefas cron e regras recorrentes | **RPi 3B+** (`.16`) | **RPi 4B** (`.13`) | **Cubieboard** (`.14`) |
 | **`casa-tarefas`** | Executor da fila distribuída (`/api/v1/fila.php`) | **RPi 4B** (`.13`) | **RPi 3B+** (`.16`) | **Cubieboard** (`.14`) |
+| **`casa-orquestrador`** | Orquestrador residencial com inteligência artificial (:8090) | **RPi 4B** (`.13`) | **RPi 3B+** (`.16`) | — |
 | **`espcam_daemon`** | Ingestão e polling de snapshots das câmeras ESP32 | **RPi 4B** (`.13`) | **RPi 3B+** (`.16`) | — |
 | **`casa-google-home`**| Integração com Chromecast / caixas Google Home | **RPi 4B** (`.13`) | **RPi 3B+** (`.16`) | — |
-| **`casa-tts`** | Síntese de voz neural | **RPi 4B** (`.13`) | **RPi 3B+** (`.16`) | — |
+| **`casa-google-home-bt`**| Ponte Bluetooth bidirecional Google Home (:8094) | **RPi 4B** (`.13`) | **RPi 3B+** (`.16`) | — |
+| **`casa-tts`** | Síntese de voz neural (Piper) | **RPi 4B** (`.13`) | **RPi 3B+** (`.16`) | — |
+| **`casa-parakeet-stt`** | Reconhecimento de voz local Parakeet (:8092) | **RPi 4B** (`.13`) | **RPi 3B+** (`.16`) | — |
+| **`casa-pocket-tts`** | Síntese de voz leve Pocket-TTS (:8093) | **RPi 4B** (`.13`) | **RPi 3B+** (`.16`) | — |
+| **`casa-timestral`** | Análise e previsão de séries temporais Timestral-5M (:8091) | **RPi 4B** (`.13`) | **RPi 3B+** (`.16`) | — |
 | **`jarvis-web-agent`**| Pesquisa e extração de páginas web | **RPi 4B** (`.13`) | **RPi 3B+** (`.16`) | — |
 | **`casa-tunnel`** | Túnel reverso seguro | **RPi 3B+** (`.16`) | **RPi 4B** (`.13`) | — |
 | **`casa-runpod-agent`**| Gerenciador de instâncias GPU na nuvem | **RPi 3B+** (`.16`) | **RPi 4B** (`.13`) | — |
@@ -96,7 +101,7 @@ Para evitar dependências de orquestradores pesados que consumiriam a RAM dos n�
   - Liberar espaço em `/` e iniciar os serviços `/etc/init.d/ssh start` e `/etc/init.d/mysql start`.
   - Atualizar o `casa-node-agent` para a versão mais recente (`v1.2.0`).
 
-### 4.3 Raspberry Pi 3B+ (`192.168.2.16`) e Raspberry Pi 4B (`192.168.2.13`)
+### 4.3 Raspberry Pi 3B (`192.168.2.16` - 1 GB RAM) e Raspberry Pi 4B (`192.168.2.13` - 4 GB RAM)
 - [x] Modo texto configurado permanentemente (`multi-user.target`).
 - [x] `lightdm` mascarado e `gpu_mem=16` configurado no boot (economizando 60 MB de RAM em cada placa).
 - [x] Limitação do `systemd-journald` aplicada (`SystemMaxUse=50M` / `100M`), recuperando mais de 3 GB de disco.

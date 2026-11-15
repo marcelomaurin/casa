@@ -125,6 +125,11 @@ APPLICATIONS = [
     ("RunPod", "infraestrutura/runpod-agent/casa-runpod-agent.py", "/opt/casa/servicos/runpod-agent/casa-runpod-agent.py"),
     ("Agente SSH", "infraestrutura/casa-ssh-agent/casa-ssh-agent.py", "/opt/casa/ssh-agent/casa-ssh-agent.py"),
     ("Atualizador", "infraestrutura/casa-cluster-update/casa-cluster-update.py", "/opt/casa/cluster-update/casa-cluster-update.py"),
+    ("Parakeet STT", "voz/parakeet-stt/casa-parakeet-stt.py", "/opt/casa/servicos/parakeet-stt/casa-parakeet-stt.py"),
+    ("Pocket-TTS", "voz/pocket-tts/casa-pocket-tts.py", "/opt/casa/servicos/pocket-tts/casa-pocket-tts.py"),
+    ("Timestral-5M", "automacao/timestral-series/casa-timestral.py", "/opt/casa/servicos/timestral/casa-timestral.py"),
+    ("Orquestrador IA", "automacao/casa-orquestrador/casa-orquestrador.py", "/opt/casa/servicos/orquestrador/casa-orquestrador.py"),
+    ("Google Home BT", "voz/google-home-bt/casa-google-home-bt.py", "/opt/casa/servicos/google-home-bt/casa-google-home-bt.py"),
 ]
 
 PROTECTED_SERVICES = ("casa-cluster-site",)
@@ -132,17 +137,19 @@ PROTECTED_SERVICES = ("casa-cluster-site",)
 CLUSTER_NODE_PROFILES = {
     "192.168.2.13": {
         "id": "raspberry-pi-local",
-        "name": "Raspberry Pi 4B (.13)",
-        "role": "Nó de IA, Voz Neural TTS, Visão ESPCam & Controlador SSH",
+        "name": "Raspberry Pi 4B (.13) [4GB RAM]",
+        "role": "Nó Primário de IA, Voz Neural TTS, Visão ESPCam & Controlador SSH (4 GB RAM)",
         "assigned_services": [
             "casa-cluster-site", "casa-node-agent", "ssh",
-            "casa-tts", "jarvis-web-agent", "espcam_daemon", "casa-ssh-agent", "casa-cluster-update"
+            "casa-tts", "casa-parakeet-stt", "casa-pocket-tts", "casa-google-home-bt",
+            "casa-timestral", "casa-orquestrador",
+            "jarvis-web-agent", "espcam_daemon", "casa-ssh-agent", "casa-cluster-update"
         ],
     },
     "192.168.2.16": {
         "id": "raspberry-pi-node-08",
-        "name": "Raspberry Pi 3B (.16)",
-        "role": "Nó de Automação (Scheduler), Túnel Nuvem & RunPod GPU",
+        "name": "Raspberry Pi 3B (.16) [1GB RAM]",
+        "role": "Nó Leve de Automação (Scheduler), Túnel Nuvem & RunPod GPU (1 GB RAM)",
         "assigned_services": [
             "casa-cluster-site", "casa-node-agent", "ssh",
             "casa-scheduler", "casa-tunnel", "casa-runpod-agent", "casa-cluster-update"
@@ -214,6 +221,66 @@ MANAGED_SERVICES = [
         "entrypoint": "/home/mmm/servicos/tts/server_tts.py",
         "purpose": "Motor de síntese de voz neural (Piper/eSpeak/Coqui) que converte textos e respostas do Jarvis em áudio falado nas caixas de som e nos dispositivos da casa.",
         "impact_when_stopped": "A casa e o assistente Jarvis ficam mudos (avisos falados, confirmações de comandos e alertas sonoros deixam de funcionar).",
+    },
+    {
+        "id": "casa-parakeet-stt",
+        "label": "Reconhecimento de Voz Parakeet (:8092)",
+        "category": "cluster",
+        "protected": False,
+        "owner_ip": "192.168.2.13",
+        "owner_name": "Raspberry Pi 4B (.13)",
+        "port": 8092,
+        "entrypoint": "/opt/casa/servicos/parakeet-stt/casa-parakeet-stt.py",
+        "purpose": "Motor local de transcrição e reconhecimento de voz (ASR / Speech-to-Text) baseado no modelo Parakeet, com suporte a microfone da casa e API REST.",
+        "impact_when_stopped": "Desativa o reconhecimento de voz local no nó, exigindo fallback para provedor externo.",
+    },
+    {
+        "id": "casa-pocket-tts",
+        "label": "Síntese Leve de Voz Pocket-TTS (:8093)",
+        "category": "cluster",
+        "protected": False,
+        "owner_ip": "192.168.2.13",
+        "owner_name": "Raspberry Pi 4B (.13)",
+        "port": 8093,
+        "entrypoint": "/opt/casa/servicos/pocket-tts/casa-pocket-tts.py",
+        "purpose": "Motor leve e rápido de síntese de voz (TTS) para notificações sonoras, confirmações de comandos e reprodução local via alto-falantes.",
+        "impact_when_stopped": "Interrompe a síntese rápida nos alto-falantes locais do nó.",
+    },
+    {
+        "id": "casa-google-home-bt",
+        "label": "Ponte Bluetooth Google Home (:8094)",
+        "category": "cluster",
+        "protected": False,
+        "owner_ip": "192.168.2.13",
+        "owner_name": "Raspberry Pi 4B (.13)",
+        "port": 8094,
+        "entrypoint": "/opt/casa/servicos/google-home-bt/casa-google-home-bt.py",
+        "purpose": "Ponte Bluetooth A2DP bidirecional para falar com o Google Home (sintetizado via Pocket-TTS) e ouvir/transcrever a fala do Google (via Parakeet STT) integrada ao Jarvis.",
+        "impact_when_stopped": "A conversação bidirecional via Bluetooth com caixas Google Home/Nest deixa de operar.",
+    },
+    {
+        "id": "casa-timestral",
+        "label": "Análise de Séries Temporais Timestral-5M (:8091)",
+        "category": "cluster",
+        "protected": False,
+        "owner_ip": "192.168.2.13",
+        "owner_name": "Raspberry Pi 4B (.13)",
+        "port": 8091,
+        "entrypoint": "/opt/casa/servicos/timestral/casa-timestral.py",
+        "purpose": "Análise avançada, previsão (forecasting) e detecção de anomalias em séries temporais de telemetria, sensores e métricas da residência via modelo Timestral-5M.",
+        "impact_when_stopped": "Previsões preditivas de consumo, temperatura e alertas de anomalias em sensores deixam de ser processados localmente.",
+    },
+    {
+        "id": "casa-orquestrador",
+        "label": "Orquestrador Residencial com IA (:8090)",
+        "category": "cluster",
+        "protected": False,
+        "owner_ip": "192.168.2.13",
+        "owner_name": "Raspberry Pi 4B (.13)",
+        "port": 8090,
+        "entrypoint": "/opt/casa/servicos/orquestrador/casa-orquestrador.py",
+        "purpose": "Cérebro orquestrador que unifica o controle de atuadores, resposta a perguntas por voz, predição de necessidades via Timestral-5M e agendamentos no cluster.",
+        "impact_when_stopped": "A automação preditiva e a integração central de voz e comandos deixam de ser orquestradas localmente.",
     },
     {
         "id": "jarvis-web-agent",
@@ -378,6 +445,11 @@ SERVICE_PROCESS_PATTERNS = {
     "casa-cluster-site": "site/server.py",
     "casa-ssh-agent": "casa-ssh-agent.py",
     "casa-tts": "server_tts.py",
+    "casa-parakeet-stt": "casa-parakeet-stt.py",
+    "casa-pocket-tts": "casa-pocket-tts.py",
+    "casa-google-home-bt": "casa-google-home-bt.py",
+    "casa-timestral": "casa-timestral.py",
+    "casa-orquestrador": "casa-orquestrador.py",
     "casa-scheduler": "casa-scheduler.py",
     "espcam_daemon": "espcam_daemon.py|processa_imagem.py",
     "casa-tunnel": "casa-tunnel.py",
@@ -1306,6 +1378,11 @@ class ClusterSiteHandler(SimpleHTTPRequestHandler):
         ports_map = {
             "casa-node-agent": 8098,
             "casa-tts": 8097,
+            "casa-orquestrador": 8090,
+            "casa-timestral": 8091,
+            "casa-parakeet-stt": 8092,
+            "casa-pocket-tts": 8093,
+            "casa-google-home-bt": 8094,
             "casa-ssh-agent": 8095,
             "casa-cluster-site": PORT,
             "jarvis-web-agent": 8099,   # web_agent.py (antes: 8092, porta inexistente)
@@ -1315,6 +1392,11 @@ class ClusterSiteHandler(SimpleHTTPRequestHandler):
         health_paths = {
             "casa-node-agent": "/status",
             "casa-tts": "/status",
+            "casa-orquestrador": "/health",
+            "casa-timestral": "/health",
+            "casa-parakeet-stt": "/health",
+            "casa-pocket-tts": "/health",
+            "casa-google-home-bt": "/health",
             "casa-ssh-agent": "/health",
             "casa-cluster-site": "/api/status",
             "jarvis-web-agent": "/health",
@@ -1360,7 +1442,7 @@ class ClusterSiteHandler(SimpleHTTPRequestHandler):
         disk = get_disk_info()
         uptime = get_uptime()
 
-        ssh_user = env.get("JARVIS_SSH_USER", "linaro" if "cubie" in hostname.lower() else "mmm")
+        ssh_user = env.get("JARVIS_SSH_USER", "mmm")
         profile = get_node_profile(ip)
         assigned_set = set(profile.get("assigned_services", []))
         owner_overrides = profile.get("owner_overrides") or {}

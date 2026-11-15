@@ -59,7 +59,7 @@ class Config:
         self.base_url = os.getenv("CASA_BASE_URL", "https://maurinsoft.com.br/casa").rstrip("/")
         self.chave = os.getenv("CASA_TAREFAS_CHAVE", "").strip()
         self.nome = os.getenv("CASA_TAREFAS_NOME", socket.gethostname().split(".")[0] or "casa-tarefas").strip()
-        self.executores = lista(os.getenv("CASA_TAREFAS_EXECUTORES", "jarvis,web,fala"))
+        self.executores = lista(os.getenv("CASA_TAREFAS_EXECUTORES", "jarvis,web,fala,orquestrador,timestral,tts_leve,stt"))
         self.filas = lista(os.getenv("CASA_TAREFAS_FILAS", ""))
         self.paralelo = max(1, min(16, int(os.getenv("CASA_TAREFAS_PARALELO", "2"))))
         # A API v1 bloqueia por 5 min a chave que passar de 60 pedidos/min (o IP da casa é isento):
@@ -70,6 +70,10 @@ class Config:
         self.tempo_http = max(5, int(os.getenv("CASA_TAREFAS_TEMPO_HTTP", "60")))
         self.tts_url = os.getenv("CASA_TTS_URL", "http://127.0.0.1:8097/falar")
         self.web_url = os.getenv("CASA_WEB_AGENT_URL", "http://127.0.0.1:8099/search")
+        self.orquestrador_url = os.getenv("CASA_ORQUESTRADOR_URL", "http://127.0.0.1:8090/api/v1/controlar")
+        self.timestral_url = os.getenv("CASA_TIMESTRAL_URL", "http://127.0.0.1:8091")
+        self.stt_url = os.getenv("CASA_STT_URL", "http://127.0.0.1:8092/transcribe")
+        self.pocket_tts_url = os.getenv("CASA_POCKET_TTS_URL", "http://127.0.0.1:8093/synthesize")
         self.comandos_dir = os.getenv("CASA_TAREFAS_COMANDOS_DIR", "/etc/casa-tarefas/comandos.d")
         self.extensoes_dir = os.getenv("CASA_TAREFAS_EXTENSOES_DIR", "/opt/casa-tarefas/executores")
         # Ciclo do mordomo (/api/v1/mordomo.php): segundos entre ciclos; 0 desliga.
@@ -320,7 +324,68 @@ def executor_agente(tarefa, ctx):
     return mod.AgenteLocal(tarefa, ctx, modelo, executor_comando, executor_web).rodar()
 
 
-EMBUTIDOS = {"jarvis": executor_jarvis, "agente": executor_agente, "web": executor_web, "fala": executor_fala, "comando": executor_comando}
+def executor_orquestrador(tarefa, ctx):
+    """Executa ação ou consulta cognitiva via daemon Orquestrador IA (:8090)."""
+    p = tarefa.get("payload") if isinstance(tarefa.get("payload"), dict) else {}
+    cmd = p.get("comando") or texto_da_tarefa(tarefa, "comando", "texto")
+    if not cmd:
+        raise FalhaDefinitiva("Comando vazio para o orquestrador")
+    url = getattr(ctx.cfg, "orquestrador_url", "http://127.0.0.1:8090/api/v1/controlar")
+    return http_json(url, {"comando": cmd}, None, max(ctx.cfg.tempo_http, 30))
+
+
+def executor_timestral(tarefa, ctx):
+    """Executa análise e previsão de séries temporais via Timestral-5M (:8091)."""
+    p = tarefa.get("payload") if isinstance(tarefa.get("payload"), dict) else {}
+    serie = p.get("serie") or p.get("valores") or []
+    acao = p.get("acao", "prever")
+    if not serie or not isinstance(serie, list):
+        raise FalhaDefinitiva("Série temporal numérica necessária para o Timestral")
+    endpoint = "/anomalies" if acao == "anomalias" else "/forecast"
+    url = getattr(ctx.cfg, "timestral_url", "http://127.0.0.1:8091") + endpoint
+    corpo = {"serie": serie}
+    if "horizonte" in p:
+        corpo["horizonte"] = p["horizonte"]
+    if "limiar" in p:
+        corpo["limiar"] = p["limiar"]
+    return http_json(url, corpo, None, max(ctx.cfg.tempo_http, 30))
+
+
+def executor_stt(tarefa, ctx):
+    """Transcreve áudio via daemon Parakeet STT (:8092)."""
+    p = tarefa.get("payload") if isinstance(tarefa.get("payload"), dict) else {}
+    audio_b64 = p.get("audio_base64", "")
+    if not audio_b64:
+        raise FalhaDefinitiva("Áudio base64 necessário para transcrição STT")
+    url = getattr(ctx.cfg, "stt_url", "http://127.0.0.1:8092/transcribe")
+    import base64
+    raw_audio = base64.b64decode(audio_b64)
+    req = urllib.request.Request(url, data=raw_audio, headers={"Content-Type": "audio/wav", "User-Agent": "casa-tarefas/1.0"})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def executor_tts_leve(tarefa, ctx):
+    """Sintetiza voz via daemon Pocket-TTS (:8093)."""
+    texto = texto_da_tarefa(tarefa, "texto", "comando")
+    if not texto:
+        raise FalhaDefinitiva("Nada para falar")
+    p = tarefa.get("payload") if isinstance(tarefa.get("payload"), dict) else {}
+    url = getattr(ctx.cfg, "pocket_tts_url", "http://127.0.0.1:8093/synthesize")
+    return http_json(url, {"texto": texto[:1500], "reproduzir": bool(p.get("reproduzir", True))}, None, 30)
+
+
+EMBUTIDOS = {
+    "jarvis": executor_jarvis,
+    "agente": executor_agente,
+    "web": executor_web,
+    "fala": executor_fala,
+    "comando": executor_comando,
+    "orquestrador": executor_orquestrador,
+    "timestral": executor_timestral,
+    "stt": executor_stt,
+    "tts_leve": executor_tts_leve,
+}
 
 
 def carregar_extensoes(pasta):

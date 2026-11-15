@@ -1,0 +1,4 @@
+# Requisitos do Daemon Ponte Bluetooth com Google Home (casa-google-home-bt)
+# Utiliza exclusivamente a biblioteca padrao do Python 3 (subprocess, wave, json, urllib, http.server)
+# e as ferramentas nativas do sistema Linux (bluez / bluetoothctl, pulseaudio / pactl / parec / paplay).
+

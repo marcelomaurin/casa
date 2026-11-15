@@ -2429,24 +2429,28 @@ async function renderAddGoogleHome(){
     '<label class="ja-google-home-field" style="display:block;margin-bottom:14px;">'+
       '<span style="display:block;font-weight:bold;margin-bottom:4px;">'+esc(uiT('Tipo de Conexão'))+'</span>'+
       '<select id="add-gh-tipo" class="ja-select" style="width:100%;box-sizing:border-box;">'+
-        '<option value="wifi">'+esc(uiT('Wi-Fi / Google Cast (IP na rede local)'))+'</option>'+
         '<option value="bluetooth">'+esc(uiT('Bluetooth (Pareamento com Raspberry Pi)'))+'</option>'+
+        '<option value="wifi">'+esc(uiT('Wi-Fi / Google Cast (IP na rede local)'))+'</option>'+
         '<option value="virtual">'+esc(uiT('Dispositivo Virtual / Fila de Fala'))+'</option>'+
       '</select>'+
     '</label>'+
-    '<div id="add-gh-wifi-box" style="margin-bottom:14px;">'+
+    '<div id="add-gh-wifi-box" style="display:none;margin-bottom:14px;">'+
       '<label class="ja-google-home-field" style="display:block;">'+
         '<span style="display:block;font-weight:bold;margin-bottom:4px;">'+esc(uiT('Endereço IP (Ex.: 192.168.2.45)'))+'</span>'+
         '<input id="add-gh-ip" class="ja-input" placeholder="Ex.: 192.168.2.45" style="width:100%;box-sizing:border-box;">'+
       '</label>'+
       '<small style="color:var(--lcars-light-blue,#99ccff);display:block;margin-top:4px;">'+esc(uiT('Você pode consultar o IP da caixinha no aplicativo Google Home ou na tabela de DHCP do roteador.'))+'</small>'+
     '</div>'+
-    '<div id="add-gh-bt-box" style="display:none;margin-bottom:14px;">'+
+    '<div id="add-gh-bt-box" style="margin-bottom:14px;">'+
       '<label class="ja-google-home-field" style="display:block;">'+
         '<span style="display:block;font-weight:bold;margin-bottom:4px;">'+esc(uiT('Endereço MAC Bluetooth'))+'</span>'+
         '<input id="add-gh-mac" class="ja-input" placeholder="Ex.: 48:D6:D5:12:34:56" style="width:100%;box-sizing:border-box;">'+
       '</label>'+
-      '<small style="color:var(--lcars-light-blue,#99ccff);display:block;margin-top:4px;">'+esc(uiT('Para parear: diga "Ok Google, ativar Bluetooth" para a caixinha antes de cadastrar.'))+'</small>'+
+      '<div style="margin-top:8px;display:flex;gap:8px;align-items:center;">'+
+        '<button type="button" class="ja-mini" id="btn-scan-bt-form">'+esc(uiT('Buscar Dispositivos Bluetooth Próximos'))+'</button>'+
+        '<small style="color:var(--lcars-light-blue,#99ccff);">'+esc(uiT('Diga "Ok Google, ativar Bluetooth" para a caixinha.'))+'</small>'+
+      '</div>'+
+      '<div id="add-gh-scanned-list" style="margin-top:10px;"></div>'+
     '</div>'+
     '<label class="ja-google-home-field" style="display:block;margin-bottom:20px;">'+
       '<span style="display:block;font-weight:bold;margin-bottom:4px;">'+esc(uiT('Cômodo / Localização'))+'</span>'+
@@ -2471,6 +2475,46 @@ async function renderAddGoogleHome(){
       if(btBox) btBox.style.display=(v==='bluetooth')?'block':'none';
     };
   }
+
+  const carregarBtDescobertos=async()=>{
+    const box=document.getElementById('add-gh-scanned-list');
+    if(!box) return;
+    box.innerHTML='<span style="color:#aaa;font-size:0.9rem;">Consultando dispositivos Bluetooth detectados...</span>';
+    try{
+      const res=await getJson('/casa/api/google_home.php?acao=bluetooth_dispositivos');
+      const list=Array.isArray(res.dispositivos)?res.dispositivos:[];
+      if(!list.length){
+        box.innerHTML='<span style="color:#aaa;font-size:0.9rem;">Nenhum dispositivo Bluetooth detectado na varredura. Clique em Buscar para escanear novamente.</span>';
+        return;
+      }
+      box.innerHTML='<div style="font-weight:bold;color:#8fc7ef;margin-bottom:6px;font-size:0.85rem;">DISPOSITIVOS BLUETOOTH DETECTADOS:</div>'+
+        '<div style="display:grid;gap:6px;">'+
+        list.map(d=>'<div style="background:#111;border:1px solid #3f82ad;border-radius:8px;padding:6px 10px;display:flex;justify-content:space-between;align-items:center;">'+
+          '<div><strong style="color:#fff;">'+esc(d.nome||'Dispositivo Bluetooth')+'</strong> <small style="color:#8fc7ef;">('+esc(d.mac)+')</small>'+
+          (d.google_home_provavel?' <span class="ja-state ok" style="font-size:9px;">GOOGLE HOME</span>':'')+
+          '</div>'+
+          '<button type="button" class="ja-mini primary" data-use-bt-mac="'+attr(d.mac)+'" data-use-bt-name="'+attr(d.nome||'Google Home')+'">USAR ESTE</button>'+
+        '</div>').join('')+
+        '</div>';
+
+      box.querySelectorAll('[data-use-bt-mac]').forEach(btn=>{
+        btn.onclick=()=>{
+          const m=btn.getAttribute('data-use-bt-mac');
+          const n=btn.getAttribute('data-use-bt-name');
+          const macInput=document.getElementById('add-gh-mac');
+          const nomeInput=document.getElementById('add-gh-nome');
+          if(macInput) macInput.value=m;
+          if(nomeInput && !nomeInput.value) nomeInput.value=n;
+          if(tipoSelect){tipoSelect.value='bluetooth';tipoSelect.onchange();}
+        };
+      });
+    }catch(e){
+      box.innerHTML='<span style="color:#f66;font-size:0.9rem;">Falha ao consultar Bluetooth: '+esc(e.message||'erro')+'</span>';
+    }
+  };
+
+  document.getElementById('btn-scan-bt-form')?.addEventListener('click',carregarBtDescobertos);
+  carregarBtDescobertos();
 
   document.querySelectorAll('[data-act="back-to-gh"]').forEach(b=>b.addEventListener('click',()=>{
     openItem({id:'agentes',label:'Google Home & Áudio',module:'agents'});
@@ -2530,55 +2574,110 @@ async function renderAgents(){
 
   const all=ag.dados||[];
   const devices=Array.isArray(gh.devices)?gh.devices:[];
-  const regDevices=Array.isArray(gh.registered_devices)?gh.registered_devices:[];
 
   const ghCard='<article class="ja-native-card ja-google-home-card">'+
-    '<h3>GOOGLE HOME / HARDWARE</h3>'+
+    '<header style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'+
+      '<h3 style="margin:0;">GOOGLE HOME / CONTROLE</h3>'+
+      '<span class="ja-state '+(gh.online?'ok':'off')+'">'+(gh.online?'ONLINE':'OFFLINE')+'</span>'+
+    '</header>'+
     '<p>'+esc(gh.mensagem||'Central de caixas de som e áudio JARVIS / COMPUTER.')+'</p>'+
-    '<dl><dt>Status</dt><dd>'+(gh.online?'ONLINE':'OFFLINE')+'</dd><dt>Dispositivos</dt><dd>'+esc(devices.length)+'</dd><dt>Hardware</dt><dd>'+esc(gh.hardware_status||'—')+'</dd></dl>'+
-    '<label class="ja-google-home-field"><span>Destino da Fala</span><select id="gh-device"><option value="">Automático (Todos)</option>'+
+    '<dl><dt>Caixas Online</dt><dd>'+esc(devices.length)+'</dd><dt>Hardware</dt><dd>'+esc(gh.hardware_status||'—')+'</dd></dl>'+
+    '<label class="ja-google-home-field"><span>Destino da Fala</span><select id="gh-device"><option value="">Automático (Todas)</option>'+
       devices.map(d=>'<option value="'+attr(d.uuid||d.name||'')+'">'+esc(d.name||d.uuid||'Google Home')+(d.location?' ('+esc(d.location)+')':'')+'</option>').join('')+
     '</select></label>'+
     '<label class="ja-google-home-field"><span>Comando / Texto</span><input id="gh-command" placeholder="Ex.: Como está a casa? ou Luz da sala"></label>'+
-    '<div class="ja-row-actions">'+
+    '<div class="ja-row-actions" style="margin-top:8px;">'+
       actionBtn('FALAR NA CAIXA','gh-speak','primary')+
       actionBtn('ENVIAR COMANDO','gh-send')+
-      actionBtn('+ ADICIONAR GOOGLE HOME','gh-open-add','primary')+
-      actionBtn('ATUALIZAR','gh-refresh')+
-      actionBtn('PROVISIONAR HARDWARE','gh-provision')+
     '</div>'+
     '<div id="gh-result" class="ja-google-home-result"></div>'+
   '</article>';
 
-  let devCards='';
-  if(devices.length>0){
-    devCards='<div style="grid-column:1/-1;margin-top:10px;"><h3 style="color:var(--lcars-light-blue,#99ccff);margin-bottom:8px;">DISPOSITIVOS GOOGLE HOME CADASTRADOS ('+devices.length+')</h3><div class="ja-native-grid">'+
-      devices.map(d=>'<article class="ja-native-card"><h3>'+esc(d.name||d.uuid||'Google Home')+'</h3>'+
-        '<p><strong>Conexão:</strong> '+esc(d.host?'IP: '+d.host:(d.mac?'BT: '+d.mac:(d.tipo_conexao||'Wi-Fi')))+'</p>'+
-        '<p><strong>Cômodo:</strong> '+esc(d.location||'Residência')+'</p>'+
-        '<div style="margin-top:10px;display:flex;justify-content:space-between;align-items:center;">'+
-          '<span class="ja-state '+(d.status==='online'?'ok':'')+'">'+esc(String(d.status||'registrado').toUpperCase())+'</span>'+
-          (d.id?'<button class="ja-mini danger" data-del-gh="'+d.id+'">REMOVER</button>':'')+
-        '</div>'+
-      '</article>').join('')+
-      '</div></div>';
-  } else {
-    devCards='<div style="grid-column:1/-1;margin-top:10px;" class="ja-empty">'+
-      '<p>Nenhum Google Home conectado ainda.</p>'+
-      '<button class="ja-mini primary" data-act="gh-open-add" style="margin-top:8px;">+ ADICIONAR O PRIMEIRO GOOGLE HOME</button>'+
-    '</div>';
-  }
+  const speakerCards=devices.map(d=>'<article class="ja-native-card">'+
+    '<header style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'+
+      '<h3 style="margin:0;">'+esc(d.name||d.uuid||'Google Home')+'</h3>'+
+      '<span class="ja-state ok">ONLINE</span>'+
+    '</header>'+
+    '<p><strong>Conexão:</strong> '+esc(d.host?'IP: '+d.host:(d.mac?'BT: '+d.mac:(d.tipo_conexao||'Wi-Fi')))+'</p>'+
+    '<dl>'+
+      '<dt>Cômodo</dt><dd>'+esc(d.location||'Residência')+'</dd>'+
+      '<dt>Tipo</dt><dd>'+esc(d.tipo_conexao||(d.mac?'Bluetooth':'Wi-Fi'))+'</dd>'+
+      '<dt>Visto</dt><dd>'+esc(d.last_seen||'Agora')+'</dd>'+
+    '</dl>'+
+    '<div class="ja-row-actions">'+
+      '<button class="ja-mini primary" data-quick-speak="'+attr(d.uuid||d.name||'')+'">TESTAR FALA</button>'+
+      (d.id?'<button class="ja-mini danger" data-del-gh="'+d.id+'">REMOVER</button>':'')+
+    '</div>'+
+  '</article>');
 
-  const body='<div class="ja-native-summary"><div><b>CAIXAS DE SOM</b><strong>'+devices.length+'</strong></div><div><b>AGENTES</b><strong>'+all.length+'</strong></div><div><b>CLIMA</b><strong>'+esc(clima.clima?.temperatura||'—')+'</strong></div></div>'+
-    '<div class="ja-native-grid">'+ghCard+
-    all.slice(0,4).map(a=>'<article class="ja-native-card"><h3>'+esc(a.nome||a.tipo||'Agente')+'</h3><p>'+esc(a.descricao||'')+'</p><span class="ja-state '+(a.ativo?'ok':'off')+'">'+(a.ativo?'ATIVO':'INATIVO')+'</span></article>').join('')+
-    devCards+
-    '</div>';
+  const emptySpeakerCard='<article class="ja-native-card ja-empty">'+
+    '<h3>STATUS DO ÁUDIO</h3>'+
+    '<p>Nenhuma caixa Google Home online no momento. Dispositivos offline são removidos automaticamente.</p>'+
+    '<div class="ja-row-actions" style="margin-top:10px;">'+
+      actionBtn('+ ADICIONAR GOOGLE HOME','gh-open-add','primary')+
+      actionBtn('BUSCAR BLUETOOTH','gh-scan-bt')+
+    '</div>'+
+  '</article>';
 
-  moduleShell('Google Home & Áudio',body,actionBtn('+ ADICIONAR GOOGLE HOME','gh-open-add','primary')+' '+actionBtn('ATUALIZAR','gh-refresh'));
+  const agentCards=all.map(a=>'<article class="ja-native-card">'+
+    '<header style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'+
+      '<h3 style="margin:0;">'+esc(a.nome||a.tipo||'Agente')+'</h3>'+
+      '<span class="ja-state '+(a.ativo?'ok':'off')+'">'+(a.ativo?'ATIVO':'INATIVO')+'</span>'+
+    '</header>'+
+    '<p>'+esc(a.descricao||'')+'</p>'+
+  '</article>');
+
+  const allCards=[
+    ghCard,
+    ...(devices.length>0?speakerCards:[emptySpeakerCard]),
+    ...agentCards
+  ];
+
+  const p=paginate('agents',allCards,6);
+  const summary='<div class="ja-native-summary">'+
+    '<div><b>CAIXAS ONLINE</b><strong>'+devices.length+'</strong></div>'+
+    '<div><b>AGENTES</b><strong>'+all.length+'</strong></div>'+
+    '<div><b>CLIMA</b><strong>'+esc(clima.clima?.temperatura||'—')+'</strong></div>'+
+  '</div>';
+
+  const body=summary+cards(p.slice,c=>c)+pager('agents',p);
+  const headerActions=actionBtn('+ ADICIONAR GOOGLE HOME','gh-open-add','primary')+' '+
+    actionBtn('BUSCAR BLUETOOTH','gh-scan-bt')+' '+
+    actionBtn('LIMPAR OFFLINE','gh-clean-offline','danger')+' '+
+    actionBtn('ATUALIZAR','gh-refresh');
+
+  moduleShell('Google Home & Áudio',body,headerActions);
+  bindPager('agents',p,renderAgents);
 
   document.querySelectorAll('[data-act="gh-open-add"]').forEach(b=>b.addEventListener('click',renderAddGoogleHome));
   document.querySelectorAll('[data-act="gh-refresh"]').forEach(b=>b.addEventListener('click',renderAgents));
+
+  document.querySelectorAll('[data-act="gh-clean-offline"]').forEach(b=>b.addEventListener('click',async()=>{
+    if(!confirm('Remover todos os dispositivos offline cadastrados?')) return;
+    try{
+      const res=await postJson('/casa/api/google_home.php',{acao:'limpar_offline'});
+      alert(res.mensagem||'Dispositivos offline removidos com sucesso.');
+      renderAgents();
+    }catch(e){
+      alert(e.message||'Falha ao limpar dispositivos offline.');
+    }
+  }));
+
+  document.querySelectorAll('[data-act="gh-scan-bt"]').forEach(b=>b.addEventListener('click',async()=>{
+    const out=document.getElementById('gh-result');
+    if(out){out.textContent='Buscando caixas de som e dispositivos Bluetooth próximos...';out.className='ja-google-home-result pending';}
+    try{
+      const res=await getJson('/casa/api/google_home.php?acao=bluetooth_dispositivos&auto_add=1');
+      const total=res.total||(res.dispositivos?res.dispositivos.length:0);
+      const auto=Array.isArray(res.auto_adicionados)?res.auto_adicionados.length:0;
+      let msg='Varredura Bluetooth finalizada: '+total+' dispositivo(s) detectado(s).';
+      if(auto>0) msg+=' '+auto+' caixa(s) Google Home adicionada(s) automaticamente!';
+      if(out){out.textContent=msg;out.className='ja-google-home-result ok';}
+      setTimeout(renderAgents, 1500);
+    }catch(e){
+      if(out){out.textContent=e.message||'Falha ao escanear Bluetooth.';out.className='ja-google-home-result error';}
+    }
+  }));
 
   document.querySelectorAll('[data-del-gh]').forEach(btn=>{
     btn.addEventListener('click',async()=>{
@@ -2588,6 +2687,19 @@ async function renderAgents(){
         await postJson('/casa/api/google_home.php',{acao:'excluir',id});
         renderAgents();
       }catch(e){alert(e.message||'Falha ao remover dispositivo.');}
+    });
+  });
+
+  document.querySelectorAll('[data-quick-speak]').forEach(btn=>{
+    btn.addEventListener('click',async()=>{
+      const target=btn.getAttribute('data-quick-speak');
+      const texto=prompt('Digite a mensagem para falar nesta caixa:','Olá! Jarvis conectado com sucesso.');
+      if(!texto) return;
+      const devSelect=document.getElementById('gh-device');
+      const cmdInput=document.getElementById('gh-command');
+      if(devSelect) devSelect.value=target;
+      if(cmdInput) cmdInput.value=texto;
+      ghSend('falar');
     });
   });
 
@@ -2613,18 +2725,6 @@ async function renderAgents(){
 
   document.querySelector('[data-act="gh-send"]')?.addEventListener('click',()=>ghSend('comando'));
   document.querySelector('[data-act="gh-speak"]')?.addEventListener('click',()=>ghSend('falar'));
-  document.querySelector('[data-act="gh-provision"]')?.addEventListener('click',async()=>{
-    const out=document.getElementById('gh-result');
-    if(out){out.textContent='Provisionando hardware virtual...';out.className='ja-google-home-result pending';}
-    try{
-      const r=await postJson('/casa/api/google_home_hardware.php',{acao:'provisionar',nome:'Google Home / COMPUTER'});
-      if(out){
-        out.textContent='Hardware provisionado com sucesso. Token: '+(r.device_token||'');
-        out.className='ja-google-home-result ok';
-      }
-      setTimeout(renderAgents, 1500);
-    }catch(e){if(out){out.textContent=e.message||'Falha ao provisionar.';out.className='ja-google-home-result error';}}
-  });
 }
 
 async function renderPhrases(){

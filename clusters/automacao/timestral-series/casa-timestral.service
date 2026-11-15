@@ -1,0 +1,27 @@
+[Unit]
+Description=CASA / JARVIS - Daemon Timestral-5M para Analise de Series Temporais
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=mmm
+Group=mmm
+WorkingDirectory=/opt/casa/servicos/timestral
+EnvironmentFile=-/etc/casa/timestral.env
+EnvironmentFile=-/etc/casa-timestral.env
+ExecStart=/usr/bin/python3 /opt/casa/servicos/timestral/casa-timestral.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=casa-timestral
+
+# Isolamento e seguranca
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/var/lib/casa-timestral /tmp
+
+[Install]
+WantedBy=multi-user.target

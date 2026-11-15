@@ -58,6 +58,67 @@ if($acao==='comando'){
     $speech=gh_enqueue_speech($pdo,$text,trim((string)($in['device']??'')),$taskContext);unset($speech['context']);
     gh_out(te_attach_context(array_merge($r['data'],$speech),$taskContext,$pdo),202);
 }
+if($acao==='heartbeat'||$acao==='agent_status'){
+    $now=time();
+    $disps=$in['dispositivos']??[];
+    $conectado=!empty($in['conectado']);
+    $macAlvo=strtoupper(trim((string)($in['mac_alvo']??'')));
+
+    $pdo=get_db_pdo();
+
+    // 1. Atualiza configuracoes_sistema para o status geral do agente
+    $snapshot=[
+        'received_at'=>$now,
+        'devices'=>$in['devices']??[],
+        'bluetooth_devices'=>$disps,
+        'agent_online'=>true,
+        'online'=>true,
+        'queue_alive'=>true,
+        'version'=>$in['versao']??'1.0.0',
+        'trabalhador'=>$in['trabalhador']??'google-home-bt'
+    ];
+    $st=$pdo->prepare("INSERT INTO configuracoes_sistema (chave, valor) VALUES ('google_home_agent_status', :val) ON DUPLICATE KEY UPDATE valor = :val");
+    $st->execute([':val'=>json_encode($snapshot,JSON_UNESCAPED_UNICODE)]);
+
+    // 2. Quando um dispositivo existir no bluetooth o mesmo deve ser adicionado
+    $adicionados=[];
+    if(is_array($disps)){
+        foreach($disps as $d){
+            $mac=strtoupper(trim((string)($d['mac']??'')));
+            $nome=trim((string)($d['nome']??'Google Home'));
+            if(!$mac) continue;
+            $ehGoogle=!empty($d['google_home_provavel'])||($macAlvo&&$mac===$macAlvo)||stripos($nome,'google')!==false||stripos($nome,'nest')!==false||stripos($nome,'home')!==false;
+
+            $chk=$pdo->prepare("SELECT id FROM dispositivos_cluster WHERE mac_address=:m AND tipo='google_home' LIMIT 1");
+            $chk->execute([':m'=>$mac]);
+            $existingId=$chk->fetchColumn();
+
+            if($existingId){
+                $up=$pdo->prepare("UPDATE dispositivos_cluster SET status='online', ultimo_heartbeat=NOW() WHERE id=:id");
+                $up->execute([':id'=>$existingId]);
+            } elseif($ehGoogle){
+                $deviceId='gh-bt-'.bin2hex(random_bytes(4));
+                $token=bin2hex(random_bytes(16));
+                $caps=json_encode(['google-home','bluetooth','audio-sink','voice-bridge'],JSON_UNESCAPED_UNICODE);
+                $meta=json_encode(['tipo_conexao'=>'bluetooth','auto_descoberto'=>true,'criado_em'=>date('c')],JSON_UNESCAPED_UNICODE);
+                $ins=$pdo->prepare("INSERT INTO dispositivos_cluster (device_id,nome,tipo,mac_address,device_token,status,capabilities,metadata,localizacao,ultimo_heartbeat) VALUES (:did,:n,'google_home',:m,:t,'online',:c,:meta,'Residência',NOW())");
+                $ins->execute([':did'=>$deviceId,':n'=>$nome,':m'=>$mac,':t'=>$token,':c'=>$caps,':meta'=>$meta]);
+                $adicionados[]=['mac'=>$mac,'nome'=>$nome,'id'=>(int)$pdo->lastInsertId()];
+            }
+        }
+    }
+
+    // 3. REGRA: Dispositivos offline devem ser deletados
+    $del=$pdo->exec("DELETE FROM dispositivos_cluster WHERE tipo='google_home' AND (ultimo_heartbeat IS NULL OR ultimo_heartbeat < (NOW() - INTERVAL 120 SECOND))");
+
+    gh_out([
+        'status'=>'sucesso',
+        'mensagem'=>'Heartbeat processado com sucesso.',
+        'auto_adicionados'=>$adicionados,
+        'removidos_offline'=>(int)$del
+    ]);
+}
+
 if($acao==='cadastrar'||$acao==='adicionar'){
     $nome=trim((string)($in['nome']??''));
     if($nome==='')gh_out(['status'=>'erro','mensagem'=>'Nome do dispositivo é obrigatório.'],400);
@@ -79,7 +140,7 @@ if($acao==='cadastrar'||$acao==='adicionar'){
         'criado_em'=>date('c')
     ],JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
 
-    $st=$pdo->prepare("INSERT INTO dispositivos_cluster (device_id,nome,tipo,ip_address,mac_address,device_token,status,capabilities,metadata,localizacao) VALUES (:did,:nome,'google_home',:ip,:mac,:token,'registrado',:caps,:meta,:loc)");
+    $st=$pdo->prepare("INSERT INTO dispositivos_cluster (device_id,nome,tipo,ip_address,mac_address,device_token,status,capabilities,metadata,localizacao,ultimo_heartbeat) VALUES (:did,:nome,'google_home',:ip,:mac,:token,'online',:caps,:meta,:loc,NOW())");
     $st->execute([
         ':did'=>$deviceId,
         ':nome'=>$nome,
@@ -103,6 +164,84 @@ if($acao==='cadastrar'||$acao==='adicionar'){
             'tipo_conexao'=>$tipoConexao,
             'localizacao'=>$loc
         ]
+    ]);
+}
+
+if($acao==='bluetooth_dispositivos'||$acao==='scan_bt'){
+    $btDisps=[];
+    try {
+        $ch=curl_init('http://127.0.0.1:8094/api/v1/bluetooth/dispositivos');
+        curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_TIMEOUT=>8]);
+        $raw=curl_exec($ch);
+        curl_close($ch);
+        if($raw){
+            $j=json_decode($raw,true);
+            if(!empty($j['dispositivos'])&&is_array($j['dispositivos'])){
+                $btDisps=$j['dispositivos'];
+            }
+        }
+    } catch (Throwable $e) {}
+
+    $pdo=get_db_pdo();
+
+    // Fallback: se local curl nao responder (ex: em nuvem na Hostinger), busca da telemetria recente do daemon
+    if (empty($btDisps)) {
+        try {
+            $st = $pdo->query("SELECT valor FROM configuracoes_sistema WHERE chave='google_home_agent_status' LIMIT 1");
+            $rawSnap = $st->fetchColumn();
+            if ($rawSnap) {
+                $snap = json_decode($rawSnap, true);
+                if (!empty($snap['bluetooth_devices']) && is_array($snap['bluetooth_devices'])) {
+                    $btDisps = $snap['bluetooth_devices'];
+                }
+            }
+        } catch (Throwable $e) {}
+    }
+
+    // Se houver dispositivos descobertos e auto_add=1 (ou default se for provavel google home)
+    $autoAdd=!empty($in['auto_add'])||!empty($_GET['auto_add']);
+    $adicionados=[];
+    if(!empty($btDisps)){
+        foreach($btDisps as $d){
+            $mac=strtoupper(trim((string)($d['mac']??'')));
+            $nome=trim((string)($d['nome']??'Google Home'));
+            if(!$mac) continue;
+
+            // Se autoAdd ou nome parecer Google/Nest/Speaker, garante cadastro se ja nao existir
+            if($autoAdd || !empty($d['google_home_provavel']) || stripos($nome,'google')!==false || stripos($nome,'nest')!==false){
+                $chk=$pdo->prepare("SELECT id FROM dispositivos_cluster WHERE mac_address=:m AND tipo='google_home' LIMIT 1");
+                $chk->execute([':m'=>$mac]);
+                if(!$chk->fetchColumn()){
+                    $deviceId='gh-bt-'.bin2hex(random_bytes(4));
+                    $token=bin2hex(random_bytes(16));
+                    $caps=json_encode(['google-home','bluetooth','audio-sink','voice-bridge'],JSON_UNESCAPED_UNICODE);
+                    $meta=json_encode(['tipo_conexao'=>'bluetooth','auto_descoberto'=>true,'criado_em'=>date('c')],JSON_UNESCAPED_UNICODE);
+                    $ins=$pdo->prepare("INSERT INTO dispositivos_cluster (device_id,nome,tipo,mac_address,device_token,status,capabilities,metadata,localizacao,ultimo_heartbeat) VALUES (:did,:n,'google_home',:m,:t,'online',:c,:meta,'Residência',NOW())");
+                    $ins->execute([':did'=>$deviceId,':n'=>$nome,':m'=>$mac,':t'=>$token,':c'=>$caps,':meta'=>$meta]);
+                    $adicionados[]=['mac'=>$mac,'nome'=>$nome,'device_id'=>$deviceId];
+                }
+            }
+        }
+    }
+
+    gh_out([
+        'status'=>'sucesso',
+        'dispositivos'=>$btDisps,
+        'auto_adicionados'=>$adicionados,
+        'total'=>count($btDisps)
+    ]);
+}
+
+if($acao==='limpar_offline'){
+    $pdo=get_db_pdo();
+    $st=$pdo->exec("DELETE FROM dispositivos_cluster WHERE tipo='google_home' AND (status='offline' OR ultimo_heartbeat IS NULL OR ultimo_heartbeat < (NOW() - INTERVAL 120 SECOND))");
+    // Tambem forca varredura de status que deleta dispositivos inalcancaveis
+    $status=gh_bridge_status($pdo);
+    gh_out([
+        'status'=>'sucesso',
+        'mensagem'=>'Dispositivos offline foram removidos do sistema.',
+        'removidos'=>$st,
+        'online_restantes'=>count($status['devices']??[])
     ]);
 }
 

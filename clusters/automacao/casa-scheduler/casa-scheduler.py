@@ -92,10 +92,14 @@ def obter_colunas_tarefas():
 
 
 def post_json(url, payload, timeout=35):
+    headers = {"Content-Type": "application/json"}
+    if SYSTEM_API_TOKEN:
+        headers["Authorization"] = f"Bearer {SYSTEM_API_TOKEN}"
+        headers["X-API-Key"] = SYSTEM_API_TOKEN
     req = urllib.request.Request(
         url,
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers={"Content-Type": "application/json", "X-API-Key": SYSTEM_API_TOKEN},
+        headers=headers,
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8"))
@@ -122,8 +126,8 @@ def executar_acao(tarefa_id, titulo, tipo_acao, payload, target_node, id_tarefa_
     resultado = {"status": "ok"}
     erro = None
     try:
-        if tipo_acao == "comando_jarvis":
-            data = post_json(f"{CASA_BASE_URL}/api/jarvis.php", {
+        if tipo_acao in ("comando_jarvis", "jarvis"):
+            data = post_json(f"{CASA_BASE_URL}/api/v1/comando", {
                 "comando": payload,
                 "skip_planner": True,
                 "origem": "SCHEDULER"
@@ -131,19 +135,32 @@ def executar_acao(tarefa_id, titulo, tipo_acao, payload, target_node, id_tarefa_
             resultado = {"resposta": data.get("resposta", ""), "acao": data.get("acao")}
 
         elif tipo_acao == "pesquisa_web":
-            data = post_json(f"{CASA_BASE_URL}/api/agente_internet.php", {
-                "acao": "responder",
-                "query": payload,
-                "max_results": 5
-            }, timeout=60)
-            resultado = {"resposta": data.get("resposta", ""), "fontes": data.get("fontes", [])}
+            # Consulta prioritariamente o agente web local, fallback para API v1
+            try:
+                data = post_json("http://127.0.0.1:8099/search", {
+                    "query": payload,
+                    "max_results": 5
+                }, timeout=30)
+                resultado = {"resposta": data.get("resposta", ""), "results": data.get("results", [])}
+            except Exception:
+                data = post_json(f"{CASA_BASE_URL}/api/v1/comando", {
+                    "comando": f"Pesquise: {payload}",
+                    "origem": "SCHEDULER"
+                }, timeout=35)
+                resultado = {"resposta": data.get("resposta", "")}
 
         elif tipo_acao == "aviso_fala":
             if target_node == "local" or not target_node:
-                post_json("http://127.0.0.1:8097/falar", {
-                    "texto": payload, "speaker": "padrao", "reproduzir": True
-                }, timeout=20)
-                resultado = {"mensagem": "Audio reproduzido localmente"}
+                try:
+                    post_json("http://127.0.0.1:8093/synthesize", {
+                        "texto": payload, "reproduzir": True
+                    }, timeout=15)
+                    resultado = {"mensagem": "Audio sintetizado via Pocket-TTS"}
+                except Exception:
+                    post_json("http://127.0.0.1:8097/falar", {
+                        "texto": payload, "speaker": "padrao", "reproduzir": True
+                    }, timeout=20)
+                    resultado = {"mensagem": "Audio reproduzido via Piper TTS"}
             else:
                 post_json(f"http://{target_node}:8098/falar", {"texto": payload}, timeout=20)
                 resultado = {"mensagem": f"Audio enviado a {target_node}"}
@@ -153,9 +170,23 @@ def executar_acao(tarefa_id, titulo, tipo_acao, payload, target_node, id_tarefa_
             iddev = int(p.get("iddevice", 1))
             parname = p.get("devparname", "dev1")
             val = p.get("valor", "1")
-            exec_sql("UPDATE devpar SET devvalue=%s, atualizado_em=CURRENT_TIMESTAMP WHERE iddevice=%s AND devparname=%s",
-                     (val, iddev, parname))
-            resultado = {"iddevice": iddev, "parametro": parname, "valor": val}
+            # Executa via API REST v1 para garantir desacoplamento e trilha de auditoria
+            try:
+                data = post_json(f"{CASA_BASE_URL}/api/v1/dispositivos/acionar", {
+                    "iddevice": iddev, "parametro": parname, "valor": val
+                }, timeout=15)
+                resultado = {"status": "ok", "api_v1": True, "resposta": data}
+            except Exception as api_exc:
+                # Fallback direto caso o site esteja temporariamente inacessivel
+                exec_sql("UPDATE devpar SET devvalue=%s, atualizado_em=CURRENT_TIMESTAMP WHERE iddevice=%s AND devparname=%s",
+                         (val, iddev, parname))
+                resultado = {"iddevice": iddev, "parametro": parname, "valor": val, "fallback_db": str(api_exc)}
+
+        elif tipo_acao in ("orquestrador", "orquestrar"):
+            data = post_json("http://127.0.0.1:8090/api/controlar", {
+                "comando": payload
+            }, timeout=20)
+            resultado = {"orquestrador": data}
 
         elif tipo_acao == "script":
             # Scripts arbitrarios nao sao executados pelo scheduler por seguranca.

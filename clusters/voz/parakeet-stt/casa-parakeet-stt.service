@@ -1,0 +1,26 @@
+[Unit]
+Description=CASA / JARVIS - Daemon de Reconhecimento de Voz Local Parakeet STT
+After=network.target sound.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=mmm
+Group=mmm
+WorkingDirectory=/opt/casa/servicos/parakeet-stt
+EnvironmentFile=-/etc/casa/parakeet-stt.env
+EnvironmentFile=-/etc/casa-parakeet-stt.env
+ExecStart=/usr/bin/python3 /opt/casa/servicos/parakeet-stt/casa-parakeet-stt.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=casa-parakeet-stt
+
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/var/lib/casa-parakeet-stt /tmp
+
+[Install]
+WantedBy=multi-user.target

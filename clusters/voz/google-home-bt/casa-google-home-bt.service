@@ -1,0 +1,23 @@
+[Unit]
+Description=CASA / JARVIS - Daemon Ponte Bluetooth Bidirecional com Google Home
+After=network.target bluetooth.target pulseaudio.service casa-pocket-tts.service casa-parakeet-stt.service
+Wants=bluetooth.target casa-pocket-tts.service casa-parakeet-stt.service
+
+[Service]
+Type=simple
+User=mmm
+Group=mmm
+WorkingDirectory=/opt/casa/servicos/google-home-bt
+EnvironmentFile=-/etc/casa-google-home-bt.env
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=PULSE_SERVER=unix:/run/user/1000/pulse/native
+ExecStart=/usr/bin/python3 /opt/casa/servicos/google-home-bt/casa-google-home-bt.py
+Restart=on-failure
+RestartSec=5s
+LimitNOFILE=65535
+
+# Permissoes de audio e bluetooth para usuario mmm
+SupplementaryGroups=audio bluetooth
+
+[Install]
+WantedBy=multi-user.target

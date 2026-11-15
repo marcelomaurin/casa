@@ -23,26 +23,110 @@ function gh_bridge_status(PDO $pdo,?int $now=null): array {
     $recent=is_int($seen) && $seen>0 && $seen<=$now && $seen>=($now-90);
     $agentOnline=$recent && !empty($data['online']) && !empty($data['queue_alive']);
 
+    // Consulta status do daemon bluetooth local (porta 8094) se acessivel
+    $btDisps = [];
+    $btConectadoMac = '';
+    try {
+        $ch = curl_init('http://127.0.0.1:8094/status');
+        curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_TIMEOUT=>2]);
+        $rawBt = curl_exec($ch);
+        curl_close($ch);
+        if ($rawBt) {
+            $jBt = json_decode($rawBt, true);
+            if (!empty($jBt['conectado'])) $btConectadoMac = strtoupper(trim((string)($jBt['mac_alvo']??'')));
+        }
+    } catch (Throwable $e) {}
+
     $regDevices=[];
+    $toDeleteIds=[];
     try {
         $stDev=$pdo->query("SELECT id, device_id, nome, ip_address, mac_address, status, localizacao, metadata, ultimo_heartbeat FROM dispositivos_cluster WHERE tipo='google_home' ORDER BY id ASC");
         while ($row=$stDev->fetch(PDO::FETCH_ASSOC)) {
             $meta=json_decode((string)($row['metadata']??''),true)?:[];
-            $regDevices[]=[
-                'id'=>(int)$row['id'],
-                'uuid'=>$row['device_id'],
-                'name'=>$row['nome'],
-                'host'=>$row['ip_address'],
-                'mac'=>$row['mac_address'],
-                'tipo_conexao'=>$meta['tipo_conexao']??($row['mac_address']?'bluetooth':'wifi'),
-                'status'=>$row['status']?:'registrado',
-                'location'=>$row['localizacao']?:'Residência',
-                'last_seen'=>$row['ultimo_heartbeat']
-            ];
+            $tipoCon = $meta['tipo_conexao']??($row['mac_address']?'bluetooth':'wifi');
+            $devId = (int)$row['id'];
+            $isOnline = false;
+
+            if ($tipoCon === 'wifi' && !empty($row['ip_address'])) {
+                // Testa socket TCP no host/porta (8009 cast ou 80) com timeout rapido
+                $ip = $row['ip_address'];
+                $fp = @fsockopen($ip, 8009, $errno, $errstr, 0.4);
+                if ($fp) {
+                    $isOnline = true;
+                    fclose($fp);
+                } else {
+                    $fp2 = @fsockopen($ip, 80, $errno, $errstr, 0.4);
+                    if ($fp2) { $isOnline = true; fclose($fp2); }
+                }
+            } elseif ($tipoCon === 'bluetooth' && !empty($row['mac_address'])) {
+                $mac = strtoupper(trim((string)$row['mac_address']));
+                if ($btConectadoMac !== '' && $btConectadoMac === $mac) {
+                    $isOnline = true;
+                } else {
+                    // Consulta o snapshot recente do agente ou o daemon se o MAC foi visto recentemente
+                    $seenInSnap = false;
+                    if (!empty($data['bluetooth_devices']) && is_array($data['bluetooth_devices'])) {
+                        foreach ($data['bluetooth_devices'] as $sc) {
+                            if (strtoupper(trim((string)($sc['mac']??''))) === $mac) {
+                                $seenInSnap = true;
+                                break;
+                            }
+                        }
+                    }
+                    if ($seenInSnap) {
+                        $isOnline = true;
+                    } else {
+                        try {
+                            $ch = curl_init('http://127.0.0.1:8094/api/v1/bluetooth/dispositivos');
+                            curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_TIMEOUT=>2]);
+                            $rawSc = curl_exec($ch);
+                            curl_close($ch);
+                            if ($rawSc) {
+                                $jSc = json_decode($rawSc, true);
+                                foreach (($jSc['dispositivos']??[]) as $sc) {
+                                    if (strtoupper(trim((string)($sc['mac']??''))) === $mac) {
+                                        $isOnline = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        } catch (Throwable $e) {}
+                    }
+                }
+            }
+
+            // Se tiver heartbeat recente (< 180s)
+            $seenH = strtotime((string)$row['ultimo_heartbeat']);
+            if ($seenH && ($now - $seenH) < 180) {
+                $isOnline = true;
+            }
+
+            // REGRA: Dispositivos offline devem ser deletados
+            if (!$isOnline) {
+                $toDeleteIds[] = $devId;
+            } else {
+                $regDevices[]=[
+                    'id'=>$devId,
+                    'uuid'=>$row['device_id'],
+                    'name'=>$row['nome'],
+                    'host'=>$row['ip_address'],
+                    'mac'=>$row['mac_address'],
+                    'tipo_conexao'=>$tipoCon,
+                    'status'=>'online',
+                    'location'=>$row['localizacao']?:'Residência',
+                    'last_seen'=>$row['ultimo_heartbeat']
+                ];
+            }
+        }
+
+        // Remove do banco os dispositivos que estao offline
+        if (!empty($toDeleteIds)) {
+            $inSql = implode(',', array_map('intval', $toDeleteIds));
+            $pdo->exec("DELETE FROM dispositivos_cluster WHERE id IN ($inSql) AND tipo='google_home'");
         }
     } catch (Throwable $e) {}
 
-    // Mescla dispositivos descobertos pelo agente e os cadastrados manualmente
+    // Mescla dispositivos descobertos pela ponte de fila HTTPS
     $allDevices=$regDevices;
     $seenIds=[];
     foreach ($regDevices as $rd) { $seenIds[$rd['uuid']]=true; if ($rd['name']) $seenIds[$rd['name']]=true; }
@@ -58,11 +142,10 @@ function gh_bridge_status(PDO $pdo,?int $now=null): array {
 
     $hasDevices=count($allDevices)>0;
     $online=$agentOnline || $hasDevices;
-    $msg=$agentOnline ? 'Agente Google Home conectado pela fila.' :
-         ($hasDevices ? count($allDevices).' dispositivo(s) Google Home configurado(s).' :
-         ($recent ? 'Agente conectado; aguardando pareamento com o Google Home.' : 'Agente Google Home sem contato recente. Adicione seu dispositivo abaixo.'));
+    $msg=$hasDevices ? count($allDevices).' dispositivo(s) Google Home online.' :
+         ($agentOnline ? 'Agente Google Home conectado pela fila.' : 'Nenhum dispositivo Google Home online detectado.');
 
-    $hwStatus=$hasDevices ? count($allDevices).' CADASTRADO(S)' : ($agentOnline?'ONLINE':'OFFLINE');
+    $hwStatus=$hasDevices ? count($allDevices).' ONLINE' : 'OFFLINE';
 
     return [
         'status'=>$online?'ok':'offline',
