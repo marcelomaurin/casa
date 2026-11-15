@@ -64,6 +64,8 @@ const GROUPS={
       {title:'EQUIPAMENTOS',items:[
         {id:'devices',label:'Dispositivos & relés',module:'devices'},
         {id:'iot',label:'ESP32 / Arduino / IoT',module:'iot'},
+        {id:'gh-devices',label:'Google Home & Áudio',module:'agents'},
+        {id:'add-google-home',label:'+ Adicionar Google Home',module:'addGoogleHome'},
         {id:'nodes',label:'Cluster ARM',module:'nodes'}
       ]},
       {title:'PESSOAIS',items:[
@@ -84,7 +86,8 @@ const GROUPS={
         {id:'automation-scenes',label:'Cenas e regras',module:'automation'}
       ]},
       {title:'INTEGRAÇÃO',items:[
-        {id:'automation-agents',label:'Agentes externos',module:'agents'},
+        {id:'automation-agents',label:'Google Home & Integrações',module:'agents'},
+        {id:'automation-add-gh',label:'+ Adicionar Google Home',module:'addGoogleHome'},
         {id:'automation-api',label:'Acesso Web & API',module:'external'}
       ]}
     ]
@@ -96,7 +99,8 @@ const GROUPS={
         {id:'jarvis',label:'Núcleo de reconhecimento & voz',module:'jarvis'},
         {id:'mordomo',label:'Mordomo da casa',module:'butler'},
         {id:'frases',label:'Frases & avisos',module:'phrases'},
-        {id:'agentes',label:'Agentes externos',module:'agents'}
+        {id:'agentes',label:'Google Home & Áudio',module:'agents'},
+        {id:'add-gh-ia',label:'+ Adicionar Google Home',module:'addGoogleHome'}
       ]},
       {title:'INTELIGÊNCIA',items:[
         {id:'modelos-ia',label:'Conexões & Modelos de IA',url:'/casa/ia_modelos.php'},
@@ -262,11 +266,14 @@ function home(updateRoute=true){
     },
     {
       title: 'VOZ & INTELIGÊNCIA IA',
-      description: 'Central de comandos, síntese e reconhecimento de voz',
+      description: 'Central de comandos, síntese de voz e Google Home',
       icon: '✦',
       value: 'PRONTO',
       status: 'JARVIS',
-      actions: [{label:'FALAR', action:'open-direct:IA & VOZ:jarvis', variant:'primary'}]
+      actions: [
+        {label:'FALAR', action:'open-direct:IA & VOZ:jarvis', variant:'primary'},
+        {label:'GOOGLE HOME', action:'open-direct:DISPOSITIVOS:gh-devices'}
+      ]
     },
     {
       title: 'AUTOMAÇÃO & CENAS',
@@ -429,6 +436,7 @@ async function mountNativeModule(item){
     if(m==='iot') return renderIoT();
     if(m==='security') return renderSecurity();
     if(m==='agents') return renderAgents();
+    if(m==='addGoogleHome') return renderAddGoogleHome();
     if(m==='phrases') return renderPhrases();
     if(m==='users') return renderUsers();
     if(m==='config') return renderConfig();
@@ -2408,54 +2416,201 @@ function mdAjustes(){
   };
 }
 
+async function renderAddGoogleHome(){
+  loading('Adicionar Google Home');
+  const body='<div class="ja-native-form" style="max-width:680px;margin:0 auto;padding:12px;">'+
+    '<p style="margin-bottom:16px;color:var(--lcars-orange,#f90);font-size:1.05rem;">'+
+      esc(uiT('Cadastre sua caixa Google Home, Nest Mini ou receptor de áudio para controle pelo CASA.'))+
+    '</p>'+
+    '<label class="ja-google-home-field" style="display:block;margin-bottom:14px;">'+
+      '<span style="display:block;font-weight:bold;margin-bottom:4px;">'+esc(uiT('Nome do Dispositivo *'))+'</span>'+
+      '<input id="add-gh-nome" class="ja-input" placeholder="Ex.: Google Home Sala, Nest Mini Quarto" style="width:100%;box-sizing:border-box;">'+
+    '</label>'+
+    '<label class="ja-google-home-field" style="display:block;margin-bottom:14px;">'+
+      '<span style="display:block;font-weight:bold;margin-bottom:4px;">'+esc(uiT('Tipo de Conexão'))+'</span>'+
+      '<select id="add-gh-tipo" class="ja-select" style="width:100%;box-sizing:border-box;">'+
+        '<option value="wifi">'+esc(uiT('Wi-Fi / Google Cast (IP na rede local)'))+'</option>'+
+        '<option value="bluetooth">'+esc(uiT('Bluetooth (Pareamento com Raspberry Pi)'))+'</option>'+
+        '<option value="virtual">'+esc(uiT('Dispositivo Virtual / Fila de Fala'))+'</option>'+
+      '</select>'+
+    '</label>'+
+    '<div id="add-gh-wifi-box" style="margin-bottom:14px;">'+
+      '<label class="ja-google-home-field" style="display:block;">'+
+        '<span style="display:block;font-weight:bold;margin-bottom:4px;">'+esc(uiT('Endereço IP (Ex.: 192.168.2.45)'))+'</span>'+
+        '<input id="add-gh-ip" class="ja-input" placeholder="Ex.: 192.168.2.45" style="width:100%;box-sizing:border-box;">'+
+      '</label>'+
+      '<small style="color:var(--lcars-light-blue,#99ccff);display:block;margin-top:4px;">'+esc(uiT('Você pode consultar o IP da caixinha no aplicativo Google Home ou na tabela de DHCP do roteador.'))+'</small>'+
+    '</div>'+
+    '<div id="add-gh-bt-box" style="display:none;margin-bottom:14px;">'+
+      '<label class="ja-google-home-field" style="display:block;">'+
+        '<span style="display:block;font-weight:bold;margin-bottom:4px;">'+esc(uiT('Endereço MAC Bluetooth'))+'</span>'+
+        '<input id="add-gh-mac" class="ja-input" placeholder="Ex.: 48:D6:D5:12:34:56" style="width:100%;box-sizing:border-box;">'+
+      '</label>'+
+      '<small style="color:var(--lcars-light-blue,#99ccff);display:block;margin-top:4px;">'+esc(uiT('Para parear: diga "Ok Google, ativar Bluetooth" para a caixinha antes de cadastrar.'))+'</small>'+
+    '</div>'+
+    '<label class="ja-google-home-field" style="display:block;margin-bottom:20px;">'+
+      '<span style="display:block;font-weight:bold;margin-bottom:4px;">'+esc(uiT('Cômodo / Localização'))+'</span>'+
+      '<input id="add-gh-loc" class="ja-input" placeholder="Ex.: Sala de Estar, Cozinha, Quarto Principal" value="Residência" style="width:100%;box-sizing:border-box;">'+
+    '</label>'+
+    '<div class="ja-row-actions" style="margin-top:20px;">'+
+      actionBtn('+ SALVAR DISPOSITIVO','do-add-gh','primary')+
+      actionBtn('VOLTAR AOS DISPOSITIVOS','back-to-gh')+
+    '</div>'+
+    '<div id="add-gh-feedback" class="ja-google-home-result" style="margin-top:16px;"></div>'+
+  '</div>';
+
+  moduleShell('Adicionar Google Home',body,actionBtn('VOLTAR','back-to-gh'));
+
+  const tipoSelect=document.getElementById('add-gh-tipo');
+  const wifiBox=document.getElementById('add-gh-wifi-box');
+  const btBox=document.getElementById('add-gh-bt-box');
+  if(tipoSelect){
+    tipoSelect.onchange=()=>{
+      const v=tipoSelect.value;
+      if(wifiBox) wifiBox.style.display=(v==='wifi')?'block':'none';
+      if(btBox) btBox.style.display=(v==='bluetooth')?'block':'none';
+    };
+  }
+
+  document.querySelectorAll('[data-act="back-to-gh"]').forEach(b=>b.addEventListener('click',()=>{
+    openItem({id:'agentes',label:'Google Home & Áudio',module:'agents'});
+  }));
+
+  document.querySelector('[data-act="do-add-gh"]')?.addEventListener('click',async()=>{
+    const nome=document.getElementById('add-gh-nome')?.value.trim();
+    const tipo=document.getElementById('add-gh-tipo')?.value||'wifi';
+    const ip=document.getElementById('add-gh-ip')?.value.trim();
+    const mac=document.getElementById('add-gh-mac')?.value.trim();
+    const loc=document.getElementById('add-gh-loc')?.value.trim()||'Residência';
+    const fb=document.getElementById('add-gh-feedback');
+
+    if(!nome){
+      if(fb){fb.textContent='Por favor, digite o nome do dispositivo.';fb.className='ja-google-home-result error';}
+      return;
+    }
+    if(fb){fb.textContent='Cadastrando Google Home no sistema...';fb.className='ja-google-home-result pending';}
+
+    try{
+      const res=await postJson('/casa/api/google_home.php',{
+        acao:'cadastrar',
+        nome,
+        tipo_conexao:tipo,
+        ip_address:ip,
+        mac_address:mac,
+        localizacao:loc
+      });
+      if(fb){
+        fb.textContent=res.mensagem||'Dispositivo cadastrado com sucesso!';
+        fb.className='ja-google-home-result ok';
+      }
+      setTimeout(()=>{
+        openItem({id:'agentes',label:'Google Home & Áudio',module:'agents'});
+      },1000);
+    }catch(e){
+      if(fb){fb.textContent=e.message||'Falha ao cadastrar dispositivo.';fb.className='ja-google-home-result error';}
+    }
+  });
+}
+
 async function renderAgents(){
-  loading('Agentes externos');
-  const [ag,clima,gh]=await Promise.all([
-    crud('agentes_externos'),
-    getJson('/casa/api/agente_externo.php?acao=consultar_clima').catch(()=>({})),
-    getJson('/casa/api/google_home.php?acao=status').catch(e=>({online:false,mensagem:e.message,devices:[]}))
-  ]);
+  loading('Google Home & Áudio');
+  let ag={dados:[]}, clima={}, gh={online:false,devices:[],registered_devices:[]};
+  try {
+    const [rAg, rClima, rGh] = await Promise.all([
+      crud('agentes_externos').catch(()=>({dados:[]})),
+      getJson('/casa/api/agente_externo.php?acao=consultar_clima').catch(()=>({})),
+      getJson('/casa/api/google_home.php?acao=status').catch(e=>({online:false,mensagem:e.message,devices:[]}))
+    ]);
+    if(rAg && rAg.dados) ag = rAg;
+    if(rClima) clima = rClima;
+    if(rGh) gh = rGh;
+  } catch(e) {
+    console.warn('Erro ao carregar agentes:', e);
+  }
+
   const all=ag.dados||[];
   const devices=Array.isArray(gh.devices)?gh.devices:[];
+  const regDevices=Array.isArray(gh.registered_devices)?gh.registered_devices:[];
+
   const ghCard='<article class="ja-native-card ja-google-home-card">'+
     '<h3>GOOGLE HOME / HARDWARE</h3>'+
-    '<p>'+esc(gh.mensagem||'Agente Google Home sem contato recente.')+'</p>'+
-    '<dl><dt>Status</dt><dd>'+(gh.online?'ONLINE':'OFFLINE')+'</dd><dt>Google Cast</dt><dd>'+esc(devices.length)+'</dd><dt>Hardware</dt><dd>'+esc(gh.hardware_status||'—')+'</dd></dl>'+
-    '<label class="ja-google-home-field"><span>Destino</span><select id="gh-device"><option value="">Automático</option>'+
-      devices.map(d=>'<option value="'+attr(d.uuid||d.name||'')+'">'+esc(d.name||d.uuid||'Google Home')+'</option>').join('')+
+    '<p>'+esc(gh.mensagem||'Central de caixas de som e áudio JARVIS / COMPUTER.')+'</p>'+
+    '<dl><dt>Status</dt><dd>'+(gh.online?'ONLINE':'OFFLINE')+'</dd><dt>Dispositivos</dt><dd>'+esc(devices.length)+'</dd><dt>Hardware</dt><dd>'+esc(gh.hardware_status||'—')+'</dd></dl>'+
+    '<label class="ja-google-home-field"><span>Destino da Fala</span><select id="gh-device"><option value="">Automático (Todos)</option>'+
+      devices.map(d=>'<option value="'+attr(d.uuid||d.name||'')+'">'+esc(d.name||d.uuid||'Google Home')+(d.location?' ('+esc(d.location)+')':'')+'</option>').join('')+
     '</select></label>'+
-    '<label class="ja-google-home-field"><span>Comando</span><input id="gh-command" placeholder="Ex.: Como está o sistema?"></label>'+
-    '<div class="ja-row-actions">'+actionBtn('ENVIAR E FALAR','gh-send','primary')+actionBtn('ANUNCIAR TEXTO','gh-speak')+actionBtn('ATUALIZAR','gh-refresh')+actionBtn('PROVISIONAR HARDWARE','gh-provision')+'</div>'+
+    '<label class="ja-google-home-field"><span>Comando / Texto</span><input id="gh-command" placeholder="Ex.: Como está a casa? ou Luz da sala"></label>'+
+    '<div class="ja-row-actions">'+
+      actionBtn('FALAR NA CAIXA','gh-speak','primary')+
+      actionBtn('ENVIAR COMANDO','gh-send')+
+      actionBtn('+ ADICIONAR GOOGLE HOME','gh-open-add','primary')+
+      actionBtn('ATUALIZAR','gh-refresh')+
+      actionBtn('PROVISIONAR HARDWARE','gh-provision')+
+    '</div>'+
     '<div id="gh-result" class="ja-google-home-result"></div>'+
   '</article>';
 
-  const body='<div class="ja-native-summary"><div><b>AGENTES</b><strong>'+all.length+'</strong></div><div><b>CLIMA</b><strong>'+esc(clima.clima?.temperatura||'—')+'</strong></div></div>'+
+  let devCards='';
+  if(devices.length>0){
+    devCards='<div style="grid-column:1/-1;margin-top:10px;"><h3 style="color:var(--lcars-light-blue,#99ccff);margin-bottom:8px;">DISPOSITIVOS GOOGLE HOME CADASTRADOS ('+devices.length+')</h3><div class="ja-native-grid">'+
+      devices.map(d=>'<article class="ja-native-card"><h3>'+esc(d.name||d.uuid||'Google Home')+'</h3>'+
+        '<p><strong>Conexão:</strong> '+esc(d.host?'IP: '+d.host:(d.mac?'BT: '+d.mac:(d.tipo_conexao||'Wi-Fi')))+'</p>'+
+        '<p><strong>Cômodo:</strong> '+esc(d.location||'Residência')+'</p>'+
+        '<div style="margin-top:10px;display:flex;justify-content:space-between;align-items:center;">'+
+          '<span class="ja-state '+(d.status==='online'?'ok':'')+'">'+esc(String(d.status||'registrado').toUpperCase())+'</span>'+
+          (d.id?'<button class="ja-mini danger" data-del-gh="'+d.id+'">REMOVER</button>':'')+
+        '</div>'+
+      '</article>').join('')+
+      '</div></div>';
+  } else {
+    devCards='<div style="grid-column:1/-1;margin-top:10px;" class="ja-empty">'+
+      '<p>Nenhum Google Home conectado ainda.</p>'+
+      '<button class="ja-mini primary" data-act="gh-open-add" style="margin-top:8px;">+ ADICIONAR O PRIMEIRO GOOGLE HOME</button>'+
+    '</div>';
+  }
+
+  const body='<div class="ja-native-summary"><div><b>CAIXAS DE SOM</b><strong>'+devices.length+'</strong></div><div><b>AGENTES</b><strong>'+all.length+'</strong></div><div><b>CLIMA</b><strong>'+esc(clima.clima?.temperatura||'—')+'</strong></div></div>'+
     '<div class="ja-native-grid">'+ghCard+
-    all.slice(0,5).map(a=>'<article class="ja-native-card"><h3>'+esc(a.nome||a.tipo||'Agente')+'</h3><p>'+esc(a.descricao||'')+'</p><span class="ja-state '+(a.ativo?'ok':'off')+'">'+(a.ativo?'ATIVO':'INATIVO')+'</span></article>').join('')+
+    all.slice(0,4).map(a=>'<article class="ja-native-card"><h3>'+esc(a.nome||a.tipo||'Agente')+'</h3><p>'+esc(a.descricao||'')+'</p><span class="ja-state '+(a.ativo?'ok':'off')+'">'+(a.ativo?'ATIVO':'INATIVO')+'</span></article>').join('')+
+    devCards+
     '</div>';
 
-  moduleShell('Agentes externos',body);
+  moduleShell('Google Home & Áudio',body,actionBtn('+ ADICIONAR GOOGLE HOME','gh-open-add','primary')+' '+actionBtn('ATUALIZAR','gh-refresh'));
 
-  document.querySelector('[data-act="gh-refresh"]')?.addEventListener('click',renderAgents);
+  document.querySelectorAll('[data-act="gh-open-add"]').forEach(b=>b.addEventListener('click',renderAddGoogleHome));
+  document.querySelectorAll('[data-act="gh-refresh"]').forEach(b=>b.addEventListener('click',renderAgents));
+
+  document.querySelectorAll('[data-del-gh]').forEach(btn=>{
+    btn.addEventListener('click',async()=>{
+      const id=btn.getAttribute('data-del-gh');
+      if(!id||!confirm('Remover este dispositivo Google Home?')) return;
+      try{
+        await postJson('/casa/api/google_home.php',{acao:'excluir',id});
+        renderAgents();
+      }catch(e){alert(e.message||'Falha ao remover dispositivo.');}
+    });
+  });
+
   const ghSend=async(acao)=>{
     const cmd=document.getElementById('gh-command')?.value.trim()||'';
     const device=document.getElementById('gh-device')?.value||'';
     const out=document.getElementById('gh-result');
-    if(!cmd){if(out)out.textContent='Digite um comando.';return;}
-    if(out){out.textContent='Enviando ao COMPUTER...';out.className='ja-google-home-result pending';}
+    if(!cmd){if(out)out.textContent='Digite um comando ou texto para falar.';return;}
+    if(out){out.textContent='Enviando para a caixa de som...';out.className='ja-google-home-result pending';}
     try{
       const r=await postJson('/casa/api/google_home.php',{acao,comando:cmd,texto:cmd,device});
-      if(out){out.textContent=(r.resposta?r.resposta+' — ':'')+(r.mensagem||'Aguardando agente.');out.className='ja-google-home-result pending';}
+      if(out){out.textContent=(r.resposta?r.resposta+' — ':'')+(r.mensagem||'Comando transmitido com sucesso.');out.className='ja-google-home-result ok';}
       if(r.fala_enfileirada && r.id_tarefa){
         for(let i=0;i<40 && out?.isConnected;i++){
           await new Promise(resolve=>setTimeout(resolve,3000));
           const s=await getJson('/casa/api/google_home.php?acao=resultado&id_tarefa='+encodeURIComponent(r.id_tarefa));
-          if(s.tarefa?.status==='CONCLUIDA'){out.textContent='O Google Home confirmou o inicio da reproducao.';out.className='ja-google-home-result ok';break;}
-          if(['ERRO','CANCELADA'].includes(s.tarefa?.status)){out.textContent=s.tarefa.erro||'A fala nao foi concluida.';out.className='ja-google-home-result error';break;}
+          if(s.tarefa?.status==='CONCLUIDA'){out.textContent='O Google Home confirmou a reprodução do áudio.';out.className='ja-google-home-result ok';break;}
+          if(['ERRO','CANCELADA'].includes(s.tarefa?.status)){out.textContent=s.tarefa.erro||'A fala não foi concluída.';out.className='ja-google-home-result error';break;}
         }
       }
     }catch(e){if(out){out.textContent=e.message||'Falha no agente.';out.className='ja-google-home-result error';}}
   };
+
   document.querySelector('[data-act="gh-send"]')?.addEventListener('click',()=>ghSend('comando'));
   document.querySelector('[data-act="gh-speak"]')?.addEventListener('click',()=>ghSend('falar'));
   document.querySelector('[data-act="gh-provision"]')?.addEventListener('click',async()=>{
@@ -2464,9 +2619,10 @@ async function renderAgents(){
     try{
       const r=await postJson('/casa/api/google_home_hardware.php',{acao:'provisionar',nome:'Google Home / COMPUTER'});
       if(out){
-        out.textContent='Hardware provisionado. Copie o token agora e configure CASA_GOOGLE_HOME_DEVICE_TOKEN no serviço: '+(r.device_token||'');
+        out.textContent='Hardware provisionado com sucesso. Token: '+(r.device_token||'');
         out.className='ja-google-home-result ok';
       }
+      setTimeout(renderAgents, 1500);
     }catch(e){if(out){out.textContent=e.message||'Falha ao provisionar.';out.className='ja-google-home-result error';}}
   });
 }
@@ -5533,19 +5689,62 @@ function scheduleAdminMount(){
   requestAnimationFrame(()=>mountAdminTools());
 }
 
+function findItemAnyGroup(itemId){
+  if(!itemId) return null;
+  for(const grp of Object.keys(GROUPS)){
+    const it=findItem(grp,itemId);
+    if(it) return {group:grp,item:it};
+  }
+  return null;
+}
+
+function normalizeGroupName(raw){
+  if(!raw) return null;
+  let g='';
+  try{ g=decodeURIComponent(raw).replace(/\+/g,' ').trim(); }catch(_){ g=String(raw).replace(/\+/g,' ').trim(); }
+  if(GROUPS[g]) return g;
+  const upper=g.toUpperCase();
+  if(upper==='IA & VOZ'||upper==='IA &AMP; VOZ'||upper==='IA AND VOZ'||upper==='IA'||upper==='VOZ'||upper==='IA_VOZ') return 'IA & VOZ';
+  if(upper==='DISPOSITIVOS'||upper==='DEVICES'||upper==='EQUIPAMENTOS') return 'DISPOSITIVOS';
+  if(upper==='AUTOMAÇÃO'||upper==='AUTOMACAO'||upper==='AUTOMATION') return 'AUTOMAÇÃO';
+  if(upper==='OPERAÇÕES'||upper==='OPERACOES'||upper==='OPERATIONS') return 'OPERAÇÕES';
+  if(upper==='SEGURANÇA'||upper==='SEGURANCA'||upper==='SECURITY') return 'SEGURANÇA';
+  if(upper==='FAMÍLIA'||upper==='FAMILIA'||upper==='FAMILY') return 'FAMÍLIA';
+  if(upper==='SISTEMA'||upper==='SYSTEM') return 'SISTEMA';
+  return null;
+}
+
 function restoreRoute(){
   const params=new URLSearchParams(location.search);
-  const g=params.get('grupo');
-  const itemId=params.get('item');
+  const rawG=params.get('grupo');
+  let itemId=params.get('item');
+  const g=normalizeGroupName(rawG);
   suppressHistory=true;
-  if(itemId==='dashboard' || g==='dashboard' || g==='DASHBOARD' || (!g && !itemId)){
+
+  if(itemId==='dashboard' || rawG==='dashboard' || rawG==='DASHBOARD' || (!rawG && !itemId)){
     home(false);
+  } else if(itemId){
+    // Mapeamento de compatibilidade para aliases de Google Home
+    if(itemId==='agentes'||itemId==='gh'||itemId==='google-home') itemId='agentes';
+    if(itemId==='add-gh'||itemId==='cadastrar-gh') itemId='add-google-home';
+
+    let targetGroup=g;
+    let targetItem=g?findItem(g,itemId):null;
+    if(!targetItem){
+      const any=findItemAnyGroup(itemId);
+      if(any){ targetGroup=any.group; targetItem=any.item; }
+    }
+    if(targetGroup && targetItem){
+      currentGroup=targetGroup;
+      openGroup(targetGroup,false);
+      openItem(targetItem,false);
+    } else if(g && GROUPS[g]){
+      openGroup(g,false);
+    } else {
+      home(false);
+    }
   } else if(g && GROUPS[g]){
     openGroup(g,false);
-    if(itemId){
-      const it=findItem(g,itemId);
-      if(it) openItem(it,false);
-    }
   } else {
     home(false);
   }

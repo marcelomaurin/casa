@@ -58,4 +58,68 @@ if($acao==='comando'){
     $speech=gh_enqueue_speech($pdo,$text,trim((string)($in['device']??'')),$taskContext);unset($speech['context']);
     gh_out(te_attach_context(array_merge($r['data'],$speech),$taskContext,$pdo),202);
 }
+if($acao==='cadastrar'||$acao==='adicionar'){
+    $nome=trim((string)($in['nome']??''));
+    if($nome==='')gh_out(['status'=>'erro','mensagem'=>'Nome do dispositivo é obrigatório.'],400);
+    $ip=trim((string)($in['ip_address']??''));
+    if($ip!==''&&!filter_var($ip,FILTER_VALIDATE_IP))gh_out(['status'=>'erro','mensagem'=>'Endereço IP inválido.'],400);
+    $mac=strtoupper(trim((string)($in['mac_address']??'')));
+    if($mac!==''&&!preg_match('/^([0-9A-F]{2}[:-]){5}([0-9A-F]{2})$/',$mac))gh_out(['status'=>'erro','mensagem'=>'Endereço MAC inválido.'],400);
+    $tipoConexao=trim((string)($in['tipo_conexao']??'wifi'));
+    if(!in_array($tipoConexao,['wifi','bluetooth','virtual'],true))$tipoConexao='wifi';
+    $loc=trim((string)($in['localizacao']??'Residência'))?:'Residência';
+
+    $pdo=get_db_pdo();
+    $deviceId='gh-'.bin2hex(random_bytes(4));
+    $token=bin2hex(random_bytes(16));
+    $caps=json_encode(['google-home','cast-speaker','voice-bridge',$tipoConexao],JSON_UNESCAPED_UNICODE);
+    $meta=json_encode([
+        'tipo_conexao'=>$tipoConexao,
+        'cadastrado_por'=>$_SESSION['auth_user']??'admin',
+        'criado_em'=>date('c')
+    ],JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+
+    $st=$pdo->prepare("INSERT INTO dispositivos_cluster (device_id,nome,tipo,ip_address,mac_address,device_token,status,capabilities,metadata,localizacao) VALUES (:did,:nome,'google_home',:ip,:mac,:token,'registrado',:caps,:meta,:loc)");
+    $st->execute([
+        ':did'=>$deviceId,
+        ':nome'=>$nome,
+        ':ip'=>$ip?:null,
+        ':mac'=>$mac?:null,
+        ':token'=>$token,
+        ':caps'=>$caps,
+        ':meta'=>$meta,
+        ':loc'=>$loc
+    ]);
+    $newId=(int)$pdo->lastInsertId();
+    gh_out([
+        'status'=>'sucesso',
+        'mensagem'=>'Dispositivo Google Home adicionado com sucesso.',
+        'device'=>[
+            'id'=>$newId,
+            'device_id'=>$deviceId,
+            'nome'=>$nome,
+            'ip_address'=>$ip?:null,
+            'mac_address'=>$mac?:null,
+            'tipo_conexao'=>$tipoConexao,
+            'localizacao'=>$loc
+        ]
+    ]);
+}
+
+if($acao==='excluir'||$acao==='remover'){
+    $id=(int)($in['id']??$_GET['id']??0);
+    $deviceId=trim((string)($in['device_id']??$_GET['device_id']??''));
+    if($id<=0&&$deviceId==='')gh_out(['status'=>'erro','mensagem'=>'ID ou identificador do dispositivo não informado.'],400);
+
+    $pdo=get_db_pdo();
+    if($id>0){
+        $st=$pdo->prepare("DELETE FROM dispositivos_cluster WHERE id=:id AND tipo='google_home'");
+        $st->execute([':id'=>$id]);
+    } else {
+        $st=$pdo->prepare("DELETE FROM dispositivos_cluster WHERE device_id=:did AND tipo='google_home'");
+        $st->execute([':did'=>$deviceId]);
+    }
+    gh_out(['status'=>'sucesso','mensagem'=>'Dispositivo Google Home removido com sucesso.']);
+}
+
 gh_out(['status'=>'erro','mensagem'=>'Ação desconhecida.'],400);

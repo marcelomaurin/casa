@@ -9,7 +9,14 @@ define('CASA_SEGURANCA_SEM_AUTOCHECK', true);
 require_once(__DIR__ . '/api/seguranca.php');
 $mensagem_erro = '';
 $mensagem_sucesso = '';
-$basePath = '/casa';
+
+// Detecta basePath dinamicamente: se executado sob /casa/ ou na raiz /
+$detectedBase = function_exists('casa_base_path') ? casa_base_path() : '';
+if ($detectedBase === '') {
+    $scriptDir = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
+    $detectedBase = ($scriptDir !== '' && $scriptDir !== '.') ? $scriptDir : '';
+}
+$basePath = $detectedBase !== '' ? $detectedBase : '/casa';
 
 function login_log(string $evento, string $detalhe = ''): void {
     $dir = __DIR__ . '/log';
@@ -31,8 +38,14 @@ if (isset($_GET['logout'])) {
     session_destroy();
     $mensagem_sucesso = 'Sessão encerrada com segurança. Acesso bloqueado.';
 }
+$redirectTarget = !empty($_GET['redirect']) ? (string)$_GET['redirect'] : (!empty($_POST['redirect']) ? (string)$_POST['redirect'] : '');
+if ($redirectTarget !== '' && (!str_starts_with($redirectTarget, '/') || str_starts_with($redirectTarget, '//'))) {
+    $redirectTarget = '';
+}
+$loginTarget = $redirectTarget !== '' ? $redirectTarget : ($basePath . '/index.php');
+
 if (!empty($_SESSION['auth_user'])) {
-    header('Location: ' . $basePath . '/index.php'); exit;
+    header('Location: ' . $loginTarget); exit;
 }
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $usuario = isset($_POST['usuario']) ? trim($_POST['usuario']) : '';
@@ -100,7 +113,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $log = $pdo->prepare("INSERT INTO comandos_log (comando, origem, resultado) VALUES (:cmd, 'SEGURANCA', :res)");
                     $log->execute([':cmd' => 'Login Autorizado (' . $user['login'] . ')', ':res' => 'Sucesso - IP: ' . $ip]);
                 } catch (Throwable $e) { login_log('LOG_BANCO_ERRO', get_class($e) . ': ' . $e->getMessage()); }
-                header('Location: ' . $basePath . '/index.php'); exit;
+                header('Location: ' . $loginTarget); exit;
             }
             login_log('LOGIN_NEGADO', 'usuario=' . strtolower($usuario));
             $mensagem_erro = 'Acesso negado: credenciais inválidas ou operador inativo.';
@@ -113,7 +126,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } catch (Throwable $e) { login_log('LOG_BANCO_ERRO', get_class($e) . ': ' . $e->getMessage()); }
         } catch (Throwable $e) {
             login_log('ERRO_FATAL', get_class($e) . ': ' . $e->getMessage());
-            $mensagem_erro = 'Falha no núcleo de segurança. Verifique o arquivo log/login.log.';
+            $msgEx = $e->getMessage();
+            if (stripos($msgEx, 'Senha do banco') !== false || stripos($msgEx, 'Access denied') !== false || stripos($msgEx, 'Connection') !== false || stripos($msgEx, 'SQLSTATE') !== false || stripos($msgEx, 'PDO') !== false) {
+                $mensagem_erro = 'Falha de conexão com a base de dados central. Verifique o arquivo api/config.local.php ou as credenciais MySQL.';
+            } else {
+                $mensagem_erro = 'Falha no núcleo de segurança. Verifique o arquivo log/login.log.';
+            }
         }
     }
 }
@@ -123,4 +141,4 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <style>:root{--bg:#f4e8d1;--panel:#fff8e8;--ink:#241f24;--orange:#e98b52;--salmon:#d96c75;--lav:#8d78a8;--blue:#617fa3;--muted:#6d6466}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);color:var(--ink);font-family:Arial,sans-serif}.lcars{width:min(94vw,760px);display:grid;grid-template-columns:170px 1fr;min-height:480px}.rail{background:var(--orange);border-radius:48px 0 0 48px;padding:90px 18px 18px;display:flex;flex-direction:column;gap:12px}.rail div{background:var(--salmon);min-height:44px;border-radius:22px 0 0 22px;padding:12px;font-weight:700;text-transform:uppercase}.rail div:nth-child(2){background:var(--lav)}.rail div:nth-child(3){background:var(--blue)}.content{background:var(--panel);border:14px solid var(--orange);border-left:0;border-radius:0 42px 42px 0;padding:42px}h1{margin:0;font-size:30px;letter-spacing:2px}.sub{color:var(--muted);margin:8px 0 30px}label{display:block;margin:16px 0 6px;font-weight:700;text-transform:uppercase;font-size:12px}input{width:100%;padding:14px;border:2px solid var(--lav);border-radius:18px;background:#fff;font-size:16px}button{width:100%;margin-top:24px;padding:15px;border:0;border-radius:22px;background:var(--salmon);color:#171317;font-weight:800;font-size:15px;cursor:pointer}.alert{padding:12px 16px;margin:14px 0;border-radius:18px;background:#fff;border-left:8px solid var(--salmon)}.success{border-left-color:#5f9b76}.foot{margin-top:28px;color:var(--muted);font-size:12px}@media(max-width:640px){.lcars{grid-template-columns:72px 1fr}.rail{padding:70px 8px 8px}.rail div{font-size:0}.content{padding:26px 20px}}</style></head><body>
 <div class="lcars"><aside class="rail"><div>Acesso</div><div>Casa</div><div>Jarvis</div></aside><main class="content"><h1>CASA / JARVIS</h1><div class="sub">C.A.S.A. Controle Autônomo de Serviço Assistivo</div>
 <?php if ($mensagem_erro !== ''): ?><div class="alert"><?= htmlspecialchars($mensagem_erro) ?></div><?php endif; ?><?php if ($mensagem_sucesso !== ''): ?><div class="alert success"><?= htmlspecialchars($mensagem_sucesso) ?></div><?php endif; ?>
-<form method="POST" action="<?= htmlspecialchars($basePath) ?>/login.php"><label for="usuario">Operador</label><input type="text" id="usuario" name="usuario" required autocomplete="username" autofocus autocapitalize="none" spellcheck="false"><label for="senha">Senha</label><input type="password" id="senha" name="senha" required autocomplete="current-password"><button type="submit">AUTORIZAR ACESSO</button></form><div class="foot">MAURINSOFT • MYSQL • MAURINSOFT.COM.BR/CASA</div></main></div></body></html>
+<form method="POST" action="<?= htmlspecialchars($basePath) ?>/login.php"><?php if ($redirectTarget !== ''): ?><input type="hidden" name="redirect" value="<?= htmlspecialchars($redirectTarget, ENT_QUOTES, 'UTF-8') ?>"><?php endif; ?><label for="usuario">Operador</label><input type="text" id="usuario" name="usuario" required autocomplete="username" autofocus autocapitalize="none" spellcheck="false"><label for="senha">Senha</label><input type="password" id="senha" name="senha" required autocomplete="current-password"><button type="submit">AUTORIZAR ACESSO</button></form><div class="foot">MAURINSOFT • MYSQL • MAURINSOFT.COM.BR/CASA</div></main></div></body></html>

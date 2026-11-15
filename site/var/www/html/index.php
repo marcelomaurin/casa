@@ -2,7 +2,11 @@
 require_once __DIR__.'/api/site_update_hook.php';
 require_once __DIR__.'/api/site_update_guard.php';
 if (session_status() === PHP_SESSION_NONE) session_start();
-if (empty($_SESSION['auth_user'])) { header('Location: /casa/login.php'); exit; }
+if (empty($_SESSION['auth_user'])) {
+    $redirect = !empty($_SERVER['REQUEST_URI']) ? '?redirect='.urlencode($_SERVER['REQUEST_URI']) : '';
+    header('Location: /casa/login.php'.$redirect);
+    exit;
+}
 if (empty($_SESSION['jarvis_session_token'])) $_SESSION['jarvis_session_token'] = bin2hex(random_bytes(32));
 $jarvisSessionToken = (string)$_SESSION['jarvis_session_token'];
 $authName = !empty($_SESSION['auth_name']) ? $_SESSION['auth_name'] : ($_SESSION['auth_user'] ?? 'Usuário');
@@ -33,7 +37,7 @@ $authName = !empty($_SESSION['auth_name']) ? $_SESSION['auth_name'] : ($_SESSION
   <script src="/casa/lcars-framework.js?v=1.3.0"></script>
   <script src="/casa/qrcode.min.js"></script>
   <script src="/casa/lcars-i18n.js?v=1.0.0"></script>
-  <script src="/casa/lcars-site.js?v=1.6.4"></script>
+  <script src="/casa/lcars-site.js?v=1.6.5"></script>
   <script src="/casa/lcars-iot.js?v=1.1.0"></script>
 </body>
 </html>

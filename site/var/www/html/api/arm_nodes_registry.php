@@ -150,7 +150,7 @@ function arm_cluster_service_catalog(): array {
             'protected' => false,
             'exclusive' => true,
             'default_ip' => '192.168.2.16',
-            'default_owner' => 'Raspberry Pi 3B (.16)',
+            'default_owner' => 'Raspberry Pi 3B (.16) [1GB RAM]',
             'port' => null,
             'entrypoint' => '/opt/casa-scheduler/casa-scheduler.py',
             'purpose' => 'Motor cronológico da residência: avalia regras agendadas (horários de ligar/desligar luzes, relés, cenas automáticas, avisos matinais e rotinas periódicas) e dispara as ações no horário exato.',
@@ -163,7 +163,7 @@ function arm_cluster_service_catalog(): array {
             'protected' => false,
             'exclusive' => true,
             'default_ip' => '192.168.2.16',
-            'default_owner' => 'Raspberry Pi 3B (.16)',
+            'default_owner' => 'Raspberry Pi 3B (.16) [1GB RAM]',
             'port' => null,
             'entrypoint' => '/opt/casa-tunnel/casa-tunnel.py',
             'purpose' => 'Mantém o túnel reverso e a ponte de conectividade segura entre a rede interna da residência (LAN 192.168.2.x) e o servidor em nuvem (maurinsoft.com.br).',
@@ -176,7 +176,7 @@ function arm_cluster_service_catalog(): array {
             'protected' => false,
             'exclusive' => true,
             'default_ip' => '192.168.2.16',
-            'default_owner' => 'Raspberry Pi 3B (.16)',
+            'default_owner' => 'Raspberry Pi 3B (.16) [1GB RAM]',
             'port' => 5005,
             'entrypoint' => '/opt/casa/servicos/runpod-agent/casa-runpod-agent.py',
             'purpose' => 'Gerencia sob demanda instâncias de GPU na nuvem (RunPod) para tarefas pesadas de IA (modelos LLM grandes, visão avançada e treinamento), desligando pods ociosos para economizar custos.',
@@ -201,11 +201,11 @@ function arm_cluster_service_catalog(): array {
 function arm_node_default_profile(string $ip): array {
     $profiles = [
         '192.168.2.13' => [
-            'role' => 'Nó de IA, Voz Neural TTS, Visão ESPCam & Controlador SSH',
+            'role' => 'Nó Primário de IA, Voz Neural TTS, Visão ESPCam & Controlador SSH [4GB RAM]',
             'assigned_services' => ['casa-cluster-site', 'casa-node-agent', 'ssh', 'casa-tts', 'jarvis-web-agent', 'espcam_daemon', 'casa-ssh-agent'],
         ],
         '192.168.2.16' => [
-            'role' => 'Nó de Automação (Scheduler), Túnel Nuvem & RunPod GPU',
+            'role' => 'Nó Leve de Automação (Scheduler), Túnel Nuvem & RunPod GPU [1GB RAM]',
             'assigned_services' => ['casa-cluster-site', 'casa-node-agent', 'ssh', 'casa-scheduler', 'casa-tunnel', 'casa-runpod-agent'],
         ],
         '192.168.2.14' => [

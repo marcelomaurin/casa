@@ -21,11 +21,60 @@ function gh_bridge_status(PDO $pdo,?int $now=null): array {
     $data=json_decode((string)$st->fetchColumn(),true)?:[];
     $now=$now??time();$seen=$data['received_at']??0;
     $recent=is_int($seen) && $seen>0 && $seen<=$now && $seen>=($now-90);
-    $online=$recent && !empty($data['online']) && !empty($data['queue_alive']);
-    return ['status'=>$online?'ok':'offline','online'=>$online,'agent_online'=>$recent,
-        'devices'=>$recent?($data['devices']??[]):[],'hardware_status'=>$online?'ONLINE':'OFFLINE',
-        'mensagem'=>$online?'Agente Google Home conectado pela fila.':($recent?'Agente conectado; aguardando Google Home ou consumidor da fila.':'Agente Google Home sem contato recente.'),
-        'transport'=>'fila_https','last_seen'=>$data['received_at']??null];
+    $agentOnline=$recent && !empty($data['online']) && !empty($data['queue_alive']);
+
+    $regDevices=[];
+    try {
+        $stDev=$pdo->query("SELECT id, device_id, nome, ip_address, mac_address, status, localizacao, metadata, ultimo_heartbeat FROM dispositivos_cluster WHERE tipo='google_home' ORDER BY id ASC");
+        while ($row=$stDev->fetch(PDO::FETCH_ASSOC)) {
+            $meta=json_decode((string)($row['metadata']??''),true)?:[];
+            $regDevices[]=[
+                'id'=>(int)$row['id'],
+                'uuid'=>$row['device_id'],
+                'name'=>$row['nome'],
+                'host'=>$row['ip_address'],
+                'mac'=>$row['mac_address'],
+                'tipo_conexao'=>$meta['tipo_conexao']??($row['mac_address']?'bluetooth':'wifi'),
+                'status'=>$row['status']?:'registrado',
+                'location'=>$row['localizacao']?:'Residência',
+                'last_seen'=>$row['ultimo_heartbeat']
+            ];
+        }
+    } catch (Throwable $e) {}
+
+    // Mescla dispositivos descobertos pelo agente e os cadastrados manualmente
+    $allDevices=$regDevices;
+    $seenIds=[];
+    foreach ($regDevices as $rd) { $seenIds[$rd['uuid']]=true; if ($rd['name']) $seenIds[$rd['name']]=true; }
+    if ($recent && !empty($data['devices']) && is_array($data['devices'])) {
+        foreach ($data['devices'] as $d) {
+            $u=$d['uuid']??$d['name']??'';
+            if ($u!=='' && empty($seenIds[$u])) {
+                $allDevices[]=['uuid'=>$d['uuid']??$u,'name'=>$d['name']??'Google Home','host'=>$d['host']??null,'status'=>'online','location'=>'Wi-Fi Cast'];
+                $seenIds[$u]=true;
+            }
+        }
+    }
+
+    $hasDevices=count($allDevices)>0;
+    $online=$agentOnline || $hasDevices;
+    $msg=$agentOnline ? 'Agente Google Home conectado pela fila.' :
+         ($hasDevices ? count($allDevices).' dispositivo(s) Google Home configurado(s).' :
+         ($recent ? 'Agente conectado; aguardando pareamento com o Google Home.' : 'Agente Google Home sem contato recente. Adicione seu dispositivo abaixo.'));
+
+    $hwStatus=$hasDevices ? count($allDevices).' CADASTRADO(S)' : ($agentOnline?'ONLINE':'OFFLINE');
+
+    return [
+        'status'=>$online?'ok':'offline',
+        'online'=>$online,
+        'agent_online'=>$recent,
+        'devices'=>$allDevices,
+        'registered_devices'=>$regDevices,
+        'hardware_status'=>$hwStatus,
+        'mensagem'=>$msg,
+        'transport'=>'fila_https',
+        'last_seen'=>$data['received_at']??null
+    ];
 }
 
 function gh_enqueue_speech(PDO $pdo,string $text,string $device='',?array $context=null): array {
