@@ -97,7 +97,7 @@ function gh_bridge_status(PDO $pdo,?int $now=null): array {
 
             // Se tiver heartbeat recente (< 180s)
             $seenH = strtotime((string)$row['ultimo_heartbeat']);
-            if ($seenH && ($now - $seenH) < 180) {
+            if ($seenH && ($now - $seenH) >= 0 && ($now - $seenH) < 180) {
                 $isOnline = true;
             }
 
@@ -141,11 +141,11 @@ function gh_bridge_status(PDO $pdo,?int $now=null): array {
     }
 
     $hasDevices=count($allDevices)>0;
-    $online=$agentOnline || $hasDevices;
+    $online=$agentOnline;
     $msg=$hasDevices ? count($allDevices).' dispositivo(s) Google Home online.' :
          ($agentOnline ? 'Agente Google Home conectado pela fila.' : 'Nenhum dispositivo Google Home online detectado.');
 
-    $hwStatus=$hasDevices ? count($allDevices).' ONLINE' : 'OFFLINE';
+    $hwStatus=$online ? ($hasDevices ? count($allDevices).' ONLINE' : 'CONECTADO') : 'OFFLINE';
 
     return [
         'status'=>$online?'ok':'offline',
