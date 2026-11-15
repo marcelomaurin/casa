@@ -1,0 +1,20 @@
+[Unit]
+Description=CASA Tuya Wi-Fi & Sensor Daemon
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/casa-tuya-daemon
+ExecStart=/usr/bin/python3 /opt/casa-tuya-daemon/casa-tuya-daemon.py
+Restart=always
+RestartSec=5
+Environment=CASA_TUYA_PORT=8101
+Environment=CASA_ORCHESTRATOR_URL=http://127.0.0.1:8090/evento
+Environment=CASA_TUYA_CONFIG=/opt/casa-tuya-daemon/tuya_devices.json
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

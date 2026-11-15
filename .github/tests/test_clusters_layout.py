@@ -6,10 +6,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 PROGRAMS = {
     'comunicacao/arm-agent': 'casa-node-agent.py',
+    'comunicacao/tuya-wifi-daemon': 'casa-tuya-daemon.py',
     'automacao/casa-scheduler': 'casa-scheduler.py',
     'automacao/casa-tarefas': 'casa-tarefas.py',
+    'automacao/casa-orquestrador': 'casa-orquestrador.py',
+    'automacao/timestral-series': 'casa-timestral.py',
     'voz/google-home-agent': 'google_home_agent.py',
+    'voz/google-home-bt': 'casa-google-home-bt.py',
     'voz/tts': 'server_tts.py',
+    'voz/parakeet-stt': 'casa-parakeet-stt.py',
+    'voz/pocket-tts': 'casa-pocket-tts.py',
     'visao/espcam': 'processa_imagem.py',
     'visao/raspberrypi-avatar-agent': 'meta-casa-avatar/recipes-casa/casa-avatar/files/casa_avatar.py',
     'pesquisa/web-agent': 'web_agent.py',

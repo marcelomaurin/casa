@@ -9,13 +9,19 @@ GPU remotos e não significa executar esses recursos no ARM.
 clusters/
 ├── site/                          Portal web local do nó do cluster (porta 8080)
 ├── comunicacao/
-│   └── arm-agent/                 Agente principal do nó ARM
+│   ├── arm-agent/                 Agente principal do nó ARM
+│   └── tuya-wifi-daemon/          Daemon de controle e sensores Tuya Wi-Fi (:8101)
 ├── automacao/
 │   ├── casa-scheduler/            Agendamento e execução de tarefas
-│   └── casa-tarefas/              Executor da fila de tarefas do planejador
+│   ├── casa-tarefas/              Executor da fila de tarefas do planejador
+│   ├── casa-orquestrador/         Orquestrador residencial inteligente com IA (:8090)
+│   └── timestral-series/          Análise de séries temporais Timestral-5M
 ├── voz/
 │   ├── google-home-agent/         Integração Google Home / Chromecast
-│   └── tts/                       Síntese e clonagem de voz
+│   ├── google-home-bt/            Ponte Bluetooth bidirecional Google Home (:8094)
+│   ├── tts/                       Síntese e clonagem de voz
+│   ├── parakeet-stt/              Reconhecimento de voz local (Parakeet STT)
+│   └── pocket-tts/                Síntese de voz leve (Pocket-TTS)
 ├── visao/
 │   ├── espcam/                    Processamento de imagens de câmeras
 │   └── raspberrypi-avatar-agent/  Avatar e Kinect, imagem Linux Yocto
@@ -34,9 +40,9 @@ clusters/
 | Área | Programas | Relação com o site |
 |---|---|---|
 | [Site do Cluster](site/README.md) | casa-cluster-site | Portal web local (porta 8080) para visualização e telemetria dos serviços do nó |
-| [Comunicação](comunicacao/README.md) | arm-agent | Heartbeat e comandos pela API v1; aparece no painel ARM |
-| [Automação](automacao/README.md) | casa-scheduler, casa-tarefas | Agendamento; executor da fila do planejador pela API v1 (`/api/v1/fila.php`) |
-| [Voz](voz/README.md) | google-home-agent, tts | Google Home usa registro específico; TTS é serviço auxiliar |
+| [Comunicação](comunicacao/README.md) | arm-agent, tuya-wifi-daemon | Heartbeat, comandos API v1 e integração Tuya Wi-Fi (:8101) |
+| [Automação](automacao/README.md) | casa-scheduler, casa-tarefas, casa-orquestrador, timestral-series | Orquestrador IA (:8090); Agendamento; fila do planejador e análise de séries temporais (:8091) |
+| [Voz](voz/README.md) | google-home-agent, google-home-bt, tts, parakeet-stt, pocket-tts | Google Home Cast/Bluetooth (:8094), TTS, Parakeet STT e Pocket-TTS são serviços auxiliares |
 | [Visão](visao/README.md) | espcam, raspberrypi-avatar-agent | Avatar usa heartbeat v1; ESPCam contém processadores auxiliares |
 | [Pesquisa](pesquisa/README.md) | web-agent | API de pesquisa; sem heartbeat próprio ARM |
 | [Infraestrutura](infraestrutura/README.md) | casa-cluster-monitor, casa-cluster-update, casa-ssh-agent, casa-tunnel, runpod-agent | Atualização (`/api/v1/updates.php`), monitoramento e serviços auxiliares |
