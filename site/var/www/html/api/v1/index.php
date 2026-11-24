@@ -143,6 +143,7 @@ if ($subpath === '' || $subpath === 'status') {
 }
 
 if ($subpath === 'comando') {
+    require_once(__DIR__ . '/command_conversation.php');
     $cmd = trim($input['comando'] ?? '');
     $ia_mode = trim($input['ia_mode'] ?? 'auto');
     if ($cmd === '') api_v1_error(400, 'Parâmetro comando obrigatório.');
@@ -155,12 +156,7 @@ if ($subpath === 'comando') {
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER=>true,
         CURLOPT_POST=>true,
-        CURLOPT_POSTFIELDS=>json_encode([
-            'comando'=>$cmd,
-            'ia_mode'=>$ia_mode,
-            'origem'=>'API_V1',
-            'correlation_id'=>$correlationId
-        ]),
+        CURLOPT_POSTFIELDS=>json_encode(api_v1_command_payload($input, $cmd, $ia_mode, $correlationId), JSON_UNESCAPED_UNICODE),
         CURLOPT_HTTPHEADER=>['Content-Type: application/json','X-API-Key: ' . get_system_api_token()],
         CURLOPT_TIMEOUT=>30
     ]);
@@ -168,8 +164,11 @@ if ($subpath === 'comando') {
     $http = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
 
-    if ($res === false || $http >= 500) api_v1_error(502, 'Falha no núcleo cognitivo do JARVIS.');
-    $data = json_decode($res, true);
+    try {
+        $data = api_v1_command_response($res, (int)$http);
+    } catch (RuntimeException $e) {
+        api_v1_error(502, $e->getMessage());
+    }
     echo json_encode([
         'status'=>'sucesso',
         'comando'=>$cmd,

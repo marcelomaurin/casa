@@ -173,6 +173,9 @@ jobs:
       - name: Test COMPUTER continuous voice
         run: node .github/tests/test_voz_continua_ui.js
 
+      - name: Test SIP conversation context
+        run: php .github/tests/test_sip_conversation.php
+
       - name: Test ARM agent command results
         run: python3 clusters/comunicacao/arm-agent/tests/test_resultado_comando.py
 
