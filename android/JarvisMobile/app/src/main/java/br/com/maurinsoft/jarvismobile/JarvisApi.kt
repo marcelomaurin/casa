@@ -105,14 +105,30 @@ object JarvisApi {
 
     fun isOnline(context: Context): Boolean = runCatching { testConnection(context) }.isSuccess
 
-    fun askJarvis(context: Context, text: String): JarvisAnswer {
+    /** Uma mensagem anterior da conversa: [role] é "user" ou "assistant". */
+    data class ChatTurn(val role: String, val content: String)
+
+    private const val MAX_HISTORY_TURNS = 12
+    private const val MAX_HISTORY_CHARS = 1000
+
+    fun askJarvis(context: Context, text: String, history: List<ChatTurn> = emptyList()): JarvisAnswer {
         val language = LanguageManager.currentLanguage(context)
-        val raw = request(context, "/api/v1/comando", JSONObject()
+        val body = JSONObject()
             .put("comando", text)
             .put("ia_mode", "auto")
             .put("origem", "ANDROID_APP")
             .put("idioma", language)
-            .put("locale", language))
+            .put("locale", language)
+        // Contexto da conversa para perguntas de continuação ("e no quarto?").
+        val turns = history
+            .filter { (it.role == "user" || it.role == "assistant") && it.content.isNotBlank() }
+            .takeLast(MAX_HISTORY_TURNS)
+        if (turns.isNotEmpty()) {
+            val arr = JSONArray()
+            turns.forEach { arr.put(JSONObject().put("role", it.role).put("content", it.content.take(MAX_HISTORY_CHARS))) }
+            body.put("historico_mensagens", arr)
+        }
+        val raw = request(context, "/api/v1/comando", body)
         val j = JSONObject(raw)
         val audio = j.optString("audio_url").takeIf { it.isNotBlank() && it != "null" }
         lastAudioUrl = audio
@@ -138,8 +154,8 @@ object JarvisApi {
         JSONArray(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(PENDING_KEY, "[]")).length()
     }.getOrDefault(0)
 
-    fun sendOrQueue(context: Context, text: String): SendResult = try {
-        val answer = askJarvis(context, text)
+    fun sendOrQueue(context: Context, text: String, history: List<ChatTurn> = emptyList()): SendResult = try {
+        val answer = askJarvis(context, text, history)
         SendResult(true, false, answer, answer.text)
     } catch (e: IOException) {
         // Timeout pode ocorrer depois da execução: nunca repetir sem revisão do usuário.
@@ -165,6 +181,26 @@ object JarvisApi {
     @Synchronized
     fun clearPending(context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(PENDING_KEY).commit()
+    }
+
+    /**
+     * Remove da fila os comandos que passaram do prazo de revisão e devolve
+     * quantos foram descartados, para que o usuário seja avisado.
+     */
+    @Synchronized
+    fun pruneExpiredPending(context: Context, now: Long = System.currentTimeMillis()): Int {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val source = runCatching { JSONArray(prefs.getString(PENDING_KEY, "[]")) }.getOrElse { JSONArray() }
+        if (source.length() == 0) return 0
+        val createdAt = (0 until source.length()).map { source.optJSONObject(it)?.optLong("created_at") ?: 0L }
+        val expired = PendingCommandPolicy.expiredIndices(createdAt, now)
+        if (expired.isEmpty()) return 0
+        val remaining = JSONArray()
+        for (i in 0 until source.length()) {
+            if (i !in expired) source.optJSONObject(i)?.let { remaining.put(it) }
+        }
+        prefs.edit().putString(PENDING_KEY, remaining.toString()).apply()
+        return expired.size
     }
 
     @Synchronized

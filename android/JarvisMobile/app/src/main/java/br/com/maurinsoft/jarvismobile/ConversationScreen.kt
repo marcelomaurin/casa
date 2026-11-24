@@ -45,10 +45,17 @@ fun ConversationScreen(online: Boolean, speech: SpeechInputController, audio: Ja
     fun send(value: String) {
         if (value.isBlank() || busy) return
         busy = true
+        val history = entries.mapNotNull { e ->
+            when (e.role) {
+                "Você" -> JarvisApi.ChatTurn("user", e.text)
+                "JARVIS" -> JarvisApi.ChatTurn("assistant", e.text)
+                else -> null
+            }
+        }
         add("Você", value)
         scope.launch {
             try {
-                val result = withContext(Dispatchers.IO) { JarvisCommandController(context).send(value) }
+                val result = withContext(Dispatchers.IO) { JarvisCommandController(context).send(value, history) }
                 add("JARVIS", result.text ?: result.message)
                 if (result.delivered) audio.play(result.audioUrl)
                 pending = JarvisApi.pendingCount(context)

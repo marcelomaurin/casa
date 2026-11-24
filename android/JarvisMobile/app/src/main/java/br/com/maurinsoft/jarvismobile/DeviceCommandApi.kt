@@ -37,6 +37,19 @@ object DeviceCommandApi {
     fun start(context:Context,id:Long){request(context,"command_start",JSONObject().put("id",id))}
     fun result(context:Context,id:Long,ok:Boolean,result:JSONObject=JSONObject(),error:String?=null){request(context,"command_result",JSONObject().put("id",id).put("status",if(ok)"success" else "error").put("result",result).apply{if(!ok)put("error",error?:"Falha no Casa Mobile")})}
 
+    private val emergencyCommands=setOf("emergency.sos","emergency.location","emergency.cancelled")
+
+    private fun handle(app:Context,notifier:JarvisServiceNotifier,cmd:Command){
+        runCatching{ack(app,cmd.id)}
+        runCatching{start(app,cmd.id)}
+        if(cmd.name in emergencyCommands){
+            val shown=notifier.showEmergency(cmd.name,cmd.payload)
+            result(app,cmd.id,shown,JSONObject().put("handled",shown).put("command",cmd.name).put("surface","android_notification"),if(shown)null else "notification_unavailable")
+        }else{
+            result(app,cmd.id,false,JSONObject().put("handled",false).put("command",cmd.name),"unsupported_mobile_command")
+        }
+    }
+
     fun startLoop(context:Context){
         if(!running.compareAndSet(false,true))return
         val app=context.applicationContext
@@ -46,15 +59,9 @@ object DeviceCommandApi {
                 try{
                     if(JarvisApi.isConfigured(app)){
                         poll(app).forEach{cmd->
-                            runCatching{ack(app,cmd.id)}
-                            runCatching{start(app,cmd.id)}
-                            val supported=cmd.name in setOf("emergency.sos","emergency.location","emergency.cancelled")
-                            if(supported){
-                                val shown=notifier.showEmergency(cmd.name,cmd.payload)
-                                result(app,cmd.id,shown,JSONObject().put("handled",shown).put("command",cmd.name).put("surface","android_notification"),if(shown)null else "notification_unavailable")
-                            }else{
-                                result(app,cmd.id,false,JSONObject().put("handled",false).put("command",cmd.name),"unsupported_mobile_command")
-                            }
+                            // Cada comando é isolado: uma falha ao reportar um resultado
+                            // não pode impedir que o próximo alerta de emergência apareça.
+                            runCatching{handle(app,notifier,cmd)}
                         }
                     }
                 }catch(_:Throwable){}

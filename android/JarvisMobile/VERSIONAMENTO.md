@@ -2,8 +2,8 @@
 
 ## Versão atual
 
-- `versionName`: `2.8.4`
-- `versionCode`: `284`
+- `versionName`: `2.8.5`
+- `versionCode`: `285`
 - pacote de desenvolvimento: `br.com.maurinsoft.jarvismobile.debug`
 - pacote de produção: `br.com.maurinsoft.jarvismobile`
 
@@ -114,3 +114,10 @@ Toda nova versão deve atualizar também `bin/versions.json`. Consulte [MOBILE_A
 - Incremento de versão para distribuição do aplicativo Android Casa Mobile.
 - Verificação periódica de novas versões autorizadas enquanto o app estiver ativo.
 - Sincronização contínua de telemetria e estado de conectividade com a infraestrutura central.
+
+## Histórico — 2.8.5
+
+- Notificações da CASA são confirmadas logo após aparecerem no celular; uma falha no repasse ao relógio não as repete mais a cada ciclo.
+- Cursor das mensagens e chamadas da família persistido, evitando reexibir chamadas antigas após reiniciar o serviço.
+- Laço de comandos de emergência (SOS) iniciado junto com o serviço em primeiro plano, com cada comando tratado de forma isolada.
+- Aviso por notificação quando comandos da fila expiram (5 minutos) sem envio.
