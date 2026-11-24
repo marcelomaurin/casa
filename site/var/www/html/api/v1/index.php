@@ -149,6 +149,19 @@ if ($subpath === 'comando') {
 
     $correlationId=api_v1_correlation_id($input['correlation_id'] ?? null);
 
+    // Histórico da conversa (role user/assistant) para perguntas de continuação.
+    // jarvis.php valida cada item; aqui só limitamos a quantidade e o tamanho.
+    $historico = [];
+    if (is_array($input['historico_mensagens'] ?? null)) {
+        foreach (array_slice($input['historico_mensagens'], -20) as $msg) {
+            if (!is_array($msg)) continue;
+            $historico[] = [
+                'role' => (string)($msg['role'] ?? ''),
+                'content' => mb_substr((string)($msg['content'] ?? ''), 0, 2000)
+            ];
+        }
+    }
+
     // No Hostinger esta rota delega ao jarvis.php do próprio site.
     $url = casa_url_interna('api/jarvis.php');
     $ch = curl_init($url);
@@ -159,7 +172,8 @@ if ($subpath === 'comando') {
             'comando'=>$cmd,
             'ia_mode'=>$ia_mode,
             'origem'=>'API_V1',
-            'correlation_id'=>$correlationId
+            'correlation_id'=>$correlationId,
+            'historico_mensagens'=>$historico
         ]),
         CURLOPT_HTTPHEADER=>['Content-Type: application/json','X-API-Key: ' . get_system_api_token()],
         CURLOPT_TIMEOUT=>30

@@ -15,8 +15,8 @@ class JarvisCommandController(private val context: Context) {
         val message: String
     )
 
-    fun send(text: String): Outcome {
-        val result = JarvisApi.sendOrQueue(context, text)
+    fun send(text: String, history: List<JarvisApi.ChatTurn> = emptyList()): Outcome {
+        val result = JarvisApi.sendOrQueue(context, text, history)
         return Outcome(
             delivered = result.delivered,
             queued = result.queued,
