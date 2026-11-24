@@ -1,0 +1,6 @@
+# Troque por senhas individuais. O daemon recusa senhas CHANGE_ME.
+[1001]
+password=CHANGE_ME_PHONE_1
+
+[1002]
+password=CHANGE_ME_PHONE_2

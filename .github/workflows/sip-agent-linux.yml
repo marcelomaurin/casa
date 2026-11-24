@@ -1,0 +1,63 @@
+name: Casa SIP voice daemon (Linux)
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'clusters/voz/sip-agent/**'
+      - 'site/var/www/html/api/v1/command_conversation.php'
+      - 'site/var/www/html/api/v1/index.php'
+      - '.github/tests/test_sip_conversation.php'
+      - '.github/workflows/sip-agent-linux.yml'
+  pull_request:
+    paths:
+      - 'clusters/voz/sip-agent/**'
+      - 'site/var/www/html/api/v1/command_conversation.php'
+      - 'site/var/www/html/api/v1/index.php'
+      - '.github/tests/test_sip_conversation.php'
+      - '.github/workflows/sip-agent-linux.yml'
+permissions:
+  contents: read
+jobs:
+  daemon:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: marcelomaurin/CHATGPT
+          ref: 6e9e3b1ccee8b7a026cdf0eea09613bd0fcd9d66
+          path: .chatgpt
+          persist-credentials: false
+          sparse-checkout: |
+            pacote/AI
+            pacote/AI Agent
+            pacote/AI Communication/AISIP
+            native/sip
+            tests
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y fp-compiler fp-units-fcl fp-units-net libcurl4-openssl-dev libssl-dev pkg-config build-essential php-cli
+      - uses: actions/checkout@v4
+        with:
+          repository: pjsip/pjproject
+          ref: '2.17'
+          path: .pjproject
+          persist-credentials: false
+      - name: Build SIP runtime and Casa daemon
+        shell: bash
+        run: |
+          cd .pjproject
+          printf '#define PJSUA_MAX_CALLS 32\n#define PJSUA_MAX_ACC 32\n#define PJSUA_MAX_CONF_PORTS 128\n' > pjlib/include/pj/config_site.h
+          ./configure --prefix="$PWD/install" --disable-video --disable-sound --disable-libwebrtc --disable-opencore-amr --disable-silk --disable-speex-aec --disable-speex-codec --disable-ilbc-codec --disable-g722-codec --disable-libyuv --disable-ffmpeg CFLAGS='-O2 -fPIC' CXXFLAGS='-O2 -fPIC'
+          make dep
+          make -j2
+          make install
+          cd ..
+          make -C .chatgpt/native/sip PJ_PKG_PATH="$PWD/.pjproject/install/lib/pkgconfig"
+          bash clusters/voz/sip-agent/build.sh "$PWD/.chatgpt"
+      - name: Verify actual daemon and voice integration
+        run: |
+          python3 .chatgpt/tests/run_sip_voice_tests.py --bridge "$PWD/.chatgpt/native/sip/build/libchatgpt_sip_bridge.so" --daemon "$PWD/clusters/voz/sip-agent/build/casa-sip-agent"
+          php .github/tests/test_sip_conversation.php
+          php -l site/var/www/html/api/v1/command_conversation.php
+          php -l site/var/www/html/api/v1/index.php

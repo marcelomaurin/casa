@@ -20,6 +20,7 @@ clusters/
 │   ├── google-home-agent/         Integração Google Home / Chromecast
 │   ├── google-home-bt/            Ponte Bluetooth bidirecional Google Home (:8094)
 │   ├── tts/                       Síntese e clonagem de voz
+│   ├── sip-agent/                 Daemon Pascal de conversa por telefone SIP
 │   ├── parakeet-stt/              Reconhecimento de voz local (Parakeet STT)
 │   └── pocket-tts/                Síntese de voz leve (Pocket-TTS)
 ├── visao/
@@ -42,7 +43,7 @@ clusters/
 | [Site do Cluster](site/README.md) | casa-cluster-site | Portal web local (porta 8080) para visualização e telemetria dos serviços do nó |
 | [Comunicação](comunicacao/README.md) | arm-agent, tuya-wifi-daemon | Heartbeat, comandos API v1 e integração Tuya Wi-Fi (:8101) |
 | [Automação](automacao/README.md) | casa-scheduler, casa-tarefas, casa-orquestrador, timestral-series | Orquestrador IA (:8090); Agendamento; fila do planejador e análise de séries temporais (:8091) |
-| [Voz](voz/README.md) | google-home-agent, google-home-bt, tts, parakeet-stt, pocket-tts | Google Home Cast/Bluetooth (:8094), TTS, Parakeet STT e Pocket-TTS são serviços auxiliares |
+| [Voz](voz/README.md) | google-home-agent, google-home-bt, sip-agent, tts, parakeet-stt, pocket-tts | SIP com STT/IA/TTS por chamada; Google Home Cast/Bluetooth (:8094), Parakeet STT e Pocket-TTS |
 | [Visão](visao/README.md) | espcam, raspberrypi-avatar-agent | Avatar usa heartbeat v1; ESPCam contém processadores auxiliares |
 | [Pesquisa](pesquisa/README.md) | web-agent | API de pesquisa; sem heartbeat próprio ARM |
 | [Infraestrutura](infraestrutura/README.md) | casa-cluster-monitor, casa-cluster-update, casa-ssh-agent, casa-tunnel, runpod-agent | Atualização (`/api/v1/updates.php`), monitoramento e serviços auxiliares |

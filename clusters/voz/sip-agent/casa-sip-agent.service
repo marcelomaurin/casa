@@ -1,0 +1,24 @@
+[Unit]
+Description=CASA - AI voice conversations over authenticated SIP
+After=network-online.target casa-parakeet-stt.service casa-tts.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=casa-sip
+Group=casa-sip
+WorkingDirectory=/opt/casa/servicos/sip-agent
+EnvironmentFile=/etc/casa/sip-agent.env
+ExecStart=/opt/casa/servicos/sip-agent/casa-sip-agent
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=135
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
