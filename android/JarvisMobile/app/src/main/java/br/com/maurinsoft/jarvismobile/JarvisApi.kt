@@ -167,6 +167,26 @@ object JarvisApi {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(PENDING_KEY).commit()
     }
 
+    /**
+     * Remove da fila os comandos que passaram do prazo de revisão e devolve
+     * quantos foram descartados, para que o usuário seja avisado.
+     */
+    @Synchronized
+    fun pruneExpiredPending(context: Context, now: Long = System.currentTimeMillis()): Int {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val source = runCatching { JSONArray(prefs.getString(PENDING_KEY, "[]")) }.getOrElse { JSONArray() }
+        if (source.length() == 0) return 0
+        val createdAt = (0 until source.length()).map { source.optJSONObject(it)?.optLong("created_at") ?: 0L }
+        val expired = PendingCommandPolicy.expiredIndices(createdAt, now)
+        if (expired.isEmpty()) return 0
+        val remaining = JSONArray()
+        for (i in 0 until source.length()) {
+            if (i !in expired) source.optJSONObject(i)?.let { remaining.put(it) }
+        }
+        prefs.edit().putString(PENDING_KEY, remaining.toString()).apply()
+        return expired.size
+    }
+
     @Synchronized
     fun flushPending(context: Context): Int {
         if (!isConfigured(context)) return 0

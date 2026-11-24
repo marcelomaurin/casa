@@ -15,4 +15,10 @@ class MobileReliabilityTest {
     @Test fun expiresOldCommands() { assertFalse(PendingCommandPolicy.isFresh(1000, 301001)) }
     @Test fun refusesFutureOrLegacyTimestamp() { assertFalse(PendingCommandPolicy.isFresh(0, 1000)); assertFalse(PendingCommandPolicy.isFresh(2000, 1000)) }
     @Test fun allowsFreshCommandAtBoundary() { assertTrue(PendingCommandPolicy.isFresh(1000, 301000)) }
+    @Test fun listsOnlyExpiredQueuePositions() {
+        val now = 1_000_000L
+        val queue = listOf(now - 1000, now - 301_000, 0L, now - 60_000, now + 5000)
+        assertEquals(setOf(1, 2, 4), PendingCommandPolicy.expiredIndices(queue, now))
+    }
+    @Test fun emptyQueueHasNothingExpired() { assertTrue(PendingCommandPolicy.expiredIndices(emptyList(), 1000).isEmpty()) }
 }

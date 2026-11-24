@@ -42,6 +42,7 @@ class JarvisConnectionService : Service(), WatchClient.Listener, WatchEventProce
         const val CAMERA_NOTIFICATION_ID = 1401
         const val VOICE_NOTIFICATION_ID = 1402
         const val ALARM_NOTIFICATION_ID = 1403
+        const val EXPIRED_COMMANDS_NOTIFICATION_ID = 1404
 
         const val ACTION_VOICE_RECOGNIZED = "br.com.maurinsoft.jarvismobile.action.WATCH_VOICE_RECOGNIZED"
         const val EXTRA_VOICE_TEXT = "watch_voice_text"
@@ -50,13 +51,15 @@ class JarvisConnectionService : Service(), WatchClient.Listener, WatchEventProce
 
         private const val PREFS = "jarvis_connection_service"
         private const val KEY_WATCH_EVENT_AFTER = "watch_event_after"
+        private const val KEY_FAMILY_LAST_ID = "family_last_id"
     }
 
     override fun onCreate() {
         super.onCreate()
 
-        watchEventAfter = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getLong(KEY_WATCH_EVENT_AFTER, 0L)
+        val servicePrefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        watchEventAfter = servicePrefs.getLong(KEY_WATCH_EVENT_AFTER, 0L)
+        familyLastId = servicePrefs.getLong(KEY_FAMILY_LAST_ID, 0L)
 
         notifier = JarvisServiceNotifier(this)
         runCatching { notifier.createChannels() }
@@ -113,6 +116,9 @@ class JarvisConnectionService : Service(), WatchClient.Listener, WatchEventProce
             updateServiceNotification("Rede indisponível — JARVIS continua em modo local")
         }
         localWatchClient.connectLanSaved()
+        // Comandos de emergência (SOS) acompanham o serviço em primeiro plano,
+        // que mantém o processo ativo com o app fechado. A chamada é idempotente.
+        DeviceCommandApi.startLoop(this)
         startConnectionLoop()
     }
 
@@ -394,6 +400,16 @@ class JarvisConnectionService : Service(), WatchClient.Listener, WatchEventProce
 
     override fun jarvisOnline(): Boolean = jarvisOnline
 
+    /** Persiste o cursor da família para não reexibir chamadas e mensagens após reiniciar. */
+    private fun saveFamilyCursor(value: Long) {
+        if (value <= familyLastId) return
+        familyLastId = value
+        getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putLong(KEY_FAMILY_LAST_ID, value)
+            .apply()
+    }
+
     private fun saveWatchEventCursor(value: Long) {
         if (value <= watchEventAfter) return
         watchEventAfter = value
@@ -419,6 +435,12 @@ class JarvisConnectionService : Service(), WatchClient.Listener, WatchEventProce
                         updateServiceNotification("Configure URL e token do JARVIS")
                         delay(10_000L)
                         continue
+                    }
+
+                    // Avisa quando um comando da fila expira, com ou sem conexão.
+                    runCatching {
+                        val expired = JarvisApi.pruneExpiredPending(this@JarvisConnectionService)
+                        if (expired > 0) notifier.showExpiredCommands(expired)
                     }
 
                     jarvisOnline = runCatching {
@@ -455,7 +477,7 @@ class JarvisConnectionService : Service(), WatchClient.Listener, WatchEventProce
                                 this@JarvisConnectionService,
                                 familyLastId
                             ).forEach { m ->
-                                familyLastId = maxOf(familyLastId, m.id)
+                                saveFamilyCursor(m.id)
 
                                 if (m.type == "call") {
                                     val callId = m.data.optLong("call_id")
@@ -508,18 +530,25 @@ class JarvisConnectionService : Service(), WatchClient.Listener, WatchEventProce
                         runCatching {
                             JarvisApi.getNotifications(this@JarvisConnectionService)
                                 .forEach { n ->
+                                    // Confirma logo após exibir no celular. Uma falha no
+                                    // repasse ao relógio não pode fazer a mesma notificação
+                                    // reaparecer a cada ciclo nem travar as seguintes.
                                     showJarvisNotification(n)
-                                    WatchApi.forwardNotification(
-                                        this@JarvisConnectionService,
-                                        packageName,
-                                        n.title,
-                                        n.message,
-                                        if (n.priority == "critica") "high" else "normal"
-                                    )
-                                    JarvisApi.ackNotification(
-                                        this@JarvisConnectionService,
-                                        n.id
-                                    )
+                                    runCatching {
+                                        JarvisApi.ackNotification(
+                                            this@JarvisConnectionService,
+                                            n.id
+                                        )
+                                    }
+                                    runCatching {
+                                        WatchApi.forwardNotification(
+                                            this@JarvisConnectionService,
+                                            packageName,
+                                            n.title,
+                                            n.message,
+                                            if (n.priority == "critica") "high" else "normal"
+                                        )
+                                    }
                                 }
                         }
 
