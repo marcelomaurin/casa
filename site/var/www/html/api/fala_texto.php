@@ -1,4 +1,10 @@
 <?php
+// Nessas origens a resposta e reproduzida pelo cliente, nao pelo servidor da casa.
+function casa_audio_no_cliente(string $origem): bool {
+    $origem = strtoupper(trim($origem));
+    return in_array($origem, ['SIP', 'API_IA'], true) || strpos($origem, 'GOOGLE_HOME') === 0;
+}
+
 /**
  * Converte texto formatado de IA em linguagem adequada para sintese de voz.
  * Preserva a resposta escrita, numeros e nomes; so remove marcadores de exibicao.

@@ -3430,7 +3430,7 @@ function openNewApiKeyModal(baseUrl, onCreatedCallback){
               '<label><input type="checkbox" name="scopes" value="devices"> Controle de Dispositivos & Reles</label>' +
               '<label><input type="checkbox" name="scopes" value="audio"> Intercomunicador & Voz</label>' +
               '<label><input type="checkbox" name="scopes" value="tasks.worker"> Daemon / agente de tarefas (fila do planejador)</label>' +
-              '<label><input type="checkbox" name="scopes" value="jarvis.command"> Comandos ao JARVIS (/api/v1/comando)</label>' +
+              '<label><input type="checkbox" name="scopes" value="jarvis.command"> Atendimento por IA e comandos ao JARVIS</label>' +
             '</div>' +
           '</label>' +
         '</div>' +
@@ -3629,11 +3629,25 @@ async function renderExternal(){
         '</div>' +
       '</section>';
 
+    const aiAttendanceSection =
+      '<section class="ja-master-key-box">' +
+        '<div class="ja-master-key-head"><div>' +
+          '<strong>ATENDIMENTO POR IA</strong>' +
+          '<p>Recebe mensagens e responde com os modelos configurados em Conexões &amp; Modelos de IA. Use uma chave com permissão jarvis.command.</p>' +
+        '</div></div>' +
+        '<div class="ja-config-grid">' +
+          '<label><span>MENSAGENS — POST</span><input value="' + attr(baseUrl.replace(/\/+$/, '') + '/api/v1/ia/atender') + '" readonly></label>' +
+          '<label><span>TELEFONIA SIP — POST</span><input value="' + attr(baseUrl.replace(/\/+$/, '') + '/api/v1/sip/atender') + '" readonly></label>' +
+        '</div>' +
+        '<p>Envie mensagem, session_id e historico_mensagens em JSON. A resposta inclui o texto, a versão para voz e a identificação do modelo utilizado.</p>' +
+      '</section>';
+
     const fullContainer = 
       '<div class="ja-api-container" id="ja-api-scroll-container">' +
         topBar +
         cardsHtml +
         masterSection +
+        aiAttendanceSection +
         qrStationHtml +
       '</div>';
 

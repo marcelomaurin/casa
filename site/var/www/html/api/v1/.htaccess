@@ -4,7 +4,7 @@ RewriteEngine On
 SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
 
 # Bloqueia acesso direto aos componentes internos do gateway.
-RewriteRule ^security_v1\.php$ - [F,L]
+RewriteRule ^(security_v1|ai_attendance)\.php$ - [F,L]
 
 # Toda rota REST externa passa pelo gateway seguro.
 RewriteCond %{REQUEST_FILENAME} !-f

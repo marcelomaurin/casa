@@ -24,6 +24,8 @@ on:
       - '.github/workflows/integration-control-plane.yml'
   pull_request:
     paths:
+      - 'site/var/www/html/api/v1/**'
+      - '.github/tests/test_ai_attendance*.php'
       - 'site/var/www/html/lcars-site.js'
       - 'site/var/www/html/lcars-site.css'
       - 'site/var/www/html/lcars-i18n.js'
@@ -174,7 +176,10 @@ jobs:
         run: node .github/tests/test_voz_continua_ui.js
 
       - name: Test SIP conversation context
-        run: php .github/tests/test_sip_conversation.php
+        run: |
+          php .github/tests/test_sip_conversation.php
+          php .github/tests/test_ai_attendance.php
+          python3 .github/tests/test_ai_attendance_http.py
 
       - name: Test ARM agent command results
         run: python3 clusters/comunicacao/arm-agent/tests/test_resultado_comando.py
@@ -202,6 +207,11 @@ jobs:
           done
 
           CONTROL_PLANE_BASE_URL=http://127.0.0.1:8099/api/v1 php .github/tests/test_control_plane_http.php || {
+            cat /tmp/casa-control-plane-php.log
+            exit 1
+          }
+
+          CONTROL_PLANE_BASE_URL=http://127.0.0.1:8099/api/v1 php .github/tests/test_ai_attendance_gateway.php || {
             cat /tmp/casa-control-plane-php.log
             exit 1
           }
