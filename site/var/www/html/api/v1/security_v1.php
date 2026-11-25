@@ -2,7 +2,7 @@
 // Segurança comum da API externa v1 - MySQL/MariaDB.
 function api_v1_json_response($code,$payload){http_response_code($code);header('Content-Type: application/json; charset=utf-8');echo json_encode($payload,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);exit;}
 function api_v1_token_from_request(){$auth=$_SERVER['HTTP_AUTHORIZATION']??'';if(preg_match('/Bearer\s+(\S+)/i',$auth,$m))return trim($m[1]);if(!empty($_SERVER['HTTP_X_API_KEY']))return trim($_SERVER['HTTP_X_API_KEY']);if(!empty($_SERVER['HTTP_X_DEVICE_TOKEN']))return trim($_SERVER['HTTP_X_DEVICE_TOKEN']);return '';}
-function api_v1_client_ip(){$remote=$_SERVER['REMOTE_ADDR']??'';$cf=$_SERVER['HTTP_CF_CONNECTING_IP']??'';if($cf!==''&&filter_var($cf,FILTER_VALIDATE_IP))return $cf;return filter_var($remote,FILTER_VALIDATE_IP)?$remote:null;}
+function api_v1_client_ip(){if(!function_exists('casa_client_ip'))require_once __DIR__.'/../db.php';$ip=casa_client_ip();return $ip==='0.0.0.0'?null:$ip;}
 function api_v1_correlation_id($value=null){
  static $requestCorrelation=null;
  $candidate=trim((string)($value??''));

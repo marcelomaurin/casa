@@ -155,6 +155,43 @@ function get_secondary_db_pdo(){return false;} function qryExec($sql){return get
 function get_system_api_token():string { $token=cfg_value('system_api_token','JARVIS_SYSTEM_API_TOKEN','');if($token!=='')return$token;try{$pdo=get_db_pdo();$stmt=$pdo->prepare("SELECT valor FROM configuracoes_sistema WHERE chave IN ('system_api_token','external_api_key') AND valor <> '' ORDER BY FIELD(chave,'system_api_token','external_api_key') LIMIT 1");$stmt->execute();$row=$stmt->fetch();if($row&&!empty($row['valor']))return$row['valor'];}catch(Throwable $e){}return''; }
 function verify_api_auth(){$GLOBALS['casa_auth_tipo']=null;if(!empty($_SESSION['auth_user'])){$GLOBALS['casa_auth_tipo']='sessao';return true;}$token='';$authHeader=$_SERVER['HTTP_AUTHORIZATION']??'';if(preg_match('/Bearer\s+(\S+)/i',$authHeader,$m)){$token=trim($m[1]);}elseif(!empty($_SERVER['HTTP_X_API_KEY'])){$token=trim($_SERVER['HTTP_X_API_KEY']);}elseif(!empty($_SERVER['HTTP_X_DEVICE_TOKEN'])){$token=trim($_SERVER['HTTP_X_DEVICE_TOKEN']);}$expectedToken=get_system_api_token();if($token!==''){if($expectedToken!==''&&hash_equals($expectedToken,$token)){$GLOBALS['casa_auth_tipo']='sistema';return true;}try{$pdo=get_db_pdo();$hash=hash('sha256',$token);$stmt=$pdo->prepare("SELECT id,nome FROM api_client_tokens WHERE token_hash=:h AND ativo=1 AND revogado_em IS NULL AND (expira_em IS NULL OR expira_em > NOW()) LIMIT 1");$stmt->execute([':h'=>$hash]);$row=$stmt->fetch();if($row){$ip=$_SERVER['REMOTE_ADDR']??'';$pdo->prepare("UPDATE api_client_tokens SET ultimo_uso=NOW(),ultimo_ip=:ip WHERE id=:id")->execute([':ip'=>$ip?:null,':id'=>$row['id']]);$GLOBALS['casa_auth_tipo']='cliente';return true;}$stmtDev=$pdo->prepare("SELECT id FROM dispositivos_cluster WHERE ativo=1 AND (device_token_hash=:h OR device_token=:t) LIMIT 1");$stmtDev->execute([':h'=>$hash,':t'=>$token]);if($stmtDev->fetch()){$GLOBALS['casa_auth_tipo']='dispositivo';return true;}}catch(Throwable $e){}}if($expectedToken===''&&$token===''){http_response_code(503);header('Content-Type: application/json; charset=utf-8');echo json_encode(['status'=>'erro','mensagem'=>'API ainda não configurada no ambiente de produção.'],JSON_UNESCAPED_UNICODE);exit;}if($token!==''){/* Chave/token apresentado e recusado: conta como falha de autenticação do IP (sem sessão expirada do painel, que não envia token). */try{if(!function_exists('registrar_falha_seguranca')){if(!defined('CASA_SEGURANCA_SEM_AUTOCHECK'))define('CASA_SEGURANCA_SEM_AUTOCHECK',true);require_once __DIR__.'/seguranca.php';}registrar_falha_seguranca('Chave de API inválida ('.substr($token,0,6).'…) em '.substr((string)parse_url($_SERVER['REQUEST_URI']??'',PHP_URL_PATH),0,120),'AVISO','api');}catch(Throwable $e){}}http_response_code(401);header('Content-Type: application/json; charset=utf-8');echo json_encode(['status'=>'erro','mensagem'=>'Acesso negado: autenticação requerida.'],JSON_UNESCAPED_UNICODE);exit;}
 
+// IP real do cliente. O cabecalho CF-Connecting-IP so e aceito quando a conexao
+// chega de um servidor da Cloudflare (ou de um proxy listado em proxies_confiaveis);
+// em qualquer outro caso ele e ignorado, pois qualquer pessoa pode envia-lo.
+function casa_ip_na_faixa(string $ip, string $cidr): bool {
+    if (strpos($cidr, '/') === false) $cidr .= (strpos($cidr, ':') !== false ? '/128' : '/32');
+    [$rede, $bits] = explode('/', $cidr, 2);
+    $ipBin = @inet_pton($ip); $redeBin = @inet_pton($rede); $bits = (int)$bits;
+    if ($ipBin === false || $redeBin === false || strlen($ipBin) !== strlen($redeBin)) return false;
+    $bytes = intdiv($bits, 8); $resto = $bits % 8;
+    if ($bytes > 0 && substr($ipBin, 0, $bytes) !== substr($redeBin, 0, $bytes)) return false;
+    if ($resto === 0) return true;
+    $mascara = (0xFF << (8 - $resto)) & 0xFF;
+    return (ord($ipBin[$bytes]) & $mascara) === (ord($redeBin[$bytes]) & $mascara);
+}
+function casa_proxies_confiaveis(): array {
+    // Faixas publicadas pela Cloudflare (cloudflare.com/ips). Podem ser substituidas
+    // por cloudflare_faixas no config.local.php ou CASA_CLOUDFLARE_FAIXAS.
+    $padrao = '173.245.48.0/20,103.21.244.0/22,103.22.200.0/22,103.31.4.0/22,141.101.64.0/18,'
+        .'108.162.192.0/18,190.93.240.0/20,188.114.96.0/20,197.234.240.0/22,198.41.128.0/17,'
+        .'162.158.0.0/15,104.16.0.0/13,104.24.0.0/14,172.64.0.0/13,131.0.72.0/22,'
+        .'2400:cb00::/32,2606:4700::/32,2803:f800::/32,2405:b500::/32,2405:8100::/32,2a06:98c0::/29,2c0f:f248::/32';
+    $lista = (string)cfg_value('cloudflare_faixas', 'CASA_CLOUDFLARE_FAIXAS', $padrao) . ','
+        . (string)cfg_value('proxies_confiaveis', 'CASA_PROXIES_CONFIAVEIS', '');
+    return array_values(array_filter(array_map('trim', explode(',', $lista))));
+}
+function casa_client_ip(): string {
+    $remoto = (string)($_SERVER['REMOTE_ADDR'] ?? '');
+    if (!filter_var($remoto, FILTER_VALIDATE_IP)) return '0.0.0.0';
+    $cf = trim((string)($_SERVER['HTTP_CF_CONNECTING_IP'] ?? ''));
+    if ($cf !== '' && filter_var($cf, FILTER_VALIDATE_IP)) {
+        foreach (casa_proxies_confiaveis() as $faixa) {
+            if (casa_ip_na_faixa($remoto, $faixa)) return $cf;
+        }
+    }
+    return $remoto;
+}
+
 // Endereço interno do próprio site (planejador, agente web, JARVIS).
 // Ordem: url_interna (config/ambiente) > host da requisição se estiver na lista permitida > 127.0.0.1.
 // O host só é usado se estiver na lista, porque a chave do sistema segue junto na chamada.

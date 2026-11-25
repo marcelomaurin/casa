@@ -58,3 +58,24 @@ casa-ssh-cli exec -n raspberry-pi-node-08 -c "apt-get update" --sudo
 # Executar em todos os nos simultaneamente
 casa-ssh-cli batch --nodes all -c "uname -a"
 ```
+
+## Chave de acesso (obrigatória fora do próprio nó)
+
+Somente `/health` e `/api/ssh/status` são públicos. As rotas que executam comandos,
+enviam arquivos ou listam nós exigem a chave do agente no cabeçalho
+`Authorization: Bearer <chave>` (ou `X-Agent-Token`).
+
+```bash
+sudo install -d -m 700 /etc/casa
+openssl rand -hex 32 | sudo tee /etc/casa/ssh-agent.token >/dev/null
+sudo chmod 600 /etc/casa/ssh-agent.token
+sudo systemctl restart casa-ssh-agent
+```
+
+A chave também pode vir da variável `SSH_AGENT_TOKEN` (por exemplo em
+`/etc/casa-ssh-agent.env`). O `client.py` e o portal do nó (`clusters/site/server.py`)
+leem a mesma variável ou o mesmo arquivo; se o portal não rodar como root, dê a ele
+leitura do arquivo ou defina `SSH_AGENT_TOKEN` no serviço dele.
+
+Sem chave configurada, o agente aceita apenas chamadas do próprio nó (127.0.0.1).
+Requisições feitas por navegadores (com cabeçalho `Origin`) são sempre recusadas.

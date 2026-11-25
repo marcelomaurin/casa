@@ -14,4 +14,10 @@ return [
 
     // Configure um token forte e privado em produção.
     'system_api_token' => 'GERE_UM_TOKEN_FORTE_E_PRIVADO',
+
+    // O cabecalho CF-Connecting-IP so e aceito quando a conexao vem da Cloudflare.
+    // Se houver outro proxy reverso na frente do site, liste os IPs/faixas dele aqui.
+    // 'proxies_confiaveis' => '10.0.0.5,10.0.1.0/24',
+    // Para atualizar as faixas da Cloudflare sem mexer no codigo:
+    // 'cloudflare_faixas' => '173.245.48.0/20,103.21.244.0/22,...',
 ];

@@ -10,8 +10,38 @@ require_once(__DIR__ . '/seguranca.php');
 require_once(__DIR__ . '/v1/security_v1.php');
 
 $pdo = get_db_pdo();
+$acaoPedida = (string)($_GET['acao'] ?? ($_GET['action'] ?? 'listar'));
+
+// Autorizacao: o CRUD generico, as chaves de API e as configuracoes sao
+// exclusivos do administrador (sessao do painel com perfil admin ou chave do sistema).
+// Tokens de clientes e de dispositivos so podem enviar heartbeat.
+$crudAuthTipo = (string)($GLOBALS['casa_auth_tipo'] ?? '');
+$crudPerfil = strtolower((string)($_SESSION['auth_perfil'] ?? ''));
+$crudAdmin = $crudAuthTipo === 'sistema'
+    || ($crudAuthTipo === 'sessao' && in_array($crudPerfil, ['admin', 'administrador'], true));
+$crudAcoesDispositivo = ['heartbeat', 'heartbeat_iot'];
+if (!$crudAdmin && !in_array($acaoPedida, $crudAcoesDispositivo, true)) {
+    if (function_exists('registrar_evento_seguranca')) {
+        registrar_evento_seguranca(get_client_ip(), 'CRUD_NEGADO',
+            'Acao ' . substr(preg_replace('/[^a-zA-Z0-9_]/', '', $acaoPedida), 0, 60) . ' negada para autenticacao ' . ($crudAuthTipo ?: 'desconhecida'), 'AVISO');
+    }
+    http_response_code(403);
+    echo json_encode(['status'=>'erro','mensagem'=>'Acesso restrito ao administrador'], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+// Sessao do painel: recusa pedidos vindos de outros sites.
+if ($crudAuthTipo === 'sessao' && !empty($_SERVER['HTTP_ORIGIN'])) {
+    $crudOrigemHost = strtolower((string)parse_url((string)$_SERVER['HTTP_ORIGIN'], PHP_URL_HOST));
+    $crudHost = strtolower(preg_replace('/:\d+$/', '', (string)($_SERVER['HTTP_HOST'] ?? '')));
+    if ($crudOrigemHost === '' || $crudOrigemHost !== $crudHost) {
+        http_response_code(403);
+        echo json_encode(['status'=>'erro','mensagem'=>'Origem nao permitida'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+}
+
 $tabela = isset($_GET['tabela']) ? preg_replace('/[^a-zA-Z0-9_]/', '', $_GET['tabela']) : '';
-$acao = $_GET['acao'] ?? ($_GET['action'] ?? 'listar');
+$acao = $acaoPedida;
 $input = json_decode(file_get_contents('php://input'), true);
 if (!is_array($input)) $input = $_POST;
 
@@ -49,6 +79,11 @@ function crud_clean_columns($input) {
 if ($tabela !== '' && !in_array($tabela, $tabelas_permitidas, true)) {
     crud_json(['status'=>'erro','mensagem'=>'Tabela inválida'], 400);
 }
+// Usuarios e chaves de API tem rotinas proprias (alterar_senha.php e *_api_key),
+// que gravam resumo seguro; a escrita generica gravaria segredos em texto puro.
+if (in_array($tabela, ['usuarios', 'api_client_tokens'], true) && in_array($acao, ['criar', 'atualizar', 'excluir'], true)) {
+    crud_json(['status'=>'erro','mensagem'=>'Use a rotina propria para alterar usuarios ou chaves de API'], 403);
+}
 
 try {
     if ($acao === 'listar') {
@@ -56,12 +91,19 @@ try {
         $limite = max(1, min(500, intval($_GET['limite'] ?? 100)));
         $pk = crud_pk($tabela);
         $stmt = $pdo->query("SELECT * FROM `{$tabela}` ORDER BY `{$pk}` DESC LIMIT {$limite}");
+        $linhas = $stmt->fetchAll();
+        // Resumos de senha e chaves nunca saem pela listagem generica.
+        $ocultar = ['usuarios'=>['senha'], 'api_client_tokens'=>['token','token_hash']];
+        if (isset($ocultar[$tabela])) {
+            foreach ($linhas as &$linha) { foreach ($ocultar[$tabela] as $col) unset($linha[$col]); }
+            unset($linha);
+        }
         crud_json([
             'status'=>'sucesso',
             'tabela'=>$tabela,
             'origem_dados'=>'casa.maurinsoft.com.br / MySQL',
-            'total'=>$stmt->rowCount(),
-            'dados'=>$stmt->fetchAll()
+            'total'=>count($linhas),
+            'dados'=>$linhas
         ]);
     }
 

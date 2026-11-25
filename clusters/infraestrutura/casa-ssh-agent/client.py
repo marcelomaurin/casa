@@ -14,6 +14,17 @@ import urllib.parse
 
 DEFAULT_AGENT_URL = os.environ.get("CASA_SSH_AGENT_URL", "http://127.0.0.1:8095")
 
+
+def _agent_token():
+    token = os.environ.get("SSH_AGENT_TOKEN", "").strip()
+    if token:
+        return token
+    try:
+        with open(os.environ.get("SSH_AGENT_TOKEN_FILE", "/etc/casa/ssh-agent.token"), "r", encoding="utf-8") as fh:
+            return fh.read().strip()
+    except OSError:
+        return ""
+
 class ClusterSSHClient:
     """SDK Python para a IA disparar manutencao via SSH no cluster."""
     def __init__(self, base_url=DEFAULT_AGENT_URL):
@@ -23,6 +34,9 @@ class ClusterSSHClient:
         url = self.base_url + endpoint
         data = json.dumps(payload).encode("utf-8") if payload else None
         headers = {"Content-Type": "application/json"}
+        token = _agent_token()
+        if token:
+            headers["Authorization"] = "Bearer " + token
         req = urllib.request.Request(url, data=data, headers=headers, method=method)
         try:
             with urllib.request.urlopen(req, timeout=45) as resp:

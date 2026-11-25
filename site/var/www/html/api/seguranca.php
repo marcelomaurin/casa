@@ -15,10 +15,7 @@ const SEG_JANELA_MIN = 15;           // janela de contagem das falhas (minutos)
 const SEG_BLOQUEIO_MIN = 60;         // duracao do bloqueio automatico (minutos)
 
 function get_client_ip() {
-    $cf = $_SERVER['HTTP_CF_CONNECTING_IP'] ?? '';
-    if ($cf !== '' && filter_var($cf, FILTER_VALIDATE_IP)) return $cf;
-    $remote = $_SERVER['REMOTE_ADDR'] ?? '';
-    return filter_var($remote, FILTER_VALIDATE_IP) ? $remote : '0.0.0.0';
+    return casa_client_ip();
 }
 
 /**
