@@ -308,9 +308,7 @@ function validar_hardware_token($token) {
     }
 
     $pdo = get_db_pdo();
-    $stmt = $pdo->prepare("SELECT * FROM dispositivos_cluster WHERE device_token = :tok LIMIT 1");
-    $stmt->execute([':tok' => trim($token)]);
-    $dev = $stmt->fetch();
+    $dev = casa_dispositivo_por_token($pdo, (string)$token);
 
     if ($dev) {
         $ip = get_client_ip();

@@ -244,8 +244,9 @@ try {
         $local=trim($input['localizacao'] ?? 'Residencia');
         $deviceId=trim($input['device_id'] ?? '');
         $token=gerar_novo_hardware_token($tipo);
-        $stmt=$pdo->prepare("INSERT INTO dispositivos_cluster (device_id,nome,tipo,device_token,localizacao,status) VALUES (NULLIF(:did,''),:n,:t,:tok,:loc,'aguardando_conexao')");
-        $stmt->execute([':did'=>$deviceId,':n'=>$nome,':t'=>$tipo,':tok'=>$token,':loc'=>$local]);
+        // O segredo fica so como resumo; device_token recebe um marcador unico.
+        $stmt=$pdo->prepare("INSERT INTO dispositivos_cluster (device_id,nome,tipo,device_token,device_token_hash,localizacao,status) VALUES (NULLIF(:did,''),:n,:t,:tok,:h,:loc,'aguardando_conexao')");
+        $stmt->execute([':did'=>$deviceId,':n'=>$nome,':t'=>$tipo,':tok'=>'HASHED:'.bin2hex(random_bytes(12)),':h'=>hash('sha256',$token),':loc'=>$local]);
         crud_json(['status'=>'sucesso','device'=>['id'=>intval($pdo->lastInsertId()),'device_id'=>$deviceId ?: null,'nome'=>$nome,'tipo'=>$tipo],'token'=>$token]);
     }
 
@@ -274,7 +275,7 @@ try {
     }
 
     if ($acao === 'listar_api_keys') {
-        $stmt = $pdo->query("SELECT id, nome, device_id, token, token_prefix, scopes, ativo, expira_em, revogado_em, ultimo_uso, ultimo_ip, criado_em FROM api_client_tokens ORDER BY id DESC");
+        $stmt = $pdo->query("SELECT id, nome, device_id, token_prefix, scopes, ativo, expira_em, revogado_em, ultimo_uso, ultimo_ip, criado_em FROM api_client_tokens ORDER BY id DESC");
         $dados = $stmt->fetchAll(PDO::FETCH_ASSOC);
         $now = time();
         foreach ($dados as &$d) {
@@ -323,14 +324,10 @@ try {
         $hash = hash('sha256', $rawToken);
         $prefix = substr($rawToken, 0, 14) . '...';
 
-        try {
-            $pdo->exec("ALTER TABLE api_client_tokens ADD COLUMN IF NOT EXISTS token VARCHAR(255) NULL AFTER device_id");
-        } catch(Throwable $e) {}
-
-        $stmt = $pdo->prepare("INSERT INTO api_client_tokens (nome, token, token_hash, token_prefix, scopes, ativo, expira_em, criado_em) VALUES (:n, :tok, :h, :p, :s, 1, :e, NOW())");
+        // Somente o resumo e gravado; a chave completa volta uma unica vez nesta resposta.
+        $stmt = $pdo->prepare("INSERT INTO api_client_tokens (nome, token_hash, token_prefix, scopes, ativo, expira_em, criado_em) VALUES (:n, :h, :p, :s, 1, :e, NOW())");
         $stmt->execute([
             ':n' => $nome,
-            ':tok' => $rawToken,
             ':h' => $hash,
             ':p' => $prefix,
             ':s' => json_encode($scopesRaw, JSON_UNESCAPED_UNICODE),

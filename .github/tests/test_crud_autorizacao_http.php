@@ -83,6 +83,44 @@ confere($c === 403, 'escrita generica em usuarios bloqueada', $c);
 [$c] = crud_http($base, 'tabela=frases&acao=listar', $sistema);
 confere($c === 200, 'administrador continua usando o CRUD', $c);
 
+// 3. Chave de API nova: so o resumo e gravado, a chave completa volta uma vez.
+[$c, $j] = crud_http($base, 'acao=criar_api_key', $sistema, ['nome' => 'ci-resumo-' . bin2hex(random_bytes(3)), 'scopes' => ['devices:read']]);
+$novaId = (int)($j['token']['id'] ?? 0);
+confere($c === 200 && $novaId > 0 && !empty($j['chave_completa']), 'administrador cria chave e recebe a chave completa', $j);
+$guardada = $pdo->query('SELECT token, token_hash FROM api_client_tokens WHERE id=' . $novaId)->fetch(PDO::FETCH_ASSOC);
+confere(empty($guardada['token']) && $guardada['token_hash'] === hash('sha256', (string)($j['chave_completa'] ?? '')), 'chave nova gravada so como resumo', $guardada);
+[$c, $j] = crud_http($base, 'acao=listar_api_keys', $sistema);
+$vazou = false;
+foreach ((array)($j['dados'] ?? []) as $k) if (is_array($k) && array_key_exists('token', $k)) $vazou = true;
+confere($c === 200 && !$vazou, 'listagem de chaves nao devolve a chave completa', $c);
+$pdo->prepare('DELETE FROM api_client_tokens WHERE id=:id')->execute([':id' => $novaId]);
+
+// 4. Tokens de dispositivo: marcador HASHED nao autentica; texto antigo autentica e ganha resumo.
+$sufixo = bin2hex(random_bytes(4));
+$pdo->prepare("INSERT INTO dispositivos_cluster (device_id, nome, tipo, device_token, device_token_hash, status) VALUES (:d, 'ci marcador', 'ci', :t, :h, 'online')")
+    ->execute([':d' => 'ci-hashed-' . $sufixo, ':t' => 'HASHED:ci-hashed-' . $sufixo, ':h' => hash('sha256', 'segredo-' . $sufixo)]);
+[$c] = crud_http($base, 'acao=heartbeat', 'HASHED:ci-hashed-' . $sufixo, ['device_id' => 'ci-crud-node']);
+confere($c === 401, 'marcador HASHED nao serve como token', $c);
+confere(casa_dispositivo_por_token($pdo, 'segredo-' . $sufixo) !== null, 'token verdadeiro autentica pelo resumo');
+$legado = 'legado-' . $sufixo;
+$pdo->prepare("INSERT INTO dispositivos_cluster (device_id, nome, tipo, device_token, status) VALUES (:d, 'ci legado', 'ci', :t, 'online')")
+    ->execute([':d' => 'ci-legado-' . $sufixo, ':t' => $legado]);
+[$c] = crud_http($base, 'acao=heartbeat', $legado, ['device_id' => 'ci-crud-node']);
+confere($c === 200, 'token antigo em texto continua funcionando', $c);
+$hashLegado = $pdo->query("SELECT device_token_hash FROM dispositivos_cluster WHERE device_id='ci-legado-{$sufixo}'")->fetchColumn();
+confere($hashLegado === hash('sha256', $legado), 'token antigo recebe resumo no primeiro uso', $hashLegado);
+$pdo->exec("DELETE FROM dispositivos_cluster WHERE device_id IN ('ci-hashed-{$sufixo}','ci-legado-{$sufixo}')");
+
+// 5. Senha em texto puro e convertida para password_hash no primeiro acesso valido.
+$login = 'ci_senha_' . $sufixo;
+$pdo->prepare("INSERT INTO usuarios (login, nome, senha, ativo) VALUES (:l, 'CI', 'senha-antiga', 1)")->execute([':l' => $login]);
+$u = $pdo->query("SELECT * FROM usuarios WHERE login='{$login}'")->fetch(PDO::FETCH_ASSOC);
+confere(!casa_verificar_senha($pdo, $u, 'errada'), 'senha errada recusada');
+confere(casa_verificar_senha($pdo, $u, 'senha-antiga'), 'senha antiga em texto aceita uma vez');
+$novaSenha = (string)$pdo->query("SELECT senha FROM usuarios WHERE login='{$login}'")->fetchColumn();
+confere(password_get_info($novaSenha)['algo'] !== null && password_get_info($novaSenha)['algo'] !== 0 && password_verify('senha-antiga', $novaSenha), 'senha convertida para password_hash');
+$pdo->prepare('DELETE FROM usuarios WHERE login=:l')->execute([':l' => $login]);
+
 $pdo->prepare('DELETE FROM api_client_tokens WHERE id=:id')->execute([':id' => $clienteId]);
 $pdo->prepare("DELETE FROM arm_nodes WHERE device_id='ci-crud-node'")->execute();
 
