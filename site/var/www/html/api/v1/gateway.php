@@ -51,6 +51,8 @@ if ($subpath === '' || $subpath === 'status') {
             'mobile'=>'/api/v1/mobile.php',
             'watch'=>'/api/v1/watch.php',
             'family'=>'/api/v1/family.php',
+            'daemons'=>'/api/v1/daemons.php',
+            'localizacao'=>'/api/v1/localizacao.php',
             'camera'=>'/api/v1/camera.php',
             'command'=>'/api/v1/comando',
             'ai_attendance'=>'/api/v1/ia/atender',

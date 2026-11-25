@@ -2,8 +2,8 @@
 
 ## Versão atual
 
-- `versionName`: `2.8.4`
-- `versionCode`: `284`
+- `versionName`: `2.9.0`
+- `versionCode`: `290`
 - pacote de desenvolvimento: `br.com.maurinsoft.jarvismobile.debug`
 - pacote de produção: `br.com.maurinsoft.jarvismobile`
 
@@ -114,3 +114,10 @@ Toda nova versão deve atualizar também `bin/versions.json`. Consulte [MOBILE_A
 - Incremento de versão para distribuição do aplicativo Android Casa Mobile.
 - Verificação periódica de novas versões autorizadas enquanto o app estiver ativo.
 - Sincronização contínua de telemetria e estado de conectividade com a infraestrutura central.
+
+## Histórico — 2.9.0
+
+- Nova tela **Daemons**: estado de cada nó do cluster (online, último sinal, CPU, RAM, versão) e de cada serviço, atualizado a cada 15 s.
+- Iniciar, parar e reiniciar daemons com confirmação, para celulares pareados por um administrador; serviços protegidos não podem ser parados.
+- Nova tela **Localização**: compartilhamento opcional da posição do celular com a CASA (1, 5, 15 ou 30 min), com notificação permanente e botão Parar; lista da última posição de cada aparelho da família com bateria, precisão e atalho para o mapa; opção de apagar o próprio histórico.
+- Usa as rotas `/api/v1/daemons.php` e `/api/v1/localizacao.php`.

@@ -15,6 +15,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <!-- Compartilhamento de localizacao com a CASA: ligado pelo usuario, com notificacao permanente. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <!-- Necessaria apenas para encaminhar APK de atualizacao ao instalador do Android. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
@@ -90,6 +92,23 @@
             android:exported="false"
             android:label="Videochamada Família CASA"
             android:theme="@style/Theme.JarvisMobile" />
+
+        <activity
+            android:name=".DaemonsActivity"
+            android:exported="false"
+            android:label="Daemons do cluster"
+            android:theme="@style/Theme.JarvisMobile" />
+
+        <activity
+            android:name=".LocalizacaoActivity"
+            android:exported="false"
+            android:label="Localização"
+            android:theme="@style/Theme.JarvisMobile" />
+
+        <service
+            android:name=".LocalizacaoService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
 
         <service
             android:name=".JarvisConnectionService"
