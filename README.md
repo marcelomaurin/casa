@@ -28,6 +28,7 @@ O objetivo é permitir que o JARVIS receba comandos em linguagem natural, consul
 | Web Agent | Pesquisa e coleta de conteúdo web com task_context | Experimental |
 | TTS | Serviço Python/FastAPI | Experimental |
 | Conversa SIP | [Daemon Pascal e agente de voz](clusters/voz/sip-agent/README.md), ramal 8000 | Testado localmente; motores reais e aparelhos pendentes |
+| Atendimento por IA | [API do site para mensagens e chamadas SIP](docs/ATENDIMENTO_IA_API.md) | Gateway autenticado, contexto por conversa e resposta para voz |
 | Casa Mobile | Android Kotlin / Jetpack Compose, versão 2.8.3 | Experimental |
 | JARVIS TV | Android TV, versão 1.0.0 | Experimental |
 | LILYGO Watch | Firmware + BLE de provisionamento + Wi-Fi/HTTPS em operação | Experimental |

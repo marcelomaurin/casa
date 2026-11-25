@@ -100,7 +100,7 @@ e validação adicionais; não há descoberta automática de credenciais de tele
 | Etapa | Variáveis e padrão |
 |---|---|
 | Reconhecimento | `CASA_SIP_STT_URL=http://127.0.0.1:8092/transcribe` |
-| Resposta JARVIS | `CASA_SIP_AI_FORMAT=casa`, `CASA_SIP_AI_URL=.../api/v1/comando`, `CASA_SIP_AI_TOKEN` |
+| Resposta JARVIS | `CASA_SIP_AI_FORMAT=casa`, `CASA_SIP_AI_URL=.../api/v1/sip/atender`, `CASA_SIP_AI_TOKEN` |
 | Síntese Piper existente | `CASA_SIP_TTS_URL=http://127.0.0.1:8097/falar` |
 | WAV produzido | `CASA_SIP_AUDIO_BASE_URL=http://127.0.0.1:8097/audio/` |
 

@@ -7,7 +7,7 @@ uses
   Classes, SysUtils, IniFiles, aibase, aisip_types, aisip_server,
   aisipvoiceagent, aisipvoicehttp;
 
-const Version = '1.0.0';
+const Version = '1.0.1';
 var Stopping: Boolean = False;
 
 function Env(const Key, Default: string): string;
@@ -105,9 +105,9 @@ begin
   Backend.AudioBaseURL := Env('CASA_SIP_AUDIO_BASE_URL', Backend.AudioBaseURL);
   Backend.TTSToken := Env('CASA_SIP_TTS_TOKEN', '');
   Backend.Speaker := Env('CASA_SIP_SPEAKER', 'padrao');
-  Backend.ReplyURL := Env('CASA_SIP_AI_URL', Backend.ReplyURL);
+  Backend.ReplyURL := Env('CASA_SIP_AI_URL', 'https://maurinsoft.com.br/casa/api/v1/sip/atender');
   Backend.ReplyToken := Env('CASA_SIP_AI_TOKEN', Env('CASA_SYSTEM_API_TOKEN', ''));
-  Backend.TimeoutMs := EnvInt('CASA_SIP_HTTP_TIMEOUT_MS', 30000, 100, 120000);
+  Backend.TimeoutMs := EnvInt('CASA_SIP_HTTP_TIMEOUT_MS', 60000, 100, 120000);
   Mode := LowerCase(Env('CASA_SIP_AI_FORMAT', 'casa'));
   if Mode = 'openai-compatible' then
   begin

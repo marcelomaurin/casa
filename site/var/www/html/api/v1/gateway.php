@@ -14,11 +14,13 @@ $path = trim($uri, '/');
 $subpath = '';
 if (preg_match('#api/v1/(.*)#', $path, $m)) $subpath = trim($m[1], '/');
 if ($subpath === 'gateway.php' || $subpath === 'index.php') $subpath = '';
+if ($subpath === 'ia.php') $subpath = 'ia/atender';
+$isAttendance = in_array($subpath, ['comando', 'ia/atender', 'sip/atender'], true);
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $acceptedScopes = ['status.read'];
 if ($subpath === '' || $subpath === 'status') $acceptedScopes = ['status.read','mobile.read','watch.read'];
-elseif ($subpath === 'comando') $acceptedScopes = ['jarvis.command','mobile.write','watch.write'];
+elseif ($isAttendance) $acceptedScopes = ['jarvis.command','mobile.write','watch.write'];
 elseif ($subpath === 'dispositivos/acionar') $acceptedScopes = ['devices.write','mobile.write'];
 elseif ($subpath === 'dispositivos') $acceptedScopes = ['devices.read','mobile.read','watch.read'];
 elseif ($subpath === 'sensores') $acceptedScopes = ['sensors.read','mobile.read'];
@@ -50,7 +52,9 @@ if ($subpath === '' || $subpath === 'status') {
             'watch'=>'/api/v1/watch.php',
             'family'=>'/api/v1/family.php',
             'camera'=>'/api/v1/camera.php',
-            'command'=>'/api/v1/comando'
+            'command'=>'/api/v1/comando',
+            'ai_attendance'=>'/api/v1/ia/atender',
+            'sip_attendance'=>'/api/v1/sip/atender'
         ],
         'resumo'=>[
             'dispositivos_online'=>$totalDev,
@@ -61,52 +65,26 @@ if ($subpath === '' || $subpath === 'status') {
     ]);
 }
 
-if ($subpath === 'comando') {
-    $raw=file_get_contents('php://input');
-    $input=$raw?json_decode($raw,true):[];
-    if (!is_array($input)) $input=[];
-    $cmd=trim((string)($input['comando'] ?? ''));
-    if ($cmd==='') api_v1_json_response(400,['status'=>'erro','mensagem'=>'Parâmetro comando obrigatório']);
-
-    $correlationId=api_v1_correlation_id($input['correlation_id'] ?? null);
-    $internalToken=get_system_api_token();
-    $ch=curl_init(casa_url_interna('api/jarvis.php'));
-    curl_setopt_array($ch,[
-        CURLOPT_RETURNTRANSFER=>true,
-        CURLOPT_POST=>true,
-        CURLOPT_POSTFIELDS=>json_encode([
-            'comando'=>$cmd,
-            'ia_mode'=>$input['ia_mode'] ?? 'auto',
-            'origem'=>$input['origem'] ?? 'API_V1',
-            'idioma'=>$input['idioma'] ?? null,
-            'locale'=>$input['locale'] ?? null,
-            'correlation_id'=>$correlationId,
-            'task_context'=>$input['task_context'] ?? null,
-            // Daemons de tarefas executam partes de um plano já feito: não replanejar.
-            'skip_planner'=>!empty($input['skip_planner'])
-        ],JSON_UNESCAPED_UNICODE),
-        CURLOPT_HTTPHEADER=>['Content-Type: application/json','X-API-Key: '.$internalToken],
-        CURLOPT_TIMEOUT=>45
-    ]);
-    $res=curl_exec($ch); $http=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE); $err=curl_error($ch); curl_close($ch);
-    if ($res===false || $http>=500) api_v1_json_response(502,['status'=>'erro','mensagem'=>'Falha no núcleo JARVIS','detalhe'=>$err ?: null]);
-    $data=json_decode((string)$res,true);
-    if (!is_array($data)) $data=['resposta'=>(string)$res];
-    api_v1_json_response(200,[
-        'status'=>'sucesso',
-        'comando'=>$cmd,
-        'resposta'=>$data['resposta'] ?? $data['mensagem'] ?? '',
-        'provedor_ia'=>$data['provedor'] ?? 'JARVIS',
-        'acao_executada'=>$data['acao'] ?? $data['acao_executada'] ?? null,
-        'audio_url'=>$data['audio_url'] ?? null,
-        'id_plano'=>$data['id_plano'] ?? null,
-        'status_jarvis'=>$data['status'] ?? null,
-        'id_tarefa_raiz'=>$data['id_tarefa_raiz'] ?? null,
-        'task_context'=>$data['task_context'] ?? null,
-        'task_status'=>$data['task_status'] ?? null,
-        'correlation_id'=>$data['task_context']['correlation_id'] ?? $correlationId,
-        'tarefas_execucao'=>$data['tarefas_execucao'] ?? []
-    ]);
+if ($isAttendance) {
+    if ($method !== 'POST') {
+        header('Allow: POST');
+        api_v1_json_response(405, ['status'=>'erro','mensagem'=>'Use POST para solicitar atendimento.']);
+    }
+    require_once __DIR__ . '/ai_attendance.php';
+    try {
+        $raw = file_get_contents('php://input', false, null, 0, 65537);
+        $payload = api_v1_attendance_payload((string)$raw, $subpath, api_v1_correlation_id());
+        $correlationId = api_v1_correlation_id($payload['correlation_id']);
+        $result = api_v1_attendance_execute($payload, casa_url_interna('api/jarvis.php'), get_system_api_token());
+        api_v1_log($pdo, 'AI_ATTENDANCE_OK', 'INFO', $client['nome'] ?? null,
+            ['session_id'=>$payload['session_id'], 'origem'=>$payload['origem'], 'provedor'=>$result['provedor_ia']], $correlationId);
+        api_v1_json_response(200, $result);
+    } catch (ApiV1AttendanceException $e) {
+        $correlationId = api_v1_correlation_id();
+        api_v1_log($pdo, 'AI_ATTENDANCE_ERROR', 'AVISO', $client['nome'] ?? null,
+            ['codigo'=>$e->getCode()], $correlationId);
+        api_v1_json_response($e->getCode(), ['status'=>'erro','mensagem'=>$e->getMessage(),'correlation_id'=>$correlationId]);
+    }
 }
 
 $stmt = $pdo->prepare("SELECT valor FROM configuracoes_sistema WHERE chave='external_api_key' LIMIT 1");

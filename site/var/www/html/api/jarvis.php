@@ -165,7 +165,8 @@ function computer_client_ip(): ?string {
 function computer_telemetry_start(PDO $pdo,string $origem,string $comando,string $correlationId): int {
     try{
         $canal='web';
-        if(stripos($origem,'GOOGLE_HOME')!==false)$canal='google_home';
+        if(strtoupper($origem)==='SIP')$canal='sip';
+        elseif(stripos($origem,'GOOGLE_HOME')!==false)$canal='google_home';
         elseif(stripos($origem,'SCHEDULER')!==false)$canal='scheduler';
         elseif(!empty($_SERVER['HTTP_X_DEVICE_TOKEN']))$canal='hardware';
         elseif(!empty($_SERVER['HTTP_AUTHORIZATION'])||!empty($_SERVER['HTTP_X_API_KEY']))$canal='api';
@@ -198,9 +199,8 @@ $chamadaInterna = $existingTaskContext !== null
 //   sem_acoes: a IA responde, mas nenhuma marca [[CMD:...]] é executada nem a conversa é gravada.
 $somenteDireto = !$painelWeb && !empty($input['somente_direto']);
 $semAcoes = !$painelWeb && !empty($input['sem_acoes']);
-// Google Home: o agente sintetiza e toca a resposta no próprio aparelho; tocar aqui também
-// fazia a casa ouvir a resposta duas vezes.
-$origemTocaAudio = stripos($origem, 'GOOGLE_HOME') === 0;
+// Telefonia e clientes de IA recebem texto; o agente/cliente cuida da reproducao.
+$origemTocaAudio = casa_audio_no_cliente($origem);
 $reproduzirNaCasa = ((!$painelWeb && !$chamadaInterna && !$origemTocaAudio) || !empty($input['reproduzir_casa']));
 $chamadaInterna = $chamadaInterna || $origemTocaAudio; // também não gera áudio desnecessário
 $telemetryStarted=hrtime(true);
