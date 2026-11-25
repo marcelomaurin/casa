@@ -82,6 +82,7 @@ private val permissionLauncher = registerForActivityResult(
         super.onResume()
         updateHandler.removeCallbacks(periodicUpdateCheck)
         updateHandler.post(periodicUpdateCheck)
+        LocalizacaoPrefs.retomarSeAtivo(this)
     }
 
     override fun onPause() {
@@ -320,6 +321,8 @@ private val permissionLauncher = registerForActivityResult(
                     LcarsMenuButton("WATCH", "Relógio, recursos e configuração", LcarsColors.Blue) { navigation.open(MobileRoute.WATCH_MENU) }
                     LcarsMenuButton("DEVICES", "Equipamentos e novos dispositivos", LcarsColors.Gold) { navigation.open(MobileRoute.DEVICES_MENU) }
                     LcarsMenuButton("SISTEMA", "Conexão, idioma e credenciais", LcarsColors.Green) { navigation.open(MobileRoute.SYSTEM_MENU) }
+                    LcarsMenuButton("DAEMONS", "Nós do cluster: estado, iniciar, parar e reiniciar", LcarsColors.Orange) { startActivity(Intent(this@MainActivity, DaemonsActivity::class.java)) }
+                    LcarsMenuButton("LOCALIZAÇÃO", "Compartilhar posição e ver a família", LcarsColors.Blue) { startActivity(Intent(this@MainActivity, LocalizacaoActivity::class.java)) }
                     }
                 }
 

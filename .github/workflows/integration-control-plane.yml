@@ -221,5 +221,10 @@ jobs:
             exit 1
           }
 
+          CASA_SITE_BASE_URL=http://127.0.0.1:8099 php .github/tests/test_mobile_daemons_localizacao_http.php || {
+            cat /tmp/casa-control-plane-php.log
+            exit 1
+          }
+
       - name: Validate simulator syntax
         run: python3 -m py_compile servicos/device_simulator.py
