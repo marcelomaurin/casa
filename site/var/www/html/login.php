@@ -85,17 +85,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 login_log('USUARIO_NAO_ENCONTRADO', 'usuario=' . strtolower($usuario));
             } else {
                 login_log('USUARIO_ENCONTRADO', 'id=' . ($user['id'] ?? '?') . '; login=' . ($user['login'] ?? '?') . '; ativo=' . ($user['ativo'] ?? '?') . '; perfil=' . ($user['perfil'] ?? '?'));
-                $hashBanco = (string)$user['senha'];
-                $infoSenha = password_get_info($hashBanco);
-                $senhaValida = (($infoSenha['algo'] ?? 0) !== 0)
-                    ? password_verify($senha, $hashBanco)
-                    : hash_equals($hashBanco, $senha);
+                $senhaValida = casa_verificar_senha($pdo, $user, $senha);
 
                 if ($senhaValida) {
                     $autenticado = true;
                     login_log('SENHA_OK', 'usuario=' . ($user['login'] ?? strtolower($usuario)));
                 } else {
-                    login_log('SENHA_INVALIDA', 'usuario=' . ($user['login'] ?? strtolower($usuario)) . '; tamanho_banco=' . strlen((string)$user['senha']) . '; tamanho_digitada=' . strlen($senha));
+                    login_log('SENHA_INVALIDA', 'usuario=' . ($user['login'] ?? strtolower($usuario)));
                 }
             }
             if ($autenticado) {

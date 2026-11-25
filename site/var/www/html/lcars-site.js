@@ -3492,6 +3492,10 @@ function openNewApiKeyModal(baseUrl, onCreatedCallback){
   };
 }
 
+// Chaves de API criadas nesta aba: o servidor so guarda o resumo, entao a chave
+// completa fica em memoria ate a pagina ser recarregada (para QR Code e copia).
+const apiKeysRecemCriadas = {};
+
 async function renderExternal(){
   loading('Acesso Web & API');
   try {
@@ -3502,7 +3506,10 @@ async function renderExternal(){
     ]);
 
     const t = tun.tunnel || {};
-    const allKeys = Array.isArray(keysRes.dados) ? keysRes.dados : [];
+    const allKeys = (Array.isArray(keysRes.dados) ? keysRes.dados : []).map(k => {
+      const recente = apiKeysRecemCriadas[String(k.id)];
+      return recente ? Object.assign({}, k, { token: recente }) : k;
+    });
     const activeCount = allKeys.filter(k => k.status_formatado === 'ativo').length;
     const masterKey = masterRes.api_key || '';
     const baseUrl = t.url || (location.origin + '/casa');
@@ -3778,6 +3785,8 @@ async function renderExternal(){
     // Header action: Incluir chave
     document.querySelector('.ja-native-actions [data-act="new_key"]')?.addEventListener('click', () => {
       openNewApiKeyModal(baseUrl, (createdRes) => {
+        const criadaId = createdRes.token?.id || createdRes.id;
+        if (criadaId && createdRes.chave_completa) apiKeysRecemCriadas[String(criadaId)] = createdRes.chave_completa;
         renderExternal().then(() => {
           setTimeout(() => {
             const newId = createdRes.token?.id || createdRes.id;
@@ -3800,7 +3809,7 @@ async function renderExternal(){
           if (target && target.token) {
             scrollToQrStation(target.id);
           } else {
-            alert('Esta chave antiga foi gravada apenas em formato de hash criptografico e nao pode ser reexibida em QR Code. Crie uma nova chave para gerar o QR Code correspondente.');
+            alert('Por seguranca a chave completa so pode ser exibida logo apos a criacao. Crie uma nova chave para gerar o QR Code correspondente.');
           }
         }
 

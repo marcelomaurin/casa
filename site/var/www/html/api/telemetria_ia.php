@@ -264,7 +264,7 @@ try{
     te_finish($pdo,$taskContext,$resposta,['sql'=>$sql,'linhas'=>count($rows)]);
 
     try{
-        $ip=$_SERVER['HTTP_CF_CONNECTING_IP']??($_SERVER['REMOTE_ADDR']??null);
+        $ip=function_exists('casa_client_ip')?casa_client_ip():($_SERVER['REMOTE_ADDR']??null);
         $st=$pdo->prepare(
             "INSERT INTO telemetria_operacional ".
             "(correlation_id,origem,canal,ip_cliente,operacao,solicitacao,resposta_ia,acao_executada,status,modelo,duracao_ms,detalhes) ".

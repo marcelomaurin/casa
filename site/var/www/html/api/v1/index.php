@@ -69,9 +69,7 @@ if ($token !== '') {
         $autenticado = true;
         $cliente = 'Master External API';
     } else {
-        $stmt = $pdo->prepare("SELECT id, nome FROM dispositivos_cluster WHERE device_token = :t LIMIT 1");
-        $stmt->execute([':t'=>$token]);
-        $dev = $stmt->fetch();
+        $dev = casa_dispositivo_por_token($pdo, $token);
         if ($dev) {
             $autenticado = true;
             $cliente = 'Dispositivo: ' . $dev['nome'];

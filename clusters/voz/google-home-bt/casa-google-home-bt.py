@@ -739,6 +739,17 @@ class BluetoothGoogleHomeBridge:
             parar_evento.wait(2.0)
 
 
+def casa_origem_estrangeira(handler):
+    """True quando um navegador de outro site tenta enviar comandos (POST).
+    Clientes sem cabecalho Origin (daemons, curl, apps) nao sao afetados."""
+    import urllib.parse as _up
+    origin = handler.headers.get("Origin")
+    if not origin:
+        return False
+    parsed = _up.urlparse(origin)
+    return parsed.scheme not in ("http", "https") or parsed.netloc.lower() != (handler.headers.get("Host") or "").lower()
+
+
 class GoogleHomeBTRequestHandler(http.server.BaseHTTPRequestHandler):
     bridge: BluetoothGoogleHomeBridge = None
     cfg: Config = None
@@ -793,6 +804,18 @@ class GoogleHomeBTRequestHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(json.dumps({"ok": False, "erro": "Rota não encontrada"}).encode("utf-8"))
 
     def do_POST(self):
+
+        if casa_origem_estrangeira(self):
+
+            self.send_response(403)
+
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+
+            self.end_headers()
+
+            self.wfile.write(b'{"ok": false, "error": "Origem nao permitida"}')
+
+            return
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
 

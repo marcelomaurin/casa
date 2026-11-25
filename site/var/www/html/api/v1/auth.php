@@ -224,16 +224,8 @@ if ($acao === 'login') {
     $stmt->execute([':login'=>$usuario, ':email'=>$usuario]);
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    $stored = $user ? (string)$user['senha'] : '';
-    $ok = false;
-    if ($user) {
-        // Banco atual usa password_hash. Mantem compatibilidade temporaria
-        // com instalações antigas que ainda tenham senha em texto.
-        $info = password_get_info($stored);
-        $ok = ($info['algo'] ?? 0) !== 0
-            ? password_verify($senha, $stored)
-            : hash_equals($stored, $senha);
-    }
+    // Senha em texto puro de instalacoes antigas e convertida no primeiro acesso.
+    $ok = $user ? casa_verificar_senha($pdo, $user, (string)$senha) : false;
 
     if (!$ok) {
         api_v1_log($pdo, 'MOBILE_LOGIN_DENIED', 'ALTO', strtolower($usuario));

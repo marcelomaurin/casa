@@ -1083,6 +1083,15 @@ def get_cluster_nodes_from_registry():
     return _cached_nodes or []
 
 
+def casa_origem_estrangeira(handler):
+    """True quando um navegador de outro site tenta enviar comandos (POST)."""
+    origin = handler.headers.get("Origin")
+    if not origin:
+        return False
+    parsed = urllib.parse.urlparse(origin)
+    return parsed.scheme not in ("http", "https") or parsed.netloc.lower() != (handler.headers.get("Host") or "").lower()
+
+
 class ClusterSiteHandler(SimpleHTTPRequestHandler):
     def translate_path(self, path):
         path = path.split("?", 1)[0].split("#", 1)[0]
@@ -1100,7 +1109,8 @@ class ClusterSiteHandler(SimpleHTTPRequestHandler):
         return cur
 
     def end_headers(self):
-        if not urllib.parse.urlparse(self.path).path.startswith("/api/processes"):
+        # Leitura liberada para outros paineis; comandos (POST) so da mesma origem.
+        if self.command == "GET" and not urllib.parse.urlparse(self.path).path.startswith("/api/processes"):
             self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
@@ -1139,6 +1149,9 @@ class ClusterSiteHandler(SimpleHTTPRequestHandler):
             super().do_GET()
 
     def do_POST(self):
+        if casa_origem_estrangeira(self):
+            self.send_json({"ok": False, "error": "Origem nao permitida."}, code=403)
+            return
         url = urllib.parse.urlparse(self.path)
         path = url.path
         if path.startswith("/api/v1/"):
@@ -1286,7 +1299,17 @@ class ClusterSiteHandler(SimpleHTTPRequestHandler):
     def handle_ssh_mesh(self):
         agent_url = "http://127.0.0.1:8095/api/ssh/nodes"
         try:
-            req = urllib.request.Request(agent_url, headers={"User-Agent": "casa-cluster-site"})
+            headers = {"User-Agent": "casa-cluster-site"}
+            token = os.environ.get("SSH_AGENT_TOKEN", "").strip()
+            if not token:
+                try:
+                    with open(os.environ.get("SSH_AGENT_TOKEN_FILE", "/etc/casa/ssh-agent.token"), "r", encoding="utf-8") as fh:
+                        token = fh.read().strip()
+                except OSError:
+                    token = ""
+            if token:
+                headers["Authorization"] = "Bearer " + token
+            req = urllib.request.Request(agent_url, headers=headers)
             with urllib.request.urlopen(req, timeout=3) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 self.send_json(data)

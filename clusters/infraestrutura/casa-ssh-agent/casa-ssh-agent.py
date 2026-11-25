@@ -14,7 +14,9 @@ import os
 import sys
 import json
 import time
+import hmac
 import socket
+import ipaddress
 import logging
 import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -37,16 +39,67 @@ logger = logging.getLogger("casa-ssh-agent")
 
 controller = ClusterSSHController()
 
+TOKEN_FILE = os.environ.get("SSH_AGENT_TOKEN_FILE", "/etc/casa/ssh-agent.token")
+MAX_BODY = 1024 * 1024
+PUBLIC_PATHS = ("/", "/health", "/api/ssh/status")
+
+
+def load_agent_token():
+    """Chave do agente: variavel SSH_AGENT_TOKEN ou arquivo SSH_AGENT_TOKEN_FILE."""
+    token = os.environ.get("SSH_AGENT_TOKEN", "").strip()
+    if token:
+        return token
+    try:
+        with open(TOKEN_FILE, "r", encoding="utf-8") as fh:
+            return fh.read().strip()
+    except OSError:
+        return ""
+
+
+AGENT_TOKEN = load_agent_token()
+
+
+def is_loopback(addr):
+    try:
+        return ipaddress.ip_address(addr).is_loopback
+    except ValueError:
+        return False
+
 class SSHAgentRequestHandler(BaseHTTPRequestHandler):
+    # Sem cabecalhos de origem cruzada: paginas abertas em navegadores da rede
+    # nao podem acionar este agente.
     def end_headers(self):
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Device-Id, X-Device-Token")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Cache-Control", "no-store")
         super().end_headers()
 
     def do_OPTIONS(self):
-        self.send_response(200)
-        self.end_headers()
+        self.send_json({"ok": False, "error": "Metodo nao permitido"}, code=405)
+
+    def request_token(self):
+        auth = self.headers.get("Authorization", "")
+        if auth.lower().startswith("bearer "):
+            return auth[7:].strip()
+        return (self.headers.get("X-Agent-Token") or "").strip()
+
+    def authorize(self, path):
+        """Rotas fora de PUBLIC_PATHS exigem a chave do agente.
+        Sem chave configurada, somente chamadas locais (127.0.0.1) sao aceitas."""
+        if path in PUBLIC_PATHS and self.command == "GET":
+            return True
+        if self.headers.get("Origin"):
+            logger.warning("Requisicao de navegador recusada de %s (%s)", self.client_address[0], self.headers.get("Origin"))
+            self.send_json({"ok": False, "error": "Origem nao permitida"}, code=403)
+            return False
+        if AGENT_TOKEN:
+            supplied = self.request_token()
+            if supplied and hmac.compare_digest(supplied.encode("utf-8"), AGENT_TOKEN.encode("utf-8")):
+                return True
+        elif is_loopback(self.client_address[0]):
+            return True
+        logger.warning("Acesso negado a %s vindo de %s", path, self.client_address[0])
+        self.send_json({"ok": False, "error": "Acesso negado: chave do agente obrigatoria"}, code=401)
+        return False
 
     def send_json(self, data, code=200):
         body = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
@@ -59,7 +112,7 @@ class SSHAgentRequestHandler(BaseHTTPRequestHandler):
     def read_json_body(self):
         try:
             length = int(self.headers.get("Content-Length", 0))
-            if length <= 0:
+            if length <= 0 or length > MAX_BODY:
                 return {}
             raw = self.rfile.read(length).decode("utf-8")
             return json.loads(raw) if raw else {}
@@ -70,6 +123,8 @@ class SSHAgentRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         url = urllib.parse.urlparse(self.path)
         path = url.path.rstrip("/") or "/"
+        if not self.authorize(path):
+            return
 
         if path in ["/", "/health", "/api/ssh/status"]:
             self.send_json({
@@ -114,6 +169,8 @@ class SSHAgentRequestHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         url = urllib.parse.urlparse(self.path)
         path = url.path.rstrip("/")
+        if not self.authorize(path):
+            return
 
         data = self.read_json_body()
 
@@ -184,6 +241,8 @@ class SSHAgentRequestHandler(BaseHTTPRequestHandler):
 def main():
     server_address = (HOST, PORT)
     httpd = HTTPServer(server_address, SSHAgentRequestHandler)
+    if not AGENT_TOKEN:
+        logger.warning("Nenhuma chave configurada (SSH_AGENT_TOKEN ou %s): apenas chamadas locais serao aceitas.", TOKEN_FILE)
     print("==================================================================")
     print(" CASA / JARVIS - Cluster SSH Maintenance Agent")
     print(" Listening on http://{0}:{1}/".format(HOST, PORT))

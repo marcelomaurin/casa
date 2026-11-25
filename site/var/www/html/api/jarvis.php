@@ -152,15 +152,8 @@ if($taskContext['root_created']){
 }
 
 function computer_client_ip(): ?string {
-    $cf=$_SERVER['HTTP_CF_CONNECTING_IP']??'';
-    if($cf!=='' && filter_var($cf,FILTER_VALIDATE_IP)) return $cf;
-    $xff=$_SERVER['HTTP_X_FORWARDED_FOR']??'';
-    if($xff!==''){
-        $first=trim(explode(',',$xff)[0]);
-        if(filter_var($first,FILTER_VALIDATE_IP)) return $first;
-    }
-    $ip=$_SERVER['REMOTE_ADDR']??'';
-    return filter_var($ip,FILTER_VALIDATE_IP)?$ip:null;
+    $ip=casa_client_ip();
+    return $ip==='0.0.0.0'?null:$ip;
 }
 function computer_telemetry_start(PDO $pdo,string $origem,string $comando,string $correlationId): int {
     try{
